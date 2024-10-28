@@ -1,0 +1,12 @@
+{% extends 'blog/base.html' %}
+{% block content %}
+    <article class="media content-section">
+        {% include 'blog/partials/deck.html' %}
+    </article>
+    {% if deck.designer == user %}
+    <div>
+        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'deck-update' deck.id %}">Udate</a>
+        <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' deck.id %}">Delete</a>
+    </div>
+    {% endif %}
+{% endblock content %} 

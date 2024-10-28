@@ -1,0 +1,49 @@
+
+<img class="rounded-square article-img" src="{{ post.designer.profile.image.url }}">
+<div class="media-body">
+    <div class="article-metadata">
+        <a class="mr-2" href="{% url 'user-posts' post.designer.username %}">{{ post.designer }}</a>
+        <small class="text-muted">{{ post.date_updated | date:"Y-m-d" }}</small>
+    </div>
+        {% if post.component == "Map" %}
+        map
+        <h2><a class="article-title" href="{% url 'map-detail' post.id %}">{{ post.title }}</a></h2>
+
+        {% elif post.component == "Deck" %}
+        deck
+        <h2><a class="article-title" href="{% url 'deck-detail' post.id %}">{{ post.title }}</a></h2>
+
+        {% elif post.component == "Vagabond" %}
+        vagabond
+        <h2><a class="article-title" href="{% url 'vagabond-detail' post.id %}">{{ post.title }}</a></h2>
+
+        {% elif post.component == "Landmark" %}
+        landmark
+        <h2><a class="article-title" href="{% url 'landmark-detail' post.id %}">{{ post.title }}</a></h2>
+
+        {% elif post.component == "Hireling" %}
+        hireling
+        <h2><a class="article-title" href="{% url 'hireling-detail' post.id %}">{{ post.title }}</a></h2>
+
+        {% elif post.component == "Faction" %}
+        faction
+        <h2><a class="article-title" href="{% url 'faction-detail' post.id %}">{{ post.title }}</a></h2>
+
+        {% else %}
+        not map
+        <h2><a class="article-title" href="{% url 'post-detail' post.id %}">{{ post.title }}</a></h2>
+        {% endif %}
+<!-- Compnent specific Info -->
+
+
+
+
+<!-- End component specific Info -->
+    <p class="article-content">{{ post.description }}</p>
+     {% if post.artist %}
+    <div class="article-metadata">
+        Art by 
+        <a class="mr-2" href="{% url 'artist-posts' post.artist.username %}">{{ post.artist }}</a>
+    </div>
+    {% endif %}
+</div>

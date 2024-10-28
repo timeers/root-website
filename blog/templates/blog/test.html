@@ -1,0 +1,32 @@
+{% extends 'blog/base.html' %}
+{% block content %}
+<form method="POST">
+    {% csrf_token %}
+    {{ form.model_type }}
+
+    <div id="post-form" style="display:none;">
+        {{ form.post_form.as_p }}
+    </div>
+
+    <div id="map-form" style="display:none;">
+        {{ form.map_form.as_p }}
+    </div>
+
+    <div id="deck-form" style="display:none;">
+        {{ form.deck_form.as_p }}
+    </div>
+
+    <button type="submit">Submit</button>
+</form>
+
+<script>
+    document.getElementById('id_model_type').addEventListener('change', function() {
+        var selectedValue = this.value;
+        document.getElementById('post-form').style.display = selectedValue === 'post' ? 'block' : 'none';
+        document.getElementById('map-form').style.display = selectedValue === 'map' ? 'block' : 'none';
+        document.getElementById('deck-form').style.display = selectedValue === 'deck' ? 'block' : 'none';
+    });
+</script>
+
+
+{% endblock content %}

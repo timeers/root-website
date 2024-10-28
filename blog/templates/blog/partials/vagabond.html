@@ -1,0 +1,17 @@
+
+<img class="rounded-square article-img" src="{{ vagabond.designer.profile.image.url }}">
+<div class="media-body">
+    <div class="article-metadata">
+        <a class="mr-2" href="{% url 'user-posts' vagabond.designer.username %}">{{ vagabond.designer }}</a>
+        <small class="text-muted">{{ vagabond.date_updated | date:"Y-m-d" }}</small>
+    </div>
+        <h2>{{ vagabond.title }}</h2>
+    <p class="article-content">{{ vagabond.description }}</p>
+    <p class="article-content">{{ vagabond.status }}</p>
+     {% if vagabond.artist %}
+    <div class="article-metadata">
+        Art by 
+        <a class="mr-2" href="{% url 'artist-posts' vagabond.artist.username %}">{{ vagabond.artist }}</a>
+    </div>
+    {% endif %}
+</div>

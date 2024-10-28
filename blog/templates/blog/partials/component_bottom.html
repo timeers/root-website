@@ -1,0 +1,8 @@
+<p class="article-content">{{ post.description }}</p>
+{% if post.artist %}
+<div class="article-metadata">
+   Art by 
+   <a class="mr-2" href="{% url 'artist-posts' post.artist.username %}">{{ post.artist }}</a>
+</div>
+{% endif %}
+</div>
