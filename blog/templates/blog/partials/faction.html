@@ -7,10 +7,9 @@
     </div>
         <h2>{{ faction.title }}</h2>
     <p class="article-content">{{ faction.description }}</p>
-    <p class="article-content">{{ faction.based_on }}</p>
     <p class="article-content">{{ faction.status }}</p>
     {% if faction.based_on %}
-        Based on: <a class="mr-2" href="{% url 'faction-detail' faction.based_on.id %}">{{ faction.based_on }}</a><br>
+        Based on: <a class="mr-2" href="{% url 'faction-detail' faction.based_on.slug %}">{{ faction.based_on }}</a><br>
         by <a class="mr-2" href="{% url 'user-posts' faction.based_on.designer.username %}">{{ faction.based_on.designer }}</a>
     {% endif %}
      {% if faction.artist %}

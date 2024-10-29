@@ -60,7 +60,7 @@ class Post(models.Model):
     wr_link = models.CharField(max_length=200, null=True, blank=True)
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
-    component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True)
+    component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -93,7 +93,8 @@ class Post(models.Model):
             case "Faction" | "Vagabond":
                 return self.effort_set.all()
             case _:
-                return None  # or return an empty queryset
+                return Post.objects.none()  # or return an empty queryset
+        
 
     def status(self):
         plays = self.get_plays_queryset()
@@ -129,7 +130,7 @@ class Map(Post):
         super().save(*args, **kwargs)  # Call the parent save method
 # This might need to be moved to each type of component? map-detail, deck-detail etc.
     def get_absolute_url(self):
-        return reverse('map-detail', kwargs={'pk': self.pk})
+        return reverse('map-detail', kwargs={'slug': self.slug})
 
 
 
@@ -140,7 +141,7 @@ class Deck(Post):
         self.component = 'Deck'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
-        return reverse('deck-detail', kwargs={'pk': self.pk})
+        return reverse('deck-detail', kwargs={'slug': self.slug})
 
 class Landmark(Post):
     card_text = models.TextField()
@@ -148,7 +149,7 @@ class Landmark(Post):
         self.component = 'Landmark'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
-        return reverse('landmark-detail', kwargs={'pk': self.pk})
+        return reverse('landmark-detail', kwargs={'slug': self.slug})
 
 
 class Vagabond(Post):
@@ -166,7 +167,7 @@ class Vagabond(Post):
         self.component = 'Vagabond'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
-        return reverse('vagabond-detail', kwargs={'pk': self.pk})
+        return reverse('vagabond-detail', kwargs={'slug': self.slug})
     
 class Faction(Post):
     MILITANT = 'M'
@@ -204,7 +205,7 @@ class Faction(Post):
         self.component = 'Faction'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
-        return reverse('faction-detail', kwargs={'pk': self.pk})
+        return reverse('faction-detail', kwargs={'slug': self.slug})
     
 class Hireling(Post):
     PROMOTED = 'P'
@@ -220,7 +221,7 @@ class Hireling(Post):
         self.component = 'Hireling'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
-        return reverse('hireling-detail', kwargs={'pk': self.pk})
+        return reverse('hireling-detail', kwargs={'slug': self.slug})
     
 
 

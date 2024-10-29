@@ -67,7 +67,7 @@ class Game(models.Model):
 class Effort(models.Model):
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
     player = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
-    faction = models.ForeignKey(Faction, on_delete=models.SET_NULL, null=True, blank=True, related_name='faction_used')
+    faction = models.ForeignKey(Faction, on_delete=models.SET_NULL, null=True, blank=True)
     vagabond = models.ForeignKey(Vagabond, on_delete=models.SET_NULL, null=True, blank=True, default=None)
     coalition_with = models.ForeignKey(Faction, on_delete=models.SET_NULL, null=True, blank=True, related_name='coalition_with')
     dominance = models.BooleanField(default=False)

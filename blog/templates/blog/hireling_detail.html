@@ -5,7 +5,7 @@
     </article>
     {% if hireling.designer == user %}
     <div>
-        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'hireling-update' hireling.id %}">Udate</a>
+        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'hireling-update' hireling.slug %}">Udate</a>
         <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' hireling.id %}">Delete</a>
     </div>
     {% endif %}

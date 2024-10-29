@@ -5,7 +5,7 @@
     </article>
     {% if vagabond.designer == user %}
     <div>
-        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'vagabond-update' vagabond.id %}">Udate</a>
+        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'vagabond-update' vagabond.slug %}">Udate</a>
         <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' vagabond.id %}">Delete</a>
     </div>
     {% endif %}

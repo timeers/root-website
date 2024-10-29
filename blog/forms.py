@@ -111,7 +111,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
-        fields = top_fields + ['animal', 'type'] + bottom_fields
+        fields = top_fields + ['animal', 'type', 'based_on'] + bottom_fields
 
 
 class VagabondCreateForm(PostCreateForm): 
