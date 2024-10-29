@@ -1,9 +1,18 @@
+
 from django.db import models
+from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
 from django.contrib.auth.models import User
 from django.urls import reverse
+
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
+
+from .utils import slugify_instance_title
+# import random
+# from django.utils.text import slugify
+
+# from .utils import slugify_instance_title 
 
 class Expansion(models.Model):
     name = models.CharField(max_length=100)
@@ -36,6 +45,7 @@ class Post(models.Model):
         ('Faction', 'Faction'),
 ]
     title = models.CharField(max_length=30)
+    slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
@@ -51,6 +61,9 @@ class Post(models.Model):
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
 
     def add_change(self, note):
         changes = json.loads(self.change_log)
@@ -208,3 +221,31 @@ class Hireling(Post):
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
         return reverse('hireling-detail', kwargs={'pk': self.pk})
+    
+
+
+def component_pre_save(sender, instance, *args, **kwargs):
+    print('pre_save')
+    if instance.slug is None:
+        slugify_instance_title(instance, save=False)
+
+pre_save.connect(component_pre_save, sender=Map)
+pre_save.connect(component_pre_save, sender=Deck)
+pre_save.connect(component_pre_save, sender=Faction)
+pre_save.connect(component_pre_save, sender=Vagabond)
+pre_save.connect(component_pre_save, sender=Hireling)
+pre_save.connect(component_pre_save, sender=Landmark)
+
+
+def component_post_save(sender, instance, created, *args, **kwargs):
+    print('post_save')
+    if created:
+        slugify_instance_title(instance, save=True)
+
+post_save.connect(component_post_save, sender=Map)
+post_save.connect(component_post_save, sender=Deck)
+post_save.connect(component_post_save, sender=Faction)
+post_save.connect(component_post_save, sender=Vagabond)
+post_save.connect(component_post_save, sender=Hireling)
+post_save.connect(component_post_save, sender=Landmark)
+
