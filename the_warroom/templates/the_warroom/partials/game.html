@@ -1,0 +1,38 @@
+
+<div class="media-body">
+
+    <div class="article-metadata">
+        <small class="text-muted">
+            {{ game.type }} {{ game.platform }} Game |
+            {{ game.date_posted | date:"Y-m-d" }} |
+            {{ game.deck }} -
+            {{ game.map }}
+        </small>
+    </div>
+
+        {% for effort in game.get_efforts %}
+        <p>
+            {% if effort.player %}
+                {{ effort.player }}
+            {% else %}
+                Anonymous Player
+            {% endif %}
+            {% if effort.faction %}
+                {{ effort.faction }}
+                {% if effort.vagabond %}
+                    ({{ effort.vagabond }})
+                {% endif %}
+            {% else %}
+                Faction N/A
+            {% endif %}
+            {{ effort.score }}
+        </p>
+        {% endfor %}
+<!-- Compnent specific Info -->
+
+
+
+
+<!-- End component specific Info -->
+
+</div>

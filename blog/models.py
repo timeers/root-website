@@ -124,6 +124,7 @@ class Post(models.Model):
         
 
 class Map(Post):
+
     clearings = models.IntegerField(default=12)
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
@@ -136,6 +137,7 @@ class Map(Post):
 
 
 class Deck(Post):
+
     card_total = models.IntegerField()
     def save(self, *args, **kwargs):
         self.component = 'Deck'  # Set the component type
@@ -144,6 +146,7 @@ class Deck(Post):
         return reverse('deck-detail', kwargs={'slug': self.slug})
 
 class Landmark(Post):
+
     card_text = models.TextField()
     def save(self, *args, **kwargs):
         self.component = 'Landmark'  # Set the component type
@@ -153,6 +156,7 @@ class Landmark(Post):
 
 
 class Vagabond(Post):
+
     animal = models.CharField(max_length=15)
     ability = models.CharField(max_length=150)
     starting_coins = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])

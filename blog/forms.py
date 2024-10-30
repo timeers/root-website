@@ -55,7 +55,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=True
     )
     clearings = forms.IntegerField(
-        label='Number of Clearings',
+        label='Number of Clearings', initial=12,
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
@@ -71,7 +71,7 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=True
     )
     card_total = forms.IntegerField(
-        label='Card Count',
+        label='Card Count', initial=54,
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
@@ -105,7 +105,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         ('D', 'Demoted'),
     ]
     type = forms.ChoiceField(
-        choices=TYPE_CHOICES,
+        choices=TYPE_CHOICES, initial="P",
         widget=forms.RadioSelect(),
         required=True
     )
@@ -174,28 +174,28 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         ('H', 'High'),
     ]
     type = forms.ChoiceField(
-        choices=TYPE_CHOICES,
+        choices=TYPE_CHOICES, initial='I',
         widget=forms.RadioSelect(),
         required=True
     )
     reach = forms.IntegerField(min_value=1, max_value=10)
     complexity = forms.ChoiceField(
-        choices=STYLE_CHOICES,
+        choices=STYLE_CHOICES, initial="M",
         widget=forms.RadioSelect(),
         required=True
     )
     card_wealth = forms.ChoiceField(
-        choices=STYLE_CHOICES,
+        choices=STYLE_CHOICES, initial="M",
         widget=forms.RadioSelect(),
         required=True
     )
     aggression = forms.ChoiceField(
-        choices=STYLE_CHOICES,
+        choices=STYLE_CHOICES, initial="M",
         widget=forms.RadioSelect(),
         required=True
     )
     crafting_ability = forms.ChoiceField(
-        choices=STYLE_CHOICES,
+        choices=STYLE_CHOICES, initial="M",
         widget=forms.RadioSelect(),
         required=True
     )

@@ -1,10 +1,18 @@
 from django.shortcuts import render
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import CreateView
+from django.views.generic import CreateView, ListView
 from .models import Game, Effort
 from .forms import GameCreateForm, EffortCreateForm
 
-# Create your views here.
+
+#  A list of all the posts. Most recent update first
+class GameListView(ListView):
+    model = Game
+    template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
+    context_object_name = 'games'
+    ordering = ['-date_posted']
+    paginate_by = 10
+
 class GameCreateView(LoginRequiredMixin, CreateView):
     model = Game
     form_class = GameCreateForm

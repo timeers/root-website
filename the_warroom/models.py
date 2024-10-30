@@ -8,27 +8,27 @@ from blog.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 
 
 class Game(models.Model):
-    ASYNC = 'A'
-    LIVE = 'L'
+    ASYNC = 'Async'
+    LIVE = 'Live'
     TYPE_CHOICES = [
-        (ASYNC, 'Async'),
-        (LIVE, 'Live'),
+        (ASYNC, 'A'),
+        (LIVE, 'L'),
     ]
-    TTS = 'TTS'
-    HRF = 'HRF'
-    DWD = 'DWD'
-    IRL = 'IRL'
-    ETC = 'ETC'
+    TTS = 'Tabletop Simulator'
+    HRF = 'hrf.com'
+    DWD = 'Root Digital'
+    IRL = 'In Person'
+    ETC = 'Other'
     PLATFORM_CHOICES = [
-        (TTS, 'Tabletop Simulator'),
-        (IRL, 'In Person'),
-        (DWD, 'Root Digital'),
-        (HRF, 'hrf.com'),
-        (ETC, 'Other'),
+        (TTS, 'TTS'),
+        (IRL, 'IRL'),
+        (DWD, 'DWD'),
+        (HRF, 'HRF'),
+        (ETC, 'ETC'),
     ]
     # Required
-    type = models.CharField(max_length=1, choices=TYPE_CHOICES, default=LIVE)
-    platform = models.CharField(max_length=3, choices=PLATFORM_CHOICES, default=DWD)
+    type = models.CharField(max_length=5, choices=TYPE_CHOICES, default=LIVE)
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default=DWD)
     deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True, blank=True)
     map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True, blank=True)
 
