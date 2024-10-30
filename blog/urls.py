@@ -4,6 +4,7 @@ from .views import (
     PostDetailView, 
     PostCreateView, 
     PostUpdateView,
+    ExpansionDetailView,
 
     MapDetailView, DeckDetailView, HirelingDetailView, VagabondDetailView, LandmarkDetailView, FactionDetailView,
     MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, LandmarkCreateView, FactionCreateView,
@@ -32,6 +33,8 @@ urlpatterns = [
     path('vagabond/new/', VagabondCreateView.as_view(), name='vagabond-create'),
 
     path('post/<int:pk>/', PostDetailView.as_view(), name='post-detail'),
+    
+    path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
 
     path('map/<slug:slug>/', MapDetailView.as_view(), name='map-detail'),
     path('deck/<slug:slug>/', DeckDetailView.as_view(), name='deck-detail'),
@@ -53,5 +56,4 @@ urlpatterns = [
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='blog-about'),
-    path('test/', views.test, name='blog-test'),
 ]

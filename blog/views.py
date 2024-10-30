@@ -10,7 +10,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
-from .models import Post, Map, Vagabond, Hireling, Landmark, Deck, Faction
+from .models import Post, Map, Vagabond, Hireling, Landmark, Deck, Faction, Expansion
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
@@ -72,6 +72,9 @@ class SearchPostListView(ListView):
 
 class PostDetailView(DetailView):
     model = Post
+
+class ExpansionDetailView(DetailView):
+    model = Expansion
 
 class MapDetailView(DetailView):
     model = Map

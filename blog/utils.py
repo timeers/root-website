@@ -1,6 +1,9 @@
 import random
 from django.utils.text import slugify
 
+import csv
+from the_gatehouse.models import Profile
+
 def slugify_instance_title(instance, save=False, new_slug=None):
     if new_slug is not None:
         slug = new_slug
@@ -17,3 +20,4 @@ def slugify_instance_title(instance, save=False, new_slug=None):
     if save:
         instance.save()
     return instance
+

@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 class GameCreateForm(forms.ModelForm):  
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'type', 'platform']
+        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted', 'date_posted', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -13,7 +13,7 @@ class GameCreateForm(forms.ModelForm):
 class EffortCreateForm(forms.ModelForm):  
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with', 'notes']
+        fields = ['seat', 'player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with', 'game']
     def clean_faction(self):
         faction = self.cleaned_data.get('faction')
         if not faction:

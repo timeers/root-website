@@ -3,13 +3,13 @@
 
     <div class="article-metadata">
         <small class="text-muted">
-            {{ game.type }} {{ game.platform }} Game |
+            {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game |
             {{ game.date_posted | date:"Y-m-d" }} |
-            {{ game.deck }} -
-            {{ game.map }}
+            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }}</a> -
+            <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }}</a>
         </small>
     </div>
-
+    
         {% for effort in game.get_efforts %}
         <p>
             {% if effort.player %}
@@ -17,14 +17,18 @@
             {% else %}
                 Anonymous Player
             {% endif %}
+
+
+
             {% if effort.faction %}
-                {{ effort.faction }}
+                <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
                 {% if effort.vagabond %}
-                    ({{ effort.vagabond }})
+                    (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
                 {% endif %}
             {% else %}
                 Faction N/A
             {% endif %}
+
             {{ effort.score }}
         </p>
         {% endfor %}

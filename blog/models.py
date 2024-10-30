@@ -15,9 +15,10 @@ from .utils import slugify_instance_title
 # from .utils import slugify_instance_title 
 
 class Expansion(models.Model):
-    name = models.CharField(max_length=100)
+    title = models.CharField(max_length=100)
     designer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,)
     description = models.TextField(null=True, blank=True)
+    slug = models.SlugField(unique=True, null=True, blank=True)
     # Get groups of components for selected expansion
     def get_posts(self):
         return Post.objects.filter(expansion=self)
@@ -33,6 +34,9 @@ class Expansion(models.Model):
         return Landmark.objects.filter(expansion=self)
     def get_factions(self):
         return Faction.objects.filter(expansion=self)
+    
+    def get_absolute_url(self):
+        return reverse('expansion-detail', kwargs={'slug': self.slug})
 
 
 class Post(models.Model):
@@ -47,6 +51,7 @@ class Post(models.Model):
     title = models.CharField(max_length=30)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True)
+    lore = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     date_updated = models.DateTimeField(default=timezone.now)
@@ -240,6 +245,7 @@ pre_save.connect(component_pre_save, sender=Faction)
 pre_save.connect(component_pre_save, sender=Vagabond)
 pre_save.connect(component_pre_save, sender=Hireling)
 pre_save.connect(component_pre_save, sender=Landmark)
+pre_save.connect(component_pre_save, sender=Expansion)
 
 
 def component_post_save(sender, instance, created, *args, **kwargs):
@@ -253,4 +259,5 @@ post_save.connect(component_post_save, sender=Faction)
 post_save.connect(component_post_save, sender=Vagabond)
 post_save.connect(component_post_save, sender=Hireling)
 post_save.connect(component_post_save, sender=Landmark)
+post_save.connect(component_post_save, sender=Expansion)
 

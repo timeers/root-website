@@ -49,6 +49,20 @@
 
 
                 {% if user.is_authenticated %}
+                    {% if user.is_superuser %}
+                        <!-- Dropdownn for new content -->
+                        <li class="nav-item dropdown">
+                          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Admin
+                          </a>
+                          <ul class="dropdown-menu">
+                            <!-- <li><a class="dropdown-item" href="{% url 'post-create' %}">Post</a></li> -->
+                            <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'map-create' %}">Map</a></li>
+                          </ul>
+                        </li>
+                      {% endif %}
                     <!-- Dropdownn for new content -->
                     <li class="nav-item dropdown">
                       <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
