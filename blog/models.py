@@ -4,6 +4,7 @@ from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
 from django.contrib.auth.models import User
 from django.urls import reverse
+from PIL import Image
 
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
@@ -205,6 +206,7 @@ class Faction(Post):
     aggression = models.CharField(max_length=1, choices=STYLE_CHOICES)
     crafting_ability = models.CharField(max_length=1, choices=STYLE_CHOICES)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    faction_icon = models.ImageField(default='default_icon.png', upload_to='faction_icons')
 
     def __add__(self, other):
         if isinstance(other, Faction):
@@ -213,9 +215,48 @@ class Faction(Post):
     def save(self, *args, **kwargs):
         self.component = 'Faction'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
+
+        img = Image.open(self.faction_icon.path)
+        # Determine the largest dimension
+        max_size = 300
+        if img.height > max_size or img.width > max_size:
+            print('resizing image')
+
+            # Calculate the new size while maintaining the aspect ratio
+            if img.width > img.height:
+                ratio = max_size / img.width
+                new_size = (max_size, int(img.height * ratio))
+            else:
+                ratio = max_size / img.height
+                new_size = (int(img.width * ratio), max_size)
+
+            img = img.resize(new_size, Image.LANCZOS)
+            img.save(self.faction_icon.path)
+            print(f'Resized image saved at: {self.faction_icon.path}')
+        else:
+            print('original image')
+            img.save(self.faction_icon.path)
+            print(f'Original image saved at: {self.faction_icon.path}')
+
     def get_absolute_url(self):
         return reverse('faction-detail', kwargs={'slug': self.slug})
     
+    def wins(self):
+        plays = self.get_plays_queryset()
+        wins = plays.filter(win=True)
+        return wins.count() if plays else 0
+
+    def get_wins_queryset(self):
+        return self.effort_set.all().filter(win=True)
+    
+    def winrate(self):
+        points = 0
+        wins = self.get_wins_queryset()
+        for effort in wins:
+            points += (1 / effort.game.get_winners().count())  
+        return points / self.plays()
+
+
 class Hireling(Post):
     PROMOTED = 'P'
     DEMOTED = 'D'

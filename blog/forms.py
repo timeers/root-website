@@ -202,7 +202,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['type', 'reach', 'animal',  'complexity', 'card_wealth', 
+        fields = top_fields + ['faction_icon', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability'] + bottom_fields
 
     def clean(self):

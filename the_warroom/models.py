@@ -44,7 +44,7 @@ class Game(models.Model):
     landmarks = models.ManyToManyField(Landmark, blank=True)
     hirelings = models.ManyToManyField(Hireling, blank=True)
     undrafted = models.ForeignKey(Faction, on_delete=models.SET_NULL, null=True, blank=True)
-    link = models.CharField(max_length=200, null=True, blank=True)
+    link = models.CharField(max_length=300, null=True, blank=True)
 
     random_clearing = models.BooleanField(default=False)
     notes = models.TextField(null=True, blank=True)

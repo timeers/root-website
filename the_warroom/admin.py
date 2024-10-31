@@ -99,7 +99,7 @@ class GameAdmin(admin.ModelAdmin):
                             faction = fields[5+i]
                         vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
                         faction_instance = Faction.objects.filter(title=faction).first()
-                        if int(fields[14+i]) > 0:
+                        if float(fields[14+i]) > 0:
                             win = True
                         if fields[10+i].isnumeric():
                             score = fields[10+i]

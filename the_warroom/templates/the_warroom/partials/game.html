@@ -5,8 +5,8 @@
         <small class="text-muted">
             {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game |
             {{ game.date_posted | date:"Y-m-d" }} |
-            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }}</a> -
-            <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }}</a>
+            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
+            <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
         </small>
     </div>
     
@@ -21,6 +21,7 @@
 
 
             {% if effort.faction %}
+                <img class="rounded-square faction-icon" src="{{ effort.faction.faction_icon.url }}">
                 <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
                 {% if effort.vagabond %}
                     (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)

@@ -11,7 +11,7 @@ class GameListView(ListView):
     template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'games'
     ordering = ['-date_posted']
-    paginate_by = 10
+    paginate_by = 25
 
 class GameCreateView(LoginRequiredMixin, CreateView):
     model = Game
