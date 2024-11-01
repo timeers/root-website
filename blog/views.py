@@ -10,6 +10,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
+from the_gatehouse.views import creative_required_class_based_view
 from .models import Post, Map, Vagabond, Hireling, Landmark, Deck, Faction, Expansion
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -95,6 +96,7 @@ class FactionDetailView(DetailView):
     model = Faction
 
 # Moved this to the form.py file so that I can make custom labels
+@creative_required_class_based_view
 class PostCreateView(LoginRequiredMixin, CreateView):
     model = Post
     form_class = PostCreateForm
@@ -105,6 +107,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
 
 
 # START CREATE VIEWS
+@creative_required_class_based_view
 class MapCreateView(LoginRequiredMixin, CreateView):
     model = Map
     form_class = MapCreateForm
@@ -112,7 +115,8 @@ class MapCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.designer = self.request.user
         return super().form_valid(form)
-
+    
+@creative_required_class_based_view
 class DeckCreateView(LoginRequiredMixin, CreateView):
     model = Deck
     form_class = DeckCreateForm
@@ -121,6 +125,7 @@ class DeckCreateView(LoginRequiredMixin, CreateView):
         form.instance.designer = self.request.user
         return super().form_valid(form)
     
+@creative_required_class_based_view
 class LandmarkCreateView(LoginRequiredMixin, CreateView):
     model = Landmark
     form_class = LandmarkCreateForm
@@ -128,7 +133,8 @@ class LandmarkCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.designer = self.request.user
         return super().form_valid(form)
-    
+
+@creative_required_class_based_view
 class HirelingCreateView(LoginRequiredMixin, CreateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -136,7 +142,8 @@ class HirelingCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.designer = self.request.user
         return super().form_valid(form)
-    
+
+@creative_required_class_based_view
 class VagabondCreateView(LoginRequiredMixin, CreateView):
     model = Vagabond
     form_class = VagabondCreateForm
@@ -144,7 +151,8 @@ class VagabondCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.designer = self.request.user
         return super().form_valid(form)
-    
+
+@creative_required_class_based_view
 class FactionCreateView(LoginRequiredMixin, CreateView):
     model = Faction
     form_class = FactionCreateForm
@@ -154,7 +162,7 @@ class FactionCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 # END CREATE VIEWS
 
-
+@creative_required_class_based_view
 class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     
     model = Post
@@ -188,6 +196,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
+@creative_required_class_based_view
 class MapUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Map
     form_class = MapCreateForm
@@ -203,6 +212,7 @@ class MapUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
+@creative_required_class_based_view
 class DeckUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Deck
     form_class = DeckCreateForm
@@ -217,7 +227,8 @@ class DeckUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         if self.request.user == post.designer:
             return True
         return False
-    
+
+@creative_required_class_based_view
 class LandmarkUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Landmark
     form_class = LandmarkCreateForm
@@ -233,6 +244,7 @@ class LandmarkUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
+@creative_required_class_based_view
 class HirelingUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -248,6 +260,7 @@ class HirelingUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
+@creative_required_class_based_view
 class VagabondUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Vagabond
     form_class = VagabondCreateForm
@@ -263,6 +276,7 @@ class VagabondUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
     
+@creative_required_class_based_view  
 class FactionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Faction
     form_class = FactionCreateForm
@@ -278,6 +292,7 @@ class FactionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
+@creative_required_class_based_view
 class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Post
     success_url = '/'

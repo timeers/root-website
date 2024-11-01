@@ -11,6 +11,7 @@ class Tournament(models.Model):
     name = models.CharField(max_length=30)
     participants = models.ManyToManyField(Profile, blank=True)
     description = models.TextField(null=True, blank=True)
+    active = models.BooleanField(default=True)
 
 class Game(models.Model):
     ASYNC = 'Async'

@@ -5,28 +5,29 @@
         <a class="mr-2" href="{% url 'user-posts' post.designer.username %}">{{ post.designer }}</a>
         <small class="text-muted">{{ post.date_updated | date:"Y-m-d" }}</small>
     </div>
+        {% if post.official %}Official {% else %}Fan Made {% endif %}
         {% if post.component == "Map" %}
-        map
+        Map
         <h2><a class="article-title" href="{% url 'map-detail' post.slug %}">{{ post.title }}</a></h2>
 
         {% elif post.component == "Deck" %}
-        deck
+        Deck
         <h2><a class="article-title" href="{% url 'deck-detail' post.slug %}">{{ post.title }}</a></h2>
 
         {% elif post.component == "Vagabond" %}
-        vagabond
+        Vagabond
         <h2><a class="article-title" href="{% url 'vagabond-detail' post.slug %}">{{ post.title }}</a></h2>
 
         {% elif post.component == "Landmark" %}
-        landmark
+        Landmark
         <h2><a class="article-title" href="{% url 'landmark-detail' post.slug %}">{{ post.title }}</a></h2>
 
         {% elif post.component == "Hireling" %}
-        hireling
+        Hireling
         <h2><a class="article-title" href="{% url 'hireling-detail' post.slug %}">{{ post.title }}</a></h2>
 
         {% elif post.component == "Faction" %}
-        faction
+        Faction
         <h2><a class="article-title" href="{% url 'faction-detail' post.slug %}">{{ post.title }}</a></h2>
 
         {% else %}

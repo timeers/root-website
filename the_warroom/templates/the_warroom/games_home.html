@@ -1,6 +1,10 @@
 {% extends 'blog/base.html' %}
 {% block content %}
-
+    {% if user.is_authenticated %}
+    <a href="{% url 'record_game' %}" class="btn btn-success">
+        Add +
+    </a>
+    {% endif %}
     {% for game in games %}
         <article class="media content-section">
             {% include 'the_warroom/partials/game.html' %}

@@ -11,6 +11,8 @@ class Profile(models.Model):
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
+    creative = models.BooleanField(default=False)
+    display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
 
     def absorbed_by(self, player):
         if self.user is None:
@@ -25,6 +27,7 @@ class Profile(models.Model):
         return f'{self.discord}'
     
     def save(self, *args, **kwargs):
+
         super().save(*args, **kwargs)
 
         img = Image.open(self.image.path)

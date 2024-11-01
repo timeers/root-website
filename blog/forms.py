@@ -1,7 +1,11 @@
 from django import forms
-from .models import Post, Map, Deck, Vagabond, Hireling, Landmark, Faction
+from .models import (
+    Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
+    Warrior, Building, Token, Card, OtherPiece
+)
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+
 
 top_fields = ['title']
 bottom_fields = ['description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'artist']
@@ -216,3 +220,52 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             elif type == 'M' and reach < 6:
                 raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
             return cleaned_data
+
+class FactionImportForm(FactionCreateForm):
+    reach = forms.IntegerField(min_value=0, max_value=10)
+    class Meta(FactionCreateForm):
+        model = Faction 
+        fields = top_fields + ['faction_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
+                               'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
+
+
+
+class WarriorForm(forms.ModelForm):
+    class Meta:
+        model = Warrior
+        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+        }
+
+class BuildingForm(forms.ModelForm):
+    class Meta:
+        model = Building
+        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+        }
+
+class TokenForm(forms.ModelForm):
+    class Meta:
+        model = Token
+        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+        }
+
+class CardForm(forms.ModelForm):
+    class Meta:
+        model = Card
+        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+        }
+
+class OtherPieceForm(forms.ModelForm):
+    class Meta:
+        model = OtherPiece
+        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+        }

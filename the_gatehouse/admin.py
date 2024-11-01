@@ -9,7 +9,7 @@ class CsvImportForm(forms.Form):
     csv_upload = forms.FileField() 
 
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'discord', 'dwd')
+    list_display = ('user', 'creative', 'display_name', 'discord', 'dwd', 'league')
      
     def get_urls(self):
         urls = super().get_urls()

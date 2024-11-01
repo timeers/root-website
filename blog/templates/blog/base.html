@@ -64,24 +64,25 @@
                         </li>
                       {% endif %}
                     <!-- Dropdownn for new content -->
-                    <li class="nav-item dropdown">
-                      <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        New
-                      </a>
-                      <ul class="dropdown-menu">
-                        <!-- <li><a class="dropdown-item" href="{% url 'post-create' %}">Post</a></li> -->
-                        <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
-                        <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'map-create' %}">Map</a></li>
-                        <li><a class="dropdown-item" href="{% url 'deck-create' %}">Deck</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'landmark-create' %}">Landmark</a></li>
-                        <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
-                      </ul>
-                    </li>
-
-                    <a class="nav-item nav-link" href="{% url 'profile' %}">{{ user.username }}</a>
+                     {% if user.profile.creative %}
+                      <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                          New
+                        </a>
+                        <ul class="dropdown-menu">
+                          <!-- <li><a class="dropdown-item" href="{% url 'post-create' %}">Post</a></li> -->
+                          <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
+                          <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item" href="{% url 'map-create' %}">Map</a></li>
+                          <li><a class="dropdown-item" href="{% url 'deck-create' %}">Deck</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item" href="{% url 'landmark-create' %}">Landmark</a></li>
+                          <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
+                        </ul>
+                      </li>
+                    {% endif %}
+                    <a class="nav-item nav-link" href="{% url 'profile' %}">{{ user.profile.display_name }}</a>
                     <!-- cannot log out with a GET request so this version does not work -->
                     <!-- <a class="nav-item nav-link" href="{% url 'logout' %}">Logout</a> -->
                     <form action="{% url 'logout' %}" method="post">

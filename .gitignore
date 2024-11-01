@@ -1,1 +1,5 @@
 project_env/
+profiles.csv
+game_test.csv
+blog/migrations/
+blog/__pycache__/

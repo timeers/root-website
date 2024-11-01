@@ -15,13 +15,13 @@ class UserUpdateForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ['username', 'email']
+        fields = ['email']
 
 
 class ProfileUpdateForm(forms.ModelForm):
     class Meta:
         model = Profile
-        fields = ['image', 'dwd', 'league']
+        fields = ['display_name','image', 'dwd', 'league']
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Registered for Digital League',

@@ -2,6 +2,7 @@
 from django.db import models
 from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
+from datetime import timedelta
 from django.contrib.auth.models import User
 from django.urls import reverse
 from PIL import Image
@@ -20,6 +21,7 @@ class Expansion(models.Model):
     designer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,)
     description = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
+
     # Get groups of components for selected expansion
     def get_posts(self):
         return Post.objects.filter(expansion=self)
@@ -49,7 +51,7 @@ class Post(models.Model):
         ('Landmark', 'Landmark'),
         ('Faction', 'Faction'),
 ]
-    title = models.CharField(max_length=30)
+    title = models.CharField(max_length=35)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True)
     lore = models.TextField(null=True, blank=True)
@@ -108,7 +110,12 @@ class Post(models.Model):
         
         if play_count > 0:
             return "Stable" if self.stable else "Testing"
-        return "Development"
+        else:
+            # Check if date_updated is more than 1 year old
+            if self.date_updated < timezone.now() - timedelta(days=365):
+                return "Inactive"
+            else:
+                return "Development"
 
     def plays(self):
         plays = self.get_plays_queryset()
@@ -130,7 +137,6 @@ class Post(models.Model):
         
 
 class Map(Post):
-
     clearings = models.IntegerField(default=12)
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
@@ -200,13 +206,14 @@ class Faction(Post):
 
     animal = models.CharField(max_length=15)
     type = models.CharField(max_length=1, choices=TYPE_CHOICES)
-    reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)])
+    reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
     complexity = models.CharField(max_length=1, choices=STYLE_CHOICES)
     card_wealth = models.CharField(max_length=1, choices=STYLE_CHOICES)
     aggression = models.CharField(max_length=1, choices=STYLE_CHOICES)
     crafting_ability = models.CharField(max_length=1, choices=STYLE_CHOICES)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     faction_icon = models.ImageField(default='default_icon.png', upload_to='faction_icons')
+    adset_card = models.ImageField(default=None, upload_to='adset_cards', blank=True, null=True)
 
     def __add__(self, other):
         if isinstance(other, Faction):
@@ -218,7 +225,7 @@ class Faction(Post):
 
         img = Image.open(self.faction_icon.path)
         # Determine the largest dimension
-        max_size = 300
+        max_size = 40
         if img.height > max_size or img.width > max_size:
             print('resizing image')
 
@@ -249,12 +256,16 @@ class Faction(Post):
     def get_wins_queryset(self):
         return self.effort_set.all().filter(win=True)
     
-    def winrate(self):
-        points = 0
-        wins = self.get_wins_queryset()
-        for effort in wins:
-            points += (1 / effort.game.get_winners().count())  
-        return points / self.plays()
+def winrate(self):
+    points = 0
+    wins = self.get_wins_queryset()
+    for effort in wins:
+        points += (1 / effort.game.get_winners().count()) if effort.game.get_winners().count() > 0 else 0
+    total_plays = self.plays()
+    if total_plays > 0:
+        return points / total_plays
+    else:
+        return 0
 
 
 class Hireling(Post):
@@ -273,6 +284,38 @@ class Hireling(Post):
     def get_absolute_url(self):
         return reverse('hireling-detail', kwargs={'slug': self.slug})
     
+# Game Pieces for Factions and Hirelings
+class Piece(models.Model):
+    name = models.CharField(max_length=30)
+    quantity = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(40)])
+    description = models.TextField(null=True, blank=True)
+    suited = models.BooleanField(default=False)
+    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
+    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
+
+    class Meta:
+        abstract = True  # This ensures that Piece won't create a table
+
+    def __str__(self):
+        return f"{self.name} (x{self.quantity})"
+
+class Warrior(Piece):
+    pass
+
+class Building(Piece):
+    pass
+
+class Token(Piece):
+    pass
+
+class Card(Piece):
+    pass
+
+class OtherPiece(Piece):
+    pass
+
+
+
 
 
 def component_pre_save(sender, instance, *args, **kwargs):
