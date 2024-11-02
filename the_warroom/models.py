@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone 
+from django.urls import reverse
 from django.core.validators import MinValueValidator
 from the_gatehouse.models import Profile
 from blog.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
@@ -55,16 +56,15 @@ class Game(models.Model):
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
 
 
-    # This probably isn't necessary....
     def get_efforts(self):
-        return Effort.objects.filter(game=self)
+        return self.effort_set.all()
     
     def get_winners(self):
-        return Effort.objects.filter(game=self, win=True)
+        return self.get_efforts().filter(win=True)
     
     def only_official_components(self):
         return not (
-            Effort.objects.filter(Q(faction__official=False) | Q(vagabond__official=False), game=self).exists() or
+            self.get_efforts().filter(Q(faction__official=False) | Q(vagabond__official=False)).exists() or
             (self.deck and not self.deck.official) or
             (self.map and not self.map.official) or
             self.hirelings.filter(official=False).exists() or
@@ -75,6 +75,9 @@ class Game(models.Model):
         if self.link:
             if Game.objects.exclude(id=self.id).filter(link=self.link).exists():
                 raise ValidationError(f'The link "{self.link}" must be unique.')
+    
+    def get_absolute_url(self):
+        return reverse("recipes:detail", kwargs={"id": self.id})
 
 class Effort(models.Model):
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)

@@ -89,3 +89,18 @@ body {
     margin-right: 2px;
     margin-bottom: 2px;
 }
+
+.lg-faction-icon {
+  width: 40px;       /* Fixed width */
+  height: auto;      /* Scales the height proportionally */
+  margin-right: 2px;
+  margin-bottom: 2px;
+}
+
+a {
+  text-decoration: none; /* Removes underline */
+}
+
+a:hover {
+  text-decoration: none; /* Ensures no underline on hover */
+}

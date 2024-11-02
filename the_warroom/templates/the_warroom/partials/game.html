@@ -1,4 +1,5 @@
 
+<article class="media content-section">
 <div class="media-body">
 
     <div class="article-metadata">
@@ -9,7 +10,7 @@
             <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
         </small>
     </div>
-    
+
         {% for effort in game.get_efforts %}
         <p>
             {% if effort.player %}
@@ -19,9 +20,17 @@
             {% endif %}
 
 
-
             {% if effort.faction %}
-                <img class="rounded-square faction-icon" src="{{ effort.faction.faction_icon.url }}">
+                {% if effort.win %}
+                    Winner 
+                <!-- <div style="position: relative; width: 20px; height: auto;">
+                    <img src="{{ effort.faction.faction_icon.url }}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                    <img src="{{ MEDIA_URL }}winner.png" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                </div> -->
+                {% endif %}
+                <a href="{% url 'faction-detail' effort.faction.slug %}">
+                    <img class="rounded-square faction-icon" src="{{ effort.faction.faction_icon.url }}">
+                </a>
                 <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
                 {% if effort.vagabond %}
                     (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
@@ -29,8 +38,13 @@
             {% else %}
                 Faction N/A
             {% endif %}
-
-            {{ effort.score }}
+            {% if effort.dominance %}
+                Dominance
+            {% elif effort.coalition_with %}
+                Coalition with {{ effort.coalition_with.title }}
+            {% else %}
+                {{ effort.score }}
+            {% endif %}
         </p>
         {% endfor %}
 <!-- Compnent specific Info -->
@@ -41,3 +55,4 @@
 <!-- End component specific Info -->
 
 </div>
+</article>

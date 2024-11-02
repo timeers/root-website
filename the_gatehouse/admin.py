@@ -10,6 +10,7 @@ class CsvImportForm(forms.Form):
 
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ('user', 'creative', 'display_name', 'discord', 'dwd', 'league')
+    search_fields = ('display_name', 'discord', 'dwd',)
      
     def get_urls(self):
         urls = super().get_urls()

@@ -8,9 +8,9 @@
         <h2>{{ faction.title }}</h2>
     <p class="article-content">{{ faction.description }}</p>
     <p class="article-content">{{ faction.status }}</p>
-    <p class="article-content">{{ faction.wins }} Total Wins</p>
-    <p class="article-content">{{ faction.plays }} Total Plays</p>
-    <p class="article-content">{{ faction.winrate }} Winrate</p>
+    <p class="article-content">{{ faction.wins }} Recorded Wins</p>
+    <p class="article-content">{{ faction.plays }} Recorded Plays</p>
+    <p class="article-content">{{ faction.winrate|floatformat:2 }}% Winrate</p>
     {% if faction.based_on %}
         Based on: <a class="mr-2" href="{% url 'faction-detail' faction.based_on.slug %}">{{ faction.based_on }}</a><br>
         by <a class="mr-2" href="{% url 'user-posts' faction.based_on.designer.username %}">{{ faction.based_on.designer }}</a>

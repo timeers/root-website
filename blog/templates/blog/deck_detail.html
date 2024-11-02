@@ -5,7 +5,7 @@
     </article>
     {% if deck.designer == user %}
     <div>
-        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'deck-update' deck.slug %}">Udate</a>
+        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'deck-update' deck.slug %}">Update</a>
         <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' deck.id %}">Delete</a>
     </div>
     {% endif %}

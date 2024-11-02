@@ -13,8 +13,18 @@ import re
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField() 
 
+class EffortAdmin(admin.ModelAdmin):
+    list_display = ('date_posted', 'player', 'faction', 'score', 'win', 'game', 'game__league')
+    search_fields = ['faction__title', 'player__discord', 'player__dwd', 'player__display_name']
+
+class EffortInline(admin.StackedInline):
+    model = Effort
+    extra = 0
+    # fields = ['player', 'faction', 'score', 'win']
+
 class GameAdmin(admin.ModelAdmin):
-    list_display = ('date_posted', 'deck', 'map', 'type', 'platform', 'league')
+    list_display = ('id', 'date_posted', 'deck', 'map', 'type', 'platform', 'league', 'recorder__discord')
+    inlines = [EffortInline]
      
     def get_urls(self):
         urls = super().get_urls()
@@ -149,8 +159,7 @@ class GameAdmin(admin.ModelAdmin):
         data = {'form': form}
         return render(request, 'admin/csv_upload.html', data)
 
-class EffortAdmin(admin.ModelAdmin):
-    list_display = ('player', 'faction', 'score', 'win', 'game')
+
 
 # Register your models here.
 admin.site.register(Game, GameAdmin)

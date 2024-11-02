@@ -2,4 +2,15 @@
 {% block content %}
         <h1>Record New Game</h1>
 
+        {% if message %}
+                <p>{{ message }}</p>
+        {% endif %}
+        <div>
+                <form action="." method="POST">
+                        {% csrf_token %}
+                        {{ form.as_p }}
+                        <button type="submit">Save</button>
+                </form>
+        </div>
+
 {% endblock content %}

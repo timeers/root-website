@@ -1,12 +1,12 @@
 
 from django.db import models
+from django.db.models import Q
 from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
 from datetime import timedelta
 from django.contrib.auth.models import User
 from django.urls import reverse
 from PIL import Image
-
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
 
@@ -15,6 +15,19 @@ from .utils import slugify_instance_title
 # from django.utils.text import slugify
 
 # from .utils import slugify_instance_title 
+
+class PostQuerySet(models.QuerySet):
+    def search(self, query=None):
+        if query is None or query == "":
+            return self.none()
+        lookups = Q(title__icontains=query) | Q(designer__username__icontains=query)
+        return self.filter(lookups)
+    
+class PostManager(models.Manager):
+    def get_queryset(self):
+        return PostQuerySet(self.model, using=self._db)
+    def search(self, query=None):
+        return self.get_queryset().search(query=query)
 
 class Expansion(models.Model):
     title = models.CharField(max_length=100)
@@ -69,6 +82,8 @@ class Post(models.Model):
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True, blank=True)
+
+    objects = PostManager()
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -227,7 +242,7 @@ class Faction(Post):
         # Determine the largest dimension
         max_size = 40
         if img.height > max_size or img.width > max_size:
-            print('resizing image')
+            # print('resizing image')
 
             # Calculate the new size while maintaining the aspect ratio
             if img.width > img.height:
@@ -239,11 +254,11 @@ class Faction(Post):
 
             img = img.resize(new_size, Image.LANCZOS)
             img.save(self.faction_icon.path)
-            print(f'Resized image saved at: {self.faction_icon.path}')
+            # print(f'Resized image saved at: {self.faction_icon.path}')
         else:
-            print('original image')
+            # print('original image')
             img.save(self.faction_icon.path)
-            print(f'Original image saved at: {self.faction_icon.path}')
+            # print(f'Original image saved at: {self.faction_icon.path}')
 
     def get_absolute_url(self):
         return reverse('faction-detail', kwargs={'slug': self.slug})
@@ -255,17 +270,20 @@ class Faction(Post):
 
     def get_wins_queryset(self):
         return self.effort_set.all().filter(win=True)
-    
-def winrate(self):
-    points = 0
-    wins = self.get_wins_queryset()
-    for effort in wins:
-        points += (1 / effort.game.get_winners().count()) if effort.game.get_winners().count() > 0 else 0
-    total_plays = self.plays()
-    if total_plays > 0:
-        return points / total_plays
-    else:
-        return 0
+
+    @property
+    def winrate(self):
+        points = 0
+        wins = self.get_wins_queryset()
+
+        for effort in wins:
+            winners_count = effort.game.get_winners().count()
+            if winners_count > 0:
+                points += 1 / winners_count
+
+        total_plays = self.plays()
+        return points / total_plays * 100 if total_plays > 0 else 0
+
 
 
 class Hireling(Post):
@@ -319,7 +337,7 @@ class OtherPiece(Piece):
 
 
 def component_pre_save(sender, instance, *args, **kwargs):
-    print('pre_save')
+    # print('pre_save')
     if instance.slug is None:
         slugify_instance_title(instance, save=False)
 
@@ -333,7 +351,7 @@ pre_save.connect(component_pre_save, sender=Expansion)
 
 
 def component_post_save(sender, instance, created, *args, **kwargs):
-    print('post_save')
+    # print('post_save')
     if created:
         slugify_instance_title(instance, save=True)
 

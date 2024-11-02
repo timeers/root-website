@@ -12,16 +12,28 @@ from django.utils import timezone
 
 class MapAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'clearings')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 class DeckAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'card_total')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 class VagabondAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 class HirelingAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 class PostAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 class ExpansionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer')
 class WarriorAdmin(admin.ModelAdmin):
@@ -36,6 +48,8 @@ class OtherPieceAdmin(admin.ModelAdmin):
     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
 class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
+    search_fields = ['title']
+    raw_id_fields = ['designer']
 
 
     def get_urls(self):

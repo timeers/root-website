@@ -228,6 +228,13 @@ class FactionImportForm(FactionCreateForm):
         fields = top_fields + ['faction_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
 
+    def __init__(self, *args, **kwargs):
+            faction_instance = kwargs.pop('instance', None)
+            super().__init__(*args, **kwargs)
+
+            # Set the initial value for faction_icon if the instance exists
+            if faction_instance and faction_instance.faction_icon:
+                self.fields['faction_icon'].initial = faction_instance.faction_icon
 
 
 class WarriorForm(forms.ModelForm):

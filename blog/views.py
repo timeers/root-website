@@ -25,14 +25,14 @@ class PostListView(ListView):
     template_name = 'blog/home.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'posts'
     ordering = ['-date_updated']
-    paginate_by = 10
+    paginate_by = 20
 
 # A list of one specific user's posts
 class UserPostListView(ListView):
     model = Post
     template_name = 'blog/user_posts.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'posts'
-    paginate_by = 10
+    paginate_by = 20
 
     def get_queryset(self):
         user = get_object_or_404(User, username=self.kwargs.get('username'))
@@ -43,7 +43,7 @@ class ArtistPostListView(ListView):
     model = Post
     template_name = 'blog/user_posts_art.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'posts'
-    paginate_by = 10
+    paginate_by = 20
 
     def get_queryset(self):
         user = get_object_or_404(User, username=self.kwargs.get('username'))
@@ -54,22 +54,27 @@ class SearchPostListView(ListView):
     model = Post
     template_name = 'blog/search_posts.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'posts'
-    paginate_by = 10
+    paginate_by = 20
 
     def get_queryset(self):
         search_term = self.request.GET.get('search_term', '')
         return Post.objects.filter(
             Q(title__icontains=search_term)|
-            Q(designer__username__icontains=search_term)|
-            Q(artist__username__icontains=search_term) 
+            Q(designer__username__icontains=search_term)
             ).order_by('-date_posted')
-#           Q(description__icontains=search_term)|
-#           Removed this because I don't think I want search to search everything. Just Name, Username and Artist (might want to remove artist search just for clarity)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['search_term'] = self.kwargs.get('search_term', '')
         return context
+
+def post_search_view(request):
+    query = request.GET.get('q')
+    qs = Post.objects.search(query=query)
+    context = {
+        "object_list": qs
+    }
+    return render(request, 'blog/search_posts.html', context=context)
 
 class PostDetailView(DetailView):
     model = Post
@@ -164,9 +169,7 @@ class FactionCreateView(LoginRequiredMixin, CreateView):
 
 @creative_required_class_based_view
 class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
-    
     model = Post
-
     # This is not working as hoped. It is just returning the PostCreateForm
     def get_form_class(self):
         post = self.get_object()  # Get the specific post instance

@@ -5,7 +5,7 @@
     </article>
     {% if landmark.designer == user %}
     <div>
-        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'landmark-update' landmark.slug %}">Udate</a>
+        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'landmark-update' landmark.slug %}">Update</a>
         <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' landmark.id %}">Delete</a>
     </div>
     {% endif %}

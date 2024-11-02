@@ -5,7 +5,7 @@
     </article>
     {% if map.designer == user %}
     <div>
-        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'map-update' map.slug %}">Udate</a>
+        <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'map-update' map.slug %}">Update</a>
         <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' map.id %}">Delete</a>
     </div>
     {% endif %}
