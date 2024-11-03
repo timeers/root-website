@@ -1,0 +1,14 @@
+{% extends 'blog/base.html' %}
+{% block content %}
+
+{% if game %}
+<form method="POST" action=".">
+    {% csrf_token %}
+    <p>Are you sure you want to delete the selected game? This cannot be undone.</p>
+    {% include 'the_warroom/partials/game_detail.html' %}
+    <button class="btn btn-danger" type="submit">Yes, delete</button>
+    <a class="btn btn-outline-secondary" href="{% url 'game-detail' game.id %}">Cancel</a>
+</form>
+{% endif %}
+
+{% endblock content %}

@@ -1,16 +1,48 @@
 {% extends 'blog/base.html' %}
+{% load crispy_forms_tags %}
 {% block content %}
         <h1>Record New Game</h1>
+        <style>
+                .effort-form {
+                        border-bottom: 1px solid black;
+                }
+                .hidden {
+                        display: None ;
+                }
+        </style>
 
-        {% if message %}
-                <p>{{ message }}</p>
-        {% endif %}
-        <div>
-                <form action="." method="POST">
-                        {% csrf_token %}
-                        {{ form.as_p }}
-                        <button type="submit">Save</button>
-                </form>
+        <div style="margin-top: 30px;">
+                {% include 'the_warroom/partials/forms.html' %}
         </div>
+
+
+        <script>
+                
+                
+                document.addEventListener('click', (event)=>{
+                        if (event.target.id == 'add-more'){
+                                add_new_form(event)
+                        }
+                })
+
+                function add_new_form(event) {
+                        
+                        if (event) {
+                                event.preventDefault()
+                        }
+                        const totalNewForms = document.getElementById('id_form-TOTAL_FORMS')
+                        const currentEffortForms = document.getElementsByClassName('effort-form')
+                        const currentFormCount = currentEffortForms.length
+                        const formCopyTarget = document.getElementById("effort-form-list")
+                        const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
+                        copyEmptyFormEl.setAttribute('class', 'effort-form')
+                        copyEmptyFormEl.setAttribute('id', `form-${currentFormCount}`)
+                        const regex = new RegExp('__prefix__', 'g')
+                        copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, currentFormCount)
+                        totalNewForms.setAttribute('value', currentFormCount + 1)
+
+                        formCopyTarget.append(copyEmptyFormEl)
+                }
+        </script>
 
 {% endblock content %}

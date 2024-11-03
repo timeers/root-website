@@ -21,15 +21,17 @@ class PostCreateForm(forms.ModelForm):
         model = Post
         fields = ['title', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
         labels = {
-            'title': 'Title', 
-            'description': 'Description', 
-            'artist': 'Artist', 
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator Mod", 
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
             'pnp_link': "Link to Print and Play Files"
         }
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['description'].widget.attrs.update({'rows': '2'})
+
+
     def clean(self):
             cleaned_data = super().clean()
             bgg_link = cleaned_data.get('bgg_link')

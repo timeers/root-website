@@ -7,6 +7,7 @@ from django.core.validators import MinValueValidator
 from the_gatehouse.models import Profile
 from blog.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 from django.core.exceptions import ValidationError
+from django.contrib.admin.views.decorators import staff_member_required
 
 class Tournament(models.Model):
     name = models.CharField(max_length=30)
@@ -36,8 +37,8 @@ class Game(models.Model):
     # Required
     type = models.CharField(max_length=5, choices=TYPE_CHOICES, default=LIVE)
     platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default=DWD)
-    deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True, blank=True)
-    map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True, blank=True)
+    deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True)
+    map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True)
 
     league = models.BooleanField(default=False)
     tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
@@ -77,7 +78,16 @@ class Game(models.Model):
                 raise ValidationError(f'The link "{self.link}" must be unique.')
     
     def get_absolute_url(self):
-        return reverse("recipes:detail", kwargs={"id": self.id})
+        return reverse("game-detail", kwargs={"id": self.id})
+    
+    def get_hx_url(self):
+        return reverse("game-hx-detail", kwargs={"id": self.id})
+    
+    def get_edit_url(self):
+        return reverse("game-update", kwargs={"id": self.id})
+    
+    def get_delete_url(self):
+        return reverse("game-delete", kwargs={"id": self.id})
 
 class Effort(models.Model):
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
@@ -89,8 +99,17 @@ class Effort(models.Model):
     clockwork = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, null=True, blank=True) #This should not be null. Remove null once done testing
+    game = models.ForeignKey(Game, on_delete=models.CASCADE) #This should not be null. Remove null once done testing
     faction_status = models.CharField(max_length=15, null=True, blank=True) #This should not be null.
     notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
 
+    def get_absolute_url(self):
+        return self.game.get_absolute_url()
+
+    def get_delete_url(self):
+        kwargs = {
+             "parent_id": self.game.id,
+             "id": self.id,
+        }
+        return reverse("effort-delete", kwargs=kwargs)

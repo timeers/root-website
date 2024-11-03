@@ -42,7 +42,7 @@ urlpatterns = [
          auth_views.PasswordResetCompleteView.as_view(template_name='the_gatehouse/password_reset_complete.html'), 
          name='password_reset_complete'),
     path('', include('blog.urls')),
-    path('', include('the_warroom.urls')),
+    path('games/', include('the_warroom.urls')),
 ]
 
 if settings.DEBUG:

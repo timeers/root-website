@@ -4,7 +4,7 @@
 
     <div class="article-metadata">
         <small class="text-muted">
-            {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game |
+            <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game</a> |
             {{ game.date_posted | date:"Y-m-d" }} |
             <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
             <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
@@ -47,12 +47,6 @@
             {% endif %}
         </p>
         {% endfor %}
-<!-- Compnent specific Info -->
-
-
-
-
-<!-- End component specific Info -->
 
 </div>
 </article>

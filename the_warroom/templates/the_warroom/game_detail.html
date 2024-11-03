@@ -1,6 +1,15 @@
 {% extends 'blog/base.html' %}
 {% block content %}
 
-{% include 'the_warroom/partials/game.html' %}
+<div hx-get="{{ hx_url }}" hx-trigger="revealed">
+    <div class="htmx-indicator">Loading...</div>
+</div>
+
+{% if user.is_superuser %}
+<small>
+    <a class="btn btn-outline-secondary" href="{{ game.get_edit_url }}">Edit</a>
+    <a class="btn btn-outline-danger" href="{{ game.get_delete_url }}">Delete</a>
+</small>
+{% endif %}
 
 {% endblock content %}
