@@ -11,23 +11,33 @@
         </small>
     </div>
 
+
+
+
+    <table>
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th>Faction</th>
+                <th>Score</th>
+            </tr>
+        </thead>
+        <tbody class="effort-rows">
+
+
         {% for effort in game.get_efforts %}
-        <p>
+
+        <tr>
+            <td>
+
             {% if effort.player %}
                 {{ effort.player }}
             {% else %}
                 Anonymous Player
             {% endif %}
-
-
+        </td>
+        <td>
             {% if effort.faction %}
-                {% if effort.win %}
-                    Winner 
-                <!-- <div style="position: relative; width: 20px; height: auto;">
-                    <img src="{{ effort.faction.faction_icon.url }}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                    <img src="{{ MEDIA_URL }}winner.png" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                </div> -->
-                {% endif %}
                 <a href="{% url 'faction-detail' effort.faction.slug %}">
                     <img class="rounded-square faction-icon" src="{{ effort.faction.faction_icon.url }}">
                 </a>
@@ -38,15 +48,28 @@
             {% else %}
                 Faction N/A
             {% endif %}
+        </td>
+        <td>
             {% if effort.dominance %}
                 Dominance
             {% elif effort.coalition_with %}
                 Coalition with {{ effort.coalition_with.title }}
             {% else %}
-                {{ effort.score }}
+                {% if effort.score %}
+                    {{ effort.score }}
+                {% endif %}
             {% endif %}
-        </p>
-        {% endfor %}
+            {% if effort.win %}
+                 (Winner)
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+</tbody>
+</table>
+
+
+
 
 </div>
 </article>

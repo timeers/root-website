@@ -34,6 +34,7 @@
                         const currentEffortForms = document.getElementsByClassName('effort-form')
                         const currentFormCount = currentEffortForms.length
                         const formCopyTarget = document.getElementById("effort-form-list")
+                        
                         const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
                         copyEmptyFormEl.setAttribute('class', 'effort-form')
                         copyEmptyFormEl.setAttribute('id', `form-${currentFormCount}`)
@@ -42,7 +43,15 @@
                         totalNewForms.setAttribute('value', currentFormCount + 1)
 
                         formCopyTarget.append(copyEmptyFormEl)
+                        
                 }
         </script>
 
 {% endblock content %}
+
+{% block scripts %}
+        <script>
+                $('#id_hirelings').select2();
+                $('#id_landmarks').select2();
+        </script>
+{% endblock %}

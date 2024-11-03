@@ -91,11 +91,10 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Landmark Name',
         required=True
     )
-    # Removed this so that the field can stay big... probably another way to do it
-    # card_text = forms.CharField(
-    #     label='Description on Card',
-    #     required=True
-    # )
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['card_text'].widget.attrs.update({'rows': '2'})
+
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Landmark
         fields = top_fields + ['card_text'] + bottom_fields

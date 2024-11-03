@@ -105,3 +105,34 @@ a {
 a:hover {
   text-decoration: none; /* Ensures no underline on hover */
 }
+
+
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px; /* Space below the table */
+}
+
+th, td {
+  padding: 12px; /* More padding for spacing */
+  text-align: left;
+  vertical-align: middle; /* Center align vertically */
+}
+
+/* th {
+  background-color: #f2f2f2;
+} */
+
+.effort-rows {
+  border-top: 1px solid #000; /* Line before the tbody */
+}
+
+.effort-rows tr {
+  border-bottom: 1px solid #ddd; /* Optional: line between rows */
+}
+
+.effort-rows td {
+  padding-left: 15px; /* Space between columns */
+  padding-right: 15px; /* Space between columns */
+}

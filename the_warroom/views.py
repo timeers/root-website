@@ -21,20 +21,19 @@ class GameListView(ListView):
     ordering = ['-date_posted']
     paginate_by = 25
 
-class GameCreateView(LoginRequiredMixin, CreateView):
-    model = Game
-    form_class = GameCreateForm
+# class GameCreateView(LoginRequiredMixin, CreateView):
+#     model = Game
+#     form_class = GameCreateForm
 
-    def form_valid(self, form):
-        form.instance.recorder = self.request.user
-        return super().form_valid(form)
-    
-class EffortCreateView(LoginRequiredMixin, CreateView):
-    model = Effort
-    form_class = EffortCreateForm
+#     def form_valid(self, form):
+#         form.instance.recorder = self.request.user
+#         return super().form_valid(form)
+# class EffortCreateView(LoginRequiredMixin, CreateView):
+#     model = Effort
+#     form_class = EffortCreateForm
 
-    def form_valid(self, form):
-        return super().form_valid(form)
+#     def form_valid(self, form):
+#         return super().form_valid(form)
 
 @login_required
 def game_detail_view(request, id=None):
@@ -132,24 +131,33 @@ def update_game(request, id=None):
     obj = get_object_or_404(Game, id=id)
     # obj = get_object_or_404(Game, id=id, recorder=request.user.profile)
     form = GameCreateForm(request.POST or None, instance=obj) 
+    extra_forms = 0
+    # Default to at least 2 players
+    existing_efforts = obj.effort_set.all()
+    existing_count = existing_efforts.count()
+    extra_forms = max(0, 2 - existing_count)
+
     # Formset = modelformset_factory(Model, form=ModelForm, extra=0)
-    EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=0)
+    EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
     qs = obj.effort_set.all()
     formset = EffortFormset(request.POST or None, queryset=qs)
     context = {'form': form, 
                'formset': formset,
                'object': obj,
                }
-
+    # This is not catching null data
     if  all([form.is_valid(), formset.is_valid()]):
+        print('Checking Form')
         parent = form.save(commit=False)
         parent.save()
         for form in formset:
+            print("checking forms in formset")
             child = form.save(commit=False)
             child.game = parent
             child.save()
-
+        print("done saving")
         context['message'] = "Game Saved"
+        return redirect(parent.get_absolute_url())
     if request.htmx:
         return render(request, 'the_warroom/partials/forms.html', context)
     return render(request, 'the_warroom/record_game.html', context)
