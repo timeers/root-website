@@ -1,9 +1,12 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.http import HttpResponseForbidden
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.views.generic import DetailView
+from django.contrib.auth.mixins import LoginRequiredMixin
 from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm
+from .models import Profile
 
 def register(request):
     if request.method == 'POST':
@@ -40,6 +43,21 @@ def profile(request):
     }
 
     return render(request, 'the_gatehouse/profile.html', context)
+
+
+class PlayerDetailView(LoginRequiredMixin, DetailView):
+    model = Profile
+
+@login_required
+def player_page_view(request, slug):
+    player = get_object_or_404(Profile, slug=slug)
+
+    efforts = player.effort_set.all()
+    games = list({effort.game for effort in efforts})
+    games.sort(key=lambda game: game.date_posted, reverse=True)
+
+    return render(request, 'the_gatehouse/profile_detail.html', {'games': games, 'player': player})
+
 
 # Decorator
 def creative_required():

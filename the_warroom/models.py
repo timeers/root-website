@@ -46,7 +46,8 @@ class Game(models.Model):
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True)
     hirelings = models.ManyToManyField(Hireling, blank=True)
-    undrafted = models.ForeignKey(Faction, on_delete=models.SET_NULL, null=True, blank=True)
+    undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None)
+    undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None)
     link = models.CharField(max_length=300, null=True, blank=True)
 
     random_clearing = models.BooleanField(default=False)

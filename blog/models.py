@@ -200,6 +200,28 @@ class Vagabond(Post):
     def get_absolute_url(self):
         return reverse('vagabond-detail', kwargs={'slug': self.slug})
     
+    def wins(self):
+        plays = self.get_plays_queryset()
+        wins = plays.filter(win=True)
+        return wins.count() if plays else 0
+
+    def get_wins_queryset(self):
+        return self.effort_set.all().filter(win=True)
+
+    @property
+    def winrate(self):
+        points = 0
+        wins = self.get_wins_queryset()
+
+        for effort in wins:
+            winners_count = effort.game.get_winners().count()
+            if winners_count > 0:
+                points += 1 / winners_count
+
+        total_plays = self.plays()
+        return points / total_plays * 100 if total_plays > 0 else 0
+
+
 class Faction(Post):
     MILITANT = 'M'
     INSURGENT = 'I'

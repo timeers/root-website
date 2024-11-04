@@ -123,6 +123,7 @@ def record_game(request):
         obj = form.save(commit=False)
         obj.recorder = request.user.profile
         obj.save()
+        form.save_m2m()
         return redirect(obj.get_absolute_url())
     return render(request, 'the_warroom/record_game.html', context)
 
@@ -147,15 +148,13 @@ def update_game(request, id=None):
                }
     # This is not catching null data
     if  all([form.is_valid(), formset.is_valid()]):
-        print('Checking Form')
         parent = form.save(commit=False)
         parent.save()
+        form.save_m2m()
         for form in formset:
-            print("checking forms in formset")
             child = form.save(commit=False)
             child.game = parent
             child.save()
-        print("done saving")
         context['message'] = "Game Saved"
         return redirect(parent.get_absolute_url())
     if request.htmx:

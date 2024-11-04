@@ -16,7 +16,7 @@ class GameCreateForm(forms.ModelForm):
                 )
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted', 'landmarks', 'hirelings', 'link']
+        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'landmarks', 'hirelings', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }

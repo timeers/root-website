@@ -1,12 +1,10 @@
 from django.urls import path
 from .views import (
     PostListView, 
-    PostDetailView, 
     PostCreateView, 
     PostUpdateView,
     ExpansionDetailView,
 
-    MapDetailView, DeckDetailView, HirelingDetailView, VagabondDetailView, LandmarkDetailView, FactionDetailView,
     MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, LandmarkCreateView, FactionCreateView,
     MapUpdateView, DeckUpdateView, HirelingUpdateView, VagabondUpdateView, LandmarkUpdateView, FactionUpdateView,
 
@@ -16,6 +14,7 @@ from .views import (
     ArtistPostListView, 
     
     post_search_view,
+    component_detail_view,
 )
 from . import views
 
@@ -35,16 +34,16 @@ urlpatterns = [
     path('landmark/new/', LandmarkCreateView.as_view(), name='landmark-create'),
     path('vagabond/new/', VagabondCreateView.as_view(), name='vagabond-create'),
 
-    path('post/<int:pk>/', PostDetailView.as_view(), name='post-detail'),
+    path('post/<int:pk>/', component_detail_view, name='post-detail'),
     
     path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
 
-    path('map/<slug:slug>/', MapDetailView.as_view(), name='map-detail'),
-    path('deck/<slug:slug>/', DeckDetailView.as_view(), name='deck-detail'),
-    path('hireling/<slug:slug>/', HirelingDetailView.as_view(), name='hireling-detail'),
-    path('landmark/<slug:slug>/', LandmarkDetailView.as_view(), name='landmark-detail'),
-    path('vagabond/<slug:slug>/', VagabondDetailView.as_view(), name='vagabond-detail'),
-    path('faction/<slug:slug>/', FactionDetailView.as_view(), name='faction-detail'),
+    path('map/<slug:slug>/', component_detail_view, name='map-detail'),
+    path('deck/<slug:slug>/', component_detail_view, name='deck-detail'),
+    path('hireling/<slug:slug>/', component_detail_view, name='hireling-detail'),
+    path('landmark/<slug:slug>/', component_detail_view, name='landmark-detail'),
+    path('vagabond/<slug:slug>/', component_detail_view, name='vagabond-detail'),
+    path('faction/<slug:slug>/', component_detail_view, name='faction-detail'),
 
 
     path('post/<int:pk>/update/', PostUpdateView.as_view(), name='post-update'),

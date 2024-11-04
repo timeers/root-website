@@ -18,7 +18,7 @@
             {{ formset.management_form }}
             <div id="effort-form-list">
                     {% for form in formset %}
-                            <div class="effort-form">
+                            <div class="effort-form form-control">
                                 {% for field in form %}
                                         <div class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
                                         {{ field.errors }}
@@ -32,12 +32,17 @@
                     {% endfor %}
             </div>
 
-            <div id="empty-form" class="hidden">{{ formset.empty_form.as_p }}</div>
-            <button class="btn btn-outline-info" style="margin-top: 10px;"  id="add-more" type="button">Add Player +</button>
+            <div id="empty-form" class="hidden form-control">{{ formset.empty_form.as_p }}</div>
+            <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
+        {% else %}
+            <a class="btn btn-outline-info mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>
+        {% endif %}
+
+    <div class="htmx-indicator mb-2 mt-2">Loading...</div>
+    <button class="btn btn-outline-success htmx-inverted-indicator mb-2 mt-2" type="submit">Save</button>
+    {% if formset %}
+        <a class="btn btn-outline-danger mb-2 mt-2" href="{{ object.get_delete_url }}">Delete</a>
     {% endif %}
-    <div class="htmx-indicator" style="margin-top: 10px;" >Loading...</div>
-    <button class="btn btn-outline-success htmx-inverted-indicator" style="margin-top: 10px;" type="submit">Save</button>
-    <a class="btn btn-outline-danger" style="margin-top: 10px;"  href="{{ object.get_delete_url }}">Delete</a>
     {% if message %}
         <p>{{ message }}</p>
     {% endif %}

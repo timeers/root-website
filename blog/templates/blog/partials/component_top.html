@@ -1,8 +1,0 @@
-
-<img class="rounded-square article-img" src="{{ post.designer.profile.image.url }}">
-<div class="media-body">
-    <div class="article-metadata">
-        <a class="mr-2" href="{% url 'user-posts' post.designer.username %}">{{ post.designer }}</a>
-        <small class="text-muted">{{ post.date_updated | date:"Y-m-d" }}</small>
-    </div>
-        <h2><a class="article-title" href="{% url 'map-detail' post.id %}">{{ post.title }}</a></h2>

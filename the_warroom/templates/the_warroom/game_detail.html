@@ -5,6 +5,58 @@
     <div class="htmx-indicator">Loading...</div>
 </div>
 
+
+
+
+
+<article class="media content-section">
+    <div class="media-body">
+        {% if game.tournament %}
+        <div>
+            {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game
+        </div>
+        {% endif %}
+
+        {% if game.recorder %}
+        <div>
+            Recorded by: {{ game.recorder }}
+        </div>
+        {% endif %}
+        {% if game.undrafted_faction %}
+        <div>
+            Undrafted Faction: 
+            <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">
+                <img class="rounded-square faction-icon" src="{{ game.undrafted_faction.faction_icon.url }}">
+            </a>
+            <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
+        </div>
+        {% endif %}
+
+        {% if game.random_clearing %}
+        <div>
+            Random Clearings
+        </div>
+        {% endif %}
+
+        {% if game.notes %}
+        <div>
+            Notes: {{ game.notes }}
+        </div>
+        {% endif %}
+
+        {% if game.link %}
+        <div>
+            <a href="{{ game.link }}">Link to Game</a>
+        </div>
+        {% endif %}
+    </div>
+</article>
+
+
+
+
+
+
 {% if user.is_superuser %}
 <small>
     <a class="btn btn-outline-secondary" href="{{ game.get_edit_url }}">Edit</a>

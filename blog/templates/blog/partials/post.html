@@ -5,35 +5,8 @@
         <a class="mr-2" href="{% url 'user-posts' post.designer.username %}">{{ post.designer }}</a>
         <small class="text-muted">{{ post.date_updated | date:"Y-m-d" }}</small>
     </div>
-        {% if post.official %}Official {% else %}Fan Made {% endif %}
-        {% if post.component == "Map" %}
-        Map
-        <h2><a class="article-title" href="{% url 'map-detail' post.slug %}">{{ post.title }}</a></h2>
-
-        {% elif post.component == "Deck" %}
-        Deck
-        <h2><a class="article-title" href="{% url 'deck-detail' post.slug %}">{{ post.title }}</a></h2>
-
-        {% elif post.component == "Vagabond" %}
-        Vagabond
-        <h2><a class="article-title" href="{% url 'vagabond-detail' post.slug %}">{{ post.title }}</a></h2>
-
-        {% elif post.component == "Landmark" %}
-        Landmark
-        <h2><a class="article-title" href="{% url 'landmark-detail' post.slug %}">{{ post.title }}</a></h2>
-
-        {% elif post.component == "Hireling" %}
-        Hireling
-        <h2><a class="article-title" href="{% url 'hireling-detail' post.slug %}">{{ post.title }}</a></h2>
-
-        {% elif post.component == "Faction" %}
-        Faction
-        <h2><a class="article-title" href="{% url 'faction-detail' post.slug %}">{{ post.title }}</a></h2>
-
-        {% else %}
-        other component
-        <h2><a class="article-title" href="{% url 'post-detail' post.id %}">{{ post.title }}</a></h2>
-        {% endif %}
+        {% if post.official %}Official {% else %}Fan Made {% endif %}{{ post.component }}
+        <h2><a class="article-title" href="{% url post.component|lower|add:'-detail' post.slug %}">{{ post.title }}</a></h2>
 <!-- Compnent specific Info -->
 
 

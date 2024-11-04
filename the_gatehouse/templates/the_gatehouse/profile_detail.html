@@ -1,0 +1,47 @@
+{% extends 'blog/base.html' %}
+
+{% block title %} - {{ player.discord }}{% endblock %}
+
+{% block content %}
+    <div class="content-section">
+        <div class="media">
+        <img class="rounded-square account-img" src="{{ player.image.url }}">
+            <div class="media-body">
+                <h2 class="account-heading">{{ player.display_name }}</h2>
+                {% if player.discord %}
+                    <span class="text-secondary">Discord: {{ player.discord }}</span><br>
+                {% endif %}
+                {% if player.dwd %}
+                    {% if player.league %}
+                        <span class="text-secondary">Digital League: {{ player.dwd }}</span><br>
+                    {% else %}
+                        <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
+                    {% endif %}
+                {% endif %}
+            </div>
+ 
+            <!-- Winrate -->
+            <div class="media-body">
+                {{ player.winrate|floatformat:2 }}% Winrate
+            </div>
+            {% if player == user.profile %}
+            <div class="media-body">
+                <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}">Edit Profile</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    
+    <h3>{{ player }}'s Games</h3>
+
+
+        {% for game in games %}
+            {% include 'the_warroom/partials/game_detail.html' %}
+        {% empty %}
+            No games found for this player.
+        {% endfor %}
+
+    
+
+{% endblock content %}

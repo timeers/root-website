@@ -1,8 +1,10 @@
 from django.contrib.auth.models import User
 # from the_warroom.models import Effort
-
+from django.urls import reverse
+from django.db.models.signals import pre_save, post_save
 from django.db import models
 from PIL import Image
+from .utils import slugify_instance_discord
 
 
 class Profile(models.Model):
@@ -13,6 +15,7 @@ class Profile(models.Model):
     league = models.BooleanField(default=False)
     creative = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    slug = models.SlugField(unique=True, null=True, blank=True)
 
     def absorbed_by(self, player):
         if self.user is None:
@@ -49,5 +52,27 @@ class Profile(models.Model):
         for effort in wins:
             points += (1 / effort.game.get_winners().count())        
         if all_games > 0:
-            return points / all_games  # Calculate winrate
+            return points / all_games * 100  # Calculate winrate
         return 0
+    
+    def get_absolute_url(self):
+        return reverse('player-detail', kwargs={'slug': self.slug})
+    
+
+
+
+def component_pre_save(sender, instance, *args, **kwargs):
+    # print('pre_save')
+    if instance.slug is None:
+        slugify_instance_discord(instance, save=False)
+
+pre_save.connect(component_pre_save, sender=Profile)
+
+
+
+def component_post_save(sender, instance, created, *args, **kwargs):
+    # print('post_save')
+    if created:
+        slugify_instance_discord(instance, save=True)
+
+post_save.connect(component_post_save, sender=Profile)

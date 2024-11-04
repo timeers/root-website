@@ -1,8 +1,10 @@
 from django.utils import timezone 
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, get_object_or_404
+from django.http import HttpResponseNotFound 
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.models import User
 from django.db.models import Q
+from django.core.exceptions import ObjectDoesNotExist
 from django.views.generic import (
     ListView, 
     DetailView, 
@@ -11,7 +13,12 @@ from django.views.generic import (
     DeleteView
 )
 from the_gatehouse.views import creative_required_class_based_view
-from .models import Post, Map, Vagabond, Hireling, Landmark, Deck, Faction, Expansion
+from .models import (
+    Post, Expansion,
+    Faction, Vagabond,
+      Map, Deck,
+      Hireling, Landmark
+    )
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
@@ -22,7 +29,7 @@ from .forms import (PostCreateForm, MapCreateForm,
 #  A list of all the posts. Most recent update first
 class PostListView(ListView):
     model = Post
-    template_name = 'blog/home.html' # <app>/<model>_<viewtype>.html
+    template_name = 'blog/home.html'
     context_object_name = 'posts'
     ordering = ['-date_updated']
     paginate_by = 20
@@ -30,7 +37,7 @@ class PostListView(ListView):
 # A list of one specific user's posts
 class UserPostListView(ListView):
     model = Post
-    template_name = 'blog/user_posts.html' # <app>/<model>_<viewtype>.html
+    template_name = 'blog/user_posts.html'
     context_object_name = 'posts'
     paginate_by = 20
 
@@ -41,7 +48,7 @@ class UserPostListView(ListView):
 # A list of one specific user's posts
 class ArtistPostListView(ListView):
     model = Post
-    template_name = 'blog/user_posts_art.html' # <app>/<model>_<viewtype>.html
+    template_name = 'blog/user_posts_art.html'
     context_object_name = 'posts'
     paginate_by = 20
 
@@ -52,7 +59,7 @@ class ArtistPostListView(ListView):
 # A list of search results
 class SearchPostListView(ListView):
     model = Post
-    template_name = 'blog/search_posts.html' # <app>/<model>_<viewtype>.html
+    template_name = 'blog/search_posts.html'
     context_object_name = 'posts'
     paginate_by = 20
 
@@ -76,29 +83,31 @@ def post_search_view(request):
     }
     return render(request, 'blog/search_posts.html', context=context)
 
-class PostDetailView(DetailView):
-    model = Post
+def component_detail_view(request, slug=None):
+    post = get_object_or_404(Post, slug=slug)
+
+    component_mapping = {
+        "Map": Map,
+        "Deck": Deck,
+        "Landmark": Landmark,
+        "Hireling": Hireling,
+        "Vagabond": Vagabond,
+        "Faction": Faction,
+    }
+    Klass = component_mapping.get(post.component)
+    
+    if Klass is None:
+        return HttpResponseNotFound("Component not found.")
+    
+    obj = get_object_or_404(Klass, slug=slug)
+
+    context = {
+        'object': obj
+    }
+    return render(request, "blog/component_detail.html", context)
 
 class ExpansionDetailView(DetailView):
     model = Expansion
-
-class MapDetailView(DetailView):
-    model = Map
-
-class DeckDetailView(DetailView):
-    model = Deck
-
-class LandmarkDetailView(DetailView):
-    model = Landmark
-
-class HirelingDetailView(DetailView):
-    model = Hireling
-
-class VagabondDetailView(DetailView):
-    model = Vagabond
-
-class FactionDetailView(DetailView):
-    model = Faction
 
 # Moved this to the form.py file so that I can make custom labels
 @creative_required_class_based_view

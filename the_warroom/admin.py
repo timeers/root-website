@@ -72,7 +72,7 @@ class GameAdmin(admin.ModelAdmin):
 
                 game_data = {
                     'date_posted': fields[0],
-                    'undrafted': faction_instance, #Need reference
+                    'undrafted_faction': faction_instance, #Need reference
                     'map': map_instance,
                     'deck': deck_instance, #Need reference
                     'random_clearing': random,
