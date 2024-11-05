@@ -29,16 +29,19 @@ class Profile(models.Model):
     def __str__(self):
         return f'{self.discord}'
     
-    def save(self, *args, **kwargs):
+    #  No longer used as files are stored in S3
+    # def save(self, *args, **kwargs):
 
-        super().save(*args, **kwargs)
+    #     super().save(*args, **kwargs)
 
-        img = Image.open(self.image.path)
+    #     img = Image.open(self.image.path)
 
-        if img.height > 300 or img.width > 300:
-            output_size = (300, 300)
-            img.thumbnail(output_size)
-            img.save(self.image.path)
+    #     if img.height > 300 or img.width > 300:
+    #         output_size = (300, 300)
+    #         img.thumbnail(output_size)
+    #         img.save(self.image.path)
+
+     
 
     def winrate(self, faction = None):
         efforts = self.effort_set.all()  # Access the related Effort objects for this player

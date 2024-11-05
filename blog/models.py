@@ -256,47 +256,60 @@ class Faction(Post):
         if isinstance(other, Faction):
             return self.reach + other.reach
         return NotImplemented
-    def save(self, *args, **kwargs):
+    
+    # Had to switch this to init because save was preventing S3 uploads somehow...
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.component = 'Faction'  # Set the component type
-
-
-
         # Set default adset_card based on the type if not provided
-        if not self.adset_card:
+        if not self.adset_card:  # Only set if it's not already defined
             if self.type == self.INSURGENT:
                 self.adset_card = 'ADSET_Insurgent.png'
             elif self.type == self.MILITANT:
                 self.adset_card = 'ADSET_Militant.png'
 
-
-
-        super().save(*args, **kwargs)  # Call the parent save method
-
-
+#  This is now not used as files are stored in S3
+    # def save(self, *args, **kwargs):
+    #     self.component = 'Faction'  # Set the component type
 
 
 
-        img = Image.open(self.faction_icon.path)
-        # Determine the largest dimension
-        max_size = 40
-        if img.height > max_size or img.width > max_size:
-            # print('resizing image')
+    #     # Set default adset_card based on the type if not provided
+    #     if not self.adset_card:
+    #         if self.type == self.INSURGENT:
+    #             self.adset_card = 'ADSET_Insurgent.png'
+    #         elif self.type == self.MILITANT:
+    #             self.adset_card = 'ADSET_Militant.png'
 
-            # Calculate the new size while maintaining the aspect ratio
-            if img.width > img.height:
-                ratio = max_size / img.width
-                new_size = (max_size, int(img.height * ratio))
-            else:
-                ratio = max_size / img.height
-                new_size = (int(img.width * ratio), max_size)
 
-            img = img.resize(new_size, Image.LANCZOS)
-            img.save(self.faction_icon.path)
-            # print(f'Resized image saved at: {self.faction_icon.path}')
-        else:
-            # print('original image')
-            img.save(self.faction_icon.path)
-            # print(f'Original image saved at: {self.faction_icon.path}')
+
+        # super().save(*args, **kwargs)  # Call the parent save method
+
+
+
+
+
+        # img = Image.open(self.faction_icon.path)
+        # # Determine the largest dimension
+        # max_size = 40
+        # if img.height > max_size or img.width > max_size:
+        #     # print('resizing image')
+
+        #     # Calculate the new size while maintaining the aspect ratio
+        #     if img.width > img.height:
+        #         ratio = max_size / img.width
+        #         new_size = (max_size, int(img.height * ratio))
+        #     else:
+        #         ratio = max_size / img.height
+        #         new_size = (int(img.width * ratio), max_size)
+
+        #     img = img.resize(new_size, Image.LANCZOS)
+        #     img.save(self.faction_icon.path)
+        #     # print(f'Resized image saved at: {self.faction_icon.path}')
+        # else:
+        #     # print('original image')
+        #     img.save(self.faction_icon.path)
+        #     # print(f'Original image saved at: {self.faction_icon.path}')
 
     def get_absolute_url(self):
         return reverse('faction-detail', kwargs={'slug': self.slug})
