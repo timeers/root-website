@@ -29,9 +29,12 @@ class EffortCreateForm(forms.ModelForm):
 
 
     # Why aren't either of these working? It should throw a validation error.... right?
-    def clean_faction(self):
-        faction = self.cleaned_data.get('faction')
-        if not faction:
-            raise ValidationError("Please select a faction for each player")
-        return faction
+    def clean(self):
+        cleaned_data = super().clean()
+        faction = cleaned_data.get('faction')
+
+        if faction is None or faction == "":
+            raise ValidationError("Please select a faction for each player.")
+
+        return cleaned_data
     

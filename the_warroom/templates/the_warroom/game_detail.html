@@ -11,17 +11,14 @@
 
 <article class="media content-section">
     <div class="media-body">
+        <h5>Game Details</h5>
         {% if game.tournament %}
         <div>
             {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game
         </div>
         {% endif %}
 
-        {% if game.recorder %}
-        <div>
-            Recorded by: {{ game.recorder }}
-        </div>
-        {% endif %}
+
         {% if game.undrafted_faction %}
         <div>
             Undrafted Faction: 
@@ -29,6 +26,9 @@
                 <img class="rounded-square faction-icon" src="{{ game.undrafted_faction.faction_icon.url }}">
             </a>
             <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
+            {% if game.undrafted_vagabond %}
+                (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
+            {% endif %}
         </div>
         {% endif %}
 
@@ -46,7 +46,12 @@
 
         {% if game.link %}
         <div>
-            <a href="{{ game.link }}">Link to Game</a>
+            <a href="{{ game.link }}">Link to Game Thread</a>
+        </div>
+        {% endif %}
+        {% if game.recorder %}
+        <div>
+            Recorded by: {{ game.recorder }}
         </div>
         {% endif %}
     </div>

@@ -19,3 +19,4 @@ Fix validation on game submit form.
 Allow players to be added on game submit form without needing to edit.
 Add expansion view that lists all components in an expansion.
 Add component list on separate tab to player profiles. And remove current post list view.
+Add pagination to player pages.

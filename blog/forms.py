@@ -222,6 +222,9 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
                 raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
             return cleaned_data
 
+
+
+
 class FactionImportForm(FactionCreateForm):
     reach = forms.IntegerField(min_value=0, max_value=10)
     class Meta(FactionCreateForm):

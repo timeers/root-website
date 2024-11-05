@@ -8,6 +8,7 @@ from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404
 from django.core.exceptions import ObjectDoesNotExist
 from django.urls import reverse
+from django.db import transaction
 from .models import Game, Effort
 from .forms import GameCreateForm, EffortCreateForm
 
@@ -147,14 +148,16 @@ def update_game(request, id=None):
                'object': obj,
                }
     # This is not catching null data
-    if  all([form.is_valid(), formset.is_valid()]):
+    if  form.is_valid() and formset.is_valid():
         parent = form.save(commit=False)
         parent.save()
         form.save_m2m()
         for form in formset:
             child = form.save(commit=False)
-            child.game = parent
-            child.save()
+            # This is the only way I can think to avoid null. It just skips the child if there's no faciton ID
+            if not child.faction_id is None:
+                child.game = parent
+                child.save()
         context['message'] = "Game Saved"
         return redirect(parent.get_absolute_url())
     if request.htmx:

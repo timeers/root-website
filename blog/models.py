@@ -258,7 +258,23 @@ class Faction(Post):
         return NotImplemented
     def save(self, *args, **kwargs):
         self.component = 'Faction'  # Set the component type
+
+
+
+        # Set default adset_card based on the type if not provided
+        if not self.adset_card:
+            if self.type == self.INSURGENT:
+                self.adset_card = 'ADSET_Insurgent.png'
+            elif self.type == self.MILITANT:
+                self.adset_card = 'ADSET_Militant.png'
+
+
+
         super().save(*args, **kwargs)  # Call the parent save method
+
+
+
+
 
         img = Image.open(self.faction_icon.path)
         # Determine the largest dimension

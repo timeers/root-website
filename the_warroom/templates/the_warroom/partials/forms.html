@@ -28,11 +28,14 @@
                                         {% endif %}
                                         </div>
                                 {% endfor %}
+                                <button class="btn btn-outline-danger" type="button">Delete</button>
                             </div>
                     {% endfor %}
             </div>
 
-            <div id="empty-form" class="hidden form-control">{{ formset.empty_form.as_p }}</div>
+                <div id="empty-form" class="hidden form-control">
+                        {{ formset.empty_form.as_p }}
+                </div>
             <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
         {% else %}
             <a class="btn btn-outline-info mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>

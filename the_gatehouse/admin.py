@@ -31,9 +31,15 @@ class ProfileAdmin(admin.ModelAdmin):
             csv_data = file_data.split('\n')
 
             for x in csv_data:
+
                 fields = x.split(',')
+                if fields[0] == '':  # Check to ensure there are enough fields
+                    print("No Data in Field")
+                    continue  # Skip to the next iteration if not enough fields
+                discord_value = fields[0].split('+')[0]
                 created = Profile.objects.update_or_create(
-                    discord = fields[0],
+                    discord = discord_value,
+                    dwd = fields[0],
                     )
             url = reverse('admin:index')
             return HttpResponseRedirect(url)

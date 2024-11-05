@@ -49,7 +49,7 @@
 
         {% for effort in game.get_efforts %}
 
-        <tr>
+        <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
             <td>
 
             {% if effort.player %}

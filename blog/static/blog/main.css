@@ -2,12 +2,21 @@ body {
     background: #fafafa;
     color: #333333;
     margin-top: 5rem;
+    font-family: 'Baskerville', serif; /* Use Baskerville for body text */
   }
   
   h1, h2, h3, h4, h5, h6 {
     color: #444444;
+    font-family: 'Luminari', serif; 
+    /* Use Luminari for titles */
   }
   
+/* Italic body text */
+em, i {
+  font-family: 'Baskerville', serif; /* Italicized text */
+  font-style: italic; /* Ensure italic style is applied */
+}
+
   ul {
     margin: 0;
   }
@@ -120,10 +129,6 @@ th, td {
   vertical-align: middle; /* Center align vertically */
 }
 
-/* th {
-  background-color: #f2f2f2;
-} */
-
 .effort-rows {
   border-top: 1px solid #000; /* Line before the tbody */
 }
@@ -136,3 +141,18 @@ th, td {
   padding-left: 15px; /* Space between columns */
   padding-right: 15px; /* Space between columns */
 }
+
+
+/* @font-face {
+  font-family: 'Baskerville';
+  src: url('fonts/Baskerville-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Baskerville';
+  src: url('fonts/Baskerville-Italic.ttf') format('truetype');
+  font-weight: normal;
+  font-style: italic;
+} */
