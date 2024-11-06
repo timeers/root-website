@@ -62,7 +62,11 @@ class GameAdmin(admin.ModelAdmin):
                 map_instance = Map.objects.filter(title=fields[18]).first()
 
                 # Attempt to find the Deck by title
-                deck_instance = Deck.objects.filter(title=fields[19]).first()
+                deck = fields[19]
+                if fields[19] == "E&P":
+                    deck = "Exiles & Partisans"
+
+                deck_instance = Deck.objects.filter(title=deck).first()
 
                 if "Vagabond" in fields[9].strip():
                     faction = "Vagabond"

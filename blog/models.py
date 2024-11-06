@@ -11,6 +11,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 import json
 
 from .utils import slugify_instance_title
+from the_gatehouse.models import Profile
 # import random
 # from django.utils.text import slugify
 
@@ -72,6 +73,8 @@ class Post(models.Model):
     date_posted = models.DateTimeField(default=timezone.now)
     date_updated = models.DateTimeField(default=timezone.now)
     designer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,)
+    designer_profile = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True)
+    artist_profile = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     artist = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     official = models.BooleanField(default=False)
     stable = models.BooleanField(default=False)
@@ -82,6 +85,7 @@ class Post(models.Model):
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True, blank=True)
+    based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
 
     objects = PostManager()
 
@@ -248,7 +252,6 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=STYLE_CHOICES)
     aggression = models.CharField(max_length=1, choices=STYLE_CHOICES)
     crafting_ability = models.CharField(max_length=1, choices=STYLE_CHOICES)
-    based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     faction_icon = models.ImageField(default='default_icon.png', upload_to='faction_icons')
     adset_card = models.ImageField(default=None, upload_to='adset_cards', blank=True, null=True)
 
@@ -346,7 +349,6 @@ class Hireling(Post):
     ]
     animal = models.CharField(max_length=15)
     type = models.CharField(max_length=1, choices=TYPE_CHOICES)
-    based_on = models.ForeignKey(Faction, on_delete=models.SET_NULL, null=True, blank=True)
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method

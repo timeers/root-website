@@ -62,7 +62,7 @@
             {% endif %}
             {% if object.tts_link %}
             <p class="article-content">
-                <a class="mr-2" href="{{ object.tts_link }}">Table Top Simulator Mod</a>
+                <a class="mr-2" href="{{ object.tts_link }}">Tabletop Simulator</a>
             </p>
             {% endif %}
             {% if object.ww_link %}
@@ -76,9 +76,9 @@
             </p>
             {% endif %}
             {% if object.pnp_link  %}
-            <p class="article-content">
-                <a class="mr-2" href="{{ object.pnp_link }}">Print & Play Files</a>
-            </p>
+                    <p class="article-content">
+                        <a class="mr-2" href="{{ object.pnp_link }}">{% if object.official %}Find at Leder Games{% else %}Print & Play Files{% endif %}</a>
+                    </p>
             {% endif %}
             </div>
 

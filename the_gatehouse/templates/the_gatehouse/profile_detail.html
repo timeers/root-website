@@ -7,7 +7,7 @@
         <div class="media">
         <img class="rounded-square account-img" src="{{ player.image.url }}">
             <div class="media-body">
-                <h2 class="account-heading">{{ player.display_name }}</h2>
+                <h1 class="account-heading">{{ player.display_name }}</h1>
                 {% if player.discord %}
                     <span class="text-secondary">Discord: {{ player.discord }}</span><br>
                 {% endif %}
@@ -33,7 +33,7 @@
     </div>
 
     
-    <h3>{{ player }}'s Games</h3>
+    <h2>{{ player }}'s Games</h2>
 
 
         {% for game in games %}

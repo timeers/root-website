@@ -1,8 +1,10 @@
+{% load crispy_forms_tags %}
+
 <form action="." method="POST" hx-swap="outerHTML">
     {% csrf_token %}
 
     
-    <h3>Game Details</h3>
+    <h2>Game Details</h2>
     {% for field in form %}
             <div class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
             {{ field.errors }}
@@ -14,7 +16,7 @@
     {% endfor %}
 
     {% if formset %}
-            <h3>Players</h3>
+            <h2>Players</h2>
             {{ formset.management_form }}
             <div id="effort-form-list">
                     {% for form in formset %}

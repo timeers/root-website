@@ -11,6 +11,12 @@ body {
     /* Use Luminari for titles */
   }
   
+  legend {
+    color: #444444;
+    font-family: 'Luminari', serif; 
+    /* Use Luminari for titles */
+  }
+
 /* Italic body text */
 em, i {
   font-family: 'Baskerville', serif; /* Italicized text */

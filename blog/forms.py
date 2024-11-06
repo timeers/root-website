@@ -22,7 +22,7 @@ class PostCreateForm(forms.ModelForm):
         fields = ['title', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
         labels = {
             'bgg_link': "Board Game Geek Post", 
-            'tts_link': "Tabletop Simulator Mod", 
+            'tts_link': "Tabletop Simulator", 
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
             'pnp_link': "Link to Print and Play Files"

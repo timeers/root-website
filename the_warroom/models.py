@@ -95,6 +95,7 @@ class Effort(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True)
     faction = models.ForeignKey(Faction, on_delete=models.PROTECT)
     vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None)
+    captains = models.ManyToManyField(Vagabond, blank=True, related_name='as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='coalition_with')
     dominance = models.BooleanField(default=False)
     clockwork = models.BooleanField(default=False)
@@ -104,6 +105,19 @@ class Effort(models.Model):
     faction_status = models.CharField(max_length=15, null=True, blank=True) #This should not be null.
     notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
+
+    def clean(self):
+        super().clean()
+        
+        # Ensure no more than 3 captains are assigned
+        if self.captains.count() > 3:
+            raise ValidationError({'captains': 'You cannot assign more than 3 Vagabonds as captains.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()  # This ensures the clean() method is called before saving
+        super().save(*args, **kwargs)
+
+
 
     def get_absolute_url(self):
         return self.game.get_absolute_url()
