@@ -6,8 +6,8 @@
             {% csrf_token %}
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">{{ form.form_type }}</legend>
-                {% if form.instance.pk and form.faction_icon.initial %}
-                        <img class="rounded-square lg-faction-icon" src="{{ form.faction_icon.initial.url }}" alt="Faction Icon" />
+                {% if form.instance.pk and form.small_icon.initial %}
+                        <img class="rounded-square lg-faction-icon" src="{{ form.small_icon.initial.url }}" alt="Faction Icon" />
                 {% endif %}
                 {{ form | crispy }}
             </fieldset>

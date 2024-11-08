@@ -54,9 +54,9 @@
 
             {% if effort.player %}
                 {% if user.is_authenticated %}
-                    <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player }}</a>
+                    <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.display_name }}</a>
                 {% else %}
-                    {{ effort.player }}
+                    {{ effort.player.display_name }}
                 {% endif %}
             {% else %}
                 Anonymous Player
@@ -65,7 +65,7 @@
         <td>
             {% if effort.faction %}
                 <a href="{% url 'faction-detail' effort.faction.slug %}">
-                    <img class="rounded-square faction-icon" src="{{ effort.faction.faction_icon.url }}">
+                    <img class="rounded-square faction-icon" src="{{ effort.faction.small_icon.url }}">
                 </a>
                 <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
                 {% if effort.vagabond %}

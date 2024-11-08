@@ -10,18 +10,16 @@ from PIL import Image
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
 
-from .utils import slugify_instance_title
+from .utils import slugify_instance_title, default_picture
 from the_gatehouse.models import Profile
 # import random
 # from django.utils.text import slugify
-
-# from .utils import slugify_instance_title 
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
         if query is None or query == "":
             return self.none()
-        lookups = Q(title__icontains=query) | Q(designer__username__icontains=query)
+        lookups = Q(title__icontains=query) | Q(designer__discord__icontains=query)
         return self.filter(lookups)
     
 class PostManager(models.Manager):
@@ -32,7 +30,7 @@ class PostManager(models.Manager):
 
 class Expansion(models.Model):
     title = models.CharField(max_length=100)
-    designer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True,)
     description = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
@@ -72,10 +70,8 @@ class Post(models.Model):
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     date_updated = models.DateTimeField(default=timezone.now)
-    designer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,)
-    designer_profile = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True)
-    artist_profile = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
-    artist = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True)
+    artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     official = models.BooleanField(default=False)
     stable = models.BooleanField(default=False)
     bgg_link = models.CharField(max_length=200, null=True, blank=True)
@@ -86,6 +82,8 @@ class Post(models.Model):
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    small_icon = models.ImageField(upload_to='small_component_icons', null=True, blank=True)
+    picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
 
     objects = PostManager()
 
@@ -189,7 +187,9 @@ class Landmark(Post):
 class Vagabond(Post):
 
     animal = models.CharField(max_length=15)
+    ability_item = models.CharField(max_length=150, null=True, blank=True)
     ability = models.CharField(max_length=150)
+    ability_description = models.TextField(null=True, blank=True)
     starting_coins = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_boots = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_bag = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -197,10 +197,17 @@ class Vagabond(Post):
     starting_hammer = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_crossbow = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_torch = models.IntegerField(default=1, validators=[MinValueValidator(0),MaxValueValidator(2)])
-    starting_other = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(5)])
     def save(self, *args, **kwargs):
         self.component = 'Vagabond'  # Set the component type
+        if not self.picture:
+            self.picture = default_picture(self)
         super().save(*args, **kwargs)  # Call the parent save method
+
+
+
+
+
+
     def get_absolute_url(self):
         return reverse('vagabond-detail', kwargs={'slug': self.slug})
     
@@ -252,47 +259,31 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=STYLE_CHOICES)
     aggression = models.CharField(max_length=1, choices=STYLE_CHOICES)
     crafting_ability = models.CharField(max_length=1, choices=STYLE_CHOICES)
-    faction_icon = models.ImageField(default='default_icon.png', upload_to='faction_icons')
     adset_card = models.ImageField(default=None, upload_to='adset_cards', blank=True, null=True)
+    clockwork = models.BooleanField(default=False)
 
     def __add__(self, other):
         if isinstance(other, Faction):
             return self.reach + other.reach
         return NotImplemented
     
-    # Had to switch this to init because save was preventing S3 uploads somehow...
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.component = 'Faction'  # Set the component type
-        # Set default adset_card based on the type if not provided
+
+    def save(self, *args, **kwargs):
         if not self.adset_card:  # Only set if it's not already defined
             if self.type == self.INSURGENT:
                 self.adset_card = 'ADSET_Insurgent.png'
             elif self.type == self.MILITANT:
                 self.adset_card = 'ADSET_Militant.png'
-
-#  This is now not used as files are stored in S3
-    # def save(self, *args, **kwargs):
-    #     self.component = 'Faction'  # Set the component type
-
-
-
-    #     # Set default adset_card based on the type if not provided
-    #     if not self.adset_card:
-    #         if self.type == self.INSURGENT:
-    #             self.adset_card = 'ADSET_Insurgent.png'
-    #         elif self.type == self.MILITANT:
-    #             self.adset_card = 'ADSET_Militant.png'
+        if not self.small_icon:  # Only set if it's not already defined
+            self.small_icon = 'default_faction_icon.png'
+        if not self.picture:
+            self.picture = default_picture(self)
+                
+        self.component = 'Faction'  # Set the component type
+        super().save(*args, **kwargs)  # Call the parent save method
 
 
-
-        # super().save(*args, **kwargs)  # Call the parent save method
-
-
-
-
-
-        # img = Image.open(self.faction_icon.path)
+        # img = Image.open(self.small_icon.path)
         # # Determine the largest dimension
         # max_size = 40
         # if img.height > max_size or img.width > max_size:
@@ -307,12 +298,12 @@ class Faction(Post):
         #         new_size = (int(img.width * ratio), max_size)
 
         #     img = img.resize(new_size, Image.LANCZOS)
-        #     img.save(self.faction_icon.path)
-        #     # print(f'Resized image saved at: {self.faction_icon.path}')
+        #     img.save(self.small_icon.path)
+        #     # print(f'Resized image saved at: {self.small_icon.path}')
         # else:
         #     # print('original image')
-        #     img.save(self.faction_icon.path)
-        #     # print(f'Original image saved at: {self.faction_icon.path}')
+        #     img.save(self.small_icon.path)
+        #     # print(f'Original image saved at: {self.small_icon.path}')
 
     def get_absolute_url(self):
         return reverse('faction-detail', kwargs={'slug': self.slug})
@@ -351,6 +342,8 @@ class Hireling(Post):
     type = models.CharField(max_length=1, choices=TYPE_CHOICES)
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
+        if not self.picture:
+            self.picture = default_picture(self)
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
         return reverse('hireling-detail', kwargs={'slug': self.slug})
@@ -362,6 +355,7 @@ class Piece(models.Model):
     description = models.TextField(null=True, blank=True)
     suited = models.BooleanField(default=False)
     faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
     hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
 
     class Meta:

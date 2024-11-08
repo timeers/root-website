@@ -5,6 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.views.generic import DetailView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from functools import wraps
 from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm
 from .models import Profile
 
@@ -59,19 +60,30 @@ def player_page_view(request, slug):
     return render(request, 'the_gatehouse/profile_detail.html', {'games': games, 'player': player})
 
 
+# Decorator hit recursion limit using this bit... so chat GPT suggested the below decorator
+# def creative_required():
+#     def decorator(view_func):
+#         @login_required  # Ensure the user is authenticated
+#         def wrapper(request, *args, **kwargs):
+#             if request.user.profile.creative:
+#                 return view_func(request, *args, **kwargs)  # Continue to the view
+#             else:
+#                 return HttpResponseForbidden()  # 403 Forbidden
+#         return wrapper
+#     return decorator
+
 # Decorator
-def creative_required():
-    def decorator(view_func):
-        @login_required  # Ensure the user is authenticated
-        def wrapper(request, *args, **kwargs):
-            if request.user.profile.creative:
-                return view_func(request, *args, **kwargs)  # Continue to the view
-            else:
-                return HttpResponseForbidden()  # 403 Forbidden
-        return wrapper
-    return decorator
+def creative_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        if request.user.profile.creative:
+            return view_func(request, *args, **kwargs)  # Continue to the view
+        else:
+            return HttpResponseForbidden()  # 403 Forbidden
+    return wrapper
 
 def creative_required_class_based_view(view_class):
     """Decorator to apply to class-based views."""
-    view_class.dispatch = method_decorator(creative_required())(view_class.dispatch)
+    view_class.dispatch = method_decorator(creative_required)(view_class.dispatch)
     return view_class

@@ -16,7 +16,7 @@ class GameCreateForm(forms.ModelForm):
                 )
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'landmarks', 'hirelings', 'link']
+        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -27,8 +27,6 @@ class EffortCreateForm(forms.ModelForm):
         model = Effort
         fields = ['seat', 'player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with']
 
-
-    # Why aren't either of these working? It should throw a validation error.... right?
     def clean(self):
         cleaned_data = super().clean()
         faction = cleaned_data.get('faction')
@@ -38,3 +36,26 @@ class EffortCreateForm(forms.ModelForm):
 
         return cleaned_data
     
+class EffortImportForm(forms.ModelForm):
+    required_css_class = 'required-field'
+    class Meta:
+        model = Effort
+        fields = ['seat', 'player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with', 'game', 'date_posted']
+
+    def clean(self):
+        cleaned_data = super().clean()
+        faction = cleaned_data.get('faction')
+
+        if faction is None or faction == "":
+            raise ValidationError("Please select a faction for each player.")
+
+        return cleaned_data
+    
+class GameImportForm(forms.ModelForm):  
+
+    class Meta:
+        model = Game
+        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        widgets = {
+            'type': forms.RadioSelect,
+        }

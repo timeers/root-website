@@ -69,6 +69,12 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         model = Map  # Specify the model to be Map
         fields = top_fields + ['clearings'] + bottom_fields
 
+class MapImportForm(MapCreateForm):  # Inherit from PostCreateForm
+    class Meta(MapCreateForm.Meta):  # Inherit Meta from PostCreateForm
+        model = Map  # Specify the model to be Map
+        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable'] + bottom_fields
+
+
 
 class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Deck'
@@ -84,6 +90,12 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
         fields = top_fields + ['card_total'] + bottom_fields
+
+class DeckImportForm(DeckCreateForm):
+    class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
+        model = Deck  # Specify the model to be Deck
+        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'stable'] + bottom_fields
+
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Landmark'
@@ -125,12 +137,6 @@ class VagabondCreateForm(PostCreateForm):
         label='Vagabond Name',
         required=True
     )
-    starting_other = forms.IntegerField(
-        label='Other Starting Items',
-        required=True,
-        initial=0,
-        min_value=0, max_value=5
-    )
     starting_torch = forms.IntegerField(initial=1, min_value=0, max_value=2)
     starting_coins = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_boots = forms.IntegerField(initial=0, min_value=0, max_value=4)
@@ -140,15 +146,17 @@ class VagabondCreateForm(PostCreateForm):
     starting_crossbow = forms.IntegerField(initial=0, min_value=0, max_value=4)
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['ability', 'animal', 'starting_torch', 'starting_coins', 'starting_boots',
-                                                'starting_bag',
-                                                'starting_tea',
-                                                'starting_hammer',
-                                                'starting_crossbow',
-                                                'starting_other'] + bottom_fields
+        fields = top_fields + ['animal',
+                                'ability_item', 'ability', 'ability_description', 
+                                'starting_torch', 'starting_coins', 'starting_boots',
+                                'starting_bag', 'starting_tea', 'starting_hammer', 'starting_crossbow'] + bottom_fields
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['ability_description'].widget.attrs.update({'rows': '2'})
+    
+    
     def clean(self):
             cleaned_data = super().clean()
-            starting_other = cleaned_data.get('starting_other')
             starting_torch = cleaned_data.get('starting_torch')
             starting_coins = cleaned_data.get('starting_coins')
             starting_boots = cleaned_data.get('starting_boots')
@@ -157,9 +165,31 @@ class VagabondCreateForm(PostCreateForm):
             starting_hammer = cleaned_data.get('starting_hammer')
             starting_crossbow = cleaned_data.get('starting_crossbow')
             # Check that the VB doesn't have a wild amount of items
-            if (starting_other+starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_hammer+starting_crossbow) > 6:
+            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_hammer+starting_crossbow) > 6:
                 raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
             return cleaned_data
+
+class VagabondImportForm(PostCreateForm): 
+    class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
+        model = Vagabond  # Specify the model to be Vagabond
+        fields = top_fields + ['animal', 'official', 'designer',
+                                'ability_item', 'ability', 'ability_description', 
+                                'starting_torch', 'starting_coins', 'starting_boots',
+                                'starting_bag', 'starting_tea', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
+    def clean(self):
+            cleaned_data = super().clean()
+            starting_torch = cleaned_data.get('starting_torch')
+            starting_coins = cleaned_data.get('starting_coins')
+            starting_boots = cleaned_data.get('starting_boots')
+            starting_bag = cleaned_data.get('starting_bag')
+            starting_tea = cleaned_data.get('starting_tea')
+            starting_hammer = cleaned_data.get('starting_hammer')
+            starting_crossbow = cleaned_data.get('starting_crossbow')
+            # Check that the VB doesn't have a wild amount of items
+            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_hammer+starting_crossbow) > 6:
+                raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
+            return cleaned_data
+
 
 
 class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -207,7 +237,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['faction_icon', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
+        fields = top_fields + ['small_icon', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability'] + bottom_fields
 
     def clean(self):
@@ -229,16 +259,16 @@ class FactionImportForm(FactionCreateForm):
     reach = forms.IntegerField(min_value=0, max_value=10)
     class Meta(FactionCreateForm):
         model = Faction 
-        fields = top_fields + ['faction_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
+        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
             faction_instance = kwargs.pop('instance', None)
             super().__init__(*args, **kwargs)
 
-            # Set the initial value for faction_icon if the instance exists
-            if faction_instance and faction_instance.faction_icon:
-                self.fields['faction_icon'].initial = faction_instance.faction_icon
+            # Set the initial value for small_icon if the instance exists
+            if faction_instance and faction_instance.small_icon:
+                self.fields['small_icon'].initial = faction_instance.small_icon
 
 
 class WarriorForm(forms.ModelForm):
@@ -276,7 +306,7 @@ class CardForm(forms.ModelForm):
 class OtherPieceForm(forms.ModelForm):
     class Meta:
         model = OtherPiece
-        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling', 'vagabond']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }

@@ -23,7 +23,7 @@
         <div>
             Undrafted Faction: 
             <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">
-                <img class="rounded-square faction-icon" src="{{ game.undrafted_faction.faction_icon.url }}">
+                <img class="rounded-square faction-icon" src="{{ game.undrafted_faction.small_icon.url }}">
             </a>
             <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
             {% if game.undrafted_vagabond %}
@@ -51,7 +51,7 @@
         {% endif %}
         {% if game.recorder %}
         <div>
-            Recorded by: {{ game.recorder }}
+            Recorded by: {{ game.recorder.display_name }}
         </div>
         {% endif %}
     </div>

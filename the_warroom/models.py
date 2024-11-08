@@ -110,8 +110,8 @@ class Effort(models.Model):
         super().clean()
         
         # Ensure no more than 3 captains are assigned
-        if self.captains.count() > 3:
-            raise ValidationError({'captains': 'You cannot assign more than 3 Vagabonds as captains.'})
+        # if self.captains.count() > 3:
+        #     raise ValidationError({'captains': 'You cannot assign more than 3 Vagabonds as captains.'})
 
     def save(self, *args, **kwargs):
         self.full_clean()  # This ensures the clean() method is called before saving

@@ -12,6 +12,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
+from the_gatehouse.models import Profile
 from the_gatehouse.views import creative_required_class_based_view
 from .models import (
     Post, Expansion,
@@ -42,7 +43,7 @@ class UserPostListView(ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        user = get_object_or_404(User, username=self.kwargs.get('username'))
+        user = get_object_or_404(Profile, discord=self.kwargs.get('discord'))
         return Post.objects.filter(designer=user).order_by('-date_updated')
     
 # A list of one specific user's posts
@@ -53,7 +54,7 @@ class ArtistPostListView(ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        user = get_object_or_404(User, username=self.kwargs.get('username'))
+        user = get_object_or_404(Profile, discord=self.kwargs.get('discord'))
         return Post.objects.filter(artist=user).order_by('-date_updated')
 
 # A list of search results
@@ -67,7 +68,8 @@ class SearchPostListView(ListView):
         search_term = self.request.GET.get('search_term', '')
         return Post.objects.filter(
             Q(title__icontains=search_term)|
-            Q(designer__username__icontains=search_term)
+            Q(designer__discord__icontains=search_term)|
+            Q(component__icontains=search_term)
             ).order_by('-date_posted')
 
     def get_context_data(self, **kwargs):
@@ -116,7 +118,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
     form_class = PostCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
 
@@ -127,7 +129,7 @@ class MapCreateView(LoginRequiredMixin, CreateView):
     form_class = MapCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
     
 @creative_required_class_based_view
@@ -136,7 +138,7 @@ class DeckCreateView(LoginRequiredMixin, CreateView):
     form_class = DeckCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
     
 @creative_required_class_based_view
@@ -145,7 +147,7 @@ class LandmarkCreateView(LoginRequiredMixin, CreateView):
     form_class = LandmarkCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
 @creative_required_class_based_view
@@ -154,7 +156,7 @@ class HirelingCreateView(LoginRequiredMixin, CreateView):
     form_class = HirelingCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
 @creative_required_class_based_view
@@ -163,7 +165,7 @@ class VagabondCreateView(LoginRequiredMixin, CreateView):
     form_class = VagabondCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
 @creative_required_class_based_view
@@ -172,7 +174,7 @@ class FactionCreateView(LoginRequiredMixin, CreateView):
     form_class = FactionCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 # END CREATE VIEWS
 
@@ -204,7 +206,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
 
@@ -214,13 +216,13 @@ class MapUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = MapCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()
         return super().form_valid(form)
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
 
@@ -230,13 +232,13 @@ class DeckUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = DeckCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()
         return super().form_valid(form)
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
 
@@ -246,13 +248,13 @@ class LandmarkUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = LandmarkCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()
         return super().form_valid(form)
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
 
@@ -262,13 +264,13 @@ class HirelingUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = HirelingCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()
         return super().form_valid(form)
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
 
@@ -278,13 +280,13 @@ class VagabondUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = VagabondCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()
         return super().form_valid(form)
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
     
@@ -294,26 +296,28 @@ class FactionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = FactionCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
+        form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()
         return super().form_valid(form)
     
     def test_func(self):
         post = self.get_object()
-        if self.request.user == post.designer:
+        if self.request.user.profile == post.designer:
             return True
         return False
 
-@creative_required_class_based_view
 class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Post
     success_url = '/'
 
     def test_func(self):
+        print("testing if user is owner")
         post = self.get_object()
-        if self.request.user == post.designer:
-            return True
-        return False
+        print("post")
+        print(post.designer)
+        print(self.request.user.profile)
+        print(post.designer == self.request.user.profile)
+        return self.request.user.profile == post.designer
 
 def about(request):
     return render(request, 'blog/about.html', {'title': 'About'})

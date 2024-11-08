@@ -6,12 +6,12 @@ from .models import Game, Effort, Tournament
 from blog.models import Deck, Map, Faction, Vagabond
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
-from .forms import GameCreateForm, EffortCreateForm
+from .forms import GameImportForm, EffortImportForm
 from django.core.exceptions import ObjectDoesNotExist
 import re
 
 class CsvImportForm(forms.Form):
-    csv_upload = forms.FileField() 
+    csv_upload = forms.FileField()
 
 class EffortAdmin(admin.ModelAdmin):
     list_display = ('date_posted', 'player', 'faction', 'score', 'win', 'game', 'game__league')
@@ -67,16 +67,24 @@ class GameAdmin(admin.ModelAdmin):
                     deck = "Exiles & Partisans"
 
                 deck_instance = Deck.objects.filter(title=deck).first()
-
+                found_vb = None
                 if "Vagabond" in fields[9].strip():
                     faction = "Vagabond"
+                    match = re.search(r'\((.*?)\)', fields[9])  # This will search for text inside parentheses
+                    if match:
+                        found_vb = match.group(1)  # This will get the text inside the parentheses
+                        print(found_vb)  # For example, this will print 'Harrier'
+                    else:
+                        print("No VB found")
                 else:
                     faction = fields[9]
+                vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
                 faction_instance = Faction.objects.filter(title=faction).first()
 
                 game_data = {
                     'date_posted': fields[0],
                     'undrafted_faction': faction_instance, #Need reference
+                    'undrafted_vagabond': vagabond_instance,
                     'map': map_instance,
                     'deck': deck_instance, #Need reference
                     'random_clearing': random,
@@ -86,7 +94,7 @@ class GameAdmin(admin.ModelAdmin):
                     'league': True,
                 }
                 # Use GameCreateForm for validation
-                form = GameCreateForm(game_data)
+                form = GameImportForm(game_data)
 
                 if form.is_valid():
                     game_instance = form.save()
@@ -96,7 +104,19 @@ class GameAdmin(admin.ModelAdmin):
 
                         
                     for i in range(4):
-                        player_instance = Profile.objects.get_or_create(discord=fields[1+i])
+                        discord_value = fields[1+i].split('+')[0]
+                        # player_instance = Profile.objects.get_or_create(discord=fields[1+i])
+                        print(discord_value)
+                        print(fields[1+i])
+
+                        player_instance, _ = Profile.objects.update_or_create(
+                            discord=discord_value,
+                            defaults={
+                                'dwd': fields[1+i],
+                                'display_name': discord_value
+                                }
+                            )
+
                         coalition_faction = None
                         dominance = False
                         win = False
@@ -131,7 +151,7 @@ class GameAdmin(admin.ModelAdmin):
                         # Record each player's results
                         player_data = {
                             'seat': 1+i,
-                            'player': player_instance[0],
+                            'player': player_instance,
                             'faction': faction_instance,
                             'vagabond': vagabond_instance,
                             'win': win,
@@ -141,7 +161,7 @@ class GameAdmin(admin.ModelAdmin):
                             'game': game_instance,
                         }
 
-                        effort_form = EffortCreateForm(player_data)
+                        effort_form = EffortImportForm(player_data)
                         if effort_form.is_valid():
                             print('Valid Effort')
                             effort_form.save()

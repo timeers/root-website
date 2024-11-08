@@ -37,10 +37,15 @@ class ProfileAdmin(admin.ModelAdmin):
                     print("No Data in Field")
                     continue  # Skip to the next iteration if not enough fields
                 discord_value = fields[0].split('+')[0]
-                created = Profile.objects.update_or_create(
-                    discord = discord_value,
-                    dwd = fields[0],
-                    )
+                profile, created = Profile.objects.update_or_create(
+                    discord=discord_value,
+                    defaults={
+                        'dwd': fields[0],
+                        'display_name': discord_value
+                    }
+                )
+                # profile.dwd = fields[0]
+                # profile.display_name = discord_value
             url = reverse('admin:index')
             return HttpResponseRedirect(url)
 

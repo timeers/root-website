@@ -20,8 +20,8 @@ from . import views
 
 urlpatterns = [
     path('', PostListView.as_view(), name='blog-home'),
-    path('user/<str:username>/art/', ArtistPostListView.as_view(), name='artist-posts'),
-    path('user/<str:username>/', UserPostListView.as_view(), name='user-posts'),
+    path('user/<str:discord>/art/', ArtistPostListView.as_view(), name='artist-posts'),
+    path('user/<str:discord>/', UserPostListView.as_view(), name='user-posts'),
     # path('posts/', views.post_search_view),
     path('posts/<str:search_term>/', SearchPostListView.as_view(), name='search-posts'),
 
