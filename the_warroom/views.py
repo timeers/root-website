@@ -115,6 +115,23 @@ def game_detail_hx_view(request, id=None):
     return render(request, "the_warroom/partials/game_detail.html", context)
 
 @login_required
+def effort_update_hx_view(request, id=None):
+    if not request.htmx:
+        raise Http404("Not an HTMX request")
+    
+    try:
+        obj = Effort.objects.get(id=id)
+    except Effort.DoesNotExist:
+        return HttpResponse('Effort Not Found', status=404)
+
+    context = {
+        'effort': obj
+    }
+    return render(request, "the_warroom/partials/effort_partial.html", context)
+
+
+
+@login_required
 def record_game(request):
     form = GameCreateForm(request.POST or None)
     context = {
@@ -164,6 +181,12 @@ def update_game(request, id=None):
         return render(request, 'the_warroom/partials/forms.html', context)
     return render(request, 'the_warroom/record_game.html', context)
 
+
+def create_effort(request):
+    if request.method == "POST":
+        pass
+
+    return render(request, 'the_warroom/partials/effort_partial.html', {'form': EffortCreateForm})
 
 # Never used
 # @login_required

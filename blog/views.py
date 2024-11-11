@@ -5,6 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.models import User
 from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.paginator import Paginator, EmptyPage
 from django.views.generic import (
     ListView, 
     DetailView, 
@@ -85,28 +86,28 @@ def post_search_view(request):
     }
     return render(request, 'blog/search_posts.html', context=context)
 
-def component_detail_view(request, slug=None):
-    post = get_object_or_404(Post, slug=slug)
+# def component_detail_view(request, slug=None):
+#     post = get_object_or_404(Post, slug=slug)
 
-    component_mapping = {
-        "Map": Map,
-        "Deck": Deck,
-        "Landmark": Landmark,
-        "Hireling": Hireling,
-        "Vagabond": Vagabond,
-        "Faction": Faction,
-    }
-    Klass = component_mapping.get(post.component)
+#     component_mapping = {
+#         "Map": Map,
+#         "Deck": Deck,
+#         "Landmark": Landmark,
+#         "Hireling": Hireling,
+#         "Vagabond": Vagabond,
+#         "Faction": Faction,
+#     }
+#     Klass = component_mapping.get(post.component)
     
-    if Klass is None:
-        return HttpResponseNotFound("Component not found.")
+#     if Klass is None:
+#         return HttpResponseNotFound("Component not found.")
     
-    obj = get_object_or_404(Klass, slug=slug)
+#     obj = get_object_or_404(Klass, slug=slug)
 
-    context = {
-        'object': obj
-    }
-    return render(request, "blog/component_detail.html", context)
+#     context = {
+#         'object': obj
+#     }
+#     return render(request, "blog/component_detail.html", context)
 
 class ExpansionDetailView(DetailView):
     model = Expansion
@@ -319,8 +320,75 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         print(post.designer == self.request.user.profile)
         return self.request.user.profile == post.designer
 
-def about(request):
+def about(request, *args, **kwargs):
+    if request.method == 'POST':
+        number = request.POST.get('player-number')
+        player = request.POST.get('player-name')
+        faction = request.POST.get('faction')
+        score = request.POST.get('score')
+        
+        print(f'Seat: {number}, Player: {player}, Faction: {faction}, Score: {score}')
+
     return render(request, 'blog/about.html', {'title': 'About'})
 
 def test(request):
     return render(request, 'blog/test.html', {'title': 'Test'})
+
+
+
+class ComponentDetailListView(ListView):
+    detail_context_object_name = 'object'
+    template_name = 'blog/component_detail_list.html'
+    paginate_by = 25
+    
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()  # Set the object here
+        return super(ComponentDetailListView, self).get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        post = get_object_or_404(Post, slug=self.kwargs.get('slug'))
+        component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+        }
+        Klass = component_mapping.get(post.component)
+        return Klass.objects.all()  # Return the queryset for Faction
+
+    def get_object(self):
+        # Retrieve the faction based on the primary key
+        slug = self.kwargs.get('slug')
+        if slug is None:
+            raise AttributeError('slug expected in url')
+        return get_object_or_404(self.get_queryset(), slug=slug)
+
+    def get_context_data(self, **kwargs):
+        context = super(ComponentDetailListView, self).get_context_data(**kwargs)
+        context[self.detail_context_object_name] = self.object
+
+        # # Get efforts related to the faction
+        # efforts = self.object.get_plays_queryset().order_by('-date_posted') 
+        # games = list({effort.game for effort in efforts})  # Collect unique games
+        games = self.object.get_games_queryset()
+
+        # Order the games by date_posted
+        games.sort(key=lambda game: game.date_posted, reverse=True)  # Sort the list
+        
+
+        # Paginate games
+        paginator = Paginator(games, self.paginate_by)  # Create a paginator
+        page_number = self.request.GET.get('page')  # Get the page number from the request
+
+        try:
+            page_obj = paginator.get_page(page_number)  # Get the specific page of games
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+        context['games'] = page_obj  # Pass the paginated page object to the context
+        context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
+        context['page_obj'] = page_obj  # Pass the page_obj to the context
+        return context
+

@@ -4,16 +4,12 @@ from django.db.models import Q
 from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
 from datetime import timedelta
-from django.contrib.auth.models import User
 from django.urls import reverse
-from PIL import Image
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
-
-from .utils import slugify_instance_title, default_picture
+from django.apps import apps
+from .utils import slugify_instance_title
 from the_gatehouse.models import Profile
-# import random
-# from django.utils.text import slugify
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
@@ -114,11 +110,24 @@ class Post(models.Model):
     def get_plays_queryset(self):
         match self.component:
             case "Map" | "Deck" | "Landmark" | "Hireling":
-                return self.game_set.all()
+                return self.game_set.order_by('-date_posted') 
             case "Faction" | "Vagabond":
-                return self.effort_set.all()
+                return self.effort_set.order_by('-date_posted') 
             case _:
                 return Post.objects.none()  # or return an empty queryset
+            
+    def get_games_queryset(self):
+        match self.component:
+            case "Map" | "Deck" | "Landmark" | "Hireling":
+                # return self.game_set.order_by('-date_posted') 
+                return list(self.game_set.order_by('-date_posted')) 
+            case "Faction" | "Vagabond":
+                efforts = self.effort_set.order_by('-date_posted') 
+                games = list({effort.game for effort in efforts})
+                return sorted(games, key=lambda game: game.date_posted, reverse=True) 
+            case _:
+                Game = apps.get_model('the_warroom', 'Game')
+                return list(Game.objects.none())
         
 
     def status(self):
@@ -200,7 +209,9 @@ class Vagabond(Post):
     def save(self, *args, **kwargs):
         self.component = 'Vagabond'  # Set the component type
         if not self.picture:
-            self.picture = default_picture(self)
+            self.picture = animal_default_picture(self)
+        elif self.picture == 'animals/default_animal.png':
+            self.picture = animal_default_picture(self)
         super().save(*args, **kwargs)  # Call the parent save method
 
 
@@ -277,7 +288,9 @@ class Faction(Post):
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_faction_icon.png'
         if not self.picture:
-            self.picture = default_picture(self)
+            self.picture = animal_default_picture(self)
+        elif self.picture == 'animals/default_animal.png':
+            self.picture = animal_default_picture(self)
                 
         self.component = 'Faction'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
@@ -343,7 +356,10 @@ class Hireling(Post):
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
         if not self.picture:
-            self.picture = default_picture(self)
+            self.picture = animal_default_picture(self)
+        elif self.picture == 'animals/default_animal.png':
+            self.picture = animal_default_picture(self)
+
         super().save(*args, **kwargs)  # Call the parent save method
     def get_absolute_url(self):
         return reverse('hireling-detail', kwargs={'slug': self.slug})
@@ -380,6 +396,57 @@ class OtherPiece(Piece):
     pass
 
 
+
+def animal_default_picture(instance):
+    animal_lower = instance.animal.lower()
+    if animal_lower == "mongoose" or animal_lower == "meerkat" or animal_lower == 'ferret':
+        animal_lower = 'weasel'
+    if animal_lower == "tortoise":
+        animal_lower = 'turtle'
+    if animal_lower == "toad":
+        animal_lower = 'frog'
+    if animal_lower == "puppy" or animal_lower == "canine" or animal_lower == "pup" or animal_lower == "hound" or animal_lower == "pooch":
+        animal_lower = 'dog'
+    if animal_lower == "warthog" or animal_lower == "pig" or animal_lower == "hog":
+        animal_lower = 'boar'
+    if animal_lower == "hare" or animal_lower == "bunny":
+        animal_lower = 'rabbit'
+    if animal_lower == "gator" or animal_lower == "aligator" or animal_lower == "croc" or animal_lower == "crocodile":
+        animal_lower = 'lizard'
+    valid_animals = {
+        'aardvark',
+        'badger',
+        'bat',
+        'beaver',
+        'bird',
+        'boar',
+        'cat',
+        'crow',
+        'dog',
+        'duck',
+        'eagle',
+        'falcon',
+        'fox',
+        'frog',
+        'goat',
+        'hawk',
+        'lizard',
+        'mole',
+        'opossum',
+        'otter',
+        'owl',
+        'rabbit',
+        'raccoon',
+        'skunk',
+        'squirrel',
+        'tanuki',
+        'turtle',
+        'weasel',
+        'wolf'
+    }
+    if animal_lower in valid_animals:
+        return f'animals/{animal_lower}.png'
+    return 'animals/default_animal.png'
 
 
 
