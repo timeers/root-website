@@ -37,7 +37,7 @@
         {% endif %}
 
         {% if object.component == 'Faction' or object.component == 'Hireling' %}
-            <p class="article-content">Type: {{ object.type }}</p>  
+            <p class="article-content">{{ object.get_type_display }}{% if object.component == 'Faction' %} ({{ object.reach }} Reach){% endif %}</p>  
             {% if object.based_on %}
                 Based on: <a class="mr-2" href="{% url object.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a><br>
                 by <a class="mr-2" href="{% url 'user-posts' object.based_on.designer.discord %}">{{ object.based_on.designer.discord }}</a>

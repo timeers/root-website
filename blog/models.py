@@ -1,4 +1,4 @@
-
+import os
 from django.db import models
 from django.db.models import Q
 from django.db.models.signals import pre_save, post_save
@@ -55,14 +55,21 @@ class Expansion(models.Model):
 
 
 class Post(models.Model):
-    COMPONENT_CHOICES = [
-        ('Map', 'Map'),
-        ('Deck', 'Deck'),
-        ('Hireling', 'Hireling'),
-        ('Vagabond', 'Vagabond'),
-        ('Landmark', 'Landmark'),
-        ('Faction', 'Faction'),
-]
+    class ComponentChoices(models.TextChoices):
+        MAP = 'Map'
+        DECK = 'Deck'
+        HIRELING = 'Hireling'
+        VAGABOND = 'Vagabond'
+        LANDMARK = 'Landmark'
+        FACTION = 'Faction'
+#     COMPONENT_CHOICES = [
+#         ('Map', 'Map'),
+#         ('Deck', 'Deck'),
+#         ('Hireling', 'Hireling'),
+#         ('Vagabond', 'Vagabond'),
+#         ('Landmark', 'Landmark'),
+#         ('Faction', 'Faction'),
+# ]
     title = models.CharField(max_length=35)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True)
@@ -80,7 +87,7 @@ class Post(models.Model):
     wr_link = models.CharField(max_length=200, null=True, blank=True)
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
-    component = models.CharField(max_length=10, choices=COMPONENT_CHOICES, null=True, blank=True)
+    component = models.CharField(max_length=10, choices=ComponentChoices.choices, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons', null=True, blank=True)
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
@@ -116,7 +123,7 @@ class Post(models.Model):
             case "Map" | "Deck" | "Landmark" | "Hireling":
                 return self.game_set.order_by('-date_posted') 
             case "Faction" | "Vagabond":
-                return self.effort_set.order_by('-date_posted') 
+                return self.efforts.order_by('-date_posted') 
             case _:
                 return Post.objects.none()  # or return an empty queryset
             
@@ -140,7 +147,7 @@ class Post(models.Model):
                 return self.game_set.order_by('-date_posted')  # Return a queryset directly
             case "Faction" | "Vagabond":
                 # Use a queryset with an annotation to ensure ordering
-                efforts = self.effort_set.all()
+                efforts = self.efforts.all()
                 games = Game.objects.filter(id__in=[effort.game.id for effort in efforts]).order_by('-date_posted')
                 return games  # This ensures it's a sorted queryset
             case _:
@@ -243,7 +250,7 @@ class Vagabond(Post):
         return wins.count() if plays else 0
 
     def get_wins_queryset(self):
-        return self.effort_set.all().filter(win=True)
+        return self.efforts.all().filter(win=True)
 
     @property
     def winrate(self):
@@ -260,30 +267,21 @@ class Vagabond(Post):
 
 
 class Faction(Post):
-    MILITANT = 'M'
-    INSURGENT = 'I'
-    TYPE_CHOICES = [
-        (MILITANT, 'Militant'),
-        (INSURGENT, 'Insurgent'),
-    ]
-
-    NONE = 'N'
-    LOW = 'L'
-    MODERATE = 'M'
-    HIGH = 'H'
-    STYLE_CHOICES = [
-        (NONE, 'N'),
-        (LOW, 'L'),
-        (MODERATE, 'M'),
-        (HIGH, 'H'),
-    ]
+    class TypeChoices(models.TextChoices):
+        MILITANT = 'M'
+        INSURGENT = 'I'
+    class StyleChoices(models.TextChoices):
+        NONE = 'N'
+        LOW = 'L'
+        MODERATE = 'M'
+        HIGH = 'H'                
     animal = models.CharField(max_length=15)
-    type = models.CharField(max_length=1, choices=TYPE_CHOICES)
+    type = models.CharField(max_length=10, choices=TypeChoices.choices)
     reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
-    complexity = models.CharField(max_length=1, choices=STYLE_CHOICES)
-    card_wealth = models.CharField(max_length=1, choices=STYLE_CHOICES)
-    aggression = models.CharField(max_length=1, choices=STYLE_CHOICES)
-    crafting_ability = models.CharField(max_length=1, choices=STYLE_CHOICES)
+    complexity = models.CharField(max_length=1, choices=StyleChoices.choices)
+    card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices)
+    aggression = models.CharField(max_length=1, choices=StyleChoices.choices)
+    crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices)
     adset_card = models.ImageField(default=None, upload_to='adset_cards', blank=True, null=True)
     clockwork = models.BooleanField(default=False)
 
@@ -295,9 +293,9 @@ class Faction(Post):
 
     def save(self, *args, **kwargs):
         if not self.adset_card:  # Only set if it's not already defined
-            if self.type == self.INSURGENT:
+            if self.type == self.TypeChoices.INSURGENT:
                 self.adset_card = 'ADSET_Insurgent.png'
-            elif self.type == self.MILITANT:
+            elif self.type == self.TypeChoices.MILITANT:
                 self.adset_card = 'ADSET_Militant.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_faction_icon.png'
@@ -341,7 +339,7 @@ class Faction(Post):
         return wins.count() if plays else 0
 
     def get_wins_queryset(self):
-        return self.effort_set.all().filter(win=True)
+        return self.efforts.all().filter(win=True)
 
     @property
     def winrate(self):
@@ -359,14 +357,11 @@ class Faction(Post):
 
 
 class Hireling(Post):
-    PROMOTED = 'P'
-    DEMOTED = 'D'
-    TYPE_CHOICES = [
-        (PROMOTED, 'Promoted'),
-        (DEMOTED, 'Demoted'),
-    ]
+    class TypeChoices(models.TextChoices):
+        PROMOTED = 'P'
+        DEMOTED = 'D'
     animal = models.CharField(max_length=15)
-    type = models.CharField(max_length=1, choices=TYPE_CHOICES)
+    type = models.CharField(max_length=1, choices=TypeChoices.choices)
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
         if not self.picture:
@@ -417,8 +412,6 @@ def animal_default_picture(instance):
         animal_lower = 'weasel'
     if animal_lower == "tortoise":
         animal_lower = 'turtle'
-    if animal_lower == "toad":
-        animal_lower = 'frog'
     if animal_lower == "puppy" or animal_lower == "canine" or animal_lower == "pup" or animal_lower == "hound" or animal_lower == "pooch":
         animal_lower = 'dog'
     if animal_lower == "warthog" or animal_lower == "pig" or animal_lower == "hog":
@@ -432,33 +425,56 @@ def animal_default_picture(instance):
     return check_for_image('animals', animal_lower)
 
 
-
-
+## Using the os Media folder
 def check_for_image(folder, image_png_name):
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-    )
-    
-    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-    folder_name = f'{folder}/'  # S3 Folder
+    # Construct the full path to the folder
+    folder_path = os.path.join(settings.MEDIA_ROOT, folder)  # Assuming MEDIA_ROOT is your local media directory
 
-    # List objects in folder
-    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
+    # Check if the folder exists
+    if not os.path.exists(folder_path):
+        print('Specified folder does not exist.')
+        return f'{folder}/default_{folder}.png'
 
+    # List files in the folder
     matching_images = []
-    # Check if 'Contents' key is in the response
-    if 'Contents' in response:
-        for obj in response['Contents']:
-            if obj['Key'].endswith(f'{image_png_name}.png'):
-                matching_images.append(obj['Key']) 
-    else:
-        print('No objects found in the specified folder.')
+    
+    # Iterate through the files in the specified folder
+    for filename in os.listdir(folder_path):
+        if filename.endswith(f'{image_png_name}.png'):
+            matching_images.append(os.path.join(folder, filename))  # Append the relative path
+
     if matching_images:
-        return random.choice(matching_images) 
+        return random.choice(matching_images)  # Return a random matching image
     return f'{folder}/default_{folder}.png'
+
+
+
+## USING AWS S3
+# def check_for_image(folder, image_png_name):
+#     s3_client = boto3.client(
+#         's3',
+#         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+#         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+#         region_name=settings.AWS_S3_REGION_NAME,
+#     )
+    
+#     bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+#     folder_name = f'{folder}/'  # S3 Folder
+
+#     # List objects in folder
+#     response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
+
+#     matching_images = []
+#     # Check if 'Contents' key is in the response
+#     if 'Contents' in response:
+#         for obj in response['Contents']:
+#             if obj['Key'].endswith(f'{image_png_name}.png'):
+#                 matching_images.append(obj['Key']) 
+#     else:
+#         print('No objects found in the specified folder.')
+#     if matching_images:
+#         return random.choice(matching_images) 
+#     return f'{folder}/default_{folder}.png'
 
 
 

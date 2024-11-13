@@ -1,10 +1,8 @@
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponseNotFound 
+from django.http import Http404
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.contrib.auth.models import User
 from django.db.models import Q
-from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
 from django.views.generic import (
     ListView, 
@@ -346,6 +344,13 @@ class ComponentDetailListView(ListView):
         return super(ComponentDetailListView, self).get(request, *args, **kwargs)
 
     def get_queryset(self):
+        return self.object.get_games_queryset()  # Return the queryset for Faction
+
+    def get_object(self):
+        # Retrieve the faction based on the primary key
+        slug = self.kwargs.get('slug')
+        if slug is None:
+            raise Http404('Slug is required in the URL.')
         post = get_object_or_404(Post, slug=self.kwargs.get('slug'))
         component_mapping = {
             "Map": Map,
@@ -356,47 +361,14 @@ class ComponentDetailListView(ListView):
             "Faction": Faction,
         }
         Klass = component_mapping.get(post.component)
-        return Klass.objects.all()  # Return the queryset for Faction
+        return get_object_or_404(Klass, slug=slug)
 
-    def get_object(self):
-        # Retrieve the faction based on the primary key
-        slug = self.kwargs.get('slug')
-        if slug is None:
-            raise AttributeError('slug expected in url')
-        return get_object_or_404(self.get_queryset(), slug=slug)
-
-    # def get_context_data(self, **kwargs):
-    #     context = super(ComponentDetailListView, self).get_context_data(**kwargs)
-    #     context[self.detail_context_object_name] = self.object
-
-    #     # # Get efforts related to the faction
-    #     # efforts = self.object.get_plays_queryset().order_by('-date_posted') 
-    #     # games = list({effort.game for effort in efforts})  # Collect unique games
-    #     games = self.object.get_games_queryset()
-
-    #     # Order the games by date_posted
-    #     # games.sort(key=lambda game: game.date_posted, reverse=True)  # Sort the list
-        
-
-    #     # Paginate games
-    #     paginator = Paginator(games, self.paginate_by)  # Create a paginator
-    #     page_number = self.request.GET.get('page')  # Get the page number from the request
-
-    #     try:
-    #         page_obj = paginator.get_page(page_number)  # Get the specific page of games
-    #     except EmptyPage:
-    #         page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
-    #     context['games'] = page_obj  # Pass the paginated page object to the context
-    #     context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
-    #     context['page_obj'] = page_obj  # Pass the page_obj to the context
-    #     return context
     def get_context_data(self, **kwargs):
         context = super(ComponentDetailListView, self).get_context_data(**kwargs)
         context[self.detail_context_object_name] = self.object
 
         # Get the ordered queryset of games
-        games = self.object.get_games_queryset()
+        games = self.get_queryset()
 
         # Paginate games
         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly

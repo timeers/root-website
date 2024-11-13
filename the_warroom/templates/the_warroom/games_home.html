@@ -1,13 +1,20 @@
 {% extends 'blog/base.html' %}
 {% block content %}
+
+    <form method="GET" action="{% url 'games-home' %}">
+        {{ form.as_p }}
+        <input type="submit" value="Submit" class="btn btn-primary" />
+    </form>
+
     {% if user.is_authenticated %}
     <a href="{% url 'record-game' %}" class="btn btn-success mb-3">
-        Record Game +
+        Record New Game +
     </a>
     {% endif %}
     {% for game in games %}
             {% include 'the_warroom/partials/game_detail.html' %}
     {% endfor %} 
+    
     {% if is_paginated %}
 
         {% if page_obj.has_previous %}
@@ -32,3 +39,11 @@
 
     
 {% endblock content %} 
+
+
+{% block scripts %}
+        <script>
+                $('#id_faction').select2();
+                $('#id_player').select2();
+        </script>
+{% endblock %}

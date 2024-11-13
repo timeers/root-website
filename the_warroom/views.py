@@ -11,16 +11,34 @@ from django.urls import reverse
 from django.db import transaction
 from .models import Game, Effort
 from .forms import GameCreateForm, EffortCreateForm
+from .filters import GameFilter
 
 
 
 #  A list of all the posts. Most recent update first
 class GameListView(ListView):
+    queryset = Game.objects.all()
     model = Game
-    template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
+    # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'games'
     ordering = ['-date_posted']
     paginate_by = 25
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return 'the_warroom/partials/game_list.html'
+        return 'the_warroom/games_home.html'
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        self.filterset = GameFilter(self.request.GET, queryset=queryset)
+        return self.filterset.qs
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['form'] = self.filterset.form
+        context['filterset'] = self.filterset
+        return context
 
 # class GameCreateView(LoginRequiredMixin, CreateView):
 #     model = Game
@@ -152,13 +170,13 @@ def update_game(request, id=None):
     form = GameCreateForm(request.POST or None, instance=obj) 
     extra_forms = 0
     # Default to at least 2 players
-    existing_efforts = obj.effort_set.all()
+    existing_efforts = obj.efforts.all()
     existing_count = existing_efforts.count()
     extra_forms = max(0, 2 - existing_count)
 
     # Formset = modelformset_factory(Model, form=ModelForm, extra=0)
     EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
-    qs = obj.effort_set.all()
+    qs = obj.efforts.all()
     formset = EffortFormset(request.POST or None, queryset=qs)
     context = {'form': form, 
                'formset': formset,

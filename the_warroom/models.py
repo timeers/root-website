@@ -16,27 +16,18 @@ class Tournament(models.Model):
     active = models.BooleanField(default=True)
 
 class Game(models.Model):
-    ASYNC = 'Async'
-    LIVE = 'Live'
-    TYPE_CHOICES = [
-        (ASYNC, 'A'),
-        (LIVE, 'L'),
-    ]
-    TTS = 'Tabletop Simulator'
-    HRF = 'hrf.com'
-    DWD = 'Root Digital'
-    IRL = 'In Person'
-    ETC = 'Other'
-    PLATFORM_CHOICES = [
-        (TTS, 'TTS'),
-        (IRL, 'IRL'),
-        (DWD, 'DWD'),
-        (HRF, 'HRF'),
-        (ETC, 'ETC'),
-    ]
+    class TypeChoices(models.TextChoices):
+        ASYNC = 'Async'
+        LIVE = 'Live'
+    class PlatformChoices(models.TextChoices):
+        TTS = 'Tabletop Simulator'
+        HRF = 'hrf.com'
+        DWD = 'Root Digital'
+        IRL = 'In Person'
+        ETC = 'Other'
     # Required
-    type = models.CharField(max_length=5, choices=TYPE_CHOICES, default=LIVE)
-    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default=DWD)
+    type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.ASYNC)
+    platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.DWD)
     deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True)
     map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True)
 
@@ -59,7 +50,7 @@ class Game(models.Model):
 
 
     def get_efforts(self):
-        return self.effort_set.all()
+        return self.efforts.all()
     
     def get_winners(self):
         return self.get_efforts().filter(win=True)
@@ -92,8 +83,8 @@ class Game(models.Model):
 
 class Effort(models.Model):
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
-    player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True)
-    faction = models.ForeignKey(Faction, on_delete=models.PROTECT)
+    player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
+    faction = models.ForeignKey(Faction, on_delete=models.PROTECT, related_name='efforts')
     vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None)
     captains = models.ManyToManyField(Vagabond, blank=True, related_name='as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='coalition_with')
@@ -101,7 +92,7 @@ class Effort(models.Model):
     clockwork = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
-    game = models.ForeignKey(Game, on_delete=models.CASCADE) #This should not be null. Remove null once done testing
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')
     faction_status = models.CharField(max_length=15, null=True, blank=True) #This should not be null.
     notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)

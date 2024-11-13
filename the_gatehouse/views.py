@@ -53,7 +53,7 @@ class PlayerDetailView(LoginRequiredMixin, DetailView):
 def player_page_view(request, slug):
     player = get_object_or_404(Profile, slug=slug)
 
-    efforts = player.effort_set.all()
+    efforts = player.efforts.all()
     games = list({effort.game for effort in efforts})
     games.sort(key=lambda game: game.date_posted, reverse=True)
 

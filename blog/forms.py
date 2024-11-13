@@ -198,6 +198,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Faction Name',
         required=True
     )
+    
     TYPE_CHOICES = [
         ('I', 'Insurgent'),
         ('M', 'Militant'),
