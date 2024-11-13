@@ -8,6 +8,7 @@ from .utils import slugify_instance_discord
 
 
 class Profile(models.Model):
+    component = 'Profile'
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)

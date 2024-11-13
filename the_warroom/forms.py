@@ -37,7 +37,7 @@ class EffortCreateForm(forms.ModelForm):
         return cleaned_data
     
 class EffortImportForm(forms.ModelForm):
-    required_css_class = 'required-field'
+    # required_css_class = 'required-field'
     class Meta:
         model = Effort
         fields = ['seat', 'player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with', 'game', 'date_posted']

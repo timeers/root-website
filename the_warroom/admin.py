@@ -34,7 +34,6 @@ class GameAdmin(admin.ModelAdmin):
     def upload_csv(self, request):
 
         if request.method == 'POST':
-            print("action is posted")
             csv_file = request.FILES['csv_upload']
 
             if not csv_file.name.endswith('.csv'):
@@ -46,7 +45,7 @@ class GameAdmin(admin.ModelAdmin):
 
             for x in csv_data:
                 fields = x.split(',')
-                print(len(fields))
+                # print(len(fields))
 
                 if len(fields) < 22:  # Check to ensure there are enough fields
                     print("Not enough fields in this row.")
@@ -73,9 +72,9 @@ class GameAdmin(admin.ModelAdmin):
                     match = re.search(r'\((.*?)\)', fields[9])  # This will search for text inside parentheses
                     if match:
                         found_vb = match.group(1)  # This will get the text inside the parentheses
-                        print(found_vb)  # For example, this will print 'Harrier'
-                    else:
-                        print("No VB found")
+                    #     print(found_vb)  # For example, this will print 'Harrier'
+                    # else:
+                    #     print("No VB found")
                 else:
                     faction = fields[9]
                 vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
@@ -106,8 +105,8 @@ class GameAdmin(admin.ModelAdmin):
                     for i in range(4):
                         discord_value = fields[1+i].split('+')[0]
                         # player_instance = Profile.objects.get_or_create(discord=fields[1+i])
-                        print(discord_value)
-                        print(fields[1+i])
+                        # print(discord_value)
+                        # print(fields[1+i])
 
                         player_instance, _ = Profile.objects.update_or_create(
                             discord=discord_value,
@@ -126,9 +125,9 @@ class GameAdmin(admin.ModelAdmin):
                             match = re.search(r'\((.*?)\)', fields[5+i])  # This will search for text inside parentheses
                             if match:
                                 found_vb = match.group(1)  # This will get the text inside the parentheses
-                                print(found_vb)  # For example, this will print 'Harrier'
-                            else:
-                                print("No VB found")
+                            #     print(found_vb)  # For example, this will print 'Harrier'
+                            # else:
+                            #     print("No VB found")
                         else:
                             faction = fields[5+i]
                         vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
@@ -146,10 +145,11 @@ class GameAdmin(admin.ModelAdmin):
                                 dominance = True
                         coalition_instance = Faction.objects.filter(title=coalition_faction).first()
 
-                        print(f"Player:{player_instance}, Seat:{1+i}, Faction:{faction_instance}, Vagabond:{vagabond_instance}, Win:{win}, Score:{score}, Coalition Faction:{coalition_instance}, Dominance:{dominance}, Game:{game_instance}")
+                        # print(f"Player:{player_instance}, Seat:{1+i}, Faction:{faction_instance}, Vagabond:{vagabond_instance}, Win:{win}, Score:{score}, Coalition Faction:{coalition_instance}, Dominance:{dominance}, Game:{game_instance}")
 
                         # Record each player's results
                         player_data = {
+                            'date_posted': fields[0],
                             'seat': 1+i,
                             'player': player_instance,
                             'faction': faction_instance,
@@ -165,7 +165,9 @@ class GameAdmin(admin.ModelAdmin):
                         if effort_form.is_valid():
                             print('Valid Effort')
                             effort_form.save()
-
+                        else:
+                            print('Invalid Effort')
+                            print(effort_form.errors) 
 
 
 

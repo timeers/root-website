@@ -1,6 +1,5 @@
 
-
-<img class="rounded-square article-img" src="{% if post.picture %}{{ post.picture.url }}{% else %}{{ post.designer.image.url }}{% endif %}">
+<img class="article-img" src="{% if post.picture %}{{ post.picture.url }}{% else %}{{ post.designer.image.url }}{% endif %}">
 <div class="media-body">
     <div class="article-metadata">
         <a class="mr-2" href="{% url 'user-posts' post.designer.discord %}">{{ post.designer }}</a>

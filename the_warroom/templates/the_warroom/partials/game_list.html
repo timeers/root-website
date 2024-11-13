@@ -1,0 +1,115 @@
+
+{% for game in games %}
+
+
+{% if forloop.last %}
+    <div hx-trigger="revealed" 
+    hx-get="{% url object.component|lower|add:'-detail' object.slug %}?page={{ page_obj.number|add:1 }}"
+    hx-swap="afterend">
+{% else %}
+    <div>
+{% endif %}
+<article class="media content-section">
+<div class="media-body">
+
+    <div class="article-metadata">
+        <small class="text-muted">
+
+            {% if game.tournament %}
+                <a href="{% url 'game-detail' game.id %}">{{ game.tournament.name }} Tournament Game</a> |
+            {% else %}
+                <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game</a> |
+            {% endif %}
+            {{ game.date_posted | date:"Y-m-d" }} |
+            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
+            <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
+        </small>
+    </div>
+
+    {% if game.landmarks.count > 0 or game.hirelings.count > 0 %}
+        <div class="article-metadata">
+            <small class="text-muted">
+                {% if game.landmarks.count > 0 %}
+                    Landmarks:
+                    {% for landmark in game.landmarks.all %}
+                    <a href="{% url 'landmark-detail' landmark.slug %}">{{ landmark.title }}</a>{% if not forloop.last %} | {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% if game.hirelings.count > 0 %}
+                    Hirelings:
+                    {% for hireling in game.hirelings.all %}
+                    <a href="{% url 'hireling-detail' hireling.slug %}">{{ hireling.title }}</a>{% if not forloop.last %} | {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </small>
+        </div>
+    {% endif %}
+
+
+    <table>
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th>Faction</th>
+                <th>Score</th>
+            </tr>
+        </thead>
+        <tbody class="effort-rows">
+
+
+        {% for effort in game.get_efforts %}
+
+        <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
+            <td>
+
+            {% if effort.player %}
+                {% if user.is_authenticated %}
+                    <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.display_name }}</a>
+                {% else %}
+                    {{ effort.player.display_name }}
+                {% endif %}
+            {% else %}
+                Anonymous Player
+            {% endif %}
+        </td>
+        <td>
+            {% if effort.faction %}
+                <a href="{% url 'faction-detail' effort.faction.slug %}">
+                    <img class="rounded-square faction-icon" src="{{ effort.faction.small_icon.url }}">
+                </a>
+                <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
+                {% if effort.vagabond %}
+                    (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
+                {% endif %}
+            {% else %}
+                Faction N/A
+            {% endif %}
+        </td>
+        <td>
+            {% if effort.dominance %}
+                Dominance
+            {% elif effort.coalition_with %}
+                Coalition with {{ effort.coalition_with.title }}
+            {% else %}
+                {% if effort.score %}
+                    {{ effort.score }}
+                {% endif %}
+            {% endif %}
+            {% if effort.win %}
+                 (Victory)
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+</tbody>
+</table>
+
+
+
+
+</div>
+</article>
+</div>
+{% empty %}
+No games recorded for {{ object }}.
+{% endfor %}

@@ -338,7 +338,7 @@ def test(request):
 
 class ComponentDetailListView(ListView):
     detail_context_object_name = 'object'
-    template_name = 'blog/component_detail_list.html'
+    # template_name = 'blog/component_detail_list.html'
     paginate_by = 25
     
     def get(self, request, *args, **kwargs):
@@ -365,21 +365,41 @@ class ComponentDetailListView(ListView):
             raise AttributeError('slug expected in url')
         return get_object_or_404(self.get_queryset(), slug=slug)
 
+    # def get_context_data(self, **kwargs):
+    #     context = super(ComponentDetailListView, self).get_context_data(**kwargs)
+    #     context[self.detail_context_object_name] = self.object
+
+    #     # # Get efforts related to the faction
+    #     # efforts = self.object.get_plays_queryset().order_by('-date_posted') 
+    #     # games = list({effort.game for effort in efforts})  # Collect unique games
+    #     games = self.object.get_games_queryset()
+
+    #     # Order the games by date_posted
+    #     # games.sort(key=lambda game: game.date_posted, reverse=True)  # Sort the list
+        
+
+    #     # Paginate games
+    #     paginator = Paginator(games, self.paginate_by)  # Create a paginator
+    #     page_number = self.request.GET.get('page')  # Get the page number from the request
+
+    #     try:
+    #         page_obj = paginator.get_page(page_number)  # Get the specific page of games
+    #     except EmptyPage:
+    #         page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+    #     context['games'] = page_obj  # Pass the paginated page object to the context
+    #     context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
+    #     context['page_obj'] = page_obj  # Pass the page_obj to the context
+    #     return context
     def get_context_data(self, **kwargs):
         context = super(ComponentDetailListView, self).get_context_data(**kwargs)
         context[self.detail_context_object_name] = self.object
 
-        # # Get efforts related to the faction
-        # efforts = self.object.get_plays_queryset().order_by('-date_posted') 
-        # games = list({effort.game for effort in efforts})  # Collect unique games
+        # Get the ordered queryset of games
         games = self.object.get_games_queryset()
 
-        # Order the games by date_posted
-        games.sort(key=lambda game: game.date_posted, reverse=True)  # Sort the list
-        
-
         # Paginate games
-        paginator = Paginator(games, self.paginate_by)  # Create a paginator
+        paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
         page_number = self.request.GET.get('page')  # Get the page number from the request
 
         try:
@@ -392,3 +412,7 @@ class ComponentDetailListView(ListView):
         context['page_obj'] = page_obj  # Pass the page_obj to the context
         return context
 
+    def get_template_names(self):
+        if self.request.htmx:
+            return 'the_warroom/partials/game_list.html'
+        return 'blog/component_detail_list.html'

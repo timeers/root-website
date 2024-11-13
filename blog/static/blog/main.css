@@ -65,11 +65,12 @@ em, i {
   }
   
   .article-img {
-    max-height: 65px;
-    max-width: 65px;
+    max-height: 80px;
+    max-width: 80px;
     margin-right: 16px;
     height: auto;  /* Allow height to adjust */
     width: auto;   /* Allow width to adjust */
+    border-radius: 10px;
   }
   
   .article-metadata {

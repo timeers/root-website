@@ -8,8 +8,12 @@ from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
 from django.apps import apps
-from .utils import slugify_instance_title
+from .utils import slugify_post_title
 from the_gatehouse.models import Profile
+import boto3
+import random
+from django.conf import settings
+
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
@@ -116,19 +120,31 @@ class Post(models.Model):
             case _:
                 return Post.objects.none()  # or return an empty queryset
             
+    # def get_games_queryset(self):
+    #     match self.component:
+    #         case "Map" | "Deck" | "Landmark" | "Hireling":
+    #             # return self.game_set.order_by('-date_posted') 
+    #             return list(self.game_set.order_by('-date_posted')) 
+    #         case "Faction" | "Vagabond":
+    #             efforts = self.effort_set.order_by('-date_posted') 
+    #             games = list({effort.game for effort in efforts})
+    #             return sorted(games, key=lambda game: game.date_posted, reverse=True) 
+    #         case _:
+    #             Game = apps.get_model('the_warroom', 'Game')
+    #             return list(Game.objects.none())
+        
     def get_games_queryset(self):
+        Game = apps.get_model('the_warroom', 'Game')
         match self.component:
             case "Map" | "Deck" | "Landmark" | "Hireling":
-                # return self.game_set.order_by('-date_posted') 
-                return list(self.game_set.order_by('-date_posted')) 
+                return self.game_set.order_by('-date_posted')  # Return a queryset directly
             case "Faction" | "Vagabond":
-                efforts = self.effort_set.order_by('-date_posted') 
-                games = list({effort.game for effort in efforts})
-                return sorted(games, key=lambda game: game.date_posted, reverse=True) 
+                # Use a queryset with an annotation to ensure ordering
+                efforts = self.effort_set.all()
+                games = Game.objects.filter(id__in=[effort.game.id for effort in efforts]).order_by('-date_posted')
+                return games  # This ensures it's a sorted queryset
             case _:
-                Game = apps.get_model('the_warroom', 'Game')
-                return list(Game.objects.none())
-        
+                return Game.objects.none()  # No games if no component matches
 
     def status(self):
         plays = self.get_plays_queryset()
@@ -166,6 +182,8 @@ class Map(Post):
     clearings = models.IntegerField(default=12)
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
+        if not self.picture:
+            self.picture = 'default_map.png'
         super().save(*args, **kwargs)  # Call the parent save method
 # This might need to be moved to each type of component? map-detail, deck-detail etc.
     def get_absolute_url(self):
@@ -175,7 +193,6 @@ class Map(Post):
 
 
 class Deck(Post):
-
     card_total = models.IntegerField()
     def save(self, *args, **kwargs):
         self.component = 'Deck'  # Set the component type
@@ -184,7 +201,6 @@ class Deck(Post):
         return reverse('deck-detail', kwargs={'slug': self.slug})
 
 class Landmark(Post):
-
     card_text = models.TextField()
     def save(self, *args, **kwargs):
         self.component = 'Landmark'  # Set the component type
@@ -194,7 +210,6 @@ class Landmark(Post):
 
 
 class Vagabond(Post):
-
     animal = models.CharField(max_length=15)
     ability_item = models.CharField(max_length=150, null=True, blank=True)
     ability = models.CharField(max_length=150)
@@ -262,7 +277,6 @@ class Faction(Post):
         (MODERATE, 'M'),
         (HIGH, 'H'),
     ]
-
     animal = models.CharField(max_length=15)
     type = models.CharField(max_length=1, choices=TYPE_CHOICES)
     reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
@@ -411,49 +425,51 @@ def animal_default_picture(instance):
         animal_lower = 'boar'
     if animal_lower == "hare" or animal_lower == "bunny":
         animal_lower = 'rabbit'
+    if animal_lower == "bees" or animal_lower == "wasp" or animal_lower == "wasps":
+        animal_lower = 'bee'
     if animal_lower == "gator" or animal_lower == "aligator" or animal_lower == "croc" or animal_lower == "crocodile":
         animal_lower = 'lizard'
-    valid_animals = {
-        'aardvark',
-        'badger',
-        'bat',
-        'beaver',
-        'bird',
-        'boar',
-        'cat',
-        'crow',
-        'dog',
-        'duck',
-        'eagle',
-        'falcon',
-        'fox',
-        'frog',
-        'goat',
-        'hawk',
-        'lizard',
-        'mole',
-        'opossum',
-        'otter',
-        'owl',
-        'rabbit',
-        'raccoon',
-        'skunk',
-        'squirrel',
-        'tanuki',
-        'turtle',
-        'weasel',
-        'wolf'
-    }
-    if animal_lower in valid_animals:
-        return f'animals/{animal_lower}.png'
-    return 'animals/default_animal.png'
+    return check_for_image('animals', animal_lower)
+
+
+
+
+def check_for_image(folder, image_png_name):
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+    
+    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+    folder_name = f'{folder}/'  # S3 Folder
+
+    # List objects in folder
+    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
+
+    matching_images = []
+    # Check if 'Contents' key is in the response
+    if 'Contents' in response:
+        for obj in response['Contents']:
+            if obj['Key'].endswith(f'{image_png_name}.png'):
+                matching_images.append(obj['Key']) 
+    else:
+        print('No objects found in the specified folder.')
+    if matching_images:
+        return random.choice(matching_images) 
+    return f'{folder}/default_{folder}.png'
+
+
+
+
 
 
 
 def component_pre_save(sender, instance, *args, **kwargs):
     # print('pre_save')
     if instance.slug is None:
-        slugify_instance_title(instance, save=False)
+        slugify_post_title(instance, save=False)
 
 pre_save.connect(component_pre_save, sender=Map)
 pre_save.connect(component_pre_save, sender=Deck)
@@ -461,13 +477,13 @@ pre_save.connect(component_pre_save, sender=Faction)
 pre_save.connect(component_pre_save, sender=Vagabond)
 pre_save.connect(component_pre_save, sender=Hireling)
 pre_save.connect(component_pre_save, sender=Landmark)
-pre_save.connect(component_pre_save, sender=Expansion)
+# pre_save.connect(component_pre_save, sender=Expansion)
 
 
 def component_post_save(sender, instance, created, *args, **kwargs):
     # print('post_save')
     if created:
-        slugify_instance_title(instance, save=True)
+        slugify_post_title(instance, save=True)
 
 post_save.connect(component_post_save, sender=Map)
 post_save.connect(component_post_save, sender=Deck)
@@ -475,5 +491,5 @@ post_save.connect(component_post_save, sender=Faction)
 post_save.connect(component_post_save, sender=Vagabond)
 post_save.connect(component_post_save, sender=Hireling)
 post_save.connect(component_post_save, sender=Landmark)
-post_save.connect(component_post_save, sender=Expansion)
+# post_save.connect(component_post_save, sender=Expansion)
 
