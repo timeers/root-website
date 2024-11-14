@@ -21,10 +21,10 @@ class Game(models.Model):
         LIVE = 'Live'
     class PlatformChoices(models.TextChoices):
         TTS = 'Tabletop Simulator'
-        HRF = 'hrf.com'
+        # HRF = 'hrf.com'
         DWD = 'Root Digital'
         IRL = 'In Person'
-        ETC = 'Other'
+        # ETC = 'Other'
     # Required
     type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.ASYNC)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.DWD)
@@ -47,7 +47,6 @@ class Game(models.Model):
     # Automatic
     date_posted = models.DateTimeField(default=timezone.now)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
-
 
     def get_efforts(self):
         return self.efforts.all()
@@ -80,12 +79,15 @@ class Game(models.Model):
     
     def get_delete_url(self):
         return reverse("game-delete", kwargs={"id": self.id})
+    
+    class Meta:
+        ordering = ['-date_posted']
 
 class Effort(models.Model):
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
     faction = models.ForeignKey(Faction, on_delete=models.PROTECT, related_name='efforts')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None)
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts')
     captains = models.ManyToManyField(Vagabond, blank=True, related_name='as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='coalition_with')
     dominance = models.BooleanField(default=False)

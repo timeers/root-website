@@ -193,3 +193,5 @@ AWS_S3_SIGNATURE_VERSION = 's3v4'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+PAGE_SIZE = 5

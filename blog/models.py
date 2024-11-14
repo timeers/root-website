@@ -62,14 +62,7 @@ class Post(models.Model):
         VAGABOND = 'Vagabond'
         LANDMARK = 'Landmark'
         FACTION = 'Faction'
-#     COMPONENT_CHOICES = [
-#         ('Map', 'Map'),
-#         ('Deck', 'Deck'),
-#         ('Hireling', 'Hireling'),
-#         ('Vagabond', 'Vagabond'),
-#         ('Landmark', 'Landmark'),
-#         ('Faction', 'Faction'),
-# ]
+
     title = models.CharField(max_length=35)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True)
@@ -77,7 +70,7 @@ class Post(models.Model):
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     date_updated = models.DateTimeField(default=timezone.now)
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     official = models.BooleanField(default=False)
     stable = models.BooleanField(default=False)

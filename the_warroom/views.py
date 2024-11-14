@@ -7,7 +7,9 @@ from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse
+from django.conf import settings
 from django.db import transaction
 from .models import Game, Effort
 from .forms import GameCreateForm, EffortCreateForm
@@ -22,11 +24,11 @@ class GameListView(ListView):
     # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'games'
     ordering = ['-date_posted']
-    paginate_by = 25
+    paginate_by = settings.PAGE_SIZE
 
     def get_template_names(self):
         if self.request.htmx:
-            return 'the_warroom/partials/game_list.html'
+            return 'the_warroom/partials/game_list_home.html'
         return 'the_warroom/games_home.html'
     
     def get_queryset(self):
@@ -36,9 +38,27 @@ class GameListView(ListView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        # Get the ordered queryset of games
+        games = self.get_queryset()
+        # Paginate games
+        paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
+        page_number = self.request.GET.get('page')  # Get the page number from the request
+
+        try:
+            page_obj = paginator.get_page(page_number)  # Get the specific page of games
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+        context['games'] = page_obj  # Pass the paginated page object to the context
+        context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
+        context['page_obj'] = page_obj  # Pass the page_obj to the context
+
         context['form'] = self.filterset.form
         context['filterset'] = self.filterset
+        
         return context
+    
 
 # class GameCreateView(LoginRequiredMixin, CreateView):
 #     model = Game
