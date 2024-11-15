@@ -4,6 +4,8 @@ from django.http import Http404
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Q
 from django.core.paginator import Paginator, EmptyPage
+from django.conf import settings
+from the_warroom.filters import GameFilter
 from django.views.generic import (
     ListView, 
     DetailView, 
@@ -84,41 +86,9 @@ def post_search_view(request):
     }
     return render(request, 'blog/search_posts.html', context=context)
 
-# def component_detail_view(request, slug=None):
-#     post = get_object_or_404(Post, slug=slug)
-
-#     component_mapping = {
-#         "Map": Map,
-#         "Deck": Deck,
-#         "Landmark": Landmark,
-#         "Hireling": Hireling,
-#         "Vagabond": Vagabond,
-#         "Faction": Faction,
-#     }
-#     Klass = component_mapping.get(post.component)
-    
-#     if Klass is None:
-#         return HttpResponseNotFound("Component not found.")
-    
-#     obj = get_object_or_404(Klass, slug=slug)
-
-#     context = {
-#         'object': obj
-#     }
-#     return render(request, "blog/component_detail.html", context)
 
 class ExpansionDetailView(DetailView):
     model = Expansion
-
-# Moved this to the form.py file so that I can make custom labels
-@creative_required_class_based_view
-class PostCreateView(LoginRequiredMixin, CreateView):
-    model = Post
-    form_class = PostCreateForm
-
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
 
 
 # START CREATE VIEWS
@@ -337,14 +307,21 @@ def test(request):
 class ComponentDetailListView(ListView):
     detail_context_object_name = 'object'
     # template_name = 'blog/component_detail_list.html'
-    paginate_by = 25
+    paginate_by = settings.PAGE_SIZE
     
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()  # Set the object here
         return super(ComponentDetailListView, self).get(request, *args, **kwargs)
 
+    def get_template_names(self):
+        if self.request.htmx:
+            return 'the_warroom/partials/hx_game_list.html'
+        return 'blog/component_detail_list.html'
+
     def get_queryset(self):
-        return self.object.get_games_queryset()  # Return the queryset for Faction
+        queryset = self.object.get_games_queryset() 
+        self.filterset = GameFilter(self.request.GET, queryset=queryset)
+        return self.filterset.qs
 
     def get_object(self):
         # Retrieve the faction based on the primary key
@@ -378,13 +355,12 @@ class ComponentDetailListView(ListView):
             page_obj = paginator.get_page(page_number)  # Get the specific page of games
         except EmptyPage:
             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
+        context['games_total'] = games.count
         context['games'] = page_obj  # Pass the paginated page object to the context
         context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
         context['page_obj'] = page_obj  # Pass the page_obj to the context
+        
+        context['form'] = self.filterset.form
+        context['filterset'] = self.filterset     
+        
         return context
-
-    def get_template_names(self):
-        if self.request.htmx:
-            return 'the_warroom/partials/game_list.html'
-        return 'blog/component_detail_list.html'

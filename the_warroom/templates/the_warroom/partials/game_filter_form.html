@@ -1,0 +1,13 @@
+<article class="media content-section">
+    
+    <div class="media-body">
+        <h2>Filter Games</h2>
+        <form hx-get="{% url object.component|lower|add:'-detail' object.slug %}" 
+        hx-target="#games-container"
+        hx-swap="innerHTML"
+        id="gamefilterform">
+        {{ form.as_p }}
+        <button class="btn btn-primary mb-3">Filter</button>
+        </form>
+    </div>
+</article>

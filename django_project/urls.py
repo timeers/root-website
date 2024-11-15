@@ -27,7 +27,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('register/', user_views.register, name='register'),
     # path('player/<slug:slug>/', user_views.PlayerDetailView.as_view(), name='player-detail'),
-    path('player/<slug:slug>/', user_views.player_page_view, name='player-detail'),
+    path('profile/<slug:slug>/', user_views.player_page_view, name='player-detail'),
     path('profile/', user_views.profile, name='profile'),
     path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(template_name='the_gatehouse/logout.html'), name='logout'),

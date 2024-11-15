@@ -1,18 +1,42 @@
 {% extends 'blog/base.html' %}
 {% block content %}
 
-    {% include 'blog/partials/component_detail.html' %}
+    {% include 'blog/partials/component_header.html' %}
+
+
+    <!-- Component Specific Details -->
+    {% include 'blog/partials/'|add:object.component|add:'_data.html' %}
+
+
+    {% include 'blog/partials/links.html' %}
     
-    <h2>Recorded Games</h2>
+    {% include 'the_warroom/partials/game_filter_form.html' %}
 
-    <div>
+    {% include 'the_warroom/partials/hx_games_stats.html' %}
 
-        {% include 'the_warroom/partials/game_list.html' %}
+    <div id="games-container">
+        
 
-
-
+        {% include 'the_warroom/partials/hx_game_list.html' %}
 
     </div>
 
 
 {% endblock content %} 
+
+{% block scripts %}
+        <script>
+                $('#id_faction').select2({
+                    placeholder: "Select an option",
+                    allowClear: true
+                });
+                $('#id_player').select2({
+                    placeholder: "Select an option",
+                    allowClear: true
+                });
+                $('#id_vagabond').select2({
+                    placeholder: "Select an option",
+                    allowClear: true
+                });
+        </script>
+{% endblock %}

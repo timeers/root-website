@@ -1,0 +1,80 @@
+<article class="media content-section">
+    <div class="media-body">
+
+    <h2>Faction Data</h2>
+
+
+        <p class="article-content">
+            <div>Complexity: {{ object.get_complexity_display }}</div>
+            <div>Card Wealth: {{ object.get_card_wealth_display }}</div>
+            <div>Aggression: {{ object.get_aggression_display }}</div>
+            <div>Crafting Ability: {{ object.get_crafting_ability_display }}</div>
+        </p>
+        <p class="article-content">
+            {{ object.get_type_display }} ({{ object.reach }} Reach)
+            <img class="adset-img" src="{{ object.adset_card.url }}">
+        </p> 
+        {% if object.faction_board %}
+            <img class="faction-board-img" src="{{ object.faction_board.url }}">
+        {% endif %}
+
+        <p class="article-content">
+        <h3>Components</h3>
+        {% if object.warrior.all %}
+            <div>
+            {% for piece in object.warrior.all %}
+                {% if piece.suited %}
+                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
+                {% else %}
+                    <div>{{ piece.quantity }} {{ piece.name }}</div>
+                {% endif %}
+            {% endfor %}
+            </div>
+        {% endif %}
+        {% if object.building.all %}
+            <div>
+            {% for piece in object.building.all %}
+                {% if piece.suited %}
+                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
+                {% else %}
+                    <div>{{ piece.quantity }} {{ piece.name }}</div>
+                {% endif %}
+            {% endfor %}
+            </div>
+        {% endif %}
+        {% if object.token.all %}
+            <div>
+            {% for piece in object.token.all %}
+                {% if piece.suited %}
+                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
+                {% else %}
+                    <div>{{ piece.quantity }} {{ piece.name }}</div>
+                {% endif %}
+            {% endfor %}
+            </div>
+        {% endif %}
+        {% if object.card.all %}
+            <div>
+            {% for piece in object.card.all %}
+                {% if piece.suited %}
+                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
+                {% else %}
+                    <div>{{ piece.quantity }} {{ piece.name }}</div>
+                {% endif %}
+            {% endfor %}
+            </div>
+        {% endif %}
+        {% if object.otherpiece.all %}
+            <div>
+            {% for piece in object.otherpiece.all %}
+                {% if piece.suited %}
+                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
+                {% else %}
+                    <div>{{ piece.quantity }} {{ piece.name }}</div>
+                {% endif %}
+            {% endfor %}
+            </div>
+        {% endif %}
+        </p>
+    </div>
+</article>

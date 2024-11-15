@@ -151,6 +151,19 @@ th, td {
   padding-right: 15px; /* Space between columns */
 }
 
+.adset-img {
+  max-height: 300px;
+  max-width: 225px;
+  height: auto;  /* Allow height to adjust */
+  width: auto;   /* Allow width to adjust */
+}
+
+.faction-board-img {
+  max-height: 550px;
+  max-width: 650px;
+  height: auto;  /* Allow height to adjust */
+  width: auto;   /* Allow width to adjust */
+}
 
 /* @font-face {
   font-family: 'Baskerville';

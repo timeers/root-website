@@ -36,14 +36,13 @@
                       </li> -->
                     {% endif %}
                   <!-- Dropdownn for new content -->
-                   {% if user.profile.creative %}
                     <li class="nav-item dropdown">
                       <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                         New
                       </a>
                       <ul class="dropdown-menu">
-                        <!-- <li><a class="dropdown-item" href="{% url 'post-create' %}">Post</a></li> -->
                         <li><a class="dropdown-item" href="{% url 'record-game' %}">Game</a></li>
+                        {% if user.profile.creative %}
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
                         <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
@@ -53,9 +52,10 @@
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{% url 'landmark-create' %}">Landmark</a></li>
                         <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
+                        {% endif %}
                       </ul>
                     </li>
-                  {% endif %}
+                  
                   <a class="nav-item nav-link" href="{% url 'profile' %}">{{ user.profile.display_name }}</a>
                   <!-- cannot log out with a GET request so this version does not work -->
                   <!-- <a class="nav-item nav-link" href="{% url 'logout' %}">Logout</a> -->

@@ -178,16 +178,7 @@ class Post(models.Model):
         return False
         
 
-class Map(Post):
-    clearings = models.IntegerField(default=12)
-    def save(self, *args, **kwargs):
-        self.component = 'Map'  # Set the component type
-        if not self.picture:
-            self.picture = 'default_map.png'
-        super().save(*args, **kwargs)  # Call the parent save method
-# This might need to be moved to each type of component? map-detail, deck-detail etc.
-    def get_absolute_url(self):
-        return reverse('map-detail', kwargs={'slug': self.slug})
+
 
 
 
@@ -208,6 +199,17 @@ class Landmark(Post):
     def get_absolute_url(self):
         return reverse('landmark-detail', kwargs={'slug': self.slug})
 
+class Map(Post):
+    clearings = models.IntegerField(default=12)
+    default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
+    def save(self, *args, **kwargs):
+        self.component = 'Map'  # Set the component type
+        if not self.picture:
+            self.picture = 'default_map.png'
+        super().save(*args, **kwargs)  # Call the parent save method
+# This might need to be moved to each type of component? map-detail, deck-detail etc.
+    def get_absolute_url(self):
+        return reverse('map-detail', kwargs={'slug': self.slug})
 
 class Vagabond(Post):
     animal = models.CharField(max_length=15)
@@ -275,7 +277,8 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices)
-    adset_card = models.ImageField(default=None, upload_to='adset_cards', blank=True, null=True)
+    adset_card = models.ImageField(default=None, upload_to='adset_cards/custom', blank=True, null=True)
+    faction_board = models.ImageField(default=None, upload_to='faction_boards', blank=True, null=True)
     clockwork = models.BooleanField(default=False)
 
     def __add__(self, other):
@@ -286,10 +289,7 @@ class Faction(Post):
 
     def save(self, *args, **kwargs):
         if not self.adset_card:  # Only set if it's not already defined
-            if self.type == self.TypeChoices.INSURGENT:
-                self.adset_card = 'ADSET_Insurgent.png'
-            elif self.type == self.TypeChoices.MILITANT:
-                self.adset_card = 'ADSET_Militant.png'
+            self.adset_card = f'adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_faction_icon.png'
         if not self.picture:
@@ -372,9 +372,7 @@ class Piece(models.Model):
     quantity = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(40)])
     description = models.TextField(null=True, blank=True)
     suited = models.BooleanField(default=False)
-    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
-    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='%(class)s')
+
 
     class Meta:
         abstract = True  # This ensures that Piece won't create a table
@@ -383,19 +381,32 @@ class Piece(models.Model):
         return f"{self.name} (x{self.quantity})"
 
 class Warrior(Piece):
-    pass
+    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
+    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
+    class Meta:
+        verbose_name_plural = "Warriors" 
 
 class Building(Piece):
-    pass
+    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
+    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
 
 class Token(Piece):
-    pass
+    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
+    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
 
 class Card(Piece):
-    pass
+    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
+    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
 
 class OtherPiece(Piece):
-    pass
+    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
+    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
+    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
+    
 
 
 

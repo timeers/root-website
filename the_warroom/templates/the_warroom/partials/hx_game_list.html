@@ -5,7 +5,8 @@
     {% if forloop.last and games.has_next %}
         <div hx-trigger="revealed" 
         hx-get="{% url object.component|lower|add:'-detail' object.slug %}?page={{ page_obj.number|add:1 }}"
-        hx-swap="afterend">
+        hx-swap="afterend"
+        hx-include="#gamefilterform">
     {% else %}
         <div>
     {% endif %}
