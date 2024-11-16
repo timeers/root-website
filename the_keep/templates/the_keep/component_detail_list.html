@@ -1,0 +1,42 @@
+{% extends 'the_keep/base.html' %}
+{% block content %}
+
+    {% include 'the_keep/partials/component_header.html' %}
+
+
+    <!-- Component Specific Details -->
+    {% include 'the_keep/partials/'|add:object.component|add:'_data.html' %}
+
+
+    {% include 'the_keep/partials/links.html' %}
+    
+    {% include 'the_warroom/partials/game_filter_form.html' %}
+
+    {% include 'the_warroom/partials/hx_games_stats.html' %}
+
+    <div id="games-container">
+        
+
+        {% include 'the_warroom/partials/hx_game_list.html' %}
+
+    </div>
+
+
+{% endblock content %} 
+
+{% block scripts %}
+        <script>
+                $('#id_faction').select2({
+                    placeholder: "Select an option",
+                    allowClear: true
+                });
+                $('#id_player').select2({
+                    placeholder: "Select an option",
+                    allowClear: true
+                });
+                $('#id_vagabond').select2({
+                    placeholder: "Select an option",
+                    allowClear: true
+                });
+        </script>
+{% endblock %}

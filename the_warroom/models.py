@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.core.validators import MinValueValidator
 from the_gatehouse.models import Profile
-from blog.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
+from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
 

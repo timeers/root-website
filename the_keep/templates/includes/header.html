@@ -1,0 +1,74 @@
+<header class="site-header">
+    <nav class="navbar navbar-expand-md navbar-dark bg-steel fixed-top">
+      <div class="container">
+        <h1><a class="navbar-brand mr-4" href="{% url 'keep-home' %}">Root Database</a></h1>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarToggle">
+          <div class="navbar-nav mr-auto">
+            <a class="nav-item nav-link" href="{% url 'keep-home' %}">Home</a>
+            <a class="nav-item nav-link" href="{% url 'keep-about' %}">About</a>
+            <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
+
+          </div>
+          <!-- Navbar Right Side -->
+          <div class="navbar-nav"> 
+            
+              <!-- Search Bar -->
+            <form method="GET" class="d-flex" action="{% url 'search-posts' 'search' %}">
+                <input class="form-control me-2" type="search" placeholder="Search Posts" aria-label="Search" name="search_term" required>
+                <button class="btn btn-secondary" type="submit">Search</button>
+            </form>
+
+
+              {% if user.is_authenticated %}
+                  {% if user.is_superuser %}
+                      <!-- <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                          Admin
+                        </a>
+                        <ul class="dropdown-menu">
+                          <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item" href="{% url 'map-create' %}">Map</a></li>
+                        </ul>
+                      </li> -->
+                    {% endif %}
+                  <!-- Dropdownn for new content -->
+                    <li class="nav-item dropdown">
+                      <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        New
+                      </a>
+                      <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{% url 'record-game' %}">Game</a></li>
+                        {% if user.profile.creative %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
+                        <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{% url 'map-create' %}">Map</a></li>
+                        <li><a class="dropdown-item" href="{% url 'deck-create' %}">Deck</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{% url 'landmark-create' %}">Landmark</a></li>
+                        <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
+                        {% endif %}
+                      </ul>
+                    </li>
+                  
+                  <a class="nav-item nav-link" href="{% url 'profile' %}">{{ user.profile.display_name }}</a>
+                  <!-- cannot log out with a GET request so this version does not work -->
+                  <!-- <a class="nav-item nav-link" href="{% url 'logout' %}">Logout</a> -->
+                  <form action="{% url 'logout' %}" method="post">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline-light border-0">Logout</button>
+                  </form>
+              {% else %}
+                  <a class="nav-item nav-link" href="{% url 'login' %}">Login</a>
+                  <a class="nav-item nav-link" href="{% url 'register' %}">Register</a>
+              {% endif %}
+          </div>
+        </div>
+      </div>
+    </nav>
+  </header>

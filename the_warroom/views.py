@@ -16,7 +16,7 @@ from .models import Game, Effort
 from .forms import GameCreateForm, EffortCreateForm
 from .filters import GameFilter
 from the_gatehouse.models import Profile
-from blog.models import Post
+from the_keep.models import Post
 
 
 

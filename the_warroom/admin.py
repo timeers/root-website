@@ -3,7 +3,7 @@ from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
 from .models import Game, Effort, Tournament
-from blog.models import Deck, Map, Faction, Vagabond
+from the_keep.models import Deck, Map, Faction, Vagabond
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
 from .forms import GameImportForm, EffortImportForm

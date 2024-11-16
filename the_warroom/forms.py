@@ -1,6 +1,6 @@
 from django import forms
 from .models import Effort, Game
-from blog.models import Hireling, Landmark
+from the_keep.models import Hireling, Landmark
 from django.core.exceptions import ValidationError
 
 class GameCreateForm(forms.ModelForm):  

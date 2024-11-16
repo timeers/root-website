@@ -1,7 +1,7 @@
 import django_filters
 from django.db.models import Q
 from .models import Game
-from blog.models import Faction, Deck, Map, Vagabond
+from the_keep.models import Faction, Deck, Map, Vagabond
 from the_gatehouse.models import Profile
 
 class GameFilter(django_filters.FilterSet):
