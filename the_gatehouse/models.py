@@ -1,3 +1,4 @@
+import os
 from django.contrib.auth.models import User
 # from the_warroom.models import Effort
 from django.urls import reverse
@@ -10,7 +11,7 @@ from .utils import slugify_instance_discord
 class Profile(models.Model):
     component = 'Profile'
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
-    image = models.ImageField(default='default.png', upload_to='profile_pics')
+    image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
@@ -43,9 +44,36 @@ class Profile(models.Model):
         return self.discord
     
     #  No longer used as files are stored in S3
-    # def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs):
 
-    #     super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
+        self._resize_image()
+
+    def _resize_image(self):
+        """Helper method to resize the image if necessary."""
+        try:
+            # Check if the image exists and is a valid file
+            if self.image and os.path.exists(self.image.path):
+                img = Image.open(self.image.path)
+
+                max_size = 125
+                if img.height > max_size or img.width > max_size:
+                    # Calculate the new size while maintaining the aspect ratio
+                    if img.width > img.height:
+                        ratio = max_size / img.width
+                        new_size = (max_size, int(img.height * ratio))
+                    else:
+                        ratio = max_size / img.height
+                        new_size = (int(img.width * ratio), max_size)
+
+                    # Resize image and save
+                    img = img.resize(new_size, Image.LANCZOS)
+                    img.save(self.image.path)
+                    print(f'Resized image saved at: {self.image.path}')
+                else:
+                    print(f'Original image saved at: {self.image.path}')
+        except Exception as e:
+            print(f"Error resizing image: {e}")
 
     #     img = Image.open(self.image.path)
 

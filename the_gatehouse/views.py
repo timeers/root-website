@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.http import HttpResponseForbidden
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
-from django.views.generic import DetailView
+from django.views.generic import DetailView, ListView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from functools import wraps
 from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm

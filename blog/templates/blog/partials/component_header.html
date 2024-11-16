@@ -5,35 +5,49 @@
             <h1>{{ object.title }}</h1>
             <div class="article-metadata">
                 {% if object.clockwork %}Clockwork {% endif %}
-                {{ object.component }} by: 
+                {{ object.component }} by 
                 <a class="mr-2" href="{% url 'user-posts' object.designer.discord %}">{{ object.designer.discord }}</a>
     
                 <small class="text-muted">{{ object.date_updated | date:"Y-m-d" }}</small>
+
+
+                <div>{{ object.expansion.title }}</div>
+                {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
+                    <div class="article-content">Animal: {{ object.animal }}</div>
+                {% endif %}
+    
+                {% if object.artist %}
+                <div>
+                    Art by 
+                    <a class="mr-2" href="{% url 'artist-posts' object.artist.discord %}">{{ object.artist }}</a>
+                </div>
+                {% endif %}
+                {% if object.based_on %}
+                    Based on: <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a>
+                    by <a class="mr-2" href="{% url 'user-posts' object.based_on.designer.discord %}">{{ object.based_on.designer.discord }}</a>
+                {% endif %}
+
+
             </div>
-            <p class="article-content">{{ object.expansion.title }}</p>
-            {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
-                <p class="article-content">Animal: {{ object.animal }}</p>
+            
+
+            {% if object.lore %}
+                <p class="lore-content mt-2">{{ object.lore }}</p>
             {% endif %}
 
-            {% if object.artist %}
-            <div>
-                Art by 
-                <a class="mr-2" href="{% url 'artist-posts' object.artist.discord %}">{{ object.artist }}</a>
-            </div>
-            {% endif %}
-            {% if object.based_on %}
-                Based on: <a class="mr-2" href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a><br>
-                by <a class="mr-2" href="{% url 'user-posts' object.based_on.designer.discord %}">{{ object.based_on.designer.discord }}</a>
-            {% endif %}
 
-            <p class="article-content">{{ object.description }}</p>
-
-            <p class="article-content">{{ object.status }}</p>
+            <p class="article-content">Status: {{ object.status }}</p>
 </div>
+{% if user.is_superuser and object.designer.user == None %}
+    <div>
+        <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url object.component|lower|add:'-update' object.slug %}">Update</a>
+        <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{% url 'post-delete' object.id %}">Delete</a>
+    </div>
+{% endif %}
 {% if object.designer == user.profile and user.profile.creative %}
-<div>
-    <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url object.component|lower|add:'-update' object.slug %}">Update</a>
-    <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' object.id %}">Delete</a>
-</div>
+        <div>
+            <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url object.component|lower|add:'-update' object.slug %}">Update</a>
+            <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' object.id %}">Delete</a>
+        </div>
 {% endif %}
 </article>

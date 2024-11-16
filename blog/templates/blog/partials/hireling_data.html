@@ -2,6 +2,11 @@
     <div class="media-body">
         
     <h2>Hireling Details</h2>
+
+    {% if object.description %}
+        <h3>Description</h3>
+        <p class="article-content">{{ object.description }}</p>
+    {% endif %}
         <p class="article-content">{{ object.get_type_display }}</p> 
     </div>
 </article>

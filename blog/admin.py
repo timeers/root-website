@@ -16,7 +16,7 @@ from django.utils import timezone
 class MapAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'clearings')
     search_fields = ['title']
-    raw_id_fields = ['designer']
+    raw_id_fields = ['designer', 'artist']
 
     def get_urls(self):
         urls = super().get_urls()
@@ -115,7 +115,7 @@ class MapAdmin(admin.ModelAdmin):
 class DeckAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'card_total')
     search_fields = ['title']
-    raw_id_fields = ['designer']
+    raw_id_fields = ['designer', 'artist']
 
 
     def get_urls(self):
@@ -207,11 +207,11 @@ class DeckAdmin(admin.ModelAdmin):
 class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
     search_fields = ['title']
-    raw_id_fields = ['designer']
+    raw_id_fields = ['designer', 'artist']
 class HirelingAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
     search_fields = ['title']
-    raw_id_fields = ['designer']
+    raw_id_fields = ['designer', 'artist']
 class PostAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
     search_fields = ['title']
@@ -231,7 +231,9 @@ class OtherPieceAdmin(admin.ModelAdmin):
 class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
     search_fields = ['title']
-    raw_id_fields = ['designer']
+    raw_id_fields = ['designer', 'artist']
+
+
 
 
     def get_urls(self):

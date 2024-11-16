@@ -142,6 +142,7 @@ class VagabondCreateForm(PostCreateForm):
     starting_boots = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_bag = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_tea = forms.IntegerField(initial=0, min_value=0, max_value=4)
+    starting_sword = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_hammer = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_crossbow = forms.IntegerField(initial=0, min_value=0, max_value=4)
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
@@ -149,7 +150,7 @@ class VagabondCreateForm(PostCreateForm):
         fields = top_fields + ['animal',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
-                                'starting_bag', 'starting_tea', 'starting_hammer', 'starting_crossbow'] + bottom_fields
+                                'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['ability_description'].widget.attrs.update({'rows': '2'})
@@ -162,10 +163,11 @@ class VagabondCreateForm(PostCreateForm):
             starting_boots = cleaned_data.get('starting_boots')
             starting_bag = cleaned_data.get('starting_bag')
             starting_tea = cleaned_data.get('starting_tea')
+            starting_sword = cleaned_data.get('starting_sword')
             starting_hammer = cleaned_data.get('starting_hammer')
             starting_crossbow = cleaned_data.get('starting_crossbow')
             # Check that the VB doesn't have a wild amount of items
-            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_hammer+starting_crossbow) > 6:
+            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 6:
                 raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
             return cleaned_data
 
@@ -175,7 +177,7 @@ class VagabondImportForm(PostCreateForm):
         fields = top_fields + ['animal', 'official', 'designer',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
-                                'starting_bag', 'starting_tea', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
+                                'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
     def clean(self):
             cleaned_data = super().clean()
             starting_torch = cleaned_data.get('starting_torch')
@@ -183,10 +185,11 @@ class VagabondImportForm(PostCreateForm):
             starting_boots = cleaned_data.get('starting_boots')
             starting_bag = cleaned_data.get('starting_bag')
             starting_tea = cleaned_data.get('starting_tea')
+            starting_sword = cleaned_data.get('starting_sword')
             starting_hammer = cleaned_data.get('starting_hammer')
             starting_crossbow = cleaned_data.get('starting_crossbow')
             # Check that the VB doesn't have a wild amount of items
-            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_hammer+starting_crossbow) > 6:
+            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 6:
                 raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
             return cleaned_data
 

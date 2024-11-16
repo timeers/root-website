@@ -2,8 +2,18 @@
     <div class="media-body">
         
     <h2>Map Details</h2>
+    {{ object.clearings }} Clearings
 
-    <p class="article-content">{{ object.clearings }} Clearings</p>
+
+    {% if object.board_image %}
+        <img class="board-img" src="{{ object.board_image.url }}">
+    {% endif %}
+
+
+    {% if object.description %}
+        <h3>Description</h3>
+        <p class="article-content">{{ object.description }}</p>
+    {% endif %}
 
     </div>
 </article>

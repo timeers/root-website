@@ -63,7 +63,12 @@ em, i {
   .article-content {
     white-space: pre-line;
   }
-  
+
+  .lore-content {
+    white-space: pre-line;
+    font-style: italic;
+  }
+
   .article-img {
     max-height: 80px;
     max-width: 80px;
@@ -156,13 +161,22 @@ th, td {
   max-width: 225px;
   height: auto;  /* Allow height to adjust */
   width: auto;   /* Allow width to adjust */
+  border-radius: 10px;
 }
 
-.faction-board-img {
+.board-img {
   max-height: 550px;
   max-width: 650px;
   height: auto;  /* Allow height to adjust */
   width: auto;   /* Allow width to adjust */
+}
+
+.deck-img {
+  max-height: 700px;
+  max-width: 500px;
+  height: auto;  /* Allow height to adjust */
+  width: auto;   /* Allow width to adjust */
+  border-radius: 10px;
 }
 
 /* @font-face {

@@ -67,7 +67,7 @@
         <td>
             {% if effort.faction %}
                 <a href="{% url 'faction-detail' effort.faction.slug %}">
-                    <img class="rounded-square faction-icon" src="{{ effort.faction.small_icon.url }}">
+                    <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
                 </a>
                 <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
                 {% if effort.vagabond %}

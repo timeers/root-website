@@ -7,6 +7,7 @@ from datetime import timedelta
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
+from PIL import Image
 from django.apps import apps
 from .utils import slugify_post_title
 from the_gatehouse.models import Profile
@@ -82,13 +83,72 @@ class Post(models.Model):
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=10, choices=ComponentChoices.choices, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
-    small_icon = models.ImageField(upload_to='small_component_icons', null=True, blank=True)
+    small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
+    board_image = models.ImageField(upload_to='boards', null=True, blank=True)
+    card_image = models.ImageField(upload_to='cards', null=True, blank=True)
 
     objects = PostManager()
 
     def save(self, *args, **kwargs):
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            image_fields = ['card_image', 'picture', 'small_icon', 'board_image']
+            for field_name in image_fields:
+                old_image = getattr(old_instance, field_name)
+                new_image = getattr(self, field_name)
+                if old_image != new_image:
+                    # The image has changed, so check if it's not a default image
+                    if old_image and not old_image.name.startswith('default_images/'):
+                        # Delete non-default images
+                        self._delete_old_image(old_image)
+                    else:
+                        # Ignore any files in the default_images folder
+                        print(f"Default image saved: {old_image}")
+        
         super().save(*args, **kwargs)
+        self._resize_image(self.small_icon, 40)  # Resize small_icon
+        self._resize_image(self.board_image, 950)  # Resize board_image
+        self._resize_image(self.card_image, 350)  # Resize card_image
+
+    def _delete_old_image(self, old_image):
+        """Helper method to delete old image if it exists."""
+        if not old_image.name.startswith('default_images/'):
+            if old_image and os.path.exists(old_image.path):
+                os.remove(old_image.path)
+                print(f"Old image deleted: {old_image}")
+        else:
+            print(f"Default image saved: {old_image}")
+
+
+    def _resize_image(self, image_field, max_size):
+        """Helper method to resize the image if necessary."""
+        try:
+            if image_field and os.path.exists(image_field.path):  # Check if the image exists
+                img = Image.open(image_field.path)
+
+                # Resize if the image is larger than the max_size
+                if img.height > max_size or img.width > max_size:
+                    # Calculate the new size while maintaining the aspect ratio
+                    if img.width > img.height:
+                        ratio = max_size / img.width
+                        new_size = (max_size, int(img.height * ratio))
+                    else:
+                        ratio = max_size / img.height
+                        new_size = (int(img.width * ratio), max_size)
+
+                    # Resize image and save
+                    img = img.resize(new_size, Image.LANCZOS)
+                    img.save(image_field.path)
+                    print(f'Resized image saved at: {image_field.path}')
+                else:
+                    print(f'Original image saved at: {image_field.path}')
+        except Exception as e:
+            print(f"Error resizing image: {e}")
+
 
     def add_change(self, note):
         changes = json.loads(self.change_log)
@@ -188,8 +248,11 @@ class Deck(Post):
     def save(self, *args, **kwargs):
         self.component = 'Deck'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
+
     def get_absolute_url(self):
         return reverse('deck-detail', kwargs={'slug': self.slug})
+
+
 
 class Landmark(Post):
     card_text = models.TextField()
@@ -205,15 +268,33 @@ class Map(Post):
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
         if not self.picture:
-            self.picture = 'default_map.png'
+            self.picture = 'default_images/default_map.png'
         super().save(*args, **kwargs)  # Call the parent save method
+
 # This might need to be moved to each type of component? map-detail, deck-detail etc.
     def get_absolute_url(self):
         return reverse('map-detail', kwargs={'slug': self.slug})
 
+
+
+
 class Vagabond(Post):
+    class AbilityChoices(models.TextChoices):
+        NONE = 'None'
+        ANY = 'Any'
+        TORCH = 'Torch'
+        BAG = 'Bag'
+        TEA = 'Tea'
+        BOOTS = 'Boots'
+        COINS = 'Coins'
+        SWORD = 'Sword'
+        HAMMER = 'Hammer'
+        CROSSBOW = 'Crossbow'
+        OTHER = 'Other'
+
+
     animal = models.CharField(max_length=15)
-    ability_item = models.CharField(max_length=150, null=True, blank=True)
+    ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, null=True, blank=True)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
     starting_coins = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -222,12 +303,13 @@ class Vagabond(Post):
     starting_tea = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_hammer = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_crossbow = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_sword = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_torch = models.IntegerField(default=1, validators=[MinValueValidator(0),MaxValueValidator(2)])
     def save(self, *args, **kwargs):
         self.component = 'Vagabond'  # Set the component type
         if not self.picture:
             self.picture = animal_default_picture(self)
-        elif self.picture == 'animals/default_animal.png':
+        elif self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -277,8 +359,6 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices)
-    adset_card = models.ImageField(default=None, upload_to='adset_cards/custom', blank=True, null=True)
-    faction_board = models.ImageField(default=None, upload_to='faction_boards', blank=True, null=True)
     clockwork = models.BooleanField(default=False)
 
     def __add__(self, other):
@@ -288,40 +368,17 @@ class Faction(Post):
     
 
     def save(self, *args, **kwargs):
-        if not self.adset_card:  # Only set if it's not already defined
-            self.adset_card = f'adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
+        if not self.card_image:  # Only set if it's not already defined
+            self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
-            self.small_icon = 'default_faction_icon.png'
+            self.small_icon = 'default_images/default_faction_icon.png'
         if not self.picture:
             self.picture = animal_default_picture(self)
-        elif self.picture == 'animals/default_animal.png':
+        elif self.picture == 'default_images/animals/default_animal.png': #Update animal if default was previously used.
             self.picture = animal_default_picture(self)
                 
         self.component = 'Faction'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
-
-
-        # img = Image.open(self.small_icon.path)
-        # # Determine the largest dimension
-        # max_size = 40
-        # if img.height > max_size or img.width > max_size:
-        #     # print('resizing image')
-
-        #     # Calculate the new size while maintaining the aspect ratio
-        #     if img.width > img.height:
-        #         ratio = max_size / img.width
-        #         new_size = (max_size, int(img.height * ratio))
-        #     else:
-        #         ratio = max_size / img.height
-        #         new_size = (int(img.width * ratio), max_size)
-
-        #     img = img.resize(new_size, Image.LANCZOS)
-        #     img.save(self.small_icon.path)
-        #     # print(f'Resized image saved at: {self.small_icon.path}')
-        # else:
-        #     # print('original image')
-        #     img.save(self.small_icon.path)
-        #     # print(f'Original image saved at: {self.small_icon.path}')
 
     def get_absolute_url(self):
         return reverse('faction-detail', kwargs={'slug': self.slug})
@@ -359,7 +416,7 @@ class Hireling(Post):
         self.component = 'Hireling'  # Set the component type
         if not self.picture:
             self.picture = animal_default_picture(self)
-        elif self.picture == 'animals/default_animal.png':
+        elif self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
 
         super().save(*args, **kwargs)  # Call the parent save method
@@ -426,35 +483,35 @@ def animal_default_picture(instance):
         animal_lower = 'bee'
     if animal_lower == "gator" or animal_lower == "aligator" or animal_lower == "croc" or animal_lower == "crocodile":
         animal_lower = 'lizard'
+    if animal_lower == "person" or animal_lower == "people" or animal_lower == "man":
+        animal_lower = 'human'
     return check_for_image('animals', animal_lower)
 
 
 ## Using the os Media folder
 def check_for_image(folder, image_png_name):
     # Construct the full path to the folder
-    folder_path = os.path.join(settings.MEDIA_ROOT, folder)  # Assuming MEDIA_ROOT is your local media directory
+    folder_path = os.path.join(settings.MEDIA_ROOT, f'default_images/{folder}')
 
     # Check if the folder exists
     if not os.path.exists(folder_path):
         print('Specified folder does not exist.')
-        return f'{folder}/default_{folder}.png'
+        return f'default_images/{folder}/default_{folder}.png'
 
-    # List files in the folder
-    matching_images = []
-    
+    matching_images = []    
     # Iterate through the files in the specified folder
     for filename in os.listdir(folder_path):
         if filename.endswith(f'{image_png_name}.png'):
-            matching_images.append(os.path.join(folder, filename))  # Append the relative path
+            matching_images.append(os.path.join(f'default_images/{folder}', filename))  # Append the relative path
 
     if matching_images:
         return random.choice(matching_images)  # Return a random matching image
-    return f'{folder}/default_{folder}.png'
+    return f'default_images/{folder}/default_{folder}.png'
 
 
 
 ## USING AWS S3
-# def check_for_image(folder, image_png_name):
+# def check_for_aws_image(folder, image_png_name):
 #     s3_client = boto3.client(
 #         's3',
 #         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,

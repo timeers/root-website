@@ -3,6 +3,10 @@
 
     <h2>Faction Data</h2>
 
+    {% if object.description %}
+        <h3>Description</h3>
+        <p class="article-content">{{ object.description }}</p>
+    {% endif %}
 
         <p class="article-content">
             <div>Complexity: {{ object.get_complexity_display }}</div>
@@ -10,18 +14,21 @@
             <div>Aggression: {{ object.get_aggression_display }}</div>
             <div>Crafting Ability: {{ object.get_crafting_ability_display }}</div>
         </p>
-        <p class="article-content">
+        <div class="article-content">
             {{ object.get_type_display }} ({{ object.reach }} Reach)
-            <img class="adset-img" src="{{ object.adset_card.url }}">
-        </p> 
-        {% if object.faction_board %}
-            <img class="faction-board-img" src="{{ object.faction_board.url }}">
+            {% if object.card_image %}
+                <img class="adset-img" src="{{ object.card_image.url }}">
+            {% endif %}
+        </div> 
+        {% if object.board_image %}
+            <img class="board-img" src="{{ object.board_image.url }}">
         {% endif %}
 
         <p class="article-content">
         <h3>Components</h3>
         {% if object.warrior.all %}
             <div>
+                <h4>Warriors</h4> 
             {% for piece in object.warrior.all %}
                 {% if piece.suited %}
                     <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
@@ -32,6 +39,7 @@
             </div>
         {% endif %}
         {% if object.building.all %}
+        <h4>Buildings</h4> 
             <div>
             {% for piece in object.building.all %}
                 {% if piece.suited %}
@@ -43,6 +51,7 @@
             </div>
         {% endif %}
         {% if object.token.all %}
+        <h4>Tokens</h4> 
             <div>
             {% for piece in object.token.all %}
                 {% if piece.suited %}
@@ -54,6 +63,7 @@
             </div>
         {% endif %}
         {% if object.card.all %}
+            <h4>Cards</h4> 
             <div>
             {% for piece in object.card.all %}
                 {% if piece.suited %}
@@ -65,6 +75,7 @@
             </div>
         {% endif %}
         {% if object.otherpiece.all %}
+            <h4>Other Pieces</h4>
             <div>
             {% for piece in object.otherpiece.all %}
                 {% if piece.suited %}

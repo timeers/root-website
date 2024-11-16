@@ -2,6 +2,15 @@
     <div class="media-body">
         
     <h2>Deck Details</h2>
+
+    {% if object.description %}
+        <h3>Description</h3>
+        <p class="article-content">{{ object.description }}</p>
+    {% endif %}
         <p class="article-content">{{ object.card_total }} Cards</p>
+
+        {% if object.card_image %}
+            <img class="deck-img" src="{{ object.card_image.url }}">
+        {% endif %}
     </div>
 </article>
