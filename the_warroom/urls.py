@@ -1,12 +1,13 @@
 from django.urls import path
 # from .views import 
-from .views import (GameListView,
+from .views import (GameListView, GameListViewHX,
                     game_detail_hx_view, game_detail_view, 
                     game_delete_view, game_effort_delete_view,
                     update_game, record_game, effort_update_hx_view, create_effort)
 
 urlpatterns = [
     path('', GameListView.as_view(), name='games-home'),
+    path('hx/games-listview', GameListViewHX.as_view(), name='hx-game-list'),
     path('record/', record_game, name='record-game'),
 
     path("hx/<int:id>/", game_detail_hx_view, name='game-hx-detail'),

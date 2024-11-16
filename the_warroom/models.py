@@ -28,17 +28,17 @@ class Game(models.Model):
     # Required
     type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.ASYNC)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.DWD)
-    deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True)
-    map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True)
+    deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True, related_name='games')
+    map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True, related_name='games')
 
     league = models.BooleanField(default=False)
     tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Optional
-    landmarks = models.ManyToManyField(Landmark, blank=True)
-    hirelings = models.ManyToManyField(Hireling, blank=True)
-    undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None)
-    undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None)
+    landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')
+    hirelings = models.ManyToManyField(Hireling, blank=True, related_name='games')
+    undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
+    undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     link = models.CharField(max_length=300, null=True, blank=True)
 
     random_clearing = models.BooleanField(default=False)
@@ -46,7 +46,7 @@ class Game(models.Model):
 
     # Automatic
     date_posted = models.DateTimeField(default=timezone.now)
-    recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
+    recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
 
     def get_efforts(self):
         return self.efforts.all()
@@ -88,8 +88,8 @@ class Effort(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
     faction = models.ForeignKey(Faction, on_delete=models.PROTECT, related_name='efforts')
     vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts')
-    captains = models.ManyToManyField(Vagabond, blank=True, related_name='as_captain')
-    coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='coalition_with')
+    captains = models.ManyToManyField(Vagabond, blank=True, related_name='efforts_as_captain')
+    coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
     dominance = models.BooleanField(default=False)
     clockwork = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
