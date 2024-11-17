@@ -4,29 +4,29 @@
     <div class="media-body">
     <h2>Links</h2>
     {% if object.bgg_link %}
-    <p class="article-content">
-        <a class="mr-2" href="{{ object.bgg_link }}">Board Game Geek Post</a>
-    </p>
+        <p class="article-content">
+            <a class="mr-2" href="{{ object.bgg_link }}" target="blank">Board Game Geek Post</a>
+        </p>
     {% endif %}
     {% if object.tts_link %}
-    <p class="article-content">
-        <a class="mr-2" href="{{ object.tts_link }}">Tabletop Simulator</a>
-    </p>
+        <p class="article-content">
+            <a class="mr-2" href="{{ object.tts_link }}" target="blank">Tabletop Simulator</a>
+        </p>
     {% endif %}
     {% if object.ww_link %}
-    <p class="article-content">
-        <a class="mr-2" href="{{ object.ww_link }}">Woodland Warriors Thread</a>
-    </p>
+        <p class="article-content">
+            <a class="mr-2" href="{{ object.ww_link }}" target="blank">Woodland Warriors Thread</a>
+        </p>
     {% endif %}
     {% if object.wr_link %}
-    <p class="article-content">
-        <a class="mr-2" href="{{ object.wr_link }}">{% if object.official %}Find at Leder Games{% else %}Weird Root Thread{% endif %}</a>
-    </p>
+        <p class="article-content">
+            <a class="mr-2" href="{{ object.wr_link }}" target="blank">{% if object.official %}Find at Leder Games{% else %}Weird Root Thread{% endif %}</a>
+        </p>
     {% endif %}
     {% if object.pnp_link  %}
-            <p class="article-content">
-                <a class="mr-2" href="{{ object.pnp_link }}">Print & Play Files</a>
-            </p>
+        <p class="article-content">
+            <a class="mr-2" href="{{ object.pnp_link }}" target="blank">Print & Play Files</a>
+        </p>
     {% endif %}
     </div>
 </article>

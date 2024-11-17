@@ -65,9 +65,22 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Map']),
+        required=False
+    )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings'] + bottom_fields
+        fields = top_fields + ['clearings', 'based_on'] + bottom_fields
+
+    def __init__(self, *args, **kwargs):
+        # Check if an instance is being created or updated
+        instance = kwargs.get('instance', None)
+        super().__init__(*args, **kwargs)
+
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
 
 class MapImportForm(MapCreateForm):  # Inherit from PostCreateForm
     class Meta(MapCreateForm.Meta):  # Inherit Meta from PostCreateForm
@@ -87,9 +100,22 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Deck']),
+        required=False
+    )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total'] + bottom_fields
+        fields = top_fields + ['card_total', 'based_on'] + bottom_fields
+
+    def __init__(self, *args, **kwargs):
+        # Check if an instance is being created or updated
+        instance = kwargs.get('instance', None)
+        super().__init__(*args, **kwargs)
+
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
 
 class DeckImportForm(DeckCreateForm):
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
@@ -103,13 +129,23 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Landmark Name',
         required=True
     )
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Landmark']),
+        required=False
+    )
     def __init__(self, *args, **kwargs):
+        instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
+
         self.fields['card_text'].widget.attrs.update({'rows': '2'})
+
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Landmark
-        fields = top_fields + ['card_text'] + bottom_fields
+        fields = top_fields + ['card_text', 'based_on'] + bottom_fields
 
 class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Hireling'
@@ -126,10 +162,22 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         widget=forms.RadioSelect(),
         required=True
     )
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Faction', 'Vagabond', 'Hireling']),
+        required=False
+    )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
         fields = top_fields + ['animal', 'type', 'based_on'] + bottom_fields
 
+    def __init__(self, *args, **kwargs):
+        # Check if an instance is being created or updated
+        instance = kwargs.get('instance', None)
+        super().__init__(*args, **kwargs)
+
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
 
 class VagabondCreateForm(PostCreateForm): 
     form_type = 'Vagabond'
@@ -145,16 +193,26 @@ class VagabondCreateForm(PostCreateForm):
     starting_sword = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_hammer = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_crossbow = forms.IntegerField(initial=0, min_value=0, max_value=4)
+
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Faction', 'Vagabond']).exclude(slug='vagabond'),
+        required=False
+    )
+
+
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal',
+        fields = top_fields + ['animal', 'based_on',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields
     def __init__(self, *args, **kwargs):
+        instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
         self.fields['ability_description'].widget.attrs.update({'rows': '2'})
-    
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
     
     def clean(self):
             cleaned_data = super().clean()
@@ -238,10 +296,13 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         widget=forms.RadioSelect(),
         required=True
     )
-
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Faction']),
+        required=False
+    )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['small_icon', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
+        fields = top_fields + ['small_icon', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability'] + bottom_fields
 
     def clean(self):
@@ -255,7 +316,15 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             elif type == 'M' and reach < 6:
                 raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
             return cleaned_data
+    
+    def __init__(self, *args, **kwargs):
+        # Check if an instance is being created or updated
+        instance = kwargs.get('instance', None)
+        super().__init__(*args, **kwargs)
 
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
 
 
 

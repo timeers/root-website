@@ -19,31 +19,9 @@ class Profile(models.Model):
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
-    def absorbed_by(self, profile):
-        if self.user is None:
-            efforts = self.efforts.all() 
-            print('Transferring Games')
-            for effort in efforts:
-                effort.player = profile
-                effort.save()
-                print(f'Gameplay {effort.id} transferred from {self} to {profile}')
-            designer_posts = self.posts.all()
-            print('Transferring Posts')
-            for post in designer_posts:
-                post.designer = profile
-                post.save()
-                print(f'Component {post} transferred from {self} to {profile}')
-            artist_posts = self.artist_posts.all()
-            print('Transferring Art')
-            for art in artist_posts:
-                art.artist = profile
-                art.save()
-                print(f'Art for {art} transferred from {self} to {profile}')
-
     def __str__(self):
         return self.discord
     
-    #  No longer used as files are stored in S3
     def save(self, *args, **kwargs):
 
         super().save(*args, **kwargs)
