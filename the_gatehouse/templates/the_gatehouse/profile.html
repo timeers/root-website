@@ -18,21 +18,25 @@
                         <span class="text-secondary">DWD: {{ user.profile.dwd }}</span><br>
                     {% endif %}
                 {% endif %}
-                {% if user.email %}
-                    <span class="text-secondary">{{ user.email }}</span><br>
-                {% endif %}
-            </div>
-            <!-- Winrate -->
-            <div class="media-body">
-                {{ user.profile.winrate|floatformat:2 }}% Winrate
+
             </div>
         </div>
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">Profile Info</legend>
-                {{ p_form | crispy }}
-                {{ u_form | crispy }}
+                {% if user.profile.player %}
+                    {{ p_form | crispy }}
+                {% else %}
+                    <div class="alert alert-warning">Your account has not yet been verified. Join the Root Discord to enable additional features.</div>
+                    {% for field in p_form %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            <input type="{{ field.field.widget.type }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.label != 'Display name' %}readonly{% endif %} class="form-control">
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            
             </fieldset>
             <div class="form-group">
                 <button class="btn btn-outline-info" type="submit">Update</button>

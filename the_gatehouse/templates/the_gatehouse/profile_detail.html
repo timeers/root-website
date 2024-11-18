@@ -18,12 +18,20 @@
                         <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
                     {% endif %}
                 {% endif %}
+                {% if quantity_faction %}
+                <div>Most played Faction: {{ quantity_faction }}: {{ quantity_count }} Games</div>
+                {% endif %}
+                {% if quality_faction %}
+                <div>Highest winrate with: {{ quality_faction }}: {{ quality_winrate|floatformat:2 }}%</div>
+                {% endif %}
             </div>
  
             <!-- Winrate -->
             <div class="media-body">
-                {{ player.winrate|floatformat:2 }}% Winrate
+                <div>{{ player.winrate|floatformat:2 }}% Winrate</div>
+                <div>{{ player.games_played }} Games Played</div>
             </div>
+            
             {% if player == user.profile %}
             <div class="media-body">
                 <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}">Edit Profile</a>

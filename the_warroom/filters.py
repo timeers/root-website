@@ -33,6 +33,23 @@ class GameFilter(django_filters.FilterSet):
         model = Game
         fields = ['map', 'deck', 'faction', 'player', 'vagabond']
 
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        official_only = True
+        if user and user.is_authenticated:
+            if user.profile.weird:
+                official_only = False
+        # Filter for only Official content if not a member of Weird Root
+        if official_only:
+            self.filters['deck'].queryset = Deck.objects.filter(official=True)
+            self.filters['map'].queryset = Map.objects.filter(official=True)
+            self.filters['faction'].queryset = Faction.objects.filter(official=True)
+            self.filters['vagabond'].queryset = Vagabond.objects.filter(official=True)
+            # self.filters['landmarks'].queryset = Landmark.objects.filter(official=True)
+            # self.filters['hirelings'].queryset = Hireling.objects.filter(official=True)
+
+
     def filter_queryset(self, queryset):
         # Get the selected factions
         selected_factions = self.data.getlist('faction')
@@ -60,3 +77,4 @@ class GameFilter(django_filters.FilterSet):
                     Q(efforts__player=player)  # Filter by any selected player
                 ).distinct()
         return super().filter_queryset(queryset)
+    

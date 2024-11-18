@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-{% if user.is_authenticated %}
+{% if user.profile.player %}
     <a href="{% url 'record-game' %}" class="btn btn-success mb-3" id="recordgame">
         Record New Game +
     </a>

@@ -55,7 +55,7 @@
             <td>
 
             {% if effort.player %}
-                {% if user.is_authenticated %}
+                {% if user.profile.player %}
                     <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.display_name }}</a>
                 {% else %}
                     {{ effort.player.display_name }}

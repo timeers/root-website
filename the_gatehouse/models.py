@@ -6,16 +6,25 @@ from django.db.models.signals import pre_save, post_save
 from django.db import models
 from PIL import Image
 from .utils import slugify_instance_discord
+from django.db.models import Count
+from django.apps import apps
 
 
 class Profile(models.Model):
+    class GroupChoices(models.TextChoices):
+        OUTCAST = 'O'
+        PLAYER = 'P'
+        DESIGNER = 'D'
+        ADMIN = 'A'
+
     component = 'Profile'
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
-    creative = models.BooleanField(default=False)
+    group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
+    weird = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
@@ -60,7 +69,27 @@ class Profile(models.Model):
     #         img.thumbnail(output_size)
     #         img.save(self.image.path)
 
-     
+    @property
+    def admin(self):
+        if self.group == "A":
+            return True
+        else:
+            return False
+
+    @property
+    def designer(self):
+        if self.group == "D" or self.group == "A":
+            return True
+        else:
+            return False
+
+    @property
+    def player(self):
+        if self.group == "D" or self.group == "A" or self.group == "P":
+            return True
+        else:
+            return False
+        
 
     def winrate(self, faction = None):
         efforts = self.efforts.all()  # Access the related Effort objects for this player
@@ -77,9 +106,64 @@ class Profile(models.Model):
             return points / all_games * 100  # Calculate winrate
         return 0
     
+    def get_games_queryset(self):
+        Game = apps.get_model('the_warroom', 'Game')
+        efforts = self.efforts.all()
+        games = Game.objects.filter(id__in=[effort.game.id for effort in efforts]).order_by('-date_posted')
+        return games
+
+
+    def games_played(self, faction = None):
+        efforts = self.efforts.all()  # Access the related Effort objects for this player
+        if faction:
+            efforts = efforts.filter(faction=faction)
+        all_games = efforts.count()
+        return all_games
+
+
     def get_absolute_url(self):
         return reverse('player-detail', kwargs={'slug': self.slug})
     
+
+    def most_used_faction(self):
+        from the_keep.models import Faction
+        
+        most_used = (
+            self.efforts.values('faction')
+            .annotate(faction_count=Count('faction'))
+            .order_by('-faction_count')
+        ).first()  # Get the top result
+
+        if most_used:
+            faction_id = most_used['faction']
+            try:
+                # Fetch and return the faction instance
+                return Faction.objects.get(pk=faction_id)
+            except Faction.DoesNotExist:
+                return None  # Handle case where faction doesn't exist
+        return None  # Handle case where there are no efforts
+
+    def most_successful_faction(self):
+        # from yourapp.models import Faction  # Lazy import to avoid circular imports
+        from the_keep.models import Faction
+
+        # Aggregate wins by faction
+        wins_by_faction = (
+            self.efforts.filter(win=True)
+            .values('faction')  # Assuming 'faction' is the field name
+            .annotate(win_count=Count('id'))  # Count wins
+            .order_by('-win_count')  # Order by count descending
+        )
+
+        # Get the faction with the most wins
+        most_successful = wins_by_faction.first()
+
+        if most_successful:
+            # Return the corresponding Faction object
+            return Faction.objects.get(id=most_successful['faction'])
+
+        return None  # No wins found
+
 
 
 

@@ -27,7 +27,7 @@ DEBUG = (os.environ.get('DEBUG_VALUE') == 'True')
 
 ALLOWED_HOSTS = []
 
-
+SITE_ID = 1
 # Application definition
 
 INSTALLED_APPS = [
@@ -47,6 +47,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'storages',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.discord',
 ]
 
 MIDDLEWARE = [
@@ -59,6 +63,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
     'django_htmx.middleware.HtmxMiddleware',
+    # Add the account middleware:
+    "allauth.account.middleware.AccountMiddleware",
+
 ]
 
 ROOT_URLCONF = 'django_project.urls'
@@ -79,7 +86,40 @@ TEMPLATES = [
     },
 ]
 
+AUTHENTICATION_BACKENDS = [
+    # Needed to login by username in Django admin, regardless of `allauth`
+    'django.contrib.auth.backends.ModelBackend',
+
+    # `allauth` specific authentication methods, such as login by email
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
+
+
 WSGI_APPLICATION = 'django_project.wsgi.application'
+
+
+# Provider specific settings
+SOCIALACCOUNT_PROVIDERS = {
+    'discord': {
+        # For each OAuth based provider, either add a ``SocialApp``
+        # (``socialaccount`` app) containing the required client
+        # credentials, or list them here:
+        'APP': {
+            'client_id': os.environ.get('DISCORD_ID'),
+            'secret': os.environ.get('DISCORD_SECRET'),
+            'key': ''
+      },
+        'SCOPE': [
+            'identify',              # Basic user info
+            'guilds',               # List of guilds the user is a member of
+            'guilds.members.read',
+        ],
+
+        'AUTH_PARAMS': {
+            'prompt': 'consent'  # Optional
+        }
+    }
+}
 
 
 # Database
@@ -146,7 +186,19 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap4"
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
 LOGIN_REDIRECT_URL = 'keep-home'
-LOGIN_URL = 'login'
+HOME_URL = 'keep-home'
+LOGIN_URL = 'discord_login'
+
+ACCOUNT_EMAIL_REQUIRED = False
+SOCIALACCOUNT_QUERY_EMAIL = False  # This doesn't seem to do anything
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+
+
+# #Added this line to work on Users and Players
+# AUTH_USER_MODEL = "users.User"
+
+SOCIALACCOUNT_STORE_TOKENS = True # This on the other hand is important!
+# SOCIALACCOUNT_ONLY = True
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'

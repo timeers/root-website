@@ -1,12 +1,13 @@
 from django.contrib import admin, messages
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
 from .models import Profile
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
-
-
+from django.utils.translation import gettext_lazy as _
 
 
 
@@ -14,7 +15,7 @@ class CsvImportForm(forms.Form):
     csv_upload = forms.FileField() 
 
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'creative', 'display_name', 'discord', 'dwd', 'league')
+    list_display = ('user', 'group', 'display_name', 'discord', 'dwd', 'league')
     search_fields = ('display_name', 'discord', 'dwd',)
     actions = ['merge_profiles']
      
@@ -84,7 +85,7 @@ class ProfileAdmin(admin.ModelAdmin):
                 if fields[0] == '':  # Check to ensure there are enough fields
                     print("No Data in Field")
                     continue  # Skip to the next iteration if not enough fields
-                discord_value = fields[0].split('+')[0]
+                discord_value = fields[0].split('+')[0].lower()
                 profile, created = Profile.objects.update_or_create(
                     discord=discord_value,
                     defaults={
@@ -100,6 +101,60 @@ class ProfileAdmin(admin.ModelAdmin):
         form = CsvImportForm()
         data = {'form': form}
         return render(request, 'admin/csv_upload.html', data)
+
+
+
+class CustomUserAdmin(UserAdmin):
+    # Customize the fields displayed in the admin interface
+    list_display = ('username', 'profile__display_name', 'profile__group', 'profile__weird', 'is_staff', 'is_active')
+    list_filter = ('is_staff', 'is_active')
+    
+
+    # def get_list_display(self, request):
+    #     return [
+    #         ('username', 'Username'),
+    #         ('profile__display_name', 'Display Name'),
+    #         ('profile__group', 'Group'),
+    #         ('profile__weird', 'Fan Content'),
+    #         ('is_staff', 'Staff Status'),
+    #         ('is_active', 'Active Status'),
+    #     ]
+
+
+    # Customize the fieldsets
+    fieldsets = (
+        (None, {'fields': ('username', 'password')}),
+        (_('Personal info'), {'fields': ('first_name', 'last_name', 'email')}),
+        (_('Permissions'), {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
+        (_('Important dates'), {'fields': ('last_login',)}),
+    )
+    
+
+    @admin.display(description='Display Name')
+    def profile__display_name(self, obj):
+        return obj.profile.display_name
+
+    @admin.display(description='Group')
+    def profile__group(self, obj):
+        # return obj.profile.group
+        return obj.profile.get_group_display()
+    
+    @admin.display(description='Fan Content')
+    def profile__weird(self, obj):
+        return obj.profile.weird
+
+    # # Optionally override save_model
+    # def save_model(self, request, obj, form, change):
+    #     # Add any custom behavior here
+    #     super().save_model(request, obj, form, change)
+
+# Unregister the default User admin
+admin.site.unregister(User)
+# Register the customized User admin
+admin.site.register(User, CustomUserAdmin)
+
+
+
 
 
 admin.site.register(Profile, ProfileAdmin)

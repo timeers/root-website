@@ -14,7 +14,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_gatehouse.models import Profile
-from the_gatehouse.views import creative_required_class_based_view
+from the_gatehouse.views import designer_required_class_based_view
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -35,6 +35,18 @@ class PostListView(ListView):
     context_object_name = 'posts'
     ordering = ['-date_updated']
     paginate_by = 20
+
+    def get_queryset(self):
+        # Filter posts to only include those where official is True
+        if not self.request.user.is_authenticated:
+            qs = Post.objects.filter(official=True).order_by('-date_updated')
+        else:
+            if self.request.user.profile.weird:
+                qs = Post.objects.all().order_by('-date_updated')
+            else:
+                qs = Post.objects.filter(official=True).order_by('-date_updated')
+
+        return qs
 
 # A list of one specific user's posts
 class UserPostListView(ListView):
@@ -92,7 +104,7 @@ class ExpansionDetailView(DetailView):
 
 
 # START CREATE VIEWS
-@creative_required_class_based_view
+@designer_required_class_based_view
 class MapCreateView(LoginRequiredMixin, CreateView):
     model = Map
     form_class = MapCreateForm
@@ -101,7 +113,7 @@ class MapCreateView(LoginRequiredMixin, CreateView):
         form.instance.designer = self.request.user.profile
         return super().form_valid(form)
     
-@creative_required_class_based_view
+@designer_required_class_based_view
 class DeckCreateView(LoginRequiredMixin, CreateView):
     model = Deck
     form_class = DeckCreateForm
@@ -110,7 +122,7 @@ class DeckCreateView(LoginRequiredMixin, CreateView):
         form.instance.designer = self.request.user.profile
         return super().form_valid(form)
     
-@creative_required_class_based_view
+@designer_required_class_based_view
 class LandmarkCreateView(LoginRequiredMixin, CreateView):
     model = Landmark
     form_class = LandmarkCreateForm
@@ -119,7 +131,7 @@ class LandmarkCreateView(LoginRequiredMixin, CreateView):
         form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class HirelingCreateView(LoginRequiredMixin, CreateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -128,7 +140,7 @@ class HirelingCreateView(LoginRequiredMixin, CreateView):
         form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class VagabondCreateView(LoginRequiredMixin, CreateView):
     model = Vagabond
     form_class = VagabondCreateForm
@@ -137,7 +149,7 @@ class VagabondCreateView(LoginRequiredMixin, CreateView):
         form.instance.designer = self.request.user.profile
         return super().form_valid(form)
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class FactionCreateView(LoginRequiredMixin, CreateView):
     model = Faction
     form_class = FactionCreateForm
@@ -147,7 +159,7 @@ class FactionCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 # END CREATE VIEWS
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Post
     # This is not working as hoped. It is just returning the PostCreateForm
@@ -179,7 +191,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class MapUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Map
     form_class = MapCreateForm
@@ -195,7 +207,7 @@ class MapUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class DeckUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Deck
     form_class = DeckCreateForm
@@ -211,7 +223,7 @@ class DeckUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class LandmarkUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Landmark
     form_class = LandmarkCreateForm
@@ -227,7 +239,7 @@ class LandmarkUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class HirelingUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -243,7 +255,7 @@ class HirelingUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
 
-@creative_required_class_based_view
+@designer_required_class_based_view
 class VagabondUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Vagabond
     form_class = VagabondCreateForm
@@ -259,7 +271,7 @@ class VagabondUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return True
         return False
     
-@creative_required_class_based_view  
+@designer_required_class_based_view  
 class FactionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Faction
     form_class = FactionCreateForm
@@ -318,10 +330,27 @@ class ComponentDetailListView(ListView):
             return 'the_warroom/partials/hx_game_list.html'
         return 'the_keep/component_detail_list.html'
 
+    # def get_queryset(self):
+    #     queryset = self.object.get_games_queryset() 
+    #     self.filterset = GameFilter(self.request.GET, queryset=queryset)
+    #     return self.filterset.qs
+    
     def get_queryset(self):
-        queryset = self.object.get_games_queryset() 
+        if not hasattr(self, 'object'):
+            self.object = self.get_object()  # Ensure the object is set
+        if not self.request.user.is_authenticated:
+            queryset = self.object.get_games_queryset().only_official_components()
+        else:
+            if self.request.user.profile.weird:
+                print("include weird games")
+                queryset = self.object.get_games_queryset()
+            else:
+                print('exclude weird games')
+                queryset = self.object.get_games_queryset().only_official_components()
+
         self.filterset = GameFilter(self.request.GET, queryset=queryset)
         return self.filterset.qs
+
 
     def get_object(self):
         # Retrieve the faction based on the primary key
@@ -355,7 +384,7 @@ class ComponentDetailListView(ListView):
             page_obj = paginator.get_page(page_number)  # Get the specific page of games
         except EmptyPage:
             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-        context['games_total'] = games.count
+        context['games_total'] = games.count()
         context['games'] = page_obj  # Pass the paginated page object to the context
         context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
         context['page_obj'] = page_obj  # Pass the page_obj to the context

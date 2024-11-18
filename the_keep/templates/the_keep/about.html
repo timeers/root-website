@@ -1,6 +1,29 @@
 {% extends 'the_keep/base.html' %}
+
+
+
+
+
+
+
+
 {% block content %}
+{% load allauth socialaccount %}
+{% get_providers as socialaccount_providers %}
      <h1>About Page</h1>
+
+     <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">Login</a>
+
+     {% if socialaccount_providers %}
+          {% element provider_list %}
+          {% for provider in socialaccount_providers %}
+               {% provider_login_url provider process=process scope=scope auth_params=auth_params as href %}
+               {% element provider name=provider.name provider_id=provider.id href=href %}
+               {% endelement %}
+          {% endfor %}
+          {% endelement %}
+     {% endif %}
+
 
          <form method="POST">
           {% csrf_token %}

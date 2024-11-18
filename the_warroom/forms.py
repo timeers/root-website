@@ -1,6 +1,6 @@
 from django import forms
 from .models import Effort, Game
-from the_keep.models import Hireling, Landmark
+from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
 
 class GameCreateForm(forms.ModelForm):  
@@ -20,6 +20,19 @@ class GameCreateForm(forms.ModelForm):
         widgets = {
             'type': forms.RadioSelect,
         }
+
+    def __init__(self, *args, user=None, **kwargs):
+        # Call the parent constructor
+        super(GameCreateForm, self).__init__(*args, **kwargs)
+        # Filter for only Official content if not a member of Weird Root
+        if not user.profile.weird:
+            self.fields['deck'].queryset = Deck.objects.filter(official=True)
+            self.fields['map'].queryset = Map.objects.filter(official=True)
+            self.fields['undrafted_faction'].queryset = Faction.objects.filter(official=True)
+            self.fields['undrafted_vagabond'].queryset = Vagabond.objects.filter(official=True)
+            self.fields['landmarks'].queryset = Landmark.objects.filter(official=True)
+            self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
+            
 
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'

@@ -1,3 +1,6 @@
+{% load allauth socialaccount %}
+{% get_providers as socialaccount_providers %}
+
 <header class="site-header">
     <nav class="navbar navbar-expand-md navbar-dark bg-steel fixed-top">
       <div class="container">
@@ -22,7 +25,7 @@
             </form>
 
 
-              {% if user.is_authenticated %}
+              {% if user.profile.player %}
                   {% if user.is_superuser %}
                       <!-- <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -42,7 +45,7 @@
                       </a>
                       <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="{% url 'record-game' %}">Game</a></li>
-                        {% if user.profile.creative %}
+                        {% if user.profile.designer %}
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
                         <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
@@ -55,17 +58,12 @@
                         {% endif %}
                       </ul>
                     </li>
-                  
+              {% endif %}
+              {% if user.is_authenticated %}
                   <a class="nav-item nav-link" href="{% url 'profile' %}">{{ user.profile.display_name }}</a>
-                  <!-- cannot log out with a GET request so this version does not work -->
-                  <!-- <a class="nav-item nav-link" href="{% url 'logout' %}">Logout</a> -->
-                  <form action="{% url 'logout' %}" method="post">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-outline-light border-0">Logout</button>
-                  </form>
+                  <a class="nav-item nav-link" href="{% url 'account_logout' %}">Logout</a>
               {% else %}
-                  <a class="nav-item nav-link" href="{% url 'login' %}">Login</a>
-                  <a class="nav-item nav-link" href="{% url 'register' %}">Register</a>
+                  <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">Login</a>
               {% endif %}
           </div>
         </div>

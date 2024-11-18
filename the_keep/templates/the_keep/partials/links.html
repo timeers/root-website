@@ -13,14 +13,14 @@
             <a class="mr-2" href="{{ object.tts_link }}" target="blank">Tabletop Simulator</a>
         </p>
     {% endif %}
-    {% if object.ww_link %}
+    {% if object.ww_link and user.profile.player %}
         <p class="article-content">
-            <a class="mr-2" href="{{ object.ww_link }}" target="blank">Woodland Warriors Thread</a>
+            <a class="mr-2" href="{{ object.ww_link }}" target="blank">{% if object.official %}Find at Leder Games{% else %}Woodland Warriors Thread{% endif %}</a>
         </p>
     {% endif %}
-    {% if object.wr_link %}
+    {% if object.wr_link and user.profile.weird %}
         <p class="article-content">
-            <a class="mr-2" href="{{ object.wr_link }}" target="blank">{% if object.official %}Find at Leder Games{% else %}Weird Root Thread{% endif %}</a>
+            <a class="mr-2" href="{{ object.wr_link }}" target="blank">Weird Root Thread</a>
         </p>
     {% endif %}
     {% if object.pnp_link  %}

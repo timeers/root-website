@@ -1,8 +1,8 @@
 from django.shortcuts import render
-from django.contrib.auth.mixins import LoginRequiredMixin
+# from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
-from django.views.generic import CreateView, ListView
+from django.views.generic import ListView
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404
@@ -10,13 +10,14 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse
 from django.conf import settings
-from django.db import transaction
+# from django.db import transaction
 from django.db.models import Q
 from .models import Game, Effort
 from .forms import GameCreateForm, EffortCreateForm
 from .filters import GameFilter
 from the_gatehouse.models import Profile
-from the_keep.models import Post
+# from the_keep.models import Post
+from the_gatehouse.views import player_required
 
 
 
@@ -35,7 +36,13 @@ class GameListView(ListView):
         return 'the_warroom/games_home.html'
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        if not self.request.user.is_authenticated:
+            queryset = super().get_queryset().only_official_components()
+        else:
+            if self.request.user.profile.weird:
+                queryset = super().get_queryset()
+            else:
+                queryset = super().get_queryset().only_official_components()
         self.filterset = GameFilter(self.request.GET, queryset=queryset)
         return self.filterset.qs
     
@@ -242,9 +249,9 @@ def effort_update_hx_view(request, id=None):
 
 
 
-@login_required
+@player_required
 def record_game(request):
-    form = GameCreateForm(request.POST or None)
+    form = GameCreateForm(request.POST or None, user = request.user)
     context = {
         'form': form, 
     }

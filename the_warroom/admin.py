@@ -23,7 +23,7 @@ class EffortInline(admin.StackedInline):
     # fields = ['player', 'faction', 'score', 'win']
 
 class GameAdmin(admin.ModelAdmin):
-    list_display = ('id', 'date_posted', 'deck', 'map', 'type', 'platform', 'league', 'recorder__discord')
+    list_display = ('id', 'recorder__discord', 'date_posted', 'deck', 'map', 'type', 'platform', 'league')
     inlines = [EffortInline]
      
     def get_urls(self):
@@ -103,7 +103,7 @@ class GameAdmin(admin.ModelAdmin):
 
                         
                     for i in range(4):
-                        discord_value = fields[1+i].split('+')[0]
+                        discord_value = fields[1+i].split('+')[0].lower()
                         # player_instance = Profile.objects.get_or_create(discord=fields[1+i])
                         # print(discord_value)
                         # print(fields[1+i])
@@ -112,7 +112,7 @@ class GameAdmin(admin.ModelAdmin):
                             discord=discord_value,
                             defaults={
                                 'dwd': fields[1+i],
-                                'display_name': discord_value
+                                'display_name': fields[1+i].split('+')[0]
                                 }
                             )
 

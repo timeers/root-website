@@ -9,6 +9,19 @@ from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
 
+
+class GameQuerySet(models.QuerySet):
+    def only_official_components(self):
+        return self.exclude(
+            Q(efforts__faction__official=False) |
+            Q(efforts__vagabond__official=False) |
+            Q(deck__official=False) |
+            Q(map__official=False) |
+            Q(hirelings__official=False) |
+            Q(landmarks__official=False)
+        )
+
+
 class Tournament(models.Model):
     name = models.CharField(max_length=30)
     participants = models.ManyToManyField(Profile, blank=True)
@@ -48,12 +61,18 @@ class Game(models.Model):
     date_posted = models.DateTimeField(default=timezone.now)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
 
+    objects = GameQuerySet.as_manager()
+
+    def __str__(self):
+        return f'Game {self.id} test'
+
     def get_efforts(self):
         return self.efforts.all()
     
     def get_winners(self):
         return self.get_efforts().filter(win=True)
     
+    @property
     def only_official_components(self):
         return not (
             self.get_efforts().filter(Q(faction__official=False) | Q(vagabond__official=False)).exists() or
@@ -62,6 +81,7 @@ class Game(models.Model):
             self.hirelings.filter(official=False).exists() or
             self.landmarks.filter(official=False).exists()
         )
+    
     def clean(self):
         # Check for duplicates among non-blank links
         if self.link:
