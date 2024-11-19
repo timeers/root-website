@@ -19,6 +19,34 @@ class ProfileAdmin(admin.ModelAdmin):
     search_fields = ('display_name', 'discord', 'dwd',)
     actions = ['merge_profiles']
      
+    def get_form(self, request, obj = None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        is_superuser = request.user.is_superuser
+        if not is_superuser:
+            # These fields should not be changed
+            form.base_fields['user'].disabled = True
+            form.base_fields['discord'].disabled = True
+            form.base_fields['slug'].disabled = True
+
+            if obj and obj.group == 'A':
+                # This would only disable the group field
+                # form.base_fields['group'].disabled = True
+
+                # This disables all fields of admin profiles. I think it's best to not let admins change other admins.
+                for field in form.base_fields.values():
+                    field.disabled = True
+            else:
+                # Limit choices so that new Admins cannot be created
+                form.base_fields['group'].choices = [
+                    ('O', 'Outcast'),
+                    ('P', 'Player'),
+                    ('D', 'Designer'),
+                    ('B', 'Banned'),
+                ]
+
+
+        return form
+    
     @admin.action(description="Merge Profiles")
     def merge_profiles(self, request, queryset):
         users_qs = queryset.exclude(user=None)

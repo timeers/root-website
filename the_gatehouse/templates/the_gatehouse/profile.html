@@ -28,11 +28,15 @@
                 {% if user.profile.player %}
                     {{ p_form | crispy }}
                 {% else %}
-                    <div class="alert alert-warning">Your account has not yet been verified. Join the Root Discord to enable additional features.</div>
+                    {% if user.profile.group == "B" %}
+                    <div class="alert alert-warning">Your account has been banned. Please contact an Administrator to reinstate your account.</div>
+                    {% else %}
+                    <div class="alert alert-secondary">Your account has not yet been verified. Join the Root Discord to enable additional features.</div>
+                    {% endif %}
                     {% for field in p_form %}
                         <div class="form-group">
                             <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                            <input type="{{ field.field.widget.type }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.label != 'Display name' %}readonly{% endif %} class="form-control">
+                            <input type="{{ field.field.widget.type }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.label != 'Display name' or user.profile.group == "B" %}readonly{% endif %} class="form-control">
                         </div>
                     {% endfor %}
                 {% endif %}

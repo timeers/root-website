@@ -39,8 +39,9 @@ def manage_profile(sender, instance, created, **kwargs):
 def user_logged_in_handler(request, user, **kwargs):
     profile = user.profile  # To avoid multiple lookups
     profile_updated = False
+    current_group = profile.group
 
-    if profile.group == 'O' and is_user_in_ww(user):
+    if current_group == 'O' and is_user_in_ww(user):
         profile.group = 'P'
         profile_updated = True
 
@@ -49,13 +50,23 @@ def user_logged_in_handler(request, user, **kwargs):
         profile_updated = True
 
     group_name = 'admin'  
-    if not user.groups.filter(name=group_name).exists() and profile.group == "A":
+    
+    if not user.groups.filter(name=group_name).exists() and current_group == "A":
         # Get the group object
         group, created = Group.objects.get_or_create(name=group_name)
         # Add the user to the group
         user.groups.add(group)
         user.is_staff = True
         print(f'User {user} added to {group_name}')
+        user.save()
+
+    elif user.groups.filter(name=group_name).exists() and current_group != "A":
+        # Get the group object
+        group, created = Group.objects.get_or_create(name=group_name)
+        # Add the user to the group
+        user.groups.remove(group)
+        user.is_staff = False
+        print(f'User {user} removed from {group_name}')
         user.save()
 
     if profile_updated:

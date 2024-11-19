@@ -16,6 +16,7 @@ class Profile(models.Model):
         PLAYER = 'P'
         DESIGNER = 'D'
         ADMIN = 'A'
+        BANNED = 'B'
 
     component = 'Profile'
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
@@ -71,21 +72,24 @@ class Profile(models.Model):
 
     @property
     def admin(self):
-        if self.group == "A":
+        group = self.group
+        if group == "A":
             return True
         else:
             return False
 
     @property
     def designer(self):
-        if self.group == "D" or self.group == "A":
+        group = self.group
+        if group == "D" or group == "A":
             return True
         else:
             return False
 
     @property
     def player(self):
-        if self.group == "D" or self.group == "A" or self.group == "P":
+        group = self.group
+        if group == "D" or group == "A" or group == "P":
             return True
         else:
             return False

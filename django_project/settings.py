@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'the_keep.apps.TheKeepConfig',
     'the_gatehouse.apps.TheGatehouseConfig',
     'the_warroom.apps.TheWarroomConfig',
+    'the_tavern.apps.TheTavernConfig',
 
     'crispy_forms',
     'crispy_bootstrap4',
