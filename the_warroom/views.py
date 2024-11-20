@@ -10,6 +10,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse
 from django.conf import settings
+from django.http import HttpResponse
 # from django.db import transaction
 from django.db.models import Q
 from .models import Game, Effort
@@ -18,6 +19,7 @@ from .filters import GameFilter
 from the_gatehouse.models import Profile
 # from the_keep.models import Post
 from the_gatehouse.views import player_required
+from the_tavern.forms import GameCommentCreateForm
 
 
 
@@ -157,13 +159,19 @@ class GameListViewHX(ListView):
 @login_required
 def game_detail_view(request, id=None):
     hx_url = reverse("game-hx-detail", kwargs={"id": id})
+    participants = []
     try:
         obj = Game.objects.get(id=id)
+        for effort in obj.efforts.all():
+            participants.append(effort.player)
     except ObjectDoesNotExist:
         obj = None
+    commentform = GameCommentCreateForm()
     context=  {
         'hx_url': hx_url,
-        'game': obj
+        'game': obj,
+        'commentform': commentform,
+        'participants': participants
     }
     return render(request, "the_warroom/game_detail.html", context)
 
@@ -305,6 +313,17 @@ def create_effort(request):
         pass
 
     return render(request, 'the_warroom/partials/effort_partial.html', {'form': EffortCreateForm})
+
+
+def bookmark_game(request, id):
+    game = get_object_or_404(Game, id=id)
+    player_exists = game.bookmarks.filter(discord=request.user.profile.discord).exists()
+    if player_exists:
+        game.bookmarks.remove(request.user.profile)
+    else:
+        game.bookmarks.add(request.user.profile)
+
+    return render(request, 'the_warroom/partials/bookmarks.html', {'game': game })
 
 # Never used
 # @login_required

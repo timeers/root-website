@@ -1,0 +1,22 @@
+{% if user.is_authenticated %}
+{% if object.designer == user.profile or object.comments.count %}
+    <article class="media content-section">
+    {% if object.comments.count or object.designer == user.profile %}
+        <div class="media-body">
+        {% if object.comments.count %}
+
+            <h3>Notes</h3>
+            {% for comment in object.comments.all %}
+                {% include 'the_tavern/comment.html' %}
+            {% endfor %}
+            
+        {% endif %}
+
+        {% if object.designer == user.profile %}
+            {% include 'the_tavern/post_comment_form.html' %}
+        {% endif %}
+    </div>
+    {% endif %}
+    </article>
+{% endif %}
+{% endif %}

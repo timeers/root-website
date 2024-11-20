@@ -1,17 +1,15 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
 
-<div hx-get="{{ hx_url }}" hx-trigger="revealed">
-    <div class="htmx-indicator">Loading...</div>
-</div>
 
-
-
-
+{% include 'the_warroom/partials/game_detail.html' %}
 
 <article class="media content-section">
     <div class="media-body">
         <h2>Game Details</h2>
+        
+        {% include 'the_warroom/partials/bookmarks.html' %}
+        
         {% if game.tournament %}
         <div>
             {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game
@@ -54,11 +52,23 @@
             Recorded by: {{ game.recorder.display_name }}
         </div>
         {% endif %}
+
+        {% if game.comments.count %}
+        <h3>Notes</h3>
+            {% for comment in game.comments.all %}
+                {% include 'the_tavern/comment.html' %}
+            {% endfor %}
+        {% endif %}
+        {% if user.is_authenticated %}
+        {% if user.profile in participants %}
+            {% include 'the_tavern/game_comment_form.html' %}
+        {% endif %}
+        {% endif %}
+    
+
+
     </div>
 </article>
-
-
-
 
 
 

@@ -26,6 +26,7 @@ from .forms import (PostCreateForm, MapCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm,
 )
+from the_tavern.forms import PostCommentCreateForm
 
 
 #  A list of all the posts. Most recent update first
@@ -372,7 +373,7 @@ class ComponentDetailListView(ListView):
     def get_context_data(self, **kwargs):
         context = super(ComponentDetailListView, self).get_context_data(**kwargs)
         context[self.detail_context_object_name] = self.object
-
+        commentform = PostCommentCreateForm()
         # Get the ordered queryset of games
         games = self.get_queryset()
 
@@ -388,7 +389,7 @@ class ComponentDetailListView(ListView):
         context['games'] = page_obj  # Pass the paginated page object to the context
         context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
         context['page_obj'] = page_obj  # Pass the page_obj to the context
-        
+        context['commentform'] = commentform
         context['form'] = self.filterset.form
         context['filterset'] = self.filterset     
         

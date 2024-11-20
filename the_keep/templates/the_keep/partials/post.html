@@ -2,7 +2,7 @@
 <img class="article-img" src="{% if post.picture %}{{ post.picture.url }}{% else %}{{ post.designer.image.url }}{% endif %}">
 <div class="media-body">
     <div class="article-metadata">
-        <a class="mr-2" href="{% url 'user-posts' post.designer.discord %}">{{ post.designer }}</a>
+        <a class="mr-2" href="{% url 'user-posts' post.designer.slug %}">{{ post.designer.name }}</a>
         <small class="text-muted">{{ post.date_updated | date:"Y-m-d" }}</small>
     </div>
         {% if post.official %}Official {% else %}Fan Made {% endif %}{{ post.component }}
@@ -17,7 +17,7 @@
      {% if post.artist %}
     <div class="article-metadata">
         Art by 
-        <a class="mr-2" href="{% url 'artist-posts' post.artist.discord %}">{{ post.artist }}</a>
+        <a class="mr-2" href="{% url 'artist-posts' post.artist.slug %}">{{ post.artist }}</a>
     </div>
     {% endif %}
 </div>

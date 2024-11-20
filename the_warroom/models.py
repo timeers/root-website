@@ -61,10 +61,11 @@ class Game(models.Model):
     date_posted = models.DateTimeField(default=timezone.now)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
 
+    bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
 
     def __str__(self):
-        return f'Game {self.id} test'
+        return f'Game {self.id}'
 
     def get_efforts(self):
         return self.efforts.all()
@@ -102,6 +103,15 @@ class Game(models.Model):
     
     class Meta:
         ordering = ['-date_posted']
+
+class GameBookmark(models.Model):
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE)
+    game = models.ForeignKey(Game, on_delete=models.CASCADE)
+    public = models.BooleanField(default=False)
+    date_posted = models.DateTimeField(default=timezone.now)
+    def __str__(self):
+        return f"{self.player.name}: {self.game.id}"
+
 
 class Effort(models.Model):
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)

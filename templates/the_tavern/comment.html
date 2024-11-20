@@ -1,0 +1,11 @@
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <img class="faction-icon" src="{{ comment.player.image.url }}">
+        <a href="{% url 'player-detail' comment.player.slug %}">{{ comment.player.name }}</a>
+        : {{ comment.body }}
+        <small class="text-muted">{{ comment.date_posted | date:"Y-m-d" }}</small>
+    </div>
+    {% if user.is_authenticated and user.profile == comment.player %}
+        <a class="btn btn-outline-danger btn-sm" href="{% url comment.type|add:'-comment-delete' comment.id %}">Delete</a>
+    {% endif %}
+</div>

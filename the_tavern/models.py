@@ -7,18 +7,29 @@ from django.utils import timezone
 #  I think I want to use Comments as a private notepad. I'm leaning towards only one comment per game/post.
 #  Discussions should be kept in Discord on the linked threads.
 class Comment(models.Model):
-    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='comments')
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments', null=True, blank=True)
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='comments', null=True, blank=True)
     public = models.BooleanField(default=False)
-    body = models.TextField()
+    body = models.CharField(max_length=300)
     date_posted = models.DateTimeField(default=timezone.now)
+    class Meta:
+        abstract = True
 
-# Bookmarks can be a way for a user to favorite certain things to find them easily. I don't want these to be public.
-# But maybe sort by number of favorites to bring popular components to the top?
-class Bookmark(models.Model):
-    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='bookmarks')
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='bookmarks', null=True, blank=True)
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='bookmarks', null=True, blank=True)
-    public = models.BooleanField(default=False)
-    date_posted = models.DateTimeField(default=timezone.now)
+class PostComment(Comment):
+    type = "post"
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='post_comments')
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
+    def __str__(self):
+        return f"{self.player.name}: {self.body[:30]}"
+
+class GameComment(Comment):
+    type = "game"
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='game_comments')
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='comments')
+    def __str__(self):
+        return f"{self.player.name}: {self.body[:30]}"
+
+
+
+
+
+
+

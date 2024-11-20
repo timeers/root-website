@@ -6,6 +6,19 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
 
 
+from allauth.socialaccount.models import SocialAccount
+
+def get_discord_display_name(user):
+    try:
+        # Get the Discord social account
+        social_account = SocialAccount.objects.get(user=user, provider='discord')
+        # Extract the display name from the extra data
+        display_name = social_account.extra_data.get('global_name', '')
+        return display_name
+    except SocialAccount.DoesNotExist:
+        return None
+
+
 
 def get_user_guilds(user):
     try:
@@ -45,25 +58,40 @@ def is_user_in_guild(user, guild_id):
     print("User is not in guild")
     return False
 
-def is_user_in_ww(user):
+# def is_user_in_ww(user):
+#     guilds = get_user_guilds(user)
+#     if guilds:
+#         for guild in guilds:
+#             if guild['id'] == os.environ.get('WW_GUILD_ID'):
+#                 print('User is in WW')
+#                 return True
+#     print("User is not in WW")
+#     return False
+
+# def is_user_in_wr(user):
+#     guilds = get_user_guilds(user)
+#     if guilds:
+#         for guild in guilds:
+#             if guild['id'] == os.environ.get('WR_GUILD_ID'):
+#                 print('User is in WR')
+#                 return True
+#     print("User is not in WR")
+#     return False
+
+def check_user_guilds(user):
     guilds = get_user_guilds(user)
+    in_ww = False
+    in_wr = False
+
     if guilds:
         for guild in guilds:
             if guild['id'] == os.environ.get('WW_GUILD_ID'):
-                print('User is in WW')
-                return True
-    print("User is not in WW")
-    return False
-
-def is_user_in_wr(user):
-    guilds = get_user_guilds(user)
-    if guilds:
-        for guild in guilds:
+                in_ww = True
             if guild['id'] == os.environ.get('WR_GUILD_ID'):
-                print('User is in WR')
-                return True
-    print("User is not in WR")
-    return False
+                in_wr = True
+
+    return in_ww, in_wr
+
 
 # Decorator
 def woodland_warriors_required():

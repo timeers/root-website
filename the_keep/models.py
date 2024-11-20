@@ -87,6 +87,7 @@ class Post(models.Model):
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
     board_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_image = models.ImageField(upload_to='cards', null=True, blank=True)
+    bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
 
     objects = PostManager()
 
@@ -239,6 +240,13 @@ class Post(models.Model):
         
 
 
+class PostBookmark(models.Model):
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    public = models.BooleanField(default=False)
+    date_posted = models.DateTimeField(default=timezone.now)
+    def __str__(self):
+        return f"{self.player.name}: {self.post.title} - {self.post.designer.name}"
 
 
 

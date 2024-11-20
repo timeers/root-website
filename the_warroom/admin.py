@@ -2,7 +2,7 @@ from django.contrib import admin, messages
 from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
-from .models import Game, Effort, Tournament
+from .models import Game, Effort, Tournament, GameBookmark
 from the_keep.models import Deck, Map, Faction, Vagabond
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
@@ -186,6 +186,11 @@ class GameAdmin(admin.ModelAdmin):
         return render(request, 'admin/csv_upload.html', data)
 
 
+class GameBookmarkAdmin(admin.ModelAdmin):
+    list_display = ('id', 'player', 'game', 'public')
+    search_fields = ['player__discord', 'player__dwd', 'player__display_name']    
+
+admin.site.register(GameBookmark, GameBookmarkAdmin)
 
 # Register your models here.
 admin.site.register(Game, GameAdmin)

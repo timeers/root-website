@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 import csv
 from io import StringIO
 from .models import (Post, Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     Warrior, Building, Token, Card, OtherPiece)
+                     Warrior, Building, Token, Card, OtherPiece, PostBookmark)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                     WarriorForm, BuildingForm, TokenForm, CardForm, OtherPieceForm)
 from .models import Profile
@@ -761,6 +761,11 @@ class VagabondAdmin(admin.ModelAdmin):
 
 
 
+class PostBookmarkAdmin(admin.ModelAdmin):
+    list_display = ('id', 'player', 'post', 'public')
+    search_fields = ['post__title', 'player__discord', 'player__dwd', 'player__display_name']
+
+admin.site.register(PostBookmark, PostBookmarkAdmin)
 
 
 

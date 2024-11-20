@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import Profile
+from .models import Profile, PlayerBookmark
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -22,12 +22,11 @@ class ProfileAdmin(admin.ModelAdmin):
     def get_form(self, request, obj = None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         is_superuser = request.user.is_superuser
+        # These fields should not be changed
+        form.base_fields['user'].disabled = True
+        form.base_fields['discord'].disabled = True
         if not is_superuser:
-            # These fields should not be changed
-            form.base_fields['user'].disabled = True
-            form.base_fields['discord'].disabled = True
             form.base_fields['slug'].disabled = True
-
             if obj and obj.group == 'A':
                 # This would only disable the group field
                 # form.base_fields['group'].disabled = True
@@ -175,6 +174,14 @@ class CustomUserAdmin(UserAdmin):
     # def save_model(self, request, obj, form, change):
     #     # Add any custom behavior here
     #     super().save_model(request, obj, form, change)
+
+
+class PlayerBookmarkAdmin(admin.ModelAdmin):
+    list_display = ('id', 'player', 'friend', 'public')
+    search_fields = ['player__discord', 'player__dwd', 'player__display_name', 'friend__discord', 'friend__dwd', 'friend__display_name']
+
+admin.site.register(PlayerBookmark, PlayerBookmarkAdmin)
+
 
 # Unregister the default User admin
 admin.site.unregister(User)

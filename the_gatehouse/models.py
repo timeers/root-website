@@ -8,6 +8,7 @@ from PIL import Image
 from .utils import slugify_instance_discord
 from django.db.models import Count
 from django.apps import apps
+from django.utils import timezone 
 
 
 class Profile(models.Model):
@@ -28,6 +29,18 @@ class Profile(models.Model):
     weird = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
+    playerbookmarks = models.ManyToManyField('self', through='PlayerBookmark')
+
+    @property
+    def name(self):
+        if self.display_name:
+            name = self.display_name
+        elif self.discord:
+            name = self.discord
+        else:
+            name = self.user.username
+        return name
+        
 
     def __str__(self):
         return self.discord
@@ -169,6 +182,13 @@ class Profile(models.Model):
         return None  # No wins found
 
 
+class PlayerBookmark(models.Model):
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE)
+    friend = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='followers')
+    public = models.BooleanField(default=False)
+    date_posted = models.DateTimeField(default=timezone.now)
+    def __str__(self):
+        return f"{self.player.name} > {self.friend.name}"
 
 
 def component_pre_save(sender, instance, *args, **kwargs):

@@ -3,55 +3,105 @@ from django.contrib.auth.signals import user_logged_in
 from django.dispatch import receiver
 from django.contrib.auth.models import User
 from .models import Profile  # Adjust the import based on your project structure
-from .discordservice import is_user_in_ww, is_user_in_wr
+from .discordservice import get_discord_display_name, check_user_guilds
 from django.contrib.auth.models import Group
 
 
 @receiver(post_save, sender=User)
 def manage_profile(sender, instance, created, **kwargs):
     if created:
-        try:
-            # Find or create profile
-            profile, _ = Profile.objects.get_or_create(discord=instance.username)
-            profile.display_name = instance.username  # Set display_name to the username
-            profile.user = instance # Link profile to user
-            profile.save()
-        except Profile.DoesNotExist:
-            # Create a new Profile if it does not exist
-            print('Creating new profile')
-            profile = Profile.objects.create(user=instance, discord=instance.username)  # Ensure discord is set
-            profile.display_name = instance.username
-            profile.save()
+        profile, _ = Profile.objects.get_or_create(discord=instance.username, defaults={'user': instance})
+        print(f'Profile created/linked: {profile.discord}')
     else:
-        # This block runs when the user is updated
-        print("Updating User Profile")
-        if hasattr(instance, 'profile'):
-            instance.profile.save()
-        else:
+        try:
+            profile = instance.profile
+        except Profile.DoesNotExist:
             profile, _ = Profile.objects.get_or_create(discord=instance.username)
-            instance.profile = profile
-            profile.display_name = instance.username  # Ensure display_name is set
+            profile.user = instance
             profile.save()
+
+
+# @receiver(post_save, sender=User)
+# def manage_profile(sender, instance, created, **kwargs):
+#     # display_name = get_discord_display_name(instance)
+#     # print(f'Display Name: {display_name}')
+#     if created:
+#         try:
+#             # Find or create profile
+#             print('Trying to get or create profile')
+#             profile, _ = Profile.objects.get_or_create(discord=instance.username)
+#             print(profile.discord)
+#             # if display_name:
+#             #     profile.display_name = display_name # Set display_name to discord username
+#             # else:
+#             #     profile.display_name = instance.username  # Set display_name to the username
+#             profile.user = instance # Link profile to user
+#             print(f'Linked profile to user: {instance}')
+#             profile.save()
+#         except Profile.DoesNotExist:
+#             # Create a new Profile if it does not exist
+#             print('Creating new profile')
+#             profile = Profile.objects.create(user=instance, discord=instance.username)  # Ensure discord is set
+#             # if display_name:
+#             #     profile.display_name = display_name # Set display_name to discord username
+#             # else:
+#             #     profile.display_name = instance.username  # Set display_name to the username
+#             profile.save()
+#     else:
+#         # This block runs when the user is updated
+#         print("Updating User Profile")
+#         if hasattr(instance, 'profile'):
+#             # print("Profile saved")
+#             instance.profile.save()
+#         else:
+#             print('No profile associated')
+#             profile, _ = Profile.objects.get_or_create(discord=instance.username)
+#             instance.profile = profile
+#             # if display_name:
+#             #     profile.display_name = display_name # Set display_name to discord username
+#             # else:
+#             #     profile.display_name = instance.username  # Set display_name to the username
+#             profile.save()
     
 
-# This is to put new users into the Player group so that they have access.
+# This is to put users in the correct groups when created or updated
 @receiver(user_logged_in)
 def user_logged_in_handler(request, user, **kwargs):
-    profile = user.profile  # To avoid multiple lookups
+    print(f'{user} logged in')
+    if not hasattr(user, 'profile'):
+        print('User updated or no profile found')
+        user.save()
+
+    print("checking profile")
+    profile = user.profile
     profile_updated = False
     current_group = profile.group
+    in_ww, in_wr = check_user_guilds(user)
+    display_name = get_discord_display_name(user)
 
-    if current_group == 'O' and is_user_in_ww(user):
+    if display_name and profile.display_name != display_name:
+        profile.display_name = display_name
+        profile_updated = True
+
+    # If user is a member of WW but in group O (add to group P)
+    if current_group == 'O' and in_ww:
         profile.group = 'P'
         profile_updated = True
 
-    if not profile.weird and is_user_in_wr(user):
+    # If user is a member of WR but does not have the weird view (add view)
+    if not profile.weird and in_wr:
         profile.weird = True
         profile_updated = True
 
+
+    if profile_updated:
+        profile.save()
+
     group_name = 'admin'  
+    group_exists = user.groups.filter(name=group_name).exists()
     
-    if not user.groups.filter(name=group_name).exists() and current_group == "A":
+    # If user is in group A but not in the Admin group (add to group)
+    if not group_exists and current_group == "A":
         # Get the group object
         group, created = Group.objects.get_or_create(name=group_name)
         # Add the user to the group
@@ -60,7 +110,8 @@ def user_logged_in_handler(request, user, **kwargs):
         print(f'User {user} added to {group_name}')
         user.save()
 
-    elif user.groups.filter(name=group_name).exists() and current_group != "A":
+    # If user is not in group A but is in the Admin group (remove from group)
+    elif group_exists and current_group != "A":
         # Get the group object
         group, created = Group.objects.get_or_create(name=group_name)
         # Add the user to the group
@@ -68,11 +119,6 @@ def user_logged_in_handler(request, user, **kwargs):
         user.is_staff = False
         print(f'User {user} removed from {group_name}')
         user.save()
-
-    if profile_updated:
-        profile.save()
-
-
 
 
 

@@ -179,6 +179,16 @@ th, td {
   border-radius: 10px;
 }
 
+.avatar-sm {
+  max-height: 10vh; /* 10% of viewport height */
+  max-width: 10vw;  /* 10% of viewport width */
+  height: auto;  
+  width: auto;   
+  border-radius: 50%; /* Optional: Makes the image round */
+}
+
+
+
 /* @font-face {
   font-family: 'Baskerville';
   src: url('fonts/Baskerville-Regular.ttf') format('truetype');
