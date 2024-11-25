@@ -2,6 +2,7 @@ from django import forms
 from .models import Effort, Game
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
+from django.forms import inlineformset_factory
 
 class GameCreateForm(forms.ModelForm):  
     required_css_class = 'required-field'
@@ -49,6 +50,18 @@ class EffortCreateForm(forms.ModelForm):
 
         return cleaned_data
     
+    # def __init__(self, *args, user=None, **kwargs):
+    #     # Call the parent constructor
+    #     super(EffortCreateForm, self).__init__(*args, **kwargs)
+    #     # Filter for only Official content if not a member of Weird Root
+    #     if user:
+    #         if not user.profile.weird:
+    #             self.fields['faction'].queryset = Faction.objects.filter(official=True)
+    #             self.fields['vagabond'].queryset = Vagabond.objects.filter(official=True)
+
+
+
+
 class EffortImportForm(forms.ModelForm):
     # required_css_class = 'required-field'
     class Meta:
@@ -72,3 +85,4 @@ class GameImportForm(forms.ModelForm):
         widgets = {
             'type': forms.RadioSelect,
         }
+

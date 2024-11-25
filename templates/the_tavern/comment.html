@@ -1,11 +1,17 @@
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <div>
-        <img class="faction-icon" src="{{ comment.player.image.url }}">
+        <img class="user-icon" src="{{ comment.player.image.url }}">
         <a href="{% url 'player-detail' comment.player.slug %}">{{ comment.player.name }}</a>
         : {{ comment.body }}
         <small class="text-muted">{{ comment.date_posted | date:"Y-m-d" }}</small>
     </div>
     {% if user.is_authenticated and user.profile == comment.player %}
-        <a class="btn btn-outline-danger btn-sm" href="{% url comment.type|add:'-comment-delete' comment.id %}">Delete</a>
+        <a class="btn btn-outline-danger btn-sm" 
+        hx-delete="{% url comment.type|add:'-comment-delete' comment.id %}"
+        hx-on:delete-comment="this.closest('div').remove()"
+        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+        hx-confirm="Are you sure you want to delete this comment?">
+        Delete
+        </a>
     {% endif %}
 </div>

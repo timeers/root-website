@@ -3,6 +3,7 @@
     
     <div class="media-body">
     <h2>Links</h2>
+    <div class="d-flex flex-wrap justify-content-between">
     {% if object.bgg_link %}
         <p class="article-content">
             <a class="mr-2" href="{{ object.bgg_link }}" target="blank">Board Game Geek Post</a>
@@ -28,5 +29,6 @@
             <a class="mr-2" href="{{ object.pnp_link }}" target="blank">Print & Play Files</a>
         </p>
     {% endif %}
+    </div>
     </div>
 </article>

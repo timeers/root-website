@@ -53,6 +53,8 @@ class Expansion(models.Model):
     
     def get_absolute_url(self):
         return reverse('expansion-detail', kwargs={'slug': self.slug})
+    def __str__(self):
+        return self.title
 
 
 class Post(models.Model):
@@ -193,7 +195,7 @@ class Post(models.Model):
     #         case _:
     #             Game = apps.get_model('the_warroom', 'Game')
     #             return list(Game.objects.none())
-        
+    
     def get_games_queryset(self):
         Game = apps.get_model('the_warroom', 'Game')
         match self.component:
@@ -238,7 +240,8 @@ class Post(models.Model):
             return True
         return False
         
-
+    class Meta:
+        ordering = ['-date_posted']
 
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)

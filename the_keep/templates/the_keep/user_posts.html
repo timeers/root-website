@@ -1,7 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-    <h1 class="mb-3">Posts by {{ view.kwargs.discord }} ({{ page_obj.paginator.count }})</h1>
-    {% for post in posts %}
+    {% for object in posts %}
         <article class="media content-section">
             {% include 'the_keep/partials/post.html' %}
         </article>

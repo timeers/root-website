@@ -3,8 +3,9 @@ from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.generic import ListView
-from django.shortcuts import get_object_or_404, redirect
-from django.forms.models import modelformset_factory
+
+from django.shortcuts import get_object_or_404, redirect, HttpResponseRedirect
+from django.forms.models import modelformset_factory, inlineformset_factory
 from django.http import HttpResponse, Http404
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
@@ -20,10 +21,11 @@ from the_gatehouse.models import Profile
 # from the_keep.models import Post
 from the_gatehouse.views import player_required
 from the_tavern.forms import GameCommentCreateForm
+from the_tavern.views import bookmark_toggle
 
 
 
-#  A list of all the posts. Most recent update first
+#  A list of all the games. Most recent update first
 class GameListView(ListView):
     queryset = Game.objects.all()
     model = Game
@@ -124,13 +126,12 @@ class GameListViewHX(ListView):
         # Get the ordered queryset of games
         games = self.get_queryset()
         # Paginate games
-        paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
-        page_number = self.request.GET.get('page')  # Get the page number from the request
-
-        try:
-            page_obj = paginator.get_page(page_number)  # Get the specific page of games
-        except EmptyPage:
-            page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+        if games.exists():
+            paginator = Paginator(games, self.paginate_by)
+            page_number = self.request.GET.get('page')
+            page_obj = paginator.get_page(page_number)
+        else:
+            page_obj = []  # Or handle as needed
 
         context['games'] = page_obj  # Pass the paginated page object to the context
         context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
@@ -258,7 +259,7 @@ def effort_update_hx_view(request, id=None):
 
 
 @player_required
-def record_game(request):
+def record_game(request, id=None):
     form = GameCreateForm(request.POST or None, user = request.user)
     context = {
         'form': form, 
@@ -275,7 +276,7 @@ def record_game(request):
 def update_game(request, id=None):
     obj = get_object_or_404(Game, id=id)
     # obj = get_object_or_404(Game, id=id, recorder=request.user.profile)
-    form = GameCreateForm(request.POST or None, instance=obj) 
+    form = GameCreateForm(request.POST or None, instance=obj, user = request.user) 
     extra_forms = 0
     # Default to at least 2 players
     existing_efforts = obj.efforts.all()
@@ -308,22 +309,89 @@ def update_game(request, id=None):
     return render(request, 'the_warroom/record_game.html', context)
 
 
+# Testing
+@staff_member_required
+def save_game(request, id=None):
+
+
+    GameFormSet = inlineformset_factory(Game, Effort)
+    if id:
+        new_game = get_object_or_404(Game, id=id)
+    else:
+        new_game = Game.objects.create()
+    formset = GameFormSet(instance=new_game)
+
+    form = GameCreateForm(request.POST or None, instance=new_game, user=request.user) 
+    extra_forms = 0
+    # Default to at least 4 players
+    existing_efforts = new_game.efforts.all()
+    existing_count = existing_efforts.count()
+    extra_forms = max(0, 4 - existing_count)
+
+    # Formset = modelformset_factory(Model, form=ModelForm, extra=0)
+    EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
+    qs = new_game.efforts.all()
+    formset = EffortFormset(request.POST or None, queryset=qs)
+    context = {'form': form, 
+               'formset': formset,
+               'object': new_game,
+               }
+    # This is not catching null data
+    if  form.is_valid() and formset.is_valid():
+        parent = form.save(commit=False)
+        parent.save()
+        form.save_m2m()
+        for form in formset:
+            child = form.save(commit=False)
+            # This is the only way I can think to avoid null. It just skips the child if there's no faciton ID
+            if not child.faction_id is None:
+                child.game = parent
+                child.save()
+        context['message'] = "Game Saved"
+        return redirect(parent.get_absolute_url())
+    if request.htmx:
+        return render(request, 'the_warroom/partials/forms.html', context)
+    return render(request, 'the_warroom/record_game.html', context)
+
+def manage_game(request, id):
+    game = Game.objects.get(pk=id)
+    GameInlineFormSet = inlineformset_factory(
+        Game, 
+        Effort,
+        fields='__all__',  # Include all fields of the Effort model
+        extra=1,           # Number of empty forms to display
+        can_delete=True  
+        )
+    if request.method == "POST":
+        formset = GameInlineFormSet(request.POST, request.FILES, instance=game)
+        if formset.is_valid():
+            formset.save()
+            # Do something. Should generally end with a redirect. For example:
+            return HttpResponseRedirect(game.get_absolute_url())
+    else:
+        formset = GameInlineFormSet(instance=game)
+    return render(request, "the_warroom/manage_game.html", {"formset": formset})
+
+
+
+
+
+
+
+
+
+
 def create_effort(request):
     if request.method == "POST":
         pass
 
     return render(request, 'the_warroom/partials/effort_partial.html', {'form': EffortCreateForm})
 
+@login_required
+@bookmark_toggle(Game)
+def bookmark_game(request, object):
+    return render(request, 'the_warroom/partials/bookmarks.html', {'game': object })
 
-def bookmark_game(request, id):
-    game = get_object_or_404(Game, id=id)
-    player_exists = game.bookmarks.filter(discord=request.user.profile.discord).exists()
-    if player_exists:
-        game.bookmarks.remove(request.user.profile)
-    else:
-        game.bookmarks.add(request.user.profile)
-
-    return render(request, 'the_warroom/partials/bookmarks.html', {'game': game })
 
 # Never used
 # @login_required

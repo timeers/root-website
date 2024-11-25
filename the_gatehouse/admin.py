@@ -15,10 +15,11 @@ class CsvImportForm(forms.Form):
     csv_upload = forms.FileField() 
 
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'group', 'display_name', 'discord', 'dwd', 'league')
+    list_display = ('user', 'group', 'display_name', 'discord', 'dwd', 'league', 'weird')
     search_fields = ('display_name', 'discord', 'dwd',)
     actions = ['merge_profiles']
-     
+
+
     def get_form(self, request, obj = None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         is_superuser = request.user.is_superuser

@@ -106,12 +106,25 @@ em, i {
     font-size: 2.5rem;
   }
 
+
   .faction-icon {
-    width: 20px;       /* Fixed width */
-    height: auto;      /* Scales the height proportionally */
+    max-height: 20px; /* 10% of viewport height */
+    max-width: 20px;  /* 10% of viewport width */
+    height: auto;  
+    width: auto;   
     margin-right: 2px;
     margin-bottom: 2px;
-}
+  }
+
+
+  .user-icon {
+    max-height: 40px;
+    max-width: 40px; 
+    height: auto;  
+    width: auto;   
+    margin-right: 2px;
+    margin-bottom: 2px;
+  }
 
 .lg-faction-icon {
   width: 40px;       /* Fixed width */

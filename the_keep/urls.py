@@ -9,22 +9,23 @@ from .views import (
 
     PostDeleteView,
     UserPostListView,
-    SearchPostListView,
     ArtistPostListView, 
 
     ComponentDetailListView,
-    
-    post_search_view,
+    bookmark_post,
+    list_view,
+    search_view,
     # component_detail_view,
 )
 from . import views
 
 urlpatterns = [
-    path('', PostListView.as_view(), name='keep-home'),
-    path('user/<str:discord>/art/', ArtistPostListView.as_view(), name='artist-posts'),
-    path('user/<str:discord>/', UserPostListView.as_view(), name='user-posts'),
-    # path('posts/', views.post_search_view),
-    path('posts/<str:search_term>/', SearchPostListView.as_view(), name='search-posts'),
+    # path('', PostListView.as_view(), name='keep-home'),
+    path("", list_view, name='keep-home'),
+    path('user/<slug:slug>/art/', ArtistPostListView.as_view(), name='artist-posts'),
+    path('user/<slug:slug>/', UserPostListView.as_view(), name='user-posts'),
+
+    path("search/", search_view, name='search'),
 
     path('faction/new/', FactionCreateView.as_view(), name='faction-create'),
     path('map/new/', MapCreateView.as_view(), name='map-create'),
@@ -50,6 +51,8 @@ urlpatterns = [
     path('landmark/<slug:slug>/update/', LandmarkUpdateView.as_view(), name='landmark-update'),
     path('vagabond/<slug:slug>/update/', VagabondUpdateView.as_view(), name='vagabond-update'),
     path('faction/<slug:slug>/update/', FactionUpdateView.as_view(), name='faction-update'),
+
+    path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),

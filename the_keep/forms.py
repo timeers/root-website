@@ -8,7 +8,7 @@ from django.core.validators import URLValidator
 
 
 top_fields = ['title']
-bottom_fields = ['description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'artist']
+bottom_fields = ['lore','description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'artist']
 
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
@@ -19,7 +19,7 @@ class PostCreateForm(forms.ModelForm):
     form_type = 'Component'
     class Meta:
         model = Post
-        fields = ['title', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
+        fields = ['title', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
@@ -29,7 +29,13 @@ class PostCreateForm(forms.ModelForm):
         }
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['description'].widget.attrs.update({'rows': '2'})
+        self.fields['lore'].widget.attrs.update({
+            'rows': '2',
+            'placeholder': 'Enter any thematic text here...'
+        })
+        self.fields['description'].widget.attrs.update({
+            'rows': '2'
+            })
 
 
     def clean(self):
@@ -77,7 +83,9 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         # Check if an instance is being created or updated
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
-
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation of how to play on this Map...'
+            })
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
@@ -112,7 +120,9 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         # Check if an instance is being created or updated
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
-
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Deck...'
+            })
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
@@ -138,7 +148,9 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         super().__init__(*args, **kwargs)
 
         self.fields['card_text'].widget.attrs.update({'rows': '2'})
-
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Landmark...'
+            })
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
@@ -174,7 +186,9 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         # Check if an instance is being created or updated
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
-
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Hireling...'
+            })
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
@@ -210,6 +224,9 @@ class VagabondCreateForm(PostCreateForm):
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
         self.fields['ability_description'].widget.attrs.update({'rows': '2'})
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Vagabond...'
+            })
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
@@ -321,7 +338,9 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         # Check if an instance is being created or updated
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
-
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Faction...'
+            })
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)

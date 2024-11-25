@@ -7,7 +7,7 @@
 <article class="media content-section">
     <div class="media-body">
         <h2>Game Details</h2>
-        
+
         {% include 'the_warroom/partials/bookmarks.html' %}
         
         {% if game.tournament %}
@@ -53,17 +53,18 @@
         </div>
         {% endif %}
 
-        {% if game.comments.count %}
-        <h3>Notes</h3>
-            {% for comment in game.comments.all %}
-                {% include 'the_tavern/comment.html' %}
-            {% endfor %}
-        {% endif %}
         {% if user.is_authenticated %}
-        {% if user.profile in participants %}
-            {% include 'the_tavern/game_comment_form.html' %}
+            {% if user.profile in participants %}
+                {% include 'the_tavern/game_comment_form.html' %}
+            {% endif %}
         {% endif %}
-        {% endif %}
+        <h3>Notes</h3>
+        <span id="commentscount">({{ game.comments.count }})</span>
+        <div id="game-notes">
+        {% for comment in game.comments.all %}
+            {% include 'the_tavern/comment.html' %}
+        {% endfor %}
+        </div>
     
 
 

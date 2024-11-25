@@ -1,0 +1,15 @@
+<div id="bookmark-{{ player.id }}">
+    {% if user.is_authenticated %}
+        <a style="cursor: pointer;" 
+        hx-get="{% url 'bookmark-player' player.id %}"
+        hx-target="#bookmark-{{ player.id }}"
+        hx-swap="outerHTML"
+        >
+            {% if user.profile in player.bookmarks.all %}
+                Following
+            {% else %}
+                Follow
+            {% endif %}
+        </a>
+    {% endif %}
+</div>

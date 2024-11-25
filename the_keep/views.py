@@ -2,8 +2,9 @@ from django.utils import timezone
 from django.shortcuts import render, get_object_or_404
 from django.http import Http404
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-from django.core.paginator import Paginator, EmptyPage
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.conf import settings
 from the_warroom.filters import GameFilter
 from django.views.generic import (
@@ -27,6 +28,7 @@ from .forms import (PostCreateForm, MapCreateForm,
                     FactionCreateForm,
 )
 from the_tavern.forms import PostCommentCreateForm
+from the_tavern.views import bookmark_toggle
 
 
 #  A list of all the posts. Most recent update first
@@ -40,12 +42,12 @@ class PostListView(ListView):
     def get_queryset(self):
         # Filter posts to only include those where official is True
         if not self.request.user.is_authenticated:
-            qs = Post.objects.filter(official=True).order_by('-date_updated')
+            qs = Post.objects.filter(official=True)
         else:
             if self.request.user.profile.weird:
-                qs = Post.objects.all().order_by('-date_updated')
+                qs = Post.objects.all()
             else:
-                qs = Post.objects.filter(official=True).order_by('-date_updated')
+                qs = Post.objects.filter(official=True)
 
         return qs
 
@@ -57,47 +59,19 @@ class UserPostListView(ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        user = get_object_or_404(Profile, discord=self.kwargs.get('discord'))
+        user = get_object_or_404(Profile, slug=self.kwargs.get('slug'))
         return Post.objects.filter(designer=user).order_by('-date_updated')
     
 # A list of one specific user's posts
 class ArtistPostListView(ListView):
     model = Post
-    template_name = 'the_keep/user_posts_art.html'
+    template_name = 'the_keep/user_posts.html'
     context_object_name = 'posts'
     paginate_by = 20
 
     def get_queryset(self):
-        user = get_object_or_404(Profile, discord=self.kwargs.get('discord'))
+        user = get_object_or_404(Profile, slug=self.kwargs.get('slug'))
         return Post.objects.filter(artist=user).order_by('-date_updated')
-
-# A list of search results
-class SearchPostListView(ListView):
-    model = Post
-    template_name = 'the_keep/search_posts.html'
-    context_object_name = 'posts'
-    paginate_by = 20
-
-    def get_queryset(self):
-        search_term = self.request.GET.get('search_term', '')
-        return Post.objects.filter(
-            Q(title__icontains=search_term)|
-            Q(designer__discord__icontains=search_term)|
-            Q(component__icontains=search_term)
-            ).order_by('-date_posted')
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['search_term'] = self.kwargs.get('search_term', '')
-        return context
-
-def post_search_view(request):
-    query = request.GET.get('q')
-    qs = Post.objects.search(query=query)
-    context = {
-        "object_list": qs
-    }
-    return render(request, 'the_keep/search_posts.html', context=context)
 
 
 class ExpansionDetailView(DetailView):
@@ -394,3 +368,71 @@ class ComponentDetailListView(ListView):
         context['filterset'] = self.filterset     
         
         return context
+
+
+# def old_bookmark_post(request, id):
+#     post = get_object_or_404(Post, id=id)
+#     player_exists = post.bookmarks.filter(discord=request.user.profile.discord).exists()
+#     if player_exists:
+#         post.bookmarks.remove(request.user.profile)
+#     else:
+#         post.bookmarks.add(request.user.profile)
+
+#     return render(request, 'the_keep/partials/bookmarks.html', {'object': post })
+
+@login_required
+@bookmark_toggle(Post)
+def bookmark_post(request, object):
+    return render(request, 'the_keep/partials/bookmarks.html', {'object': object })
+
+
+
+# Search Page
+def list_view(request, slug=None):
+    posts, search = _search_components(request, slug)
+    context = {
+        "posts": posts, 
+        'search': search or "", 
+        'is_search_view': False,
+        'slug': slug,
+        }
+    return render(request, "the_keep/list.html", context)
+
+
+def search_view(request, slug=None):
+    posts, search = _search_components(request, slug)
+    context = {
+        "posts": posts, 
+        'search': search or "", 
+        'is_search_view': True,
+        'slug': slug,
+        }
+    return render(request, "the_keep/search_results.html", context)
+
+
+def _search_components(request, slug=None):
+    search = request.GET.get('search')
+    page = request.GET.get('page')
+    if not request.user.is_authenticated:
+        posts = Post.objects.filter(official=True)
+    else:
+        if request.user.profile.weird:
+            posts = Post.objects.all()
+        else:
+            posts = Post.objects.filter(official=True)
+    if slug:
+        player = get_object_or_404(Profile, slug=slug)
+        posts = posts.filter(designer=player)
+    if search:
+        posts = posts.filter(title__icontains=search)
+    paginator = Paginator(posts, settings.PAGE_SIZE)
+    try:
+        posts = paginator.page(page)
+    except PageNotAnInteger:
+        posts = paginator.page(1)
+    except EmptyPage:
+        posts = paginator.page(paginator.num_pages)
+    return posts, search or ""
+
+
+

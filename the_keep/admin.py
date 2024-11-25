@@ -287,7 +287,9 @@ class FactionAdmin(admin.ModelAdmin):
                 else:
                     date_posted = timezone.now() 
 
-
+                lore = None if fields[59] == '' else fields[59]
+                if fields[60] != "":
+                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[60].lower())
 
                 faction_data = {
                     'title': fields[1],
@@ -308,6 +310,8 @@ class FactionAdmin(admin.ModelAdmin):
                     'stable': stable,
                     'official': official,
                     'date_posted': date_posted,
+                    'lore': lore,
+                    'artist': artist_instance,
                 }
 
                 # Use FactionImportForm for validation

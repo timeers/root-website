@@ -36,10 +36,12 @@ INSTALLED_APPS = [
     'the_warroom.apps.TheWarroomConfig',
     'the_tavern.apps.TheTavernConfig',
 
+    # 'debug_toolbar',
     'crispy_forms',
     'crispy_bootstrap4',
     'django_htmx',
     'django_filters',
+
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -55,6 +57,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # 'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -63,7 +66,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
+
     'django_htmx.middleware.HtmxMiddleware',
+
     # Add the account middleware:
     "allauth.account.middleware.AccountMiddleware",
 
@@ -121,6 +126,14 @@ SOCIALACCOUNT_PROVIDERS = {
         }
     }
 }
+##  Debug toolbar not working
+# DEBUG_TOOLBAR_CONFIG = {
+#     "ROOT_TAG_EXTRA_ATTRS": "hx-preserve"
+# }
+# INTERNAL_IPS = [
+#     "127.0.0.1",
+#     "localhost",
+# ]
 
 
 # Database
@@ -142,6 +155,8 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators

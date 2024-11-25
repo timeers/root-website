@@ -61,20 +61,20 @@ class GameFilter(django_filters.FilterSet):
             for faction in selected_factions:
                 queryset = queryset.filter(
                     Q(efforts__faction=faction)  # Filter by any selected faction
-                ).distinct()
+                )
 
         if selected_vagabonds:
             # Build the filter condition for all selected vagabonds
             for vagabond in selected_vagabonds:
                 queryset = queryset.filter(
                     Q(efforts__vagabond=vagabond)  # Filter by any selected vagabond
-                ).distinct()
+                )
 
         if selected_players:
             # Build the filter condition for all selected players
             for player in selected_players:
                 queryset = queryset.filter(
                     Q(efforts__player=player)  # Filter by any selected player
-                ).distinct()
+                )
         return super().filter_queryset(queryset)
     

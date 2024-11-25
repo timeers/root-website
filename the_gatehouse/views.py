@@ -8,6 +8,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from functools import wraps
 from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm
 from .models import Profile
+from the_tavern.views import bookmark_toggle
+from django.core.paginator import Paginator, EmptyPage
+from django.conf import settings
+from the_warroom.filters import GameFilter
 
 
 def register(request):
@@ -65,7 +69,6 @@ def player_page_view(request, slug):
     # games = list({effort.game for effort in efforts})
     # games.sort(key=lambda game: game.date_posted, reverse=True)
     games = list(queryset)
-
 
     quantity_faction = player.most_used_faction()
     quality_faction = player.most_successful_faction()
@@ -130,3 +133,22 @@ def admin_required_class_based_view(view_class):
     """Decorator to apply to class-based views."""
     view_class.dispatch = method_decorator(admin_required)(view_class.dispatch)
     return view_class
+
+
+# def old_bookmark_player(request, id):
+#     player = get_object_or_404(Profile, id=id)
+#     player_exists = player.bookmarks.filter(discord=request.user.profile.discord).exists()
+#     if player_exists:
+#         player.bookmarks.remove(request.user.profile)
+#     else:
+#         player.bookmarks.add(request.user.profile)
+
+#     return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': player })
+
+@login_required
+@bookmark_toggle(Profile)
+def bookmark_player(request, object):
+    return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': object })
+
+
+

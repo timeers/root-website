@@ -21,21 +21,21 @@ from django.conf import settings
 from django.conf.urls.static import static
 from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
-# from allauth.account.views import LogoutView
+from the_keep.views import list_view, search_view
+# from debug_toolbar.toolbar import debug_toolbar_urls
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('register/', user_views.register, name='register'),
+    # path('register/', user_views.register, name='register'),
     # path('player/<slug:slug>/', user_views.PlayerDetailView.as_view(), name='player-detail'),
+    path("profile/<int:id>/bookmark/", user_views.bookmark_player, name='bookmark-player'),
     path('profile/<slug:slug>/', user_views.player_page_view, name='player-detail'),
+    path('profile/<slug:slug>/creations/', list_view, name='player-creations'),
     path('profile/', user_views.profile, name='profile'),
 
     # path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),
     # path('logout/', auth_views.LogoutView.as_view(template_name='the_gatehouse/logout.html'), name='logout'),
-    # path('login/', OAuth2LoginView.adapter_view(DiscordOAuth2Adapter), name='discord_login'),
-    # path('callback/', OAuth2CallbackView.adapter_view(DiscordOAuth2Adapter), name='discord_callback'),
-    # path('logout/', LogoutView.as_view(), name='account_logout'),
 
     path('password-reset/', 
          auth_views.PasswordResetView.as_view(template_name='the_gatehouse/password_reset.html'), 
@@ -62,7 +62,8 @@ urlpatterns = [
     path('accounts/', include('allauth.urls')),
 
 
-]
+] #+ debug_toolbar_urls()
+# Debug toolbar was not working
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

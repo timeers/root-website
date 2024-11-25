@@ -4,7 +4,7 @@ from .views import (GameListView, GameListViewHX,
                     game_detail_hx_view, game_detail_view, 
                     game_delete_view, game_effort_delete_view,
                     update_game, record_game, effort_update_hx_view, create_effort,
-                    bookmark_game)
+                    bookmark_game, manage_game)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [

@@ -29,7 +29,7 @@ class Profile(models.Model):
     weird = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
-    playerbookmarks = models.ManyToManyField('self', through='PlayerBookmark')
+    bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
 
     @property
     def name(self):
@@ -43,7 +43,7 @@ class Profile(models.Model):
         
 
     def __str__(self):
-        return self.discord
+        return f'{self.name} ({self.discord})'
     
     def save(self, *args, **kwargs):
 

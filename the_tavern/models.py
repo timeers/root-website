@@ -24,6 +24,8 @@ class GameComment(Comment):
     type = "game"
     player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='game_comments')
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='comments')
+    class Meta:
+        ordering = ['-date_posted']
     def __str__(self):
         return f"{self.player.name}: {self.body[:30]}"
 

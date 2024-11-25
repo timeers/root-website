@@ -5,8 +5,9 @@ from the_warroom.models import Game
 from the_keep.models import Post
 from .models import GameComment, PostComment
 from django.contrib import messages
+from django.views.decorators.http import require_http_methods
+from django.http import HttpResponse
 
-# Create your views here.
 
 @login_required
 def game_comment_sent(request, pk):
@@ -19,20 +20,17 @@ def game_comment_sent(request, pk):
             comment.player = request.user.profile
             comment.game = game
             comment.save()
-    return redirect('game-detail', game.id)
+    return render(request, 'snippets/add_comment.html', {'comment': comment, 'game': game})
 
 @login_required
+@require_http_methods(['DELETE'])
 def game_comment_delete(request, pk):
     comment = get_object_or_404(GameComment, id=pk, player=request.user.profile)
-    context = {
-        'comment': comment
-    }
+    comment.delete()
 
-    if request.method == 'POST':
-        comment.delete()
-        messages.success(request, 'Comment deleted')
-        return redirect('game-detail', comment.game.id)
-    return render(request, 'the_tavern/game_comment_delete.html', context)
+    response = HttpResponse(status=204)
+    response['HX-Trigger'] = 'delete-comment'
+    return response
 
 
 @login_required
@@ -49,13 +47,38 @@ def post_comment_sent(request, pk):
             comment.save()
     return redirect(f'{component.lower()}-detail', post.slug)
 
+# @login_required
+# def post_comment_delete(request, pk):
+#     comment = get_object_or_404(PostComment, id=pk, player=request.user.profile)
+#     component = comment.post.component
+
+#     if request.method == 'POST':
+#         comment.delete()
+#         messages.success(request, 'Comment deleted')
+#         return redirect(f'{component.lower()}-detail', comment.post.slug)
+#     return render(request, 'the_tavern/post_comment_delete.html', {'comment': comment})
+
+
 @login_required
+@require_http_methods(['DELETE'])
 def post_comment_delete(request, pk):
     comment = get_object_or_404(PostComment, id=pk, player=request.user.profile)
-    component = comment.post.component
+    comment.delete()
 
-    if request.method == 'POST':
-        comment.delete()
-        messages.success(request, 'Comment deleted')
-        return redirect(f'{component.lower()}-detail', comment.post.slug)
-    return render(request, 'the_tavern/post_comment_delete.html', {'comment': comment})
+    response = HttpResponse(status=204)
+    response['HX-Trigger'] = 'delete-comment'
+    return response
+
+def bookmark_toggle(model):
+    def inner_func(func):
+        def wrapper(request, *args, **kwargs):
+            object = get_object_or_404(model, id=kwargs.get('id'))
+            player_exists = object.bookmarks.filter(discord=request.user.profile.discord).exists()
+            if player_exists:
+                object.bookmarks.remove(request.user.profile)
+            else:
+                object.bookmarks.add(request.user.profile)
+            return func(request, object)
+        return wrapper
+    return inner_func
+
