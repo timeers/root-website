@@ -71,13 +71,16 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
+    fixed_clearings = forms.BooleanField(
+        label='This map has fixed suits for each clearing by default', initial=False, required=False
+    )
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Map']),
         required=False
     )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'based_on'] + bottom_fields
+        fields = top_fields + ['clearings', 'fixed_clearings', 'based_on'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated
@@ -89,6 +92,14 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        title = cleaned_data.get('title')
+            # Check if the same name already exists
+        if Map.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A map with the name "{title}" already exists. Please choose a different name.')
+        return cleaned_data
 
 class MapImportForm(MapCreateForm):  # Inherit from PostCreateForm
     class Meta(MapCreateForm.Meta):  # Inherit Meta from PostCreateForm
@@ -127,6 +138,14 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
 
+    def clean(self):
+        cleaned_data = super().clean()
+        title = cleaned_data.get('title')
+            # Check if the same name already exists
+        if Deck.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A deck with the name "{title}" already exists. Please choose a different name.')
+        return cleaned_data
+
 class DeckImportForm(DeckCreateForm):
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
@@ -158,6 +177,13 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Landmark
         fields = top_fields + ['card_text', 'based_on'] + bottom_fields
+    def clean(self):
+        cleaned_data = super().clean()
+        title = cleaned_data.get('title')
+            # Check if the same name already exists
+        if Landmark.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A landmark with the name "{title}" already exists. Please choose a different name.')
+        return cleaned_data
 
 class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Hireling'
@@ -192,6 +218,14 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        title = cleaned_data.get('title')
+            # Check if the same name already exists
+        if Hireling.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A hireling with the name "{title}" already exists. Please choose a different name.')
+        return cleaned_data
 
 class VagabondCreateForm(PostCreateForm): 
     form_type = 'Vagabond'
@@ -241,6 +275,10 @@ class VagabondCreateForm(PostCreateForm):
             starting_sword = cleaned_data.get('starting_sword')
             starting_hammer = cleaned_data.get('starting_hammer')
             starting_crossbow = cleaned_data.get('starting_crossbow')
+            title = cleaned_data.get('title')
+            # Check if the same name already exists
+            if Vagabond.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+                raise ValidationError(f'A vagabond with the name "{title}" already exists. Please choose a different name.')
             # Check that the VB doesn't have a wild amount of items
             if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 6:
                 raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
@@ -326,12 +364,17 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             cleaned_data = super().clean()
             reach = cleaned_data.get('reach')
             type = cleaned_data.get('type')
+            title = cleaned_data.get('title')
 
-            # Check that the VB doesn't have a wild amount of items
+            # Check that reach matches the type
             if type == 'I' and reach > 6:
                 raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
             elif type == 'M' and reach < 6:
                 raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
+            
+                # Check if a faction with the same name already exists
+            if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+                raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
             return cleaned_data
     
     def __init__(self, *args, **kwargs):

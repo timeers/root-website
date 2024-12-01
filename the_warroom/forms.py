@@ -2,7 +2,7 @@ from django import forms
 from .models import Effort, Game
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
-from django.forms import inlineformset_factory
+from django_select2.forms import Select2Widget
 
 class GameCreateForm(forms.ModelForm):  
     required_css_class = 'required-field'
@@ -15,9 +15,14 @@ class GameCreateForm(forms.ModelForm):
                 queryset=Landmark.objects.all(),
                 widget=forms.SelectMultiple
                 )
+    # undrafted_faction = forms.ModelChoiceField(
+    #             queryset=Faction.objects.all(),
+    #             widget=Select2Widget(attrs={'data-placeholder': 'Select a Faction'}),
+    #             required=False
+    #         )
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        fields = ['platform', 'type', 'league', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -26,6 +31,7 @@ class GameCreateForm(forms.ModelForm):
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
         # Filter for only Official content if not a member of Weird Root
+        print(user)
         if not user.profile.weird:
             self.fields['deck'].queryset = Deck.objects.filter(official=True)
             self.fields['map'].queryset = Map.objects.filter(official=True)
@@ -37,10 +43,11 @@ class GameCreateForm(forms.ModelForm):
 
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
+    # player_input = forms.TextInput()
+    # player_input = forms.CharField(widget=forms.HiddenInput())
     class Meta:
         model = Effort
-        fields = ['seat', 'player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with']
-
+        fields = ['player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with']
     def clean(self):
         cleaned_data = super().clean()
         faction = cleaned_data.get('faction')
@@ -49,7 +56,17 @@ class EffortCreateForm(forms.ModelForm):
             raise ValidationError("Please select a faction for each player.")
 
         return cleaned_data
-    
+
+    # def __init__(self, *args, user=None, **kwargs):
+    #     # Call the parent constructor
+    #     super(EffortCreateForm, self).__init__(*args, **kwargs)
+    #     # Filter for only Official content if not a member of Weird Root
+    #     print(user)
+    #     if user:
+    #         if not user.profile.weird:
+    #             self.fields['faction'].queryset = Faction.objects.filter(official=True)
+    #             self.fields['vagabond'].queryset = Vagabond.objects.filter(official=True)
+
     # def __init__(self, *args, user=None, **kwargs):
     #     # Call the parent constructor
     #     super(EffortCreateForm, self).__init__(*args, **kwargs)
@@ -81,8 +98,9 @@ class GameImportForm(forms.ModelForm):
 
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
         widgets = {
             'type': forms.RadioSelect,
         }
+
 

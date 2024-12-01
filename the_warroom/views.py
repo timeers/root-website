@@ -5,13 +5,13 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.views.generic import ListView
 
 from django.shortcuts import get_object_or_404, redirect, HttpResponseRedirect
-from django.forms.models import modelformset_factory, inlineformset_factory
+from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 # from django.db import transaction
 from django.db.models import Q
 from .models import Game, Effort
@@ -22,6 +22,7 @@ from the_gatehouse.models import Profile
 from the_gatehouse.views import player_required
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
+from datetime import datetime
 
 
 
@@ -201,6 +202,23 @@ def game_delete_view(request, id=None):
     }
     return render(request, "the_warroom/game_delete.html", context)
 
+
+def delete_effort(request, id=None):
+    # Check if the effort exists
+    print(id)
+    print('Test')
+    if id:
+        try:
+            effort = Effort.objects.get(id=id)
+            effort.delete()
+            return JsonResponse({'status': 'success'})
+        except Effort.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': 'Effort not found'}, status=404)
+    else:
+        # Handle deletion for unsaved or temporary efforts
+        return JsonResponse({'status': 'error', 'message': 'No effort to delete'}, status=400)
+
+
 @staff_member_required
 def game_effort_delete_view(request, parent_id=None, id=None):
     try:
@@ -272,111 +290,64 @@ def record_game(request, id=None):
         return redirect(obj.get_absolute_url())
     return render(request, 'the_warroom/record_game.html', context)
 
-@staff_member_required
-def update_game(request, id=None):
-    obj = get_object_or_404(Game, id=id)
-    # obj = get_object_or_404(Game, id=id, recorder=request.user.profile)
-    form = GameCreateForm(request.POST or None, instance=obj, user = request.user) 
-    extra_forms = 0
-    # Default to at least 2 players
-    existing_efforts = obj.efforts.all()
-    existing_count = existing_efforts.count()
-    extra_forms = max(0, 2 - existing_count)
-
-    # Formset = modelformset_factory(Model, form=ModelForm, extra=0)
-    EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
-    qs = obj.efforts.all()
-    formset = EffortFormset(request.POST or None, queryset=qs)
-    context = {'form': form, 
-               'formset': formset,
-               'object': obj,
-               }
-    # This is not catching null data
-    if  form.is_valid() and formset.is_valid():
-        parent = form.save(commit=False)
-        parent.save()
-        form.save_m2m()
-        for form in formset:
-            child = form.save(commit=False)
-            # This is the only way I can think to avoid null. It just skips the child if there's no faciton ID
-            if not child.faction_id is None:
-                child.game = parent
-                child.save()
-        context['message'] = "Game Saved"
-        return redirect(parent.get_absolute_url())
-    if request.htmx:
-        return render(request, 'the_warroom/partials/forms.html', context)
-    return render(request, 'the_warroom/record_game.html', context)
-
-
-# Testing
-@staff_member_required
-def save_game(request, id=None):
-
-
-    GameFormSet = inlineformset_factory(Game, Effort)
+@player_required
+def manage_game(request, id=None):
     if id:
-        new_game = get_object_or_404(Game, id=id)
+        obj = get_object_or_404(Game, id=id)
     else:
-        new_game = Game.objects.create()
-    formset = GameFormSet(instance=new_game)
+        obj = Game()  # Create a new Game instance but do not save it yet
+    user = request.user
+    form = GameCreateForm(request.POST or None, instance=obj, user=user)
 
-    form = GameCreateForm(request.POST or None, instance=new_game, user=request.user) 
-    extra_forms = 0
-    # Default to at least 4 players
-    existing_efforts = new_game.efforts.all()
-    existing_count = existing_efforts.count()
+    # Default to 4 players
+    if id:  # Only check for existing efforts if updating an existing game
+        existing_efforts = obj.efforts.all()
+        existing_count = existing_efforts.count()
+    else:
+        existing_count = 0  # New game has no existing efforts
+
     extra_forms = max(0, 4 - existing_count)
 
-    # Formset = modelformset_factory(Model, form=ModelForm, extra=0)
     EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
-    qs = new_game.efforts.all()
+    qs = obj.efforts.all() if id else Effort.objects.none()  # Only fetch existing efforts if updating
     formset = EffortFormset(request.POST or None, queryset=qs)
-    context = {'form': form, 
-               'formset': formset,
-               'object': new_game,
-               }
-    # This is not catching null data
-    if  form.is_valid() and formset.is_valid():
+    form_count = extra_forms + existing_count
+    context = {
+        'form': form,
+        'formset': formset,
+        'object': obj,
+        'form_count': form_count
+    }
+
+    
+    # Handle form submission
+    if form.is_valid() and formset.is_valid():
         parent = form.save(commit=False)
-        parent.save()
+        parent.recorder = request.user.profile  # Set the recorder
+        parent.save()  # Save the new or updated Game instance
         form.save_m2m()
+        seat = 1
         for form in formset:
+
             child = form.save(commit=False)
-            # This is the only way I can think to avoid null. It just skips the child if there's no faciton ID
-            if not child.faction_id is None:
-                child.game = parent
+            if child.faction_id is not None:  # Only save if faction_id is present
+                if child.faction.status == "Stable":
+                    status = "Stable"
+                else:
+                    status = f"{child.faction.status()} - {child.faction.date_updated.strftime('%Y-%m-%d')}"
+                child.faction_status = status
+                child.game = parent  # Link the effort to the game
+                child.seat = seat
                 child.save()
+                seat += 1
+
         context['message'] = "Game Saved"
         return redirect(parent.get_absolute_url())
+
     if request.htmx:
         return render(request, 'the_warroom/partials/forms.html', context)
+    
     return render(request, 'the_warroom/record_game.html', context)
-
-def manage_game(request, id):
-    game = Game.objects.get(pk=id)
-    GameInlineFormSet = inlineformset_factory(
-        Game, 
-        Effort,
-        fields='__all__',  # Include all fields of the Effort model
-        extra=1,           # Number of empty forms to display
-        can_delete=True  
-        )
-    if request.method == "POST":
-        formset = GameInlineFormSet(request.POST, request.FILES, instance=game)
-        if formset.is_valid():
-            formset.save()
-            # Do something. Should generally end with a redirect. For example:
-            return HttpResponseRedirect(game.get_absolute_url())
-    else:
-        formset = GameInlineFormSet(instance=game)
-    return render(request, "the_warroom/manage_game.html", {"formset": formset})
-
-
-
-
-
-
 
 
 

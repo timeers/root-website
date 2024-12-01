@@ -6,47 +6,107 @@
     
     <h2>Game Details</h2>
     {% for field in form %}
-            <div class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
+        {% if field.label == 'Undrafted vagabond' %}
+                <div class="undrafted-vagabond-field" id="undrafted-vagabond-field">
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                        {% if field.help_text %}
+                                <p class="help">{{ field.help_text | safe }}</p>
+                        {% endif %}
+                </div>
+        {% elif field.label == 'League' %}
+                <div class="league-field" style="display:none;">
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                        {% if field.help_text %}
+                                <p class="help">{{ field.help_text | safe }}</p>
+                        {% endif %}
+                </div>
+        {% elif field.label == 'Random clearing' %}
+                <div class="rc-field" style="display:none;">
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                        {% if field.help_text %}
+                                <p class="help">{{ field.help_text | safe }}</p>
+                        {% endif %}
+                </div>
+        {% elif field.label == 'Type' %}
+                <div class="timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                        {% if field.help_text %}
+                                <p class="help">{{ field.help_text | safe }}</p>
+                        {% endif %}
+                </div>
+        {% elif field.label == 'Hirelings' %}
+        <div class="hireling-field" id="hireling-field" {% if object.platform == "Root Digital" %}style="display:none;"{% endif %}>
+                {{ field.errors }}
+                {{ field.label_tag }} {{ field }}
+                {% if field.help_text %}
+                        <p class="help">{{ field.help_text | safe }}</p>
+                {% endif %}
+        </div>
+
+        {% else %}
+            <div id="game-{{ field.label.lower }}-field" class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
+                
             {{ field.errors }}
             {{ field.label_tag }} {{ field }}
             {% if field.help_text %}
                     <p class="help">{{ field.help_text | safe }}</p>
             {% endif %}
             </div>
+        {% endif %}
     {% endfor %}
 
-    {% if formset %}
-            <h2>Players</h2>
-            {{ formset.management_form }}
-            <div id="effort-form-list">
-                    {% for form in formset %}
-                            <div class="effort-form form-control">
-                                {% for field in form %}
-                                        <div class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
-                                        {{ field.errors }}
-                                        {{ field.label_tag }} {{ field }}
-                                        {% if field.help_text %}
-                                                <p class="help">{{ field.help_text | safe }}</p>
-                                        {% endif %}
-                                        </div>
-                                {% endfor %}
-                                <button class="btn btn-outline-danger" type="button">Delete</button>
-                            </div>
-                    {% endfor %}
-            </div>
 
-                <div id="empty-form" class="hidden effort-form form-control">
-                        {{ formset.empty_form.as_p }}
-                </div>
-            <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
-        {% else %}
-            <a class="btn btn-outline-info mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>
-        {% endif %}
+        <h2>Players</h2>
+        {{ formset.management_form }}
+        <div id="effort-form-list">
+                {% for form in formset %}
+                        <div id="form-{{ forloop.counter0 }}" class="effort-form form-control">
+                        {% for field in form %}
+                                {% include 'the_warroom/partials/effort_field_form.html' %}
+                        {% endfor %}
 
+                        {% if not form.instance.id %}
+                                <button class="btn btn-outline-warning btn-sm" type="button"
+                                        onclick="clearForm(this)">
+                                        Clear
+                                </button>
+                        {% else %}
+                                <a class="btn btn-outline-danger btn-sm"
+                                hx-delete="{% url 'effort-delete' form.instance.id %}"
+                                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                hx-confirm="Are you sure you want to delete this Player?"
+                                hx-on="htmx:afterRequest: this.closest('div').remove()">
+                                Delete!
+                                </a>
+                        {% endif %}
+
+                        </div>
+                {% endfor %}
+        </div>
+
+        <div id="empty-form" class="hidden effort-form form-control">
+                {% for field in formset.empty_form  %}
+                        {% include 'the_warroom/partials/effort_field_form.html' %}
+                {% endfor %}
+                <button class="btn btn-outline-warning btn-sm" type="button"
+                        onclick="clearForm(this)">
+                        Clear
+                </button>
+        </div>
+
+
+
+    <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
     <div class="htmx-indicator mb-2 mt-2">Loading...</div>
     <button class="btn btn-outline-success htmx-inverted-indicator mb-2 mt-2" type="submit">Save</button>
-    {% if formset %}
+    {% if object.id %}
         <a class="btn btn-outline-danger mb-2 mt-2" href="{{ object.get_delete_url }}">Delete</a>
+    {% else %}
+        <a class="btn btn-outline-info mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>
     {% endif %}
     {% if message %}
         <p>{{ message }}</p>
@@ -54,3 +114,7 @@
 
     
     </form>
+
+
+
+        

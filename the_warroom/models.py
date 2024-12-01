@@ -39,7 +39,7 @@ class Game(models.Model):
         IRL = 'In Person'
         # ETC = 'Other'
     # Required
-    type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.ASYNC)
+    type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.LIVE)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.DWD)
     deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True, related_name='games')
     map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True, related_name='games')
@@ -125,8 +125,8 @@ class Effort(models.Model):
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')
-    faction_status = models.CharField(max_length=15, null=True, blank=True) #This should not be null.
-    notes = models.TextField(null=True, blank=True)
+    faction_status = models.CharField(max_length=50, null=True, blank=True) #This should not be null.
+    # notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
 
     def clean(self):

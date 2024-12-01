@@ -275,6 +275,7 @@ class Landmark(Post):
 
 class Map(Post):
     clearings = models.IntegerField(default=12)
+    fixed_clearings = models.BooleanField(default=False)
     default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
@@ -496,6 +497,8 @@ def animal_default_picture(instance):
         animal_lower = 'lizard'
     if animal_lower == "person" or animal_lower == "people" or animal_lower == "man":
         animal_lower = 'human'
+    if animal_lower == "tarsier":
+        animal_lower = 'monkey'
     return check_for_image('animals', animal_lower)
 
 

@@ -2,7 +2,7 @@
 {% load crispy_forms_tags %}
 {% block content %}
         
-        <h1>{% if formset %}Update Game Data{% else %}Record New Game{% endif %}</h1>
+        <h1>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</h1>
 
         <style>
                 .effort-form {
@@ -18,42 +18,138 @@
         </div>
 
 
-        <script>
-                
-                
-                document.addEventListener('click', (event)=>{
-                        if (event.target.id == 'add-more'){
-                                add_new_form(event)
-                        }
-                })
-
-                function add_new_form(event) {
-                        
-                        if (event) {
-                                event.preventDefault()
-                        }
-                        const totalNewForms = document.getElementById('id_form-TOTAL_FORMS')
-                        const currentEffortForms = document.getElementsByClassName('effort-form')
-                        const currentFormCount = currentEffortForms.length
-                        const formCopyTarget = document.getElementById("effort-form-list")
-                        
-                        const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
-                        copyEmptyFormEl.setAttribute('class', 'effort-form')
-                        copyEmptyFormEl.setAttribute('id', `form-${currentFormCount}`)
-                        const regex = new RegExp('__prefix__', 'g')
-                        copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, currentFormCount)
-                        totalNewForms.setAttribute('value', currentFormCount + 1)
-
-                        formCopyTarget.append(copyEmptyFormEl)
-                        
-                }
-        </script>
+        
 
 {% endblock content %}
 
 {% block scripts %}
-        <script>
-                $('#id_hirelings').select2();
-                $('#id_landmarks').select2();
-        </script>
+<script>
+
+        $('#id_hirelings').select2();
+        $('#id_landmarks').select2();
+        $('#id_undrafted_faction').select2();
+        $('#id_undrafted_vagabond').select2();
+        $('#id_map').select2();
+        $('#id_deck').select2();
+        //document.onload(hideBlock())
+
+        
+        var platform = document.getElementById("id_platform")
+        platform.addEventListener("change", function(){
+                var timingBlock = document.getElementById("timing-field")
+                var hirelingsBlock = document.getElementById("hireling-field")
+                if(platform.value == "Root Digital"){
+                        var asyn = document.getElementById("id_type_0")
+                        asyn.checked = true
+                        var live = document.getElementById("id_type_1")
+                        live.checked = false
+                        timingBlock.style = "display:block;"
+                        hirelingsBlock.style = "display:none;"
+                        $('#id_hirelings').val(null).trigger('change');
+                } else {
+                        var asyn = document.getElementById("id_type_0")
+                        asyn.checked = false
+                        var live = document.getElementById("id_type_1")
+                        live.checked = true
+                        timingBlock.style = "display:none;"
+                        hirelingsBlock.style = "display:block;"
+                        $('#id_hirelings').select2();
+                }
+        })
+        var undrafted_vagabondBlock = document.getElementById("undrafted-vagabond-field")
+
+        $('#id_undrafted_faction').on('change', function (e) {
+                // Get the selected text
+                var selectedText = $('#id_undrafted_faction option:selected').text();
+
+                if (selectedText == 'Vagabond') {
+                undrafted_vagabondBlock.style = "display:block;"
+                $('#id_undrafted_vagabond').select2();
+                } else {
+                undrafted_vagabondBlock.style = "display:none;"
+                $('#id_undrafted_vagabond').val(null).trigger('change');
+                }
+        });
+
+        $('.effort-form').each((index, element) => {
+                setupSelector(index, element)
+                $("#id_form-"+ index.toString() +"-faction").select2();
+                $("#id_form-"+ index.toString() +"-player").select2();
+        })
+
+        function setupSelector(index, element){
+                var selector = "#id_form-"+ index.toString() +"-faction"
+                var VBselector = "#id_form-"+ index.toString() +"-vagabond"
+                var dominanceSelector = "#id_form-"+ index.toString() +"-dominance"
+                var coalitionSelector = "#id_form-"+ index.toString() +"-coalition_with"
+                var innerSelect = element.querySelector(selector)
+                
+                $(selector).on('change', function (e) {
+                // Get the selected text
+                        var selectedText = $(selector+' option:selected').text();
+                        console.log(selector, selectedText)
+                        var vagabondBlock = document.querySelector(VBselector)?.closest('.vagabond-field');
+                        var dominanceBlock = document.querySelector(dominanceSelector)?.closest('.dominance-field');
+                        var coalitionBlock = document.querySelector(coalitionSelector)?.closest('.coalition-field');
+                        if (selectedText == 'Vagabond') {
+                                vagabondBlock.style = "display:block;"
+                                coalitionBlock.style = "display:block;"
+                                dominanceBlock.style = "display:none;"
+                                $(VBselector).select2();
+                                $(coalitionSelector).select2();
+                        } else {
+                                vagabondBlock.style = "display:none;"
+                                coalitionBlock.style = "display:none;"
+                                dominanceBlock.style = "display:block;"
+                                $(VBselector).val(null).trigger('change');
+                                $(coalitionSelector).val(null).trigger('change');
+                        }
+                });
+
+        }
+
+
+        let nextFormIndex = document.querySelectorAll('.effort-form').length;
+                console.log(nextFormIndex)
+        document.addEventListener('click', (event)=>{
+                if (event.target.id == 'add-more'){
+                        add_new_form(event)
+                }
+        })
+
+        function add_new_form(event) {
+                
+                if (event) {
+                        event.preventDefault()
+                }
+                const totalNewForms = document.getElementById('id_form-TOTAL_FORMS')
+                // const currentEffortForms = document.getElementsByClassName('effort-form')
+                // const currentFormCount = currentEffortForms.length
+                const formCopyTarget = document.getElementById("effort-form-list")
+                
+                const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
+                copyEmptyFormEl.setAttribute('class', 'effort-form form-control')
+                copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`)
+                const regex = new RegExp('__prefix__', 'g')
+                copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex)
+                totalNewForms.setAttribute('value', nextFormIndex + 1)
+
+                formCopyTarget.append(copyEmptyFormEl)
+                setupSelector(nextFormIndex, formCopyTarget)
+                console.log('#id_form-'+nextFormIndex+'-player')
+                $('#id_form-'+nextFormIndex+'-player').select2();
+                $('#id_form-'+nextFormIndex+'-faction').select2();
+                $('#id_form-'+nextFormIndex+'-vagabond').select2();
+                $('#id_form-'+nextFormIndex+'-coalition_with').select2();
+
+                nextFormIndex++;
+                console.log(nextFormIndex)
+                
+        }
+
+        function clearForm(button) {
+                var formDiv = button.closest('.effort-form'); // Find the parent form div
+                formDiv.remove(); // Remove the form from the DOM
+        }
+</script>
 {% endblock %}

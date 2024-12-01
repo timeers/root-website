@@ -1,0 +1,27 @@
+{% if field.label == 'Vagabond' %}
+        <div class="vagabond-field" style="display:none;">
+        {{ field.errors }}
+        {{ field.label_tag }} {{ field }}
+        {% if field.help_text %}
+                <p class="help">{{ field.help_text | safe }}</p>
+        {% endif %}
+{% elif field.label == 'Coalition with' %}
+        <div class="coalition-field" style="display:none;">
+                {{ field.errors }}
+                {{ field.label_tag }} {{ field }}
+                {% if field.help_text %}
+                        <p class="help">{{ field.help_text | safe }}</p>
+                {% endif %}
+{% elif field.label == 'Id' %}
+        <div class="id-field" style="display:none;">
+{{ field }}
+
+{% else %}
+        <div class="{% if field.field.required %}{{ form.required_css_class }}{% endif %} {{ field.label.lower }}-field">
+        {{ field.errors }}
+        {{ field.label_tag }} {{ field }}
+        {% if field.help_text %}
+                <p class="help">{{ field.help_text | safe }}</p>
+        {% endif %}
+{% endif %}
+</div>

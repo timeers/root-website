@@ -1,8 +1,0 @@
-{% include 'the_keep/base.html' %}
-
-Manage Game
-{% csrf_token %}
-{% for form in formset %}
-    {{ form.as_p }}
-{% endfor %}
-<button>Submit</button>
