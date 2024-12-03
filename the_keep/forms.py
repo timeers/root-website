@@ -104,7 +104,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class MapImportForm(MapCreateForm):  # Inherit from PostCreateForm
     class Meta(MapCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable'] + bottom_fields
+        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable', 'expansion'] + bottom_fields
 
 
 
@@ -149,7 +149,7 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class DeckImportForm(DeckCreateForm):
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'stable'] + bottom_fields
+        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'stable', 'expansion'] + bottom_fields
 
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -287,7 +287,7 @@ class VagabondCreateForm(PostCreateForm):
 class VagabondImportForm(PostCreateForm): 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'official', 'designer',
+        fields = top_fields + ['animal', 'official', 'designer', 'expansion',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    

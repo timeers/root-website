@@ -22,11 +22,16 @@ from django.conf.urls.static import static
 from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
 from the_keep.views import list_view, search_view
+from the_keep.api_views import get_decks_by_platform, get_factions_by_platform, get_maps_by_platform, get_options_for_platform
 # from debug_toolbar.toolbar import debug_toolbar_urls
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/decks/<str:platform>/', get_decks_by_platform, name='get_decks_by_platform'),
+    path('api/factions/<str:platform>/', get_factions_by_platform, name='get_factions_by_platform'),
+    path('api/maps/<str:platform>/', get_maps_by_platform, name='get_maps_by_platform'),
+    path('api/options/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
     # path('register/', user_views.register, name='register'),
     # path('player/<slug:slug>/', user_views.PlayerDetailView.as_view(), name='player-detail'),
     path("profile/<int:id>/bookmark/", user_views.bookmark_player, name='bookmark-player'),

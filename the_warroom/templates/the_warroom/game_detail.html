@@ -73,11 +73,20 @@
 
 
 
-{% if user.is_superuser %}
+{% if user.profile.group == 'A' %}
+<article class="media content-section">
+    <div class="media-body">
+    <h2>Admin Options</h2>
+    <div>
+        Admin users can edit and delete game data.<br>
+        This cannot be undone and should be handled carefully.
+    </div>
 <small>
-    <a class="btn btn-outline-secondary" href="{{ game.get_edit_url }}">Edit</a>
-    <a class="btn btn-outline-danger" href="{{ game.get_delete_url }}">Delete</a>
+    <a class="btn btn-outline-secondary" href="{{ game.get_edit_url }}">Edit Game</a>
+    <a class="btn btn-outline-danger" href="{{ game.get_delete_url }}">Delete Game</a>
 </small>
+</div>
+</article>
 {% endif %}
 
 {% endblock content %}

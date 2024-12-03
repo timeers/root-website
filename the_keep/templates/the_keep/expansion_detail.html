@@ -1,6 +1,65 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-    <article class="media content-section">
-        {{ expansion.title }}
-    </article>
+    
+        <h1>{{ expansion.title }}</h1>
+        {% if expansion.designer %}
+            by: {{ expansion.designer }}
+        {% endif %}
+        {% if expansion.description %}
+            {{ expansion.description }}
+        {% endif %}
+
+        {% if expansion.get_posts %}
+            {% if expansion.get_factions %}
+            <h2>Factions</h2>
+            {% for object in expansion.get_factions %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+            {% if expansion.get_decks %}
+            <h2>Decks</h2>
+            {% for object in expansion.get_decks %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+            {% if expansion.get_maps %}
+            <h2>Maps</h2>
+            {% for object in expansion.get_maps %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+            {% if expansion.get_vagabonds %}
+            <h2>Vagabonds</h2>
+            {% for object in expansion.get_vagabonds %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+            {% if expansion.get_hirelings %}
+            <h2>Hirelings</h2>
+            {% for object in expansion.get_hirelings %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+            {% if expansion.get_landmarks %}
+            <h2>Landmarks</h2>
+            {% for object in expansion.get_landmarks %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+        {% else %}
+                Looks like nothing has been added to this expansion yet. Please check back later.
+        {% endif %}
+    
 {% endblock content %} 

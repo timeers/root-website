@@ -17,7 +17,7 @@
      {% if object.artist %}
     <div class="article-metadata">
         Art by 
-        <a class="mr-2" href="{% url 'artist-posts' object.artist.slug %}">{{ object.artist }}</a>
+        <a class="mr-2" href="{% url 'artist-posts' object.artist.slug %}">{{ object.artist.name }}</a>
     </div>
     {% endif %}
 

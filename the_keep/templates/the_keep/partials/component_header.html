@@ -10,8 +10,11 @@
     
                 <small class="text-muted">{{ object.date_updated | date:"Y-m-d" }}</small>
 
-
-                <div>{{ object.expansion.title }}</div>
+                {% if object.expansion %}
+                    <div>
+                        <a class="mr-2" href="{% url 'expansion-detail' object.expansion.slug %}">{{ object.expansion.title }}</a>
+                    </div>
+                {% endif %}
                 {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
                     <div class="article-content">Animal: {{ object.animal }}</div>
                 {% endif %}
@@ -19,7 +22,7 @@
                 {% if object.artist %}
                 <div>
                     Art by 
-                    <a class="mr-2" href="{% url 'artist-posts' object.artist.slug %}">{{ object.artist }}</a>
+                    <a class="mr-2" href="{% url 'artist-posts' object.artist.slug %}">{{ object.artist.name }}</a>
                 </div>
                 {% endif %}
                 {% if object.based_on %}

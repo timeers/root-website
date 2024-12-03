@@ -2,8 +2,8 @@ from django.urls import path
 # from .views import 
 from .views import (GameListView, GameListViewHX,
                     game_detail_hx_view, game_detail_view, 
-                    game_delete_view, game_effort_delete_view,
-                    bookmark_game, manage_game, delete_effort)
+                    game_delete_view, effort_hx_delete, game_hx_delete,
+                    bookmark_game, manage_game)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -12,11 +12,9 @@ urlpatterns = [
     path('record/', manage_game, name='record-game'),
 
     path("hx/<int:id>/", game_detail_hx_view, name='game-hx-detail'),
-    path("effort/hx/<int:id>/", delete_effort, name='effort-delete'),
-    # path("hx/effort/<int:id>/", effort_update_hx_view, name='effort-hx-update'),
-    # path("create-effort/", create_effort, name='create-effort'),
+    path("hx/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),
+    path("hx/game/delete/<int:id>/", game_hx_delete, name='game-hx-delete'),
 
-    path("<int:parent_id>/effort/delete/", game_effort_delete_view, name='effort-delete'),
     path("<int:id>/delete/", game_delete_view, name='game-delete'),
     path("<int:id>/edit/", manage_game, name='game-update'),
     path("<int:id>/", game_detail_view, name='game-detail'),

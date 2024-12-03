@@ -12,6 +12,14 @@
                 {% if field.help_text %}
                         <p class="help">{{ field.help_text | safe }}</p>
                 {% endif %}
+
+{% elif field.label == 'Captains' %}
+        <div class="captains-field" style="display:none;">
+                {{ field.errors }}
+                {{ field.label_tag }} {{ field }}
+                {% if field.help_text %}
+                        <p class="help">{{ field.help_text | safe }}</p>
+                {% endif %}
 {% elif field.label == 'Id' %}
         <div class="id-field" style="display:none;">
 {{ field }}

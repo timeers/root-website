@@ -254,21 +254,30 @@ class FactionAdmin(admin.ModelAdmin):
                 return HttpResponseRedirect(request.path_info )
 
             file_data = csv_file.read().decode('utf-8')
-            csv_data = file_data.split('\n')
+            
+            # Use StringIO to treat the string as a file
+            csv_reader = csv.reader(StringIO(file_data))
+            
+            for fields in csv_reader:
 
-            for x in csv_data:
-                fields = x.split(',')
+
+            # file_data = csv_file.read().decode('utf-8')
+            # csv_data = file_data.split('\n')
+
+            # for x in csv_data:
+            #     fields = x.split(',')
                 print(len(fields))
 
                 if len(fields) < 58:  # Check to ensure there are enough fields
                     print("Not enough fields in this row.")
                     continue  # Skip to the next iteration if not enough fields
 
-                profile_instance, _ = Profile.objects.get_or_create(discord=fields[4].lower())
+                profile_instance, _ = Profile.objects.get_or_create(discord=fields[4].strip().lower())
                 if fields[5] == '':
                     expansion_instance = None
                 else:
                     expansion_instance, _ = Expansion.objects.get_or_create(title=fields[5])
+                profile_instance.save()
                 stable = True if fields[7] == "Stable" else False
                 official = True if fields[6] == "Y" else False
                 print(fields[1], fields[7], stable)
@@ -288,8 +297,10 @@ class FactionAdmin(admin.ModelAdmin):
                     date_posted = timezone.now() 
 
                 lore = None if fields[59] == '' else fields[59]
-                if fields[60] != "":
-                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[60].lower())
+                if fields[60].strip() != "":
+                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[60].strip().lower())
+                else:
+                    artist_instance = None
 
                 faction_data = {
                     'title': fields[1],
@@ -597,7 +608,7 @@ class FactionAdmin(admin.ModelAdmin):
 
                 else:
                     # Handle the invalid form case (e.g., log errors or notify the user)
-                    messages.error(request, f"Error with row: {x}. Errors: {form.errors}")
+                    messages.error(request, f"Error with row: {fields}. Errors: {form.errors}")
 
 
             url = reverse('admin:index')

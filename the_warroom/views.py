@@ -3,7 +3,8 @@ from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.generic import ListView
-
+from django.views.decorators.http import require_http_methods
+from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, HttpResponseRedirect
 from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404
@@ -19,10 +20,11 @@ from .forms import GameCreateForm, EffortCreateForm
 from .filters import GameFilter
 from the_gatehouse.models import Profile
 # from the_keep.models import Post
-from the_gatehouse.views import player_required
+from the_gatehouse.views import player_required, admin_required
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
 from datetime import datetime
+
 
 
 
@@ -144,20 +146,6 @@ class GameListViewHX(ListView):
         return context
 
 
-# class GameCreateView(LoginRequiredMixin, CreateView):
-#     model = Game
-#     form_class = GameCreateForm
-
-#     def form_valid(self, form):
-#         form.instance.recorder = self.request.user
-#         return super().form_valid(form)
-# class EffortCreateView(LoginRequiredMixin, CreateView):
-#     model = Effort
-#     form_class = EffortCreateForm
-
-#     def form_valid(self, form):
-#         return super().form_valid(form)
-
 @login_required
 def game_detail_view(request, id=None):
     hx_url = reverse("game-hx-detail", kwargs={"id": id})
@@ -203,46 +191,45 @@ def game_delete_view(request, id=None):
     return render(request, "the_warroom/game_delete.html", context)
 
 
-def delete_effort(request, id=None):
-    # Check if the effort exists
-    print(id)
-    print('Test')
-    if id:
-        try:
-            effort = Effort.objects.get(id=id)
-            effort.delete()
-            return JsonResponse({'status': 'success'})
-        except Effort.DoesNotExist:
-            return JsonResponse({'status': 'error', 'message': 'Effort not found'}, status=404)
-    else:
-        # Handle deletion for unsaved or temporary efforts
-        return JsonResponse({'status': 'error', 'message': 'No effort to delete'}, status=400)
+# @admin_required
+# @require_http_methods(['DELETE'])
+# def effort_hx_delete(request, id):
+#     effort = get_object_or_404(Effort, id=id)
+#     game = effort.game
+#     effort.delete()
+#     print(game.efforts.count())
+#     if game.efforts.count() == 0:
+#         game.delete()
 
+#     response = HttpResponse(status=204)
+#     response['HX-Trigger'] = 'delete-effort'
+#     return response
 
-@staff_member_required
-def game_effort_delete_view(request, parent_id=None, id=None):
-    try:
-        obj = Effort.objects.get(game__id=parent_id, id=id)
-    except:
-        obj = None
+@admin_required
+@require_http_methods(['DELETE'])
+def effort_hx_delete(request, id):
+    if not request.htmx:
+        raise Http404("Not an HTMX request")
+    effort = get_object_or_404(Effort, id=id)
+    game = effort.game
+    # Delete the effort
+    effort.delete()
+    
+    # Return updated game data
+    return render(request, 'the_warroom/partials/game_detail.html', {'game': game})
 
-    if obj is None:
-        if request.htmx:
-            return HttpResponse("Not Found")
-        raise Http404
-    if request.method == "POST":
-        obj.delete()
-        success_url = reverse('games-detail', kwargs={'id': parent_id})
-        if request.htmx:
-            headers = {
-                'HX-Redirect': success_url,
-            }
-            return HttpResponse("Success", headers=headers)
-        return redirect(success_url)
-    context=  {
-        'object': obj
-    }
-    return render(request, "the_warroom/game_delete.html", context)
+@admin_required
+@require_http_methods(['DELETE'])
+def game_hx_delete(request, id):
+    if not request.htmx:
+        raise Http404("Not an HTMX request")
+    game = get_object_or_404(Game, id=id)
+    game.delete()
+
+    response = HttpResponse(status=204)
+    response['HX-Trigger'] = 'delete-game'
+    return response
+
 
 @login_required
 def game_detail_hx_view(request, id=None):
@@ -275,20 +262,6 @@ def effort_update_hx_view(request, id=None):
     return render(request, "the_warroom/partials/effort_partial.html", context)
 
 
-
-@player_required
-def record_game(request, id=None):
-    form = GameCreateForm(request.POST or None, user = request.user)
-    context = {
-        'form': form, 
-    }
-    if form.is_valid():
-        obj = form.save(commit=False)
-        obj.recorder = request.user.profile
-        obj.save()
-        form.save_m2m()
-        return redirect(obj.get_absolute_url())
-    return render(request, 'the_warroom/record_game.html', context)
 
 @player_required
 def manage_game(request, id=None):

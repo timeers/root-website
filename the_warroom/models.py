@@ -40,9 +40,9 @@ class Game(models.Model):
         # ETC = 'Other'
     # Required
     type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.LIVE)
-    platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.DWD)
-    deck = models.ForeignKey(Deck, on_delete=models.SET_NULL, null=True, related_name='games')
-    map = models.ForeignKey(Map, on_delete=models.SET_NULL, null=True, related_name='games')
+    platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.TTS)
+    deck = models.ForeignKey(Deck, on_delete=models.PROTECT, null=True, related_name='games')
+    map = models.ForeignKey(Map, on_delete=models.PROTECT, null=True, related_name='games')
 
     league = models.BooleanField(default=False)
     tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)

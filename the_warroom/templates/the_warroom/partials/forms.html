@@ -7,7 +7,7 @@
     <h2>Game Details</h2>
     {% for field in form %}
         {% if field.label == 'Undrafted vagabond' %}
-                <div class="undrafted-vagabond-field" id="undrafted-vagabond-field">
+                <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
                         {{ field.errors }}
                         {{ field.label_tag }} {{ field }}
                         {% if field.help_text %}
@@ -72,16 +72,8 @@
                         {% if not form.instance.id %}
                                 <button class="btn btn-outline-warning btn-sm" type="button"
                                         onclick="clearForm(this)">
-                                        Clear
+                                        Remove
                                 </button>
-                        {% else %}
-                                <a class="btn btn-outline-danger btn-sm"
-                                hx-delete="{% url 'effort-delete' form.instance.id %}"
-                                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-                                hx-confirm="Are you sure you want to delete this Player?"
-                                hx-on="htmx:afterRequest: this.closest('div').remove()">
-                                Delete!
-                                </a>
                         {% endif %}
 
                         </div>

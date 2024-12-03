@@ -9,7 +9,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 import json
 from PIL import Image
 from django.apps import apps
-from .utils import slugify_post_title
+from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
 import boto3
 import random
@@ -31,7 +31,7 @@ class PostManager(models.Manager):
 
 class Expansion(models.Model):
     title = models.CharField(max_length=100)
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True,)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
@@ -76,6 +76,7 @@ class Post(models.Model):
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     official = models.BooleanField(default=False)
+    in_root_digital = models.BooleanField(default=False)
     stable = models.BooleanField(default=False)
     bgg_link = models.CharField(max_length=200, null=True, blank=True)
     tts_link = models.CharField(max_length=200, null=True, blank=True)
@@ -562,13 +563,18 @@ def component_pre_save(sender, instance, *args, **kwargs):
     if instance.slug is None:
         slugify_post_title(instance, save=False)
 
+def expansion_pre_save(sender, instance, *args, **kwargs):
+    # print('pre_save')
+    if instance.slug is None:
+        slugify_expansion_title(instance, save=False)
+
 pre_save.connect(component_pre_save, sender=Map)
 pre_save.connect(component_pre_save, sender=Deck)
 pre_save.connect(component_pre_save, sender=Faction)
 pre_save.connect(component_pre_save, sender=Vagabond)
 pre_save.connect(component_pre_save, sender=Hireling)
 pre_save.connect(component_pre_save, sender=Landmark)
-# pre_save.connect(component_pre_save, sender=Expansion)
+pre_save.connect(expansion_pre_save, sender=Expansion)
 
 
 def component_post_save(sender, instance, created, *args, **kwargs):
@@ -576,11 +582,16 @@ def component_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_post_title(instance, save=True)
 
+def expansion_post_save(sender, instance, created, *args, **kwargs):
+    # print('post_save')
+    if created:
+        slugify_expansion_title(instance, save=True)
+
 post_save.connect(component_post_save, sender=Map)
 post_save.connect(component_post_save, sender=Deck)
 post_save.connect(component_post_save, sender=Faction)
 post_save.connect(component_post_save, sender=Vagabond)
 post_save.connect(component_post_save, sender=Hireling)
 post_save.connect(component_post_save, sender=Landmark)
-# post_save.connect(component_post_save, sender=Expansion)
+post_save.connect(expansion_post_save, sender=Expansion)
 

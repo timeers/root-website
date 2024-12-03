@@ -2,7 +2,7 @@ from django import forms
 from .models import Effort, Game
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
-from django_select2.forms import Select2Widget
+
 
 class GameCreateForm(forms.ModelForm):  
     required_css_class = 'required-field'
@@ -15,11 +15,15 @@ class GameCreateForm(forms.ModelForm):
                 queryset=Landmark.objects.all(),
                 widget=forms.SelectMultiple
                 )
-    # undrafted_faction = forms.ModelChoiceField(
-    #             queryset=Faction.objects.all(),
-    #             widget=Select2Widget(attrs={'data-placeholder': 'Select a Faction'}),
-    #             required=False
-    #         )
+    PLATFORM_CHOICES = [
+        ('Tabletop Simulator', 'Tabletop Simulator'),
+        ('Root Digital', 'Root Digital'),
+        ('In Person', 'In Person'),
+    ]
+    platform = forms.ChoiceField(
+        choices=PLATFORM_CHOICES, initial="Tabletop Simulator",
+        required=True
+    )
     class Meta:
         model = Game
         fields = ['platform', 'type', 'league', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
@@ -47,7 +51,7 @@ class EffortCreateForm(forms.ModelForm):
     # player_input = forms.CharField(widget=forms.HiddenInput())
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'score', 'win', 'dominance', 'coalition_with']
+        fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
     def clean(self):
         cleaned_data = super().clean()
         faction = cleaned_data.get('faction')

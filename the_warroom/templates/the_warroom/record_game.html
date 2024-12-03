@@ -25,6 +25,202 @@
 {% block scripts %}
 <script>
 
+document.addEventListener('DOMContentLoaded', function() {
+    const platformSelect = document.getElementById('id_platform');
+    const deckSelect = document.getElementById('id_deck');
+    const mapSelect = document.getElementById('id_map');
+    const landmarksSelect = document.getElementById('id_landmarks');
+    const hirelingsSelect = document.getElementById('id_hirelings');
+    const undraftedFactionSelect = document.getElementById('id_undrafted_faction');
+    const undraftedVagabondSelect = document.getElementById('id_undrafted_vagabond');
+    
+    // Function to update all select options based on the platform
+    function updateOptions(platformValue) {
+        // Build the URL to fetch data for all fields
+        const url = getAllOptionsUrlForPlatform(platformValue);
+        
+        // Return the promise from fetch so that it can be chained with .then()
+        return fetch(url)
+                .then(response => {
+                // Check if the response is ok (status code 2xx)
+                if (!response.ok) {
+                        throw new Error(`Network response was not ok: ${response.statusText}`);
+                }
+                return response.json();  // Parse the response as JSON
+                })
+                .then(data => {
+                // Update each select field with the data from the API
+                updateSelectOptions(deckSelect, data.decks, 'Choose a deck');
+                updateSelectOptions(mapSelect, data.maps, 'Choose a map');
+                updateSelectOptions(landmarksSelect, data.landmarks);
+                updateSelectOptions(hirelingsSelect, data.hirelings);
+                updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
+                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+                
+                // Update faction and vagabond fields with the same data
+                updateFactionFields(data.factions);
+                // updateCoalitionFields(data.factions);
+                updateCoalitionList()
+                updateVagabondsFields(data.vagabonds);
+                updateCaptainsFields(data.vagabonds);
+                })
+                .catch(error => {
+                console.error('Error fetching options:', error);
+                // Optionally, handle errors more gracefully (e.g., show a user-friendly message)
+                });
+        }
+
+
+    // Helper function to get the URL for the combined API call based on platform
+    function getAllOptionsUrlForPlatform(platformValue) {
+        const urls = {
+            'Tabletop Simulator': '/api/options/tabletop_simulator/',
+            'Root Digital': '/api/options/root_digital/',
+            'In Person': '/api/options/in_person/'
+        };
+        return urls[platformValue] || '';
+    }
+
+    // Function to update all faction select fields (with id_form-*faction)
+    function updateFactionFields(factionsData) {
+        // Find all select elements with the format 'id_form-X-faction'
+        const factionFields = document.querySelectorAll('[id$="-faction"]');
+
+        factionFields.forEach(factionField => {
+            // For each faction field, update options
+            updateSelectOptions(factionField, factionsData, '----------');
+        });
+    }
+
+    function updateCoalitionFields(factionsData) {
+        // Find all select elements with the format 'id_form-X-faction'
+        const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
+
+        coalitionFields.forEach(coalitionField => {
+            // For each faction field, update options
+            updateSelectOptions(coalitionField, factionsData, '----------');
+        });
+        
+    }
+
+    // Function to update all vagabond select fields (with id_form-*vagabond)
+    function updateVagabondsFields(vagabondsData) {
+        // Find all select elements with the format 'id_form-X-vagabond'
+        const vagabondFields = document.querySelectorAll('[id$="-vagabond"]');
+
+        vagabondFields.forEach(vagabondField => {
+            // For each vagabond field, update options
+            updateSelectOptions(vagabondField, vagabondsData, '----------');
+        });
+    }
+
+    // Function to update all vagabond select fields (with id_form-*vagabond)
+    function updateCaptainsFields(vagabondsData) {
+        // Find all select elements with the format 'id_form-X-vagabond'
+        const vagabondFields = document.querySelectorAll('[id$="-captains"]');
+
+        vagabondFields.forEach(vagabondField => {
+            // For each vagabond field, update options
+            updateSelectOptions(vagabondField, vagabondsData);
+        });
+    }
+
+
+    
+    // Set up the event listener on the platform select element
+    platformSelect.addEventListener('change', function() {
+        const platformValue = platformSelect.value;
+
+        // Update all fields with one API call, but wait for the API response
+        updateOptions(platformValue).then(() => {
+                // Now, the options are updated. Check the number of options
+                let hirelingsCount = hirelingsSelect.options.length;
+                // console.log('Number of hirelings after update:', hirelingsCount);
+
+                var timingBlock = document.getElementById("timing-field");
+                var hirelingsBlock = document.getElementById("hireling-field");
+
+                if (platformValue == "Root Digital") {
+                var asyn = document.getElementById("id_type_0");
+                asyn.checked = true;
+                var live = document.getElementById("id_type_1");
+                live.checked = false;
+                timingBlock.style = "display:block;";
+                if (hirelingsCount < 1) {
+                hirelingsBlock.style.display = "none";
+                $('#id_hirelings').val(null).trigger('change');
+                }
+                } else {
+                var asyn = document.getElementById("id_type_0");
+                asyn.checked = false;
+                var live = document.getElementById("id_type_1");
+                live.checked = true;
+                timingBlock.style = "display:none;";
+                hirelingsBlock.style = "display:block;";
+                $('#id_hirelings').select2();
+                }
+        });
+        });
+
+
+
+
+
+    // Initial call to populate options when the page loads
+    updateOptions(platformSelect.value);
+    $('#id_undrafted_faction').trigger('change');
+    
+    const initialFactionFields = document.querySelectorAll('[id$="-faction"]');
+
+        initialFactionFields.forEach(factionField => {
+        // For each faction field, update options
+        $(factionField).trigger('change');
+        });
+
+
+});
+
+
+
+function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
+    const currentSelection = String(selectElement.value || '');  // Convert value to string to handle type mismatch
+
+    selectElement.innerHTML = '';  // Clear current options
+
+    // Add placeholder if provided
+    if (placeholderText) {
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.text = placeholderText;
+        selectElement.appendChild(placeholderOption);
+    }
+
+    let found = false;
+
+    // Add new options
+    optionsData.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.id;  // Set option value
+        option.text = item.name;  // Set option text
+        selectElement.appendChild(option);
+
+        // Check if the previously selected value is available
+        if (String(item.id) === currentSelection) {
+            found = true;
+        }
+    });
+
+    // If the previously selected value exists, reselect it
+    if (found) {
+        selectElement.value = currentSelection;  // Set value directly
+    } else {
+        selectElement.value = '';  // Reset if not found
+    }
+}
+
+
+
+
         $('#id_hirelings').select2();
         $('#id_landmarks').select2();
         $('#id_undrafted_faction').select2();
@@ -33,29 +229,6 @@
         $('#id_deck').select2();
         //document.onload(hideBlock())
 
-        
-        var platform = document.getElementById("id_platform")
-        platform.addEventListener("change", function(){
-                var timingBlock = document.getElementById("timing-field")
-                var hirelingsBlock = document.getElementById("hireling-field")
-                if(platform.value == "Root Digital"){
-                        var asyn = document.getElementById("id_type_0")
-                        asyn.checked = true
-                        var live = document.getElementById("id_type_1")
-                        live.checked = false
-                        timingBlock.style = "display:block;"
-                        hirelingsBlock.style = "display:none;"
-                        $('#id_hirelings').val(null).trigger('change');
-                } else {
-                        var asyn = document.getElementById("id_type_0")
-                        asyn.checked = false
-                        var live = document.getElementById("id_type_1")
-                        live.checked = true
-                        timingBlock.style = "display:none;"
-                        hirelingsBlock.style = "display:block;"
-                        $('#id_hirelings').select2();
-                }
-        })
         var undrafted_vagabondBlock = document.getElementById("undrafted-vagabond-field")
 
         $('#id_undrafted_faction').on('change', function (e) {
@@ -71,15 +244,44 @@
                 }
         });
 
+
         $('.effort-form').each((index, element) => {
                 setupSelector(index, element)
                 $("#id_form-"+ index.toString() +"-faction").select2();
                 $("#id_form-"+ index.toString() +"-player").select2();
         })
 
+        function updateCoalitionList() {
+                let coalitionObjectList = [];
+                $('.effort-form').each((index, element) => {
+                        var selector = "#id_form-" + index.toString() + "-faction";  // Dynamically generate the selector
+                        var selectedOption = $(selector + ' option:selected');  // Get the selected option
+                        
+                        var selectedText = selectedOption.text();  // Get the text of the selected option
+                        var selectedValue = selectedOption.val();  // Get the value of the selected option
+
+                        // Add the selected faction to the coalitionObjectList if it's valid and unique
+                        if (selectedText != '----------' && selectedText != '') {
+                                // Check if the id is already in the list (to ensure uniqueness)
+                                if (!coalitionObjectList.some(option => option.id === selectedValue)) {
+                                // Store the id and name as a dictionary/object
+                                coalitionObjectList.push({
+                                        id: selectedValue,
+                                        name: selectedText
+                                });
+                                }
+                        }
+                        });
+                const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
+                coalitionFields.forEach(coalitionField => {
+                        updateSelectOptions(coalitionField, coalitionObjectList)
+                        });
+        }
+
         function setupSelector(index, element){
                 var selector = "#id_form-"+ index.toString() +"-faction"
                 var VBselector = "#id_form-"+ index.toString() +"-vagabond"
+                var captainsSelector = "#id_form-"+ index.toString() +"-captains"
                 var dominanceSelector = "#id_form-"+ index.toString() +"-dominance"
                 var coalitionSelector = "#id_form-"+ index.toString() +"-coalition_with"
                 var innerSelect = element.querySelector(selector)
@@ -87,10 +289,12 @@
                 $(selector).on('change', function (e) {
                 // Get the selected text
                         var selectedText = $(selector+' option:selected').text();
-                        console.log(selector, selectedText)
+                        // console.log(selector, selectedText)
                         var vagabondBlock = document.querySelector(VBselector)?.closest('.vagabond-field');
+                        var captainsBlock = document.querySelector(captainsSelector)?.closest('.captains-field');
                         var dominanceBlock = document.querySelector(dominanceSelector)?.closest('.dominance-field');
                         var coalitionBlock = document.querySelector(coalitionSelector)?.closest('.coalition-field');
+                        updateCoalitionList()
                         if (selectedText == 'Vagabond') {
                                 vagabondBlock.style = "display:block;"
                                 coalitionBlock.style = "display:block;"
@@ -104,13 +308,20 @@
                                 $(VBselector).val(null).trigger('change');
                                 $(coalitionSelector).val(null).trigger('change');
                         }
+                        if (selectedText == 'Knaves of the Deepwood') {
+                                captainsBlock.style = "display:block;"
+                                $(captainsSelector).select2();
+                        } else {
+                                captainsBlock.style = "display:none;"
+                                $(captainsSelector).val(null).trigger('change');
+                        }
                 });
 
         }
 
 
         let nextFormIndex = document.querySelectorAll('.effort-form').length;
-                console.log(nextFormIndex)
+                // console.log(nextFormIndex)
         document.addEventListener('click', (event)=>{
                 if (event.target.id == 'add-more'){
                         add_new_form(event)
@@ -136,14 +347,15 @@
 
                 formCopyTarget.append(copyEmptyFormEl)
                 setupSelector(nextFormIndex, formCopyTarget)
-                console.log('#id_form-'+nextFormIndex+'-player')
+                // console.log('#id_form-'+nextFormIndex+'-player')
                 $('#id_form-'+nextFormIndex+'-player').select2();
                 $('#id_form-'+nextFormIndex+'-faction').select2();
                 $('#id_form-'+nextFormIndex+'-vagabond').select2();
+                $('#id_form-'+nextFormIndex+'-captains').select2();
                 $('#id_form-'+nextFormIndex+'-coalition_with').select2();
 
                 nextFormIndex++;
-                console.log(nextFormIndex)
+                // console.log(nextFormIndex)
                 
         }
 
