@@ -79,7 +79,7 @@
         </td>
         <td>
             {% if effort.dominance %}
-                Dominance
+                {{ effort.dominance }} Dominance
             {% elif effort.coalition_with %}
                 Coalition with {{ effort.coalition_with.title }}
             {% else %}

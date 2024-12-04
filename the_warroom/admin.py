@@ -117,7 +117,7 @@ class GameAdmin(admin.ModelAdmin):
                             )
 
                         coalition_faction = None
-                        dominance = False
+                        dominance = None
                         win = False
                         found_vb = None
                         if "Vagabond" in fields[5+i].strip():
@@ -142,7 +142,9 @@ class GameAdmin(admin.ModelAdmin):
                                 start_index = fields[10+i].find('Coalition w/') + len('Coalition w/')
                                 coalition_faction = fields[10+i][start_index:].strip()
                             else:
-                                dominance = True
+                                dominance = fields[10+i].split()[0] 
+                                if dominance == 'Bunny':
+                                    dominance = 'Rabbit'
                         coalition_instance = Faction.objects.filter(title=coalition_faction).first()
 
                         # print(f"Player:{player_instance}, Seat:{1+i}, Faction:{faction_instance}, Vagabond:{vagabond_instance}, Win:{win}, Score:{score}, Coalition Faction:{coalition_instance}, Dominance:{dominance}, Game:{game_instance}")

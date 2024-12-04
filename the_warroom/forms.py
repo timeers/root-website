@@ -47,39 +47,17 @@ class GameCreateForm(forms.ModelForm):
 
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
-    # player_input = forms.TextInput()
-    # player_input = forms.CharField(widget=forms.HiddenInput())
+
     class Meta:
         model = Effort
         fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
     def clean(self):
         cleaned_data = super().clean()
         faction = cleaned_data.get('faction')
-
         if faction is None or faction == "":
             raise ValidationError("Please select a faction for each player.")
 
         return cleaned_data
-
-    # def __init__(self, *args, user=None, **kwargs):
-    #     # Call the parent constructor
-    #     super(EffortCreateForm, self).__init__(*args, **kwargs)
-    #     # Filter for only Official content if not a member of Weird Root
-    #     print(user)
-    #     if user:
-    #         if not user.profile.weird:
-    #             self.fields['faction'].queryset = Faction.objects.filter(official=True)
-    #             self.fields['vagabond'].queryset = Vagabond.objects.filter(official=True)
-
-    # def __init__(self, *args, user=None, **kwargs):
-    #     # Call the parent constructor
-    #     super(EffortCreateForm, self).__init__(*args, **kwargs)
-    #     # Filter for only Official content if not a member of Weird Root
-    #     if user:
-    #         if not user.profile.weird:
-    #             self.fields['faction'].queryset = Faction.objects.filter(official=True)
-    #             self.fields['vagabond'].queryset = Vagabond.objects.filter(official=True)
-
 
 
 

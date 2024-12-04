@@ -114,13 +114,19 @@ class GameBookmark(models.Model):
 
 
 class Effort(models.Model):
+    class DominanceChoices(models.TextChoices):
+        MOUSE = 'Mouse'
+        FOX = 'Fox'
+        RABBIT = 'Rabbit'
+        BIRD = 'Bird'
+        DARK = 'Dark'
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
     faction = models.ForeignKey(Faction, on_delete=models.PROTECT, related_name='efforts')
     vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts')
     captains = models.ManyToManyField(Vagabond, blank=True, related_name='efforts_as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
-    dominance = models.BooleanField(default=False)
+    dominance = models.CharField(max_length=10, choices=DominanceChoices.choices, null=True, blank=True)
     clockwork = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
@@ -139,8 +145,6 @@ class Effort(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()  # This ensures the clean() method is called before saving
         super().save(*args, **kwargs)
-
-
 
     def get_absolute_url(self):
         return self.game.get_absolute_url()

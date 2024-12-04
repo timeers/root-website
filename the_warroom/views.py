@@ -265,6 +265,7 @@ def effort_update_hx_view(request, id=None):
 
 @player_required
 def manage_game(request, id=None):
+    print(request.POST)
     if id:
         obj = get_object_or_404(Game, id=id)
     else:
@@ -292,7 +293,7 @@ def manage_game(request, id=None):
         'form_count': form_count
     }
 
-    
+
     # Handle form submission
     if form.is_valid() and formset.is_valid():
         parent = form.save(commit=False)
@@ -301,7 +302,6 @@ def manage_game(request, id=None):
         form.save_m2m()
         seat = 1
         for form in formset:
-
             child = form.save(commit=False)
             if child.faction_id is not None:  # Only save if faction_id is present
                 if child.faction.status == "Stable":

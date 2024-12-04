@@ -1,3 +1,4 @@
+import re
 from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
@@ -39,3 +40,33 @@ class ProfileUpdateForm(forms.ModelForm):
             self.fields['dwd'].label = "Direwolf Digital Username (cannot be changed once saved)"
         if self.instance and self.instance.league == True:
             self.fields.pop('league')
+
+
+
+
+
+
+class PlayerCreateForm(forms.ModelForm):
+    class Meta:
+        model = Profile
+        fields = ['discord']
+        widgets = {
+            'discord': forms.TextInput(attrs={'maxlength': '32'})  # Set the max length in the widget
+        }
+        labels = {
+            'discord': 'Discord Username'
+        }
+
+    discord = forms.CharField(max_length=32, widget=forms.TextInput())
+
+    def clean_discord(self):
+        discord = self.cleaned_data['discord']
+        
+        # Convert the input to lowercase
+        discord = discord.lower()
+        
+        # Regular expression for allowed characters: letters, numbers, underscores, and periods
+        if not re.match(r'^[a-z0-9_.]+$', discord):
+            raise forms.ValidationError('Please only use numbers, letters, underscores _ , or periods.')
+        
+        return discord

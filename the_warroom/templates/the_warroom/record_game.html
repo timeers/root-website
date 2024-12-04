@@ -125,6 +125,24 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+        // On deck change set special Dominance options
+        $('#id_deck').on('change', function (e){
+                const deckValue = $(this).find('option:selected').text(); 
+                const dominanceFields = document.querySelectorAll('[id$="-dominance"]');
+                dominanceFields.forEach(dominanceField => {                      
+                        // Add or remove the 'Dark' option based on the deckValue
+                        if (deckValue === 'Dark') {
+                                // Check if 'Dark' option already exists
+                                if (!$(dominanceField).find('option[value="Dark"]').length) {
+                                        const darkOption = new Option('Dark', 'Dark');
+                                        $(dominanceField).append(darkOption);
+                                }
+                        } else {
+                                // Remove the 'Dark' option if it exists
+                                $(dominanceField).find('option[value="Dark"]').remove();
+                        }
+                });
+        });
 
     
     // Set up the event listener on the platform select element
@@ -159,6 +177,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 hirelingsBlock.style = "display:block;";
                 $('#id_hirelings').select2();
                 }
+                $('#id_deck').trigger('change');
         });
         });
 
@@ -169,6 +188,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial call to populate options when the page loads
     updateOptions(platformSelect.value);
     $('#id_undrafted_faction').trigger('change');
+    $('#id_deck').trigger('change');
     
     const initialFactionFields = document.querySelectorAll('[id$="-faction"]');
 
@@ -243,23 +263,27 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
                 $('#id_undrafted_vagabond').val(null).trigger('change');
                 }
         });
-
-
         $('.effort-form').each((index, element) => {
-                setupSelector(index, element)
-                $("#id_form-"+ index.toString() +"-faction").select2();
-                $("#id_form-"+ index.toString() +"-player").select2();
-        })
+                setupSelector(index, element);
+
+                // Initialize Select2 for other fields
+                $("#id_form-" + index.toString() + "-faction").select2();
+                $("#id_form-" + index.toString() + "-player").select2();
+
+                });
+
+
 
         function updateCoalitionList() {
                 let coalitionObjectList = [];
+                let vbFound = false
                 $('.effort-form').each((index, element) => {
                         var selector = "#id_form-" + index.toString() + "-faction";  // Dynamically generate the selector
                         var selectedOption = $(selector + ' option:selected');  // Get the selected option
                         
                         var selectedText = selectedOption.text();  // Get the text of the selected option
                         var selectedValue = selectedOption.val();  // Get the value of the selected option
-
+                        if (selectedText != 'Vagabond' || vbFound){
                         // Add the selected faction to the coalitionObjectList if it's valid and unique
                         if (selectedText != '----------' && selectedText != '') {
                                 // Check if the id is already in the list (to ensure uniqueness)
@@ -271,11 +295,15 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
                                 });
                                 }
                         }
+                }
+                        if (selectedText === 'Vagabond'){vbFound = true}
                         });
                 const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
                 coalitionFields.forEach(coalitionField => {
-                        updateSelectOptions(coalitionField, coalitionObjectList)
+                        updateSelectOptions(coalitionField, coalitionObjectList, '----------')
+                        $(coalitionField).select2();
                         });
+                        
         }
 
         function setupSelector(index, element){
@@ -299,6 +327,7 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
                                 vagabondBlock.style = "display:block;"
                                 coalitionBlock.style = "display:block;"
                                 dominanceBlock.style = "display:none;"
+                                $(dominanceSelector).val(null).trigger('change');
                                 $(VBselector).select2();
                                 $(coalitionSelector).select2();
                         } else {

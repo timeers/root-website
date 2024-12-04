@@ -9,10 +9,24 @@
     {% endif %}
 
         <p class="article-content">
-            <div>Complexity: {{ object.get_complexity_display }}</div>
-            <div>Card Wealth: {{ object.get_card_wealth_display }}</div>
-            <div>Aggression: {{ object.get_aggression_display }}</div>
-            <div>Crafting Ability: {{ object.get_crafting_ability_display }}</div>
+            <div class="d-flex flex-wrap justify-content-between">
+            <div>
+                <div>Complexity:</div> 
+                <div>{{ object.get_complexity_display }}</div>
+            </div>
+            <div>
+                <div>Card Wealth:</div>
+                <div>{{ object.get_card_wealth_display }}</div>
+            </div>
+            <div>
+                <div>Aggression:</div>
+                <div>{{ object.get_aggression_display }}</div>
+            </div>
+            <div>
+                <div>Crafting Ability:</div>
+                <div>{{ object.get_crafting_ability_display }}</div>
+            </div>
+        </div>
         </p>
         <div class="article-content">
             {{ object.get_type_display }} ({{ object.reach }} Reach)
@@ -26,6 +40,7 @@
 
         <p class="article-content">
         <h3>Components</h3>
+        <div class="d-flex flex-wrap justify-content-between">
         {% if object.warrior.all %}
             <div>
                 <h4>Warriors</h4> 
@@ -39,8 +54,9 @@
             </div>
         {% endif %}
         {% if object.building.all %}
+        <div>
         <h4>Buildings</h4> 
-            <div>
+            
             {% for piece in object.building.all %}
                 {% if piece.suited %}
                     <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
@@ -51,8 +67,9 @@
             </div>
         {% endif %}
         {% if object.token.all %}
+        <div>
         <h4>Tokens</h4> 
-            <div>
+            
             {% for piece in object.token.all %}
                 {% if piece.suited %}
                     <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
@@ -63,8 +80,9 @@
             </div>
         {% endif %}
         {% if object.card.all %}
+        <div>
             <h4>Cards</h4> 
-            <div>
+            
             {% for piece in object.card.all %}
                 {% if piece.suited %}
                     <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
@@ -75,8 +93,9 @@
             </div>
         {% endif %}
         {% if object.otherpiece.all %}
+        <div>
             <h4>Other Pieces</h4>
-            <div>
+            
             {% for piece in object.otherpiece.all %}
                 {% if piece.suited %}
                     <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
@@ -86,6 +105,7 @@
             {% endfor %}
             </div>
         {% endif %}
+        </div>
         </p>
     </div>
 </article>
