@@ -1,11 +1,16 @@
 from django.utils import timezone 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.conf import settings
+from django.db import IntegrityError
+from django.db.models import ProtectedError, Count
+from django.urls import reverse
+from django.contrib import messages
+
 from the_warroom.filters import GameFilter
 from django.views.generic import (
     ListView, 
@@ -25,31 +30,31 @@ from .models import (
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
-                    FactionCreateForm,
+                    FactionCreateForm, ExpansionCreateForm
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
 
-#  A list of all the posts. Most recent update first
-class PostListView(ListView):
-    model = Post
-    template_name = 'the_keep/home.html'
-    context_object_name = 'posts'
-    ordering = ['-date_updated']
-    paginate_by = 20
+# #  A list of all the posts. Most recent update first
+# class PostListView(ListView):
+#     model = Post
+#     template_name = 'the_keep/home.html'
+#     context_object_name = 'posts'
+#     ordering = ['-date_updated']
+#     paginate_by = 20
 
-    def get_queryset(self):
-        # Filter posts to only include those where official is True
-        if not self.request.user.is_authenticated:
-            qs = Post.objects.filter(official=True)
-        else:
-            if self.request.user.profile.weird:
-                qs = Post.objects.all()
-            else:
-                qs = Post.objects.filter(official=True)
+#     def get_queryset(self):
+#         # Filter posts to only include those where official is True
+#         if not self.request.user.is_authenticated:
+#             qs = Post.objects.filter(official=True)
+#         else:
+#             if self.request.user.profile.weird:
+#                 qs = Post.objects.all()
+#             else:
+#                 qs = Post.objects.filter(official=True)
 
-        return qs
+#         return qs
 
 # A list of one specific user's posts
 class UserPostListView(ListView):
@@ -77,213 +82,238 @@ class ArtistPostListView(ListView):
 class ExpansionDetailView(DetailView):
     model = Expansion
 
+class ExpansionFactionsListView(ListView):
+    model = Faction
+    context_object_name = 'objects'
+
+@designer_required_class_based_view
+class ExpansionCreateView(LoginRequiredMixin, CreateView):
+    model = Expansion
+    form_class = ExpansionCreateForm
+    def form_valid(self, form):
+        form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
+        return super().form_valid(form)
+    
+@designer_required_class_based_view
+class ExpansionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = Expansion
+    form_class = ExpansionCreateForm
+    def form_valid(self, form):
+        form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
+        return super().form_valid(form)
+    
+    def test_func(self):
+        obj = self.get_object()
+        # Only allow access if the logged-in user is the designer of the object
+        return self.request.user.profile == obj.designer
+
+class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = Expansion
+    success_url = '/'  # The default success URL after the post is deleted
+
+    def test_func(self):
+        expansion = self.get_object()
+        return self.request.user.profile == expansion.designer  # Ensure only the designer can delete
+
+    def post(self, request, *args, **kwargs):
+        expansion = self.get_object()
+        name = expansion.title
+
+        try:
+            # Attempt to delete the post
+            response = self.delete(request, *args, **kwargs)
+            # Add success message upon successful deletion
+            messages.success(request, f"The expansion '{name}' was successfully deleted and has been removed from any related posts.")
+            return response
+        except ProtectedError:
+            # Handle the case where the deletion fails due to foreign key protection
+            messages.error(request, f"The expansion '{name}' cannot be deleted because it has been used in a game.")
+            # Redirect back to the post detail page
+            return redirect('expansion-detail', expansion.slug)  # Make sure `post.get_absolute_url()` is correct
+        except IntegrityError:
+            # Handle other integrity errors (if any)
+            messages.error(request, "An error occurred while trying to delete this post.")
+            return redirect('expansion-detail', expansion.slug) 
+
+
+# @designer_required_class_based_view
+# def manage_expansion(request, slug=None):
+#     if slug:
+#         obj = get_object_or_404(Expansion, slug=slug)
+#     else:
+#         obj = Expansion()  # Create a new Game instance but do not save it yet
+#     user = request.user
+#     form = ExpansionCreateForm(request.POST or None, instance=obj, user=user)
+
+#     context = {
+#         'form': form,
+#         'object': obj,
+#     }
+#     # Handle form submission
+#     if form.is_valid():
+#         parent = form.save(commit=False)
+#         parent.designer = request.user.profile  # Set the recorder
+#         parent.save()  # Save the new or updated Game instance
+#         context['message'] = "Game Saved"
+#         return redirect(parent.get_absolute_url())
+    
+#     return render(request, 'the_keep/expansion_form.html', context)
+
+
+
+
+
+
 
 # START CREATE VIEWS
+
+
+class PostCreateView(LoginRequiredMixin, CreateView):
+    """
+    A base class for all CreateViews that require a designer field to be set to
+    the current logged-in user's profile and also pass the user to the form.
+    """
+    def form_valid(self, form):
+        form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
+        return super().form_valid(form)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user  # Pass the current user to the form
+        return kwargs
+
 @designer_required_class_based_view
-class MapCreateView(LoginRequiredMixin, CreateView):
+class MapCreateView(PostCreateView):
     model = Map
     form_class = MapCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
-    
 @designer_required_class_based_view
-class DeckCreateView(LoginRequiredMixin, CreateView):
+class DeckCreateView(PostCreateView):
     model = Deck
     form_class = DeckCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
-    
 @designer_required_class_based_view
-class LandmarkCreateView(LoginRequiredMixin, CreateView):
+class LandmarkCreateView(PostCreateView):
     model = Landmark
     form_class = LandmarkCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
-
 @designer_required_class_based_view
-class HirelingCreateView(LoginRequiredMixin, CreateView):
+class HirelingCreateView(PostCreateView):
     model = Hireling
     form_class = HirelingCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
-
 @designer_required_class_based_view
-class VagabondCreateView(LoginRequiredMixin, CreateView):
+class VagabondCreateView(PostCreateView):
     model = Vagabond
     form_class = VagabondCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
-
 @designer_required_class_based_view
-class FactionCreateView(LoginRequiredMixin, CreateView):
+class FactionCreateView(PostCreateView):
     model = Faction
     form_class = FactionCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        return super().form_valid(form)
 # END CREATE VIEWS
 
-@designer_required_class_based_view
+
 class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
-    model = Post
-    # This is not working as hoped. It is just returning the PostCreateForm
-    def get_form_class(self):
-        post = self.get_object()  # Get the specific post instance
-        if post.component == "M" or post.component == "Map":
-            return MapCreateForm
-        elif post.component == "D" or post.component == "Deck":
-            return DeckCreateForm
-        elif post.component == "L" or post.component == "Landmark":
-            return LandmarkCreateForm
-        elif post.component == "H" or post.component == "Hireling":
-            return HirelingCreateForm
-        elif post.component == "V" or post.component == "Vagabond":
-            return VagabondCreateForm
-        elif post.component == "F" or post.component == "Faction":
-            return PostCreateForm
-        else:
-            return PostCreateForm
+    """
+    A base class for all UpdateViews that require:
+    1. The designer to be set to the current logged-in user.
+    2. The date_updated field to be set to the current timestamp.
+    3. Checking if the logged-in user is the designer of the object.
+    """
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user
-        form.instance.date_updated = timezone.now()
+        # Ensure the designer is set to the logged-in user's profile
+        form.instance.designer = self.request.user.profile
+        form.instance.date_updated = timezone.now()  # Set the updated timestamp
         return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
 
+    def test_func(self):
+        obj = self.get_object()
+        # Only allow access if the logged-in user is the designer of the object
+        return self.request.user.profile == obj.designer
+
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset)
+        # Store the object to be reused in other methods if needed
+        self._obj = obj
+        return obj
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user  # Pass the current user to the form
+
+        # Pass the 'expansion' from the object (fetched in get_object)
+        kwargs['expansion'] = self._obj.expansion if hasattr(self, '_obj') else None
+
+        return kwargs
+
+    
 @designer_required_class_based_view
-class MapUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+class MapUpdateView(PostUpdateView):
     model = Map
     form_class = MapCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        form.instance.date_updated = timezone.now()
-        return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
-
 @designer_required_class_based_view
-class DeckUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+class DeckUpdateView(PostUpdateView):
     model = Deck
     form_class = DeckCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        form.instance.date_updated = timezone.now()
-        return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
-
 @designer_required_class_based_view
-class LandmarkUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+class LandmarkUpdateView(PostUpdateView):
     model = Landmark
     form_class = LandmarkCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        form.instance.date_updated = timezone.now()
-        return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
-
 @designer_required_class_based_view
-class HirelingUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+class HirelingUpdateView(PostUpdateView):
     model = Hireling
     form_class = HirelingCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        form.instance.date_updated = timezone.now()
-        return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
-
 @designer_required_class_based_view
-class VagabondUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+class VagabondUpdateView(PostUpdateView):
     model = Vagabond
     form_class = VagabondCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        form.instance.date_updated = timezone.now()
-        return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
-    
 @designer_required_class_based_view  
-class FactionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+class FactionUpdateView(PostUpdateView):
     model = Faction
     form_class = FactionCreateForm
 
-    def form_valid(self, form):
-        form.instance.designer = self.request.user.profile
-        form.instance.date_updated = timezone.now()
-        return super().form_valid(form)
-    
-    def test_func(self):
-        post = self.get_object()
-        if self.request.user.profile == post.designer:
-            return True
-        return False
 
 class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Post
-    success_url = '/'
+    success_url = '/'  # The default success URL after the post is deleted
 
     def test_func(self):
-        print("testing if user is owner")
         post = self.get_object()
-        print("post")
-        print(post.designer)
-        print(self.request.user.profile)
-        print(post.designer == self.request.user.profile)
-        return self.request.user.profile == post.designer
+        print("testing delete function")
+        return self.request.user.profile == post.designer  # Ensure only the designer can delete
+
+    def post(self, request, *args, **kwargs):
+        print('Trying to delete')
+        post = self.get_object()
+        name = post.title
+        detail_view = f'{post.component.lower()}-detail'
+        try:
+            # Attempt to delete the post
+            response = self.delete(request, *args, **kwargs)
+            # Add success message upon successful deletion
+            messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
+            return response
+        except ProtectedError:
+            # Handle the case where the deletion fails due to foreign key protection
+            messages.error(request, f"The {post.component} '{name}' cannot be deleted because it has been used in a game.")
+            # Redirect back to the post detail page
+            return redirect(detail_view, post.slug)  # Make sure `post.get_absolute_url()` is correct
+        except IntegrityError:
+            # Handle other integrity errors (if any)
+            messages.error(request, "An error occurred while trying to delete this post.")
+            return redirect(detail_view, post.slug) 
+
+
 
 def about(request, *args, **kwargs):
-    if request.method == 'POST':
-        number = request.POST.get('player-number')
-        player = request.POST.get('player-name')
-        faction = request.POST.get('faction')
-        score = request.POST.get('score')
-        
-        print(f'Seat: {number}, Player: {player}, Faction: {faction}, Score: {score}')
-
     return render(request, 'the_keep/about.html', {'title': 'About'})
 
 def test(request):
@@ -370,16 +400,6 @@ class ComponentDetailListView(ListView):
         return context
 
 
-# def old_bookmark_post(request, id):
-#     post = get_object_or_404(Post, id=id)
-#     player_exists = post.bookmarks.filter(discord=request.user.profile.discord).exists()
-#     if player_exists:
-#         post.bookmarks.remove(request.user.profile)
-#     else:
-#         post.bookmarks.add(request.user.profile)
-
-#     return render(request, 'the_keep/partials/bookmarks.html', {'object': post })
-
 @login_required
 @bookmark_toggle(Post)
 def bookmark_post(request, object):
@@ -389,10 +409,14 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
-    posts, search = _search_components(request, slug)
+    posts, search, search_type, designer = _search_components(request, slug)
+    designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
+        'search_type': search_type or "",
+        "designers": designers,
+        'designer': designer,
         'is_search_view': False,
         'slug': slug,
         }
@@ -400,10 +424,15 @@ def list_view(request, slug=None):
 
 
 def search_view(request, slug=None):
-    posts, search = _search_components(request, slug)
+    posts, search, search_type, designer = _search_components(request, slug)
+    # Get all designers (Profiles) who have at least one post
+    designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
+        'search_type': search_type or "",
+        "designers": designers,
+        'designer': designer,
         'is_search_view': True,
         'slug': slug,
         }
@@ -412,6 +441,8 @@ def search_view(request, slug=None):
 
 def _search_components(request, slug=None):
     search = request.GET.get('search')
+    search_type = request.GET.get('search_type', '')
+    designer = request.GET.get('designer') 
     page = request.GET.get('page')
     if not request.user.is_authenticated:
         posts = Post.objects.filter(official=True)
@@ -424,7 +455,15 @@ def _search_components(request, slug=None):
         player = get_object_or_404(Profile, slug=slug)
         posts = posts.filter(designer=player)
     if search:
+        # posts = posts.filter(title__icontains=search)
         posts = posts.filter(title__icontains=search)
+        
+    if search_type:
+        posts = posts.filter(component__icontains=search_type)
+
+    if designer:
+        posts = posts.filter(designer__id=designer)
+
     paginator = Paginator(posts, settings.PAGE_SIZE)
     try:
         posts = paginator.page(page)
@@ -432,7 +471,7 @@ def _search_components(request, slug=None):
         posts = paginator.page(1)
     except EmptyPage:
         posts = paginator.page(paginator.num_pages)
-    return posts, search or ""
+    return posts, search or "", search_type or "", designer or ""
 
 
 

@@ -6,9 +6,9 @@
         hx-swap="outerHTML"
         >
             {% if user.profile in player.bookmarks.all %}
-                Following
+                <i class="bi bi-bookmark-check-fill"></i>
             {% else %}
-                Follow
+                <i class="bi bi-bookmark-plus"></i>
             {% endif %}
         </a>
     {% endif %}

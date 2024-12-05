@@ -1,25 +1,42 @@
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Warrior, Building, Token, Card, OtherPiece
+    Warrior, Building, Token, Card, OtherPiece, Expansion
 )
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 
 
-top_fields = ['title']
+top_fields = ['title', 'expansion']
 bottom_fields = ['lore','description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'artist']
 
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
 
-
+class ExpansionCreateForm(forms.ModelForm):
+    form_type = 'Expansion'
+    class Meta:
+        model = Expansion
+        fields = ['title', 'description', 'lore']
+    def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.fields['description'].widget.attrs.update({
+                'rows': '2'
+                })
+            self.fields['lore'].widget.attrs.update({
+                'rows': '2',
+                'placeholder': 'Enter any thematic text here...'
+                })
 
 class PostCreateForm(forms.ModelForm):
     form_type = 'Component'
+    expansion = forms.ModelChoiceField(
+        queryset=Expansion.objects.none(),  # Default empty queryset
+        required=False
+    )
     class Meta:
         model = Post
-        fields = ['title', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
+        fields = ['title', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
@@ -27,8 +44,28 @@ class PostCreateForm(forms.ModelForm):
             'wr_link': "Weird Root Thread", 
             'pnp_link': "Link to Print and Play Files"
         }
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, expansion=None, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # If a user is provided, filter the queryset for the `expansion` field
+        if user:
+            self.fields['expansion'].queryset = Expansion.objects.filter(designer=user.profile)
+
+        # If a specific expansion is provided, add it to the queryset
+        if expansion:
+            # Ensure expansion is a single object, otherwise handle accordingly
+            if isinstance(expansion, Expansion):
+                self.fields['expansion'].queryset |= Expansion.objects.filter(id=expansion.id)
+                if expansion.designer != user.profile:
+                    self.fields['expansion'].disabled = True  # Disable the field
+            
+
+        # If no expansions exist in the queryset, hide the field
+        if not self.fields['expansion'].queryset.exists():
+            del self.fields['expansion']
+        
+        
+
         self.fields['lore'].widget.attrs.update({
             'rows': '2',
             'placeholder': 'Enter any thematic text here...'

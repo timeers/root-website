@@ -33,6 +33,7 @@ class Expansion(models.Model):
     title = models.CharField(max_length=100)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
+    lore = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     # Get groups of components for selected expansion
@@ -68,7 +69,7 @@ class Post(models.Model):
 
     title = models.CharField(max_length=35)
     slug = models.SlugField(unique=True, null=True, blank=True)
-    expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True)
+    expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
@@ -171,9 +172,9 @@ class Post(models.Model):
         return self.title
     
 
-    # This might need to be moved to each type of component? map-detail, deck-detail etc.
-    def get_absolute_url(self):
-        return reverse('post-detail', kwargs={'pk': self.pk})
+    # # This might need to be moved to each type of component? map-detail, deck-detail etc.
+    # def get_absolute_url(self):
+    #     return reverse('post-detail', kwargs={'pk': self.pk})
     
     def get_plays_queryset(self):
         match self.component:

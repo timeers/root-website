@@ -274,6 +274,99 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
 
 
 
+
+       
+
+
+
+
+
+                document.addEventListener('htmx:afterRequest', function(event) {
+    // Clear all previous error or success messages before handling the response
+    const errorContainer = document.getElementById('player-form-errors');
+    errorContainer.innerHTML = '';  // Clear all content in the error container
+
+    // Remove all error messages for each field before processing the new response
+    const existingErrorDivs = document.querySelectorAll('.error-message');
+    existingErrorDivs.forEach(div => div.remove());  // Remove any previous error messages
+
+    // Handle error response (400)
+    if (event.detail.xhr.status === 400) {
+        const response = JSON.parse(event.detail.xhr.responseText);  // Parse the response text into a JSON object
+        const errors = JSON.parse(response.error);  // Parse the 'error' string to JSON
+
+        if (errors) {
+            // Iterate through each error for the fields
+            for (const fieldName in errors) {
+                if (errors.hasOwnProperty(fieldName)) {
+                    const fieldErrors = errors[fieldName];
+                    const field = document.querySelector(`[name="${fieldName}"]`);
+                    
+                    if (field) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.classList.add('error-message', 'alert', 'alert-warning');
+
+                        // Display all error messages for this field
+                        errorDiv.innerHTML = fieldErrors.map(error => `<p>${error.message}</p>`).join('');
+                        field.parentElement.appendChild(errorDiv);  // Add errors below the field
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle success response (200)
+    if (event.detail.xhr.status === 200) {
+        const response = JSON.parse(event.detail.xhr.responseText);  // Parse the JSON response
+
+        if (response.id && response.discord) {
+            // Clear the form fields
+            const form = document.querySelector('[id="register-form"]');
+            form.reset();  // This will reset all form fields to their default values
+
+            // Optionally, show a success message in the 'player-form-errors' div
+            const successMessage = response.message || "Player registered successfully!";
+            
+            // Create a success message div
+            const successDiv = document.createElement('div');
+            successDiv.classList.add('success-message', 'alert', 'alert-success');  // Add classes for styling
+            successDiv.innerHTML = `<p>${successMessage}</p>`;
+            
+            // Append the success message to the player-form-errors div
+            errorContainer.appendChild(successDiv);
+
+            // Find all fields whose ID ends with '-player' and update their options
+            const playerFields = document.querySelectorAll('[id$="-player"]');
+            playerFields.forEach(playerField => {
+                console.log(playerField.value, 'Player Field')
+                const newPlayerOption = document.createElement('option');
+                        newPlayerOption.value = response.id;
+                        newPlayerOption.text = response.discord + " (New)";
+                        playerField.appendChild(newPlayerOption);
+
+                    // Trigger a change event to update the select field
+                    $(playerField).trigger('change');
+                
+            });
+        }
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         function updateCoalitionList() {
                 let coalitionObjectList = [];
                 let vbFound = false

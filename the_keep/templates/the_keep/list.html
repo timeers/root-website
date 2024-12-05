@@ -8,8 +8,68 @@
     hx-swap="outerHTML"
     hx-trigger="submit, input delay:0.3s">
     <input type="text" name="search" placeholder="Search..." value="{{ search }}">
+
+
+    <!-- Designer Search Dropdown -->
+    <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
+        <option value="">Select Designer</option>
+        {% for designer in designers %}
+            <option value="{{ designer.id }}" {% if designer.id == search_type %}selected{% endif %}>
+                {{ designer.name }}  <!-- Assuming 'name' is the field you want to display -->
+            </option>
+        {% endfor %}
+    </select>
+
+
+    <select name="search_type" value="{{ search_type }}">
+        <option value="">All</option>  <!-- Optional default option -->
+        <option value="faction" {% if search_type == 'faction' %}selected{% endif %}>Faction</option>
+        <option value="vagabond" {% if search_type == 'vagabond' %}selected{% endif %}>Vagabond</option>
+        <option value="map" {% if search_type == 'map' %}selected{% endif %}>Map</option>
+        <option value="deck" {% if search_type == 'deck' %}selected{% endif %}>Deck</option>
+        <option value="landmark" {% if search_type == 'landmark' %}selected{% endif %}>Landmark</option>
+        <option value="hireling" {% if search_type == 'hireling' %}selected{% endif %}>Hireling</option>
+    </select>
+
 </form>
 {% include 'the_keep/search_results.html' %}
 {% include 'the_keep/search_load_more.html' %}
  
 {% endblock content %}
+
+{% block scripts %}
+        <script>
+        let isInitialLoad = true;
+
+            $(document).ready(function() {
+                    // Initialize Select2 on the designer select box
+                    $('#designer-select').select2();
+
+                    // Prevent the change event from triggering on initial page load
+                    
+
+                    // If there's a selected designer, set the value
+                    const selectedDesigner = "{{ designer }}";  // Get the selected designer from context
+                    console.log(selectedDesigner)
+                    if (selectedDesigner) {
+                        // Set the selected value in select2
+                        $('#designer-select').val(selectedDesigner);
+                    }
+                    $('#designer-select').trigger('change')
+                });
+
+
+
+
+                // Bind select2 change event to trigger htmx request manually
+                $('#designer-select').on('change', function() {
+                    if (isInitialLoad) {
+                        // If it's the initial load, don't trigger form submission
+                        isInitialLoad = false;  // Set flag to false after first load
+                        return;  // Exit early without submitting the form
+                    }
+                    // Manually trigger htmx to perform the GET request
+                    $(this).closest('form').trigger('submit');
+                });
+        </script>
+{% endblock %}

@@ -1,12 +1,10 @@
 from django.urls import path
 from .views import (
-    PostListView, 
-    PostUpdateView,
     ExpansionDetailView,
 
-    MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, LandmarkCreateView, FactionCreateView,
-    MapUpdateView, DeckUpdateView, HirelingUpdateView, VagabondUpdateView, LandmarkUpdateView, FactionUpdateView,
-
+    MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, LandmarkCreateView, FactionCreateView, ExpansionCreateView,
+    MapUpdateView, DeckUpdateView, HirelingUpdateView, VagabondUpdateView, LandmarkUpdateView, FactionUpdateView, ExpansionUpdateView,
+    ExpansionDeleteView,
     PostDeleteView,
     UserPostListView,
     ArtistPostListView, 
@@ -15,6 +13,7 @@ from .views import (
     bookmark_post,
     list_view,
     search_view,
+    # manage_expansion,
     # component_detail_view,
 )
 from . import views
@@ -27,14 +26,19 @@ urlpatterns = [
 
     path("search/", search_view, name='search'),
 
-    path('faction/new/', FactionCreateView.as_view(), name='faction-create'),
-    path('map/new/', MapCreateView.as_view(), name='map-create'),
-    path('deck/new/', DeckCreateView.as_view(), name='deck-create'),
-    path('hireling/new/', HirelingCreateView.as_view(), name='hireling-create'),
-    path('landmark/new/', LandmarkCreateView.as_view(), name='landmark-create'),
-    path('vagabond/new/', VagabondCreateView.as_view(), name='vagabond-create'),
+    path('new/faction/', FactionCreateView.as_view(), name='faction-create'),
+    path('new/map/', MapCreateView.as_view(), name='map-create'),
+    path('new/deck/', DeckCreateView.as_view(), name='deck-create'),
+    path('new/hireling/', HirelingCreateView.as_view(), name='hireling-create'),
+    path('new/landmark/', LandmarkCreateView.as_view(), name='landmark-create'),
+    path('new/vagabond/', VagabondCreateView.as_view(), name='vagabond-create'),
+    path('new/expansion/', ExpansionCreateView.as_view(), name='expansion-create'),
     
     path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
+    path('expansion/<slug:slug>/factions', ExpansionDetailView.as_view(), name='expansion-factions'),
+    path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
+    path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
+    # path('expansion/<slug:slug>/update/', manage_expansion, name='expansion-update'),
 
     path('map/<slug:slug>/', ComponentDetailListView.as_view(), name='map-detail'),
     path('deck/<slug:slug>/', ComponentDetailListView.as_view(), name='deck-detail'),
@@ -42,8 +46,6 @@ urlpatterns = [
     path('landmark/<slug:slug>/', ComponentDetailListView.as_view(), name='landmark-detail'),
     path('vagabond/<slug:slug>/', ComponentDetailListView.as_view(), name='vagabond-detail'),
     path('faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-detail'),
-
-    path('post/<int:pk>/update/', PostUpdateView.as_view(), name='post-update'),
 
     path('map/<slug:slug>/update/', MapUpdateView.as_view(), name='map-update'),
     path('deck/<slug:slug>/update/', DeckUpdateView.as_view(), name='deck-update'),

@@ -51,22 +51,27 @@ class PlayerCreateForm(forms.ModelForm):
         model = Profile
         fields = ['discord']
         widgets = {
-            'discord': forms.TextInput(attrs={'maxlength': '32'})  # Set the max length in the widget
+            'discord': forms.TextInput(attrs={'maxlength': '32'})  # Max length handled here
         }
         labels = {
             'discord': 'Discord Username'
         }
 
-    discord = forms.CharField(max_length=32, widget=forms.TextInput())
-
     def clean_discord(self):
         discord = self.cleaned_data['discord']
         
-        # Convert the input to lowercase
+        # Convert the input to lowercase (Discord usernames are case insensitive)
         discord = discord.lower()
         
+        if len(discord) > 32:
+            raise forms.ValidationError('Player names cannot be longer than 32 characters.')
+
         # Regular expression for allowed characters: letters, numbers, underscores, and periods
         if not re.match(r'^[a-z0-9_.]+$', discord):
             raise forms.ValidationError('Please only use numbers, letters, underscores _ , or periods.')
+        
+        # Optional: Check if the username already exists (if necessary)
+        if Profile.objects.filter(discord=discord).exists():
+            raise forms.ValidationError('This Discord username is already registered.')
         
         return discord

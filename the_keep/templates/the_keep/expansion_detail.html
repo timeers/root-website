@@ -3,11 +3,23 @@
     
         <h1>{{ expansion.title }}</h1>
         {% if expansion.designer %}
-            by: {{ expansion.designer }}
+            by: 
+            <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
+        {% endif %}
+        {% if expansion.lore %}
+            <p class="lore-content mt-2">{{ expansion.lore }}</p>
         {% endif %}
         {% if expansion.description %}
-            {{ expansion.description }}
+        <div>{{ expansion.description }}</div>
         {% endif %}
+
+        {% if expansion.designer == user.profile and user.profile.designer %}
+                <div>
+                    <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}">Update</a>
+                    <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}">Delete</a>
+                </div>
+        {% endif %}
+
 
         {% if expansion.get_posts %}
             {% if expansion.get_factions %}

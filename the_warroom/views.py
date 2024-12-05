@@ -21,6 +21,7 @@ from .filters import GameFilter
 from the_gatehouse.models import Profile
 # from the_keep.models import Post
 from the_gatehouse.views import player_required, admin_required
+from the_gatehouse.forms import PlayerCreateForm
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
 from datetime import datetime
@@ -246,20 +247,20 @@ def game_detail_hx_view(request, id=None):
     }
     return render(request, "the_warroom/partials/game_detail.html", context)
 
-@login_required
-def effort_update_hx_view(request, id=None):
-    if not request.htmx:
-        raise Http404("Not an HTMX request")
+# @login_required
+# def effort_update_hx_view(request, id=None):
+#     if not request.htmx:
+#         raise Http404("Not an HTMX request")
     
-    try:
-        obj = Effort.objects.get(id=id)
-    except Effort.DoesNotExist:
-        return HttpResponse('Effort Not Found', status=404)
+#     try:
+#         obj = Effort.objects.get(id=id)
+#     except Effort.DoesNotExist:
+#         return HttpResponse('Effort Not Found', status=404)
 
-    context = {
-        'effort': obj
-    }
-    return render(request, "the_warroom/partials/effort_partial.html", context)
+#     context = {
+#         'effort': obj
+#     }
+#     return render(request, "the_warroom/partials/effort_partial.html", context)
 
 
 
@@ -272,6 +273,7 @@ def manage_game(request, id=None):
         obj = Game()  # Create a new Game instance but do not save it yet
     user = request.user
     form = GameCreateForm(request.POST or None, instance=obj, user=user)
+    player_form = PlayerCreateForm()
 
     # Default to 4 players
     if id:  # Only check for existing efforts if updating an existing game
@@ -290,7 +292,8 @@ def manage_game(request, id=None):
         'form': form,
         'formset': formset,
         'object': obj,
-        'form_count': form_count
+        'form_count': form_count,
+        'player_form': player_form,
     }
 
 
@@ -304,6 +307,7 @@ def manage_game(request, id=None):
         for form in formset:
             child = form.save(commit=False)
             if child.faction_id is not None:  # Only save if faction_id is present
+                # Save current status of faction. Might be useful somewhere.
                 if child.faction.status == "Stable":
                     status = "Stable"
                 else:
@@ -323,27 +327,8 @@ def manage_game(request, id=None):
     return render(request, 'the_warroom/record_game.html', context)
 
 
-
-
-def create_effort(request):
-    if request.method == "POST":
-        pass
-
-    return render(request, 'the_warroom/partials/effort_partial.html', {'form': EffortCreateForm})
-
 @login_required
 @bookmark_toggle(Game)
 def bookmark_game(request, object):
     return render(request, 'the_warroom/partials/bookmarks.html', {'game': object })
 
-
-# Never used
-# @login_required
-# def record_effort(request):
-#     if request.method == 'POST':
-#         form = EffortCreateForm(request.POST or None)
-#         if form.is_valid():
-#             effort = form.save()
-#             context = {'effort': effort}
-#             return render(request, 'the_warroom/partials/effort.html', context)
-#     return render(request, 'the_warroom/partials/effort_form.html', {'form': EffortCreateForm}) 

@@ -2,7 +2,7 @@
 {% if posts.has_next %}
         <button class="btn mb-4"
         hx-get="{% url 'search' %}"
-        hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}"}'
+        hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}", "search_type": "{{ search_type }}", "designer": "{{ designer }}"}'
         hx-target="#search-results"
         hx-swap="beforeend"
         >

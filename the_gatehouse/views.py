@@ -1,17 +1,18 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.views.generic import DetailView, ListView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from functools import wraps
-from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm
+from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm, PlayerCreateForm
 from .models import Profile
 from the_tavern.views import bookmark_toggle
 from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
 from the_warroom.filters import GameFilter
+
 
 
 def register(request):
@@ -135,20 +136,29 @@ def admin_required_class_based_view(view_class):
     return view_class
 
 
-# def old_bookmark_player(request, id):
-#     player = get_object_or_404(Profile, id=id)
-#     player_exists = player.bookmarks.filter(discord=request.user.profile.discord).exists()
-#     if player_exists:
-#         player.bookmarks.remove(request.user.profile)
-#     else:
-#         player.bookmarks.add(request.user.profile)
-
-#     return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': player })
-
 @login_required
 @bookmark_toggle(Profile)
 def bookmark_player(request, object):
     return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': object })
 
 
+@player_required
+def add_player(request):
+    if request.method == 'POST' and request.htmx:
+        form = PlayerCreateForm(request.POST)
+        if form.is_valid():
+            player = form.save(commit=False)  # Save the new player to the database
+            player.display_name = player.discord
+            player.save()
+            response_data = {
+                'id': player.id,
+                'discord': player.discord,  # Include the new player's details
+                'message': f'Player {player.discord} registered successfully!',
+            }
+            return JsonResponse(response_data)  # Return a success JSON response
+        else:
+            # If the form is invalid, include the form errors in the response
+            errors = form.errors.as_json()  # Serialize the errors into JSON format
+            return JsonResponse({'error': errors}, status=400)  # Return the errors in JSON
 
+    return JsonResponse({'error': 'Invalid request'}, status=400)  # Return a 400 error for invalid requests

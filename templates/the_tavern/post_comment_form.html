@@ -9,6 +9,6 @@
     <form method="POST" action="{% url 'post-comment-sent' object.id %}" class="inline-form">
         {% csrf_token %}
         {{ commentform }}
-        <button class="btn btn-success" type="submit">Submit</button>
+        <button class="btn btn-success btn-sm" type="submit">Submit</button>
     </form>
 </div>

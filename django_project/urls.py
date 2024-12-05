@@ -61,6 +61,8 @@ urlpatterns = [
     path('postcommentsent/<pk>/', comment_views.post_comment_sent, name='post-comment-sent'),
     path('comment/post/delete/<pk>/', comment_views.post_comment_delete, name='post-comment-delete'),
 
+    path('hx/add-player/', user_views.add_player,name='add-discord-player'),
+
 
     path('', include('the_keep.urls')),
     path('games/', include('the_warroom.urls')),
