@@ -8,7 +8,7 @@ from django.core.validators import URLValidator
 
 
 top_fields = ['title', 'expansion']
-bottom_fields = ['lore','description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'artist']
+bottom_fields = ['lore','description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'picture', 'artist']
 
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
@@ -36,7 +36,7 @@ class PostCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Post
-        fields = ['title', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
+        fields = ['picture', 'title', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
@@ -46,7 +46,6 @@ class PostCreateForm(forms.ModelForm):
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
         super().__init__(*args, **kwargs)
-
         # If a user is provided, filter the queryset for the `expansion` field
         if user:
             self.fields['expansion'].queryset = Expansion.objects.filter(designer=user.profile)
@@ -115,9 +114,17 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         queryset=Post.objects.filter(component__in=['Map']),
         required=False
     )
+    picture = forms.ImageField(
+        label='Art',  # Set the label for the picture field
+        required=False
+    )
+    board_image = forms.ImageField(
+        label='Map',  # Set the label for the picture field
+        required=False
+    )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'fixed_clearings', 'based_on'] + bottom_fields
+        fields = top_fields + ['clearings', 'fixed_clearings', 'board_image', 'based_on'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated
@@ -160,9 +167,17 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         queryset=Post.objects.filter(component__in=['Deck']),
         required=False
     )
+    card_image = forms.ImageField(
+        label='Card Back',  # Set the label for the card_image field
+        required=False
+    )
+    picture = forms.ImageField(
+        label='Card Art',  # Set the label for the picture field
+        required=False
+    )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'based_on'] + bottom_fields
+        fields = top_fields + ['card_total', 'card_image', 'based_on'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated
@@ -197,6 +212,10 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Landmark']),
+        required=False
+    )
+    picture = forms.ImageField(
+        label='Landmark Art',  # Set the label for the picture field
         required=False
     )
     def __init__(self, *args, **kwargs):
@@ -241,6 +260,10 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         queryset=Post.objects.filter(component__in=['Faction', 'Vagabond', 'Hireling']),
         required=False
     )
+    picture = forms.ImageField(
+        label='Character Art',  # Set the label for the picture field
+        required=False
+    )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
         fields = top_fields + ['animal', 'type', 'based_on'] + bottom_fields
@@ -283,7 +306,10 @@ class VagabondCreateForm(PostCreateForm):
         queryset=Post.objects.filter(component__in=['Faction', 'Vagabond']).exclude(slug='vagabond'),
         required=False
     )
-
+    picture = forms.ImageField(
+        label='Character Art',  # Set the label for the picture field
+        required=False
+    )
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
@@ -392,10 +418,22 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         queryset=Post.objects.filter(component__in=['Faction']),
         required=False
     )
+    card_image = forms.ImageField(
+        label='ADSET Card',  # Set the label for the card_image field
+        required=False
+    )
+    picture = forms.ImageField(
+        label='Character Art',  # Set the label for the picture field
+        required=False
+    )
+    small_icon = forms.ImageField(
+        label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
+        required=False
+    )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
         fields = top_fields + ['small_icon', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
-                               'aggression', 'crafting_ability'] + bottom_fields
+                               'aggression', 'crafting_ability', 'card_image', 'board_image'] + bottom_fields
 
     def clean(self):
             cleaned_data = super().clean()

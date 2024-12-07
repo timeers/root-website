@@ -89,7 +89,7 @@ def player_page_view(request, slug):
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
 
-# Decorator
+# Decorators
 def designer_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata
@@ -153,7 +153,7 @@ def add_player(request):
             response_data = {
                 'id': player.id,
                 'discord': player.discord,  # Include the new player's details
-                'message': f'Player {player.discord} registered successfully!',
+                'message': f"Player '{player.discord} (New)' registered successfully!",
             }
             return JsonResponse(response_data)  # Return a success JSON response
         else:

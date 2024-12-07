@@ -55,7 +55,7 @@
               {% endif %}
               {% if user.is_authenticated %}
                   <img class="user-icon" src="{{ user.profile.image.url }}">
-                  <a class="nav-item nav-link" href="{% url 'profile' %}">{{ user.profile.display_name }}</a>
+                  <a class="nav-item nav-link" href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.display_name }}</a>
                   <a class="nav-item nav-link" href="{% url 'account_logout' %}">Logout</a>
               {% else %}
                   <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">Login</a>

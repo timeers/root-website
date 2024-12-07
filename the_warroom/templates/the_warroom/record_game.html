@@ -281,7 +281,7 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
 
 
 
-                document.addEventListener('htmx:afterRequest', function(event) {
+document.addEventListener('htmx:afterRequest', function(event) {
     // Clear all previous error or success messages before handling the response
     const errorContainer = document.getElementById('player-form-errors');
     errorContainer.innerHTML = '';  // Clear all content in the error container

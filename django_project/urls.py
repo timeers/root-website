@@ -34,10 +34,6 @@ urlpatterns = [
     path('api/options/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
     # path('register/', user_views.register, name='register'),
     # path('player/<slug:slug>/', user_views.PlayerDetailView.as_view(), name='player-detail'),
-    path("profile/<int:id>/bookmark/", user_views.bookmark_player, name='bookmark-player'),
-    path('profile/<slug:slug>/', user_views.player_page_view, name='player-detail'),
-    path('profile/<slug:slug>/creations/', list_view, name='player-creations'),
-    path('profile/', user_views.profile, name='profile'),
 
     # path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),
     # path('logout/', auth_views.LogoutView.as_view(template_name='the_gatehouse/logout.html'), name='logout'),
@@ -65,6 +61,7 @@ urlpatterns = [
 
 
     path('', include('the_keep.urls')),
+    path('profile/', include('the_gatehouse.urls')),
     path('games/', include('the_warroom.urls')),
     path('accounts/', include('allauth.urls')),
 

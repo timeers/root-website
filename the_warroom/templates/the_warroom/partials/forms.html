@@ -61,16 +61,6 @@
 
 
         <h2>Players</h2>
-        <!-- Dropdown toggle button -->
-        <!-- <button type="button" class="btn btn-secondary" id="player-toggle-btn">
-                &#x2193; 
-        </button> -->
-        
-        <!-- Player form, initially hidden -->
-
-
-
-
         {{ formset.management_form }}
         <div id="effort-form-list">
                 {% for form in formset %}
@@ -96,7 +86,7 @@
                 {% endfor %}
                 <button class="btn btn-outline-warning btn-sm" type="button"
                         onclick="clearForm(this)">
-                        Clear
+                        Remove
                 </button>
         </div>
 
@@ -136,6 +126,6 @@
                         </form>
                 </div>
                 
-                <div id="player-form-errors"><small>If a player is missing you can add them here. They will be added to the list with a (New) tag.</small></div>        
+                <div id="player-form-errors"><small>If a player is missing you can add them here.</small></div>        
         </div>
       </div>

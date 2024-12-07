@@ -15,12 +15,12 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 # from django.db import transaction
 from django.db.models import Q
-from .models import Game, Effort
-from .forms import GameCreateForm, EffortCreateForm
+from .models import Game, Effort, TurnScore, ScoreCard
+from .forms import GameCreateForm, EffortCreateForm, TurnScoreCreateForm, ScoreCardCreateForm
 from .filters import GameFilter
 from the_gatehouse.models import Profile
 # from the_keep.models import Post
-from the_gatehouse.views import player_required, admin_required
+from the_gatehouse.views import player_required, admin_required, designer_required
 from the_gatehouse.forms import PlayerCreateForm
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -192,20 +192,6 @@ def game_delete_view(request, id=None):
     return render(request, "the_warroom/game_delete.html", context)
 
 
-# @admin_required
-# @require_http_methods(['DELETE'])
-# def effort_hx_delete(request, id):
-#     effort = get_object_or_404(Effort, id=id)
-#     game = effort.game
-#     effort.delete()
-#     print(game.efforts.count())
-#     if game.efforts.count() == 0:
-#         game.delete()
-
-#     response = HttpResponse(status=204)
-#     response['HX-Trigger'] = 'delete-effort'
-#     return response
-
 @admin_required
 @require_http_methods(['DELETE'])
 def effort_hx_delete(request, id):
@@ -266,7 +252,6 @@ def game_detail_hx_view(request, id=None):
 
 @player_required
 def manage_game(request, id=None):
-    print(request.POST)
     if id:
         obj = get_object_or_404(Game, id=id)
     else:
@@ -332,3 +317,72 @@ def manage_game(request, id=None):
 def bookmark_game(request, object):
     return render(request, 'the_warroom/partials/bookmarks.html', {'game': object })
 
+
+
+
+
+
+# VIEW FOR RECORDING TURN BY TURN SCORES
+@designer_required
+def manage_score(request, id=None):
+    if id:
+        obj = get_object_or_404(ScoreCard, id=id)
+    else:
+        obj = ScoreCard()  # Create a new ScoreCard instance but do not save it yet
+    user = request.user
+    form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user)
+
+    if id:  # Only check for existing turns if updating an existing game score
+        existing_turns = obj.turns.all()
+        existing_count = existing_turns.count()
+        extra_forms = 1
+    else:
+        existing_count = 0  # New game has no existing turns
+        extra_forms = 7
+
+    TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms)
+    qs = obj.turns.all() if id else TurnScore.objects.none()  # Only fetch existing turns if updating
+    formset = TurnFormset(request.POST or None, queryset=qs)
+    form_count = extra_forms + existing_count
+    context = {
+        'form': form,
+        'formset': formset,
+        'object': obj,
+        'form_count': form_count,
+    }
+
+    if not form.is_valid():
+        print("Form errors:", form.errors)
+
+    if not formset.is_valid():
+        print("Formset errors:", formset.errors)
+
+
+
+    # Handle form submission
+
+    if form.is_valid() and formset.is_valid():
+        parent = form.save(commit=False)
+        parent.recorder = request.user.profile  # Set the recorder
+        parent.save()  # Save the new or updated Game Score instance
+        for form in formset:
+            child = form.save(commit=False)
+            child.scorecard = parent  # Link the turn to the game
+            child.save()
+
+        context['message'] = "Scores Saved"
+        return redirect(parent.get_absolute_url())
+    
+    return render(request, 'the_warroom/record_scores.html', context)
+
+@player_required
+def score_detail_view(request, id=None):
+    try:
+        obj = ScoreCard.objects.get(id=id)
+
+    except ObjectDoesNotExist:
+        obj = None
+    context=  {
+        'object': obj,
+    }
+    return render(request, "the_warroom/score_detail.html", context)

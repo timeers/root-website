@@ -210,7 +210,7 @@ class Post(models.Model):
                 return games  # This ensures it's a sorted queryset
             case _:
                 return Game.objects.none()  # No games if no component matches
-
+            
     def status(self):
         plays = self.get_plays_queryset()
         play_count = plays.count() if plays is not None else 0
@@ -243,7 +243,7 @@ class Post(models.Model):
         return False
         
     class Meta:
-        ordering = ['-date_posted']
+        ordering = ['-official', '-stable', '-date_posted']
 
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)

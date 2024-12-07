@@ -2,7 +2,7 @@ from django.contrib import admin, messages
 from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
-from .models import Game, Effort, Tournament, GameBookmark
+from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore
 from the_keep.models import Deck, Map, Faction, Vagabond
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
@@ -12,6 +12,31 @@ import re
 
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField()
+
+
+
+class TurnInline(admin.StackedInline):
+    model = TurnScore
+    extra = 0
+
+class ScoreCardAdmin(admin.ModelAdmin):
+    list_display = ('id', 'turn_count', 'faction__title', 'total_score', 'recorder__discord', 'date_posted')
+    inlines = [TurnInline]
+
+    def turn_count(self, obj):
+        return obj.turns.count()  # Count the related TurnScore instances for each ScoreCard
+
+    def total_score(self, obj):
+        # Initialize sum
+        total = 0
+        # Iterate over the turns queryset and sum up the total_points for each turn
+        for turn in obj.turns.all():
+            total += turn.total_points
+        return total
+
+    turn_count.short_description = 'Turns'
+
+
 
 class EffortAdmin(admin.ModelAdmin):
     list_display = ('date_posted', 'player', 'faction', 'score', 'win', 'game', 'game__league')
@@ -196,5 +221,7 @@ admin.site.register(GameBookmark, GameBookmarkAdmin)
 
 # Register your models here.
 admin.site.register(Game, GameAdmin)
-admin.site.register(Effort, EffortAdmin)
+# admin.site.register(Effort, EffortAdmin)
 admin.site.register(Tournament)
+admin.site.register(ScoreCard, ScoreCardAdmin)
+# admin.site.register(TurnScore)

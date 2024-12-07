@@ -13,6 +13,22 @@ from the_warroom.admin import CsvImportForm
 from datetime import datetime
 from django.utils import timezone
 
+class WarriorInline(admin.StackedInline):
+    model = Warrior
+    extra = 0
+class BuildingInline(admin.StackedInline):
+    model = Building
+    extra = 0
+class TokenInline(admin.StackedInline):
+    model = Token
+    extra = 0
+class CardInline(admin.StackedInline):
+    model = Card
+    extra = 0
+class OtherPieceInline(admin.StackedInline):
+    model = OtherPiece
+    extra = 0
+
 class MapAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'clearings')
     search_fields = ['title']
@@ -212,6 +228,7 @@ class HirelingAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
+    inlines = [WarriorInline, BuildingInline, TokenInline, CardInline, OtherPieceInline]
 class PostAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
     search_fields = ['title']
@@ -232,7 +249,7 @@ class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-
+    inlines = [WarriorInline, BuildingInline, TokenInline, CardInline, OtherPieceInline]
 
 
 
@@ -625,6 +642,7 @@ class VagabondAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer']
+    inlines = [OtherPieceInline]
     def get_urls(self):
         urls = super().get_urls()
         new_urls = [path('upload-vagabond-csv/', self.upload_vagabond_csv)]
@@ -787,13 +805,13 @@ admin.site.register(PostBookmark, PostBookmarkAdmin)
 
 
 # Registering the models with the GroupedModelAdmin
-admin.site.register(Warrior, WarriorAdmin)
-admin.site.register(Building, BuildingAdmin)
-admin.site.register(Token, TokenAdmin)
-admin.site.register(Card, CardAdmin)
-admin.site.register(OtherPiece, OtherPieceAdmin)
+# admin.site.register(Warrior, WarriorAdmin)
+# admin.site.register(Building, BuildingAdmin)
+# admin.site.register(Token, TokenAdmin)
+# admin.site.register(Card, CardAdmin)
+# admin.site.register(OtherPiece, OtherPieceAdmin)
 
-admin.site.register(Post, PostAdmin)
+# admin.site.register(Post, PostAdmin)
 admin.site.register(Map, MapAdmin)
 admin.site.register(Deck, DeckAdmin)
 admin.site.register(Landmark, LandmarkAdmin)

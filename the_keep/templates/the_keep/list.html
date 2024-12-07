@@ -43,7 +43,11 @@
 
             $(document).ready(function() {
                     // Initialize Select2 on the designer select box
-                    $('#designer-select').select2();
+                    $('#designer-select').select2({
+                        placeholder: "Select Designer",  // Optional: display this as the placeholder
+                        allowClear: true,  // Enable the "clear" button (X)
+                        width: '200px'
+                    });
 
                     // Prevent the change event from triggering on initial page load
                     

@@ -1,0 +1,195 @@
+{% extends 'the_keep/base.html' %}
+{% block content %}
+        
+        <h1>{% if object.id %}Update{% else %}Record{% endif %} Detail Game Scores</h1>
+
+        <style>
+                .turn-form {
+                        border-bottom: 1px solid black;
+                }
+                .hidden {
+                        display: None ;
+                }
+                #turn-form-list {
+                    overflow-x: auto; /* Allow horizontal scrolling */
+                    max-width: 100%;   /* Ensure the container doesn't exceed page width */
+                }
+
+                table {
+                    width: 100%;  /* Make the table take up full available width */
+                    table-layout: fixed; /* Helps to avoid overflow caused by long content */
+                }
+
+                th, td {
+                    word-wrap: break-word; /* Ensures long words break properly */
+                    text-align: center; /* Aligns text in the center of each cell */
+                }
+        </style>
+
+        <div style="margin-top: 30px;">
+
+            <form method="POST">
+                {% csrf_token %}
+            
+            <h2>Game Details</h2>
+            <div id="game-faction-select" class="{{ form.required_css_class }}" {% if object.id %}disabled{% endif %}>
+            {{ form.faction.errors }}
+            {{ form.faction.label_tag }} {{ form.faction }}
+            {% if form.faction.help_text %}
+                    <p class="help">{{ form.faction.help_text | safe }}</p>
+            {% endif %}
+            </div>
+
+            <h2>Turns</h2>
+            
+
+            {{ formset.management_form }}
+            <div id="turn-form-list">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Turn</th>
+                            <th>Faction Points</th>
+                            <th>Crafting Points</th>
+                            <th>Battle Points</th>
+                            <th>Other Points</th>
+                            <th>Total Points</th>
+                        </tr>
+                    </thead>
+                    <tbody id="form-turn-table" class="turn-rows">
+                        {% for form in formset %}
+                            <tr id="form-{{ forloop.counter0 }}" class="turn-form">
+                                <td>
+                                    {{ forloop.counter0|add:1 }} 
+                                    <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}" 
+                                    id="id_form-{{ forloop.counter0 }}-turn_number"/>
+                                </td>
+                                <td>{{ form.faction_points }}</td>
+                                <td>{{ form.crafting_points }}</td>
+                                <td>{{ form.battle_points }}</td>
+                                <td>{{ form.other_points }}</td>
+                                <td>
+                                    <span class="total-points" id="total-points-{{ forloop.counter0 }}">
+                                        0
+                                    </span>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+
+            
+                    <div id="empty-form" class="hidden turn-form">
+
+                        <tr id="form-{{ forloop.counter0 }}" class="turn-form">
+                            <td>
+                                {{ forloop.counter0|add:1 }} 
+                                <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}" 
+                                id="id_form-{{ forloop.counter0 }}-turn_number"/>
+                            </td>
+                            <td>{{ formset.empty_form.faction_points }}</td>
+                            <td>{{ formset.empty_form.crafting_points }}</td>
+                            <td>{{ formset.empty_form.battle_points }}</td>
+                            <td>{{ formset.empty_form.other_points }}</td>
+                            <td>
+                                <span class="total-points" id="total-points-__prefix__"></span>
+                                    0
+                                </span>
+                            </td>
+                        </tr>
+
+
+                            <button class="btn btn-outline-danger btn-sm" type="button"
+                                    onclick="clearForm(this)">
+                                    Remove Turn
+                            </button>
+                    </div>
+            
+            
+            
+                <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
+
+            
+
+
+                <div id="game-description-field">
+                {{ form.description.errors }}
+                Note: {{ form.description }}
+                {% if field.help_text %}
+                        <p class="help">{{ form.description.help_text | safe }}</p>
+                {% endif %}
+                </div>
+
+                <button class="btn btn-outline-success mb-2 mt-2" type="submit">Save</button>
+                {% if object.id %}
+                    <a class="btn btn-outline-danger mb-2 mt-2" href="">Delete</a>
+                {% else %}
+                    <a class="btn btn-outline-info mb-2 mt-2"  href="">Cancel</a>
+                {% endif %}
+                {% if message %}
+                    <p>{{ message }}</p>
+                {% endif %}
+            </form>
+        </div>
+
+
+        
+
+{% endblock content %}
+
+
+
+{% block scripts %}
+<script>
+$('#id_faction').select2();
+
+        let nextFormIndex = document.querySelectorAll('.turn-form').length-1;
+                console.log(nextFormIndex)
+        document.addEventListener('click', (event)=>{
+                if (event.target.id == 'add-more'){
+                        add_new_form(event)
+                }
+        })
+
+        function add_new_form(event) {
+                
+                if (event) {
+                        event.preventDefault()
+                }
+                const totalNewForms = document.getElementById('id_form-TOTAL_FORMS')
+                console.log(totalNewForms)
+                // const currentturnForms = document.getElementsByClassName('turn-form')
+                // const currentFormCount = currentturnForms.length
+                const formCopyTarget = document.getElementById("form-turn-table")
+                console.log(formCopyTarget)
+                
+                const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
+                console.log(copyEmptyFormEl)
+                copyEmptyFormEl.setAttribute('class', 'turn-form form-control')
+                copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`)
+                const regex = new RegExp('__prefix__', 'g')
+                console.log(regex)
+                copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex)
+                totalNewForms.setAttribute('value', nextFormIndex + 1)
+
+                formCopyTarget.append(copyEmptyFormEl)
+
+
+                nextFormIndex++;
+                // console.log(nextFormIndex)
+                
+        }
+
+        function clearForm(button) {
+                var formDiv = button.closest('.turn-form'); // Find the parent form div
+                formDiv.remove(); // Remove the form from the DOM
+        }
+
+        
+</script>
+
+
+
+{% endblock %}

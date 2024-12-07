@@ -8,6 +8,3 @@ def times(number):
     except:  return []
     
 
-# @register.filter(name='range') 
-# def filter_range(start, end):   
-#     return range(start, end)

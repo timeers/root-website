@@ -3,7 +3,7 @@ from django.urls import path
 from .views import (GameListView, GameListViewHX,
                     game_detail_hx_view, game_detail_view, 
                     game_delete_view, effort_hx_delete, game_hx_delete,
-                    bookmark_game, manage_game)
+                    bookmark_game, manage_game, manage_score, score_detail_view)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -19,4 +19,8 @@ urlpatterns = [
     path("<int:id>/edit/", manage_game, name='game-update'),
     path("<int:id>/", game_detail_view, name='game-detail'),
     path("<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
+
+    path('record/scorecard/', manage_score, name='record-scores'),
+    path("scorecard/<int:id>/", score_detail_view, name='game-scores'),
+    path("scorecard/<int:id>/edit", manage_score, name='update-scores'),
 ]

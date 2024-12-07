@@ -1,5 +1,5 @@
 from django import forms
-from .models import Effort, Game
+from .models import Effort, Game, TurnScore, ScoreCard
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
 
@@ -59,7 +59,54 @@ class EffortCreateForm(forms.ModelForm):
 
         return cleaned_data
 
+class TurnScoreCreateForm(forms.ModelForm):
+    class Meta:
+        model = TurnScore
+        fields = ['turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points']
 
+    # Custom validation for turn_number field
+    def clean_turn_number(self):
+        turn_number = self.cleaned_data.get('turn_number')
+        if turn_number < 1:
+            raise forms.ValidationError("Turn number must be greater than or equal to 1.")
+        return turn_number
+
+    # Custom validation for the total_points (can be a derived field if needed)
+    def clean_total_points(self):
+        faction_points = self.cleaned_data.get('faction_points', 0)
+        crafting_points = self.cleaned_data.get('crafting_points', 0)
+        battle_points = self.cleaned_data.get('battle_points', 0)
+        other_points = self.cleaned_data.get('other_points', 0)
+
+        # Ensure the total points are consistent
+        total_points = faction_points + crafting_points + battle_points + other_points
+        if total_points != self.cleaned_data.get('total_points', 0):
+            raise forms.ValidationError("The total points do not match the sum of faction, crafting, battle, and other points.")
+
+        return total_points
+    def clean(self):
+        cleaned_data = super().clean()
+        return cleaned_data
+    
+class ScoreCardCreateForm(forms.ModelForm):
+    class Meta:
+        model = ScoreCard
+        fields = ['faction', 'description']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+        }
+
+    def __init__(self, *args, user=None, **kwargs):
+        # Call the parent constructor
+        super(ScoreCardCreateForm, self).__init__(*args, **kwargs)
+        self.user = user  # Save the user parameter for later use
+
+    def clean(self):
+        cleaned_data = super().clean()
+        faction = cleaned_data.get('faction')
+        if faction is None:
+            raise forms.ValidationError("Faction cannot be empty.")
+        return cleaned_data
 
 class EffortImportForm(forms.ModelForm):
     # required_css_class = 'required-field'
