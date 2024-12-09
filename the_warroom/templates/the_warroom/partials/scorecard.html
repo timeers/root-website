@@ -1,0 +1,66 @@
+
+<table>
+    <thead>
+        <tr>
+            <th>Turn</th>
+            <th>Faction Points</th>
+            <th>Crafting Points</th>
+            <th>Battle Points</th>
+            <th>Other Points</th>
+            <th>Turn Total</th>
+        </tr>
+    </thead>
+    <tbody class="effort-rows">
+
+        
+
+    {% for turn in object.turns.all %}
+
+    <tr>
+    <td>
+        {{ turn.turn_number }}
+    </td>
+        
+    <td>
+        {{ turn.faction_points }}
+    </td>
+    <td>
+        {{ turn.crafting_points }}
+    </td>
+    <td>
+        {{ turn.battle_points }}
+    </td>
+    <td>
+        {{ turn.other_points }}
+    </td>
+    <td>
+        {{ turn.total_points }}
+    </td>
+</tr>
+
+
+
+
+{% endfor %}
+</tbody>
+
+<tfoot>
+    <tr>
+        <td><strong>Total</strong></td>
+        <td><strong>{{ object.total_faction_points }}</strong></td>
+        <td><strong>{{ object.total_crafting_points }}</strong></td>
+        <td><strong>{{ object.total_battle_points }}</strong></td>
+        <td><strong>{{ object.total_other_points }}</strong></td>
+        <td><strong>{{ object.total_points }}</strong></td>
+    </tr>
+</tfoot>
+
+</table>
+<div>
+<div>{{ object.date_posted|date:"g:i a Y-m-d" }}</div>
+
+
+{% if object.description %}
+<div>{{ object.description }}</div>
+{% endif %}
+</div>

@@ -142,10 +142,7 @@ class DeckAdmin(admin.ModelAdmin):
     def upload_deck_csv(self, request):
 
         if request.method == 'POST':
-            print("action is posted")
 
-
-            print("action is posted")
             csv_file = request.FILES['csv_upload']
 
             if not csv_file.name.endswith('.csv'):
@@ -158,8 +155,6 @@ class DeckAdmin(admin.ModelAdmin):
             csv_reader = csv.reader(StringIO(file_data))
             
             for fields in csv_reader:
-                print(len(fields))
-
                 if len(fields) < 12:  # Check to ensure there are enough fields
                     print("Not enough fields in this row.")
                     continue  # Skip to the next iteration if not enough fields
@@ -169,6 +164,7 @@ class DeckAdmin(admin.ModelAdmin):
                     expansion_instance = None
                 else:
                     expansion_instance, _ = Expansion.objects.get_or_create(title=fields[4])
+                    print(expansion_instance)
                 stable = True if fields[6] == "Stable" else False
                 official = True if fields[5] == "Y" else False
                 bgg_link = None if fields[8] == '' else fields[8]
@@ -206,7 +202,7 @@ class DeckAdmin(admin.ModelAdmin):
                 if form.is_valid():
                     # form.save()
                     form.save()
-
+                    
                 else:
                     # Handle the invalid form case (e.g., log errors or notify the user)
                     messages.error(request, f"Error with row: {fields}. Errors: {form.errors}")
@@ -217,6 +213,7 @@ class DeckAdmin(admin.ModelAdmin):
 
         form = CsvImportForm()
         data = {'form': form}
+        print(data)
         return render(request, 'admin/csv_upload.html', data)
 
 
@@ -235,16 +232,16 @@ class PostAdmin(admin.ModelAdmin):
     raw_id_fields = ['designer']
 class ExpansionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer')
-class WarriorAdmin(admin.ModelAdmin):
-    list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-class BuildingAdmin(admin.ModelAdmin):
-    list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-class TokenAdmin(admin.ModelAdmin):
-    list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-class CardAdmin(admin.ModelAdmin):
-    list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-class OtherPieceAdmin(admin.ModelAdmin):
-    list_display = ('name', 'faction', 'hireling', 'vagabond', 'quantity', 'suited')
+# class WarriorAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
+# class BuildingAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
+# class TokenAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
+# class CardAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
+# class OtherPieceAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'faction', 'hireling', 'vagabond', 'quantity', 'suited')
 class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
     search_fields = ['title']
@@ -276,13 +273,6 @@ class FactionAdmin(admin.ModelAdmin):
             csv_reader = csv.reader(StringIO(file_data))
             
             for fields in csv_reader:
-
-
-            # file_data = csv_file.read().decode('utf-8')
-            # csv_data = file_data.split('\n')
-
-            # for x in csv_data:
-            #     fields = x.split(',')
                 print(len(fields))
 
                 if len(fields) < 58:  # Check to ensure there are enough fields
@@ -358,7 +348,7 @@ class FactionAdmin(admin.ModelAdmin):
                         card_data = {
                             'name': "Card",
                             'quantity': int(fields[44]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         card_form = CardForm(card_data)
@@ -376,7 +366,7 @@ class FactionAdmin(admin.ModelAdmin):
                         warrior_data = {
                             'name': fields[20],
                             'quantity': int(fields[21]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         warrior_form = WarriorForm(warrior_data)
@@ -393,7 +383,7 @@ class FactionAdmin(admin.ModelAdmin):
                         warrior_data = {
                             'name': fields[22],
                             'quantity': int(fields[23]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         warrior_form = WarriorForm(warrior_data)
@@ -410,7 +400,7 @@ class FactionAdmin(admin.ModelAdmin):
                         warrior_data = {
                             'name': fields[24],
                             'quantity': int(fields[25]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         warrior_form = WarriorForm(warrior_data)
@@ -429,7 +419,7 @@ class FactionAdmin(admin.ModelAdmin):
                         building_data = {
                             'name': fields[27],
                             'quantity': int(fields[28]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                             'suited': suited
                         }
 
@@ -447,7 +437,7 @@ class FactionAdmin(admin.ModelAdmin):
                         building_data = {
                             'name': fields[30],
                             'quantity': int(fields[31]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         building_form = BuildingForm(building_data)
@@ -464,7 +454,7 @@ class FactionAdmin(admin.ModelAdmin):
                         building_data = {
                             'name': fields[32],
                             'quantity': int(fields[33]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         building_form = BuildingForm(building_data)
@@ -484,7 +474,7 @@ class FactionAdmin(admin.ModelAdmin):
                         token_data = {
                             'name': fields[35],
                             'quantity': int(fields[36]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                             'suited': suited
                         }
 
@@ -502,7 +492,7 @@ class FactionAdmin(admin.ModelAdmin):
                         token_data = {
                             'name': fields[38],
                             'quantity': int(fields[39]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         token_form = TokenForm(token_data)
@@ -519,7 +509,7 @@ class FactionAdmin(admin.ModelAdmin):
                         token_data = {
                             'name': fields[40],
                             'quantity': int(fields[41]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         token_form = TokenForm(token_data)
@@ -536,7 +526,7 @@ class FactionAdmin(admin.ModelAdmin):
                         token_data = {
                             'name': fields[42],
                             'quantity': int(fields[43]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         token_form = TokenForm(token_data)
@@ -557,7 +547,7 @@ class FactionAdmin(admin.ModelAdmin):
                         other_piece_data = {
                             'name': fields[46],
                             'quantity': int(fields[47]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         other_piece_form = OtherPieceForm(other_piece_data)
@@ -574,7 +564,7 @@ class FactionAdmin(admin.ModelAdmin):
                         other_piece_data = {
                             'name': fields[48],
                             'quantity': int(fields[49]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         other_piece_form = OtherPieceForm(other_piece_data)
@@ -591,7 +581,7 @@ class FactionAdmin(admin.ModelAdmin):
                         other_piece_data = {
                             'name': fields[50],
                             'quantity': int(fields[51]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         other_piece_form = OtherPieceForm(other_piece_data)
@@ -608,7 +598,7 @@ class FactionAdmin(admin.ModelAdmin):
                         other_piece_data = {
                             'name': fields[52],
                             'quantity': int(fields[53]),
-                            'faction': faction_instance,
+                            'parent': faction_instance,
                         }
 
                         other_piece_form = OtherPieceForm(other_piece_data)
@@ -769,7 +759,7 @@ class VagabondAdmin(admin.ModelAdmin):
                         other_piece_data = {
                             'name': fields[16],
                             'quantity': int(fields[15]),
-                            'vagabond': vagabond_instance,
+                            'parent': vagabond_instance,
                         }
 
                         other_piece_form = OtherPieceForm(other_piece_data)

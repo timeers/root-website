@@ -1,138 +1,163 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-        
-        <h1>{% if object.id %}Update{% else %}Record{% endif %} Detail Game Scores</h1>
-
-        <style>
-                .turn-form {
-                        border-bottom: 1px solid black;
-                }
-                .hidden {
-                        display: None ;
-                }
-                #turn-form-list {
-                    overflow-x: auto; /* Allow horizontal scrolling */
-                    max-width: 100%;   /* Ensure the container doesn't exceed page width */
-                }
-
-                table {
-                    width: 100%;  /* Make the table take up full available width */
-                    table-layout: fixed; /* Helps to avoid overflow caused by long content */
-                }
-
-                th, td {
-                    word-wrap: break-word; /* Ensures long words break properly */
-                    text-align: center; /* Aligns text in the center of each cell */
-                }
-        </style>
-
-        <div style="margin-top: 30px;">
-
-            <form method="POST">
-                {% csrf_token %}
-            
-            <h2>Game Details</h2>
-            <div id="game-faction-select" class="{{ form.required_css_class }}" {% if object.id %}disabled{% endif %}>
-            {{ form.faction.errors }}
-            {{ form.faction.label_tag }} {{ form.faction }}
-            {% if form.faction.help_text %}
-                    <p class="help">{{ form.faction.help_text | safe }}</p>
-            {% endif %}
-            </div>
-
-            <h2>Turns</h2>
-            
-
-            {{ formset.management_form }}
-            <div id="turn-form-list">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Turn</th>
-                            <th>Faction Points</th>
-                            <th>Crafting Points</th>
-                            <th>Battle Points</th>
-                            <th>Other Points</th>
-                            <th>Total Points</th>
-                        </tr>
-                    </thead>
-                    <tbody id="form-turn-table" class="turn-rows">
-                        {% for form in formset %}
-                            <tr id="form-{{ forloop.counter0 }}" class="turn-form">
-                                <td>
-                                    {{ forloop.counter0|add:1 }} 
-                                    <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}" 
-                                    id="id_form-{{ forloop.counter0 }}-turn_number"/>
-                                </td>
-                                <td>{{ form.faction_points }}</td>
-                                <td>{{ form.crafting_points }}</td>
-                                <td>{{ form.battle_points }}</td>
-                                <td>{{ form.other_points }}</td>
-                                <td>
-                                    <span class="total-points" id="total-points-{{ forloop.counter0 }}">
-                                        0
-                                    </span>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            
-
-            
-                    <div id="empty-form" class="hidden turn-form">
-
-                        <tr id="form-{{ forloop.counter0 }}" class="turn-form">
-                            <td>
-                                {{ forloop.counter0|add:1 }} 
-                                <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}" 
-                                id="id_form-{{ forloop.counter0 }}-turn_number"/>
-                            </td>
-                            <td>{{ formset.empty_form.faction_points }}</td>
-                            <td>{{ formset.empty_form.crafting_points }}</td>
-                            <td>{{ formset.empty_form.battle_points }}</td>
-                            <td>{{ formset.empty_form.other_points }}</td>
-                            <td>
-                                <span class="total-points" id="total-points-__prefix__"></span>
-                                    0
-                                </span>
-                            </td>
-                        </tr>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<h1>{% if object.id %}Update{% else %}Record{% endif %} Detailed Game Scores</h1>
+    <button class="btn btn-outline-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+        <i class="bi bi-info-circle"></i>
+    </button>
+</div>   
 
 
-                            <button class="btn btn-outline-danger btn-sm" type="button"
-                                    onclick="clearForm(this)">
-                                    Remove Turn
-                            </button>
-                    </div>
-            
-            
-            
-                <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
+<div class="collapse" id="collapseRegister">
+    <div class="card card-body">
+                        
+            <div id="scorecard-info"><small>Record turn by turn point details for a faction. This is optional but can provide some insight into a faction's scoring pace and how they score points.<br>
+                'Faction Points' are points scored or lost from your faction abilities, 'Crafting Points' are from items crafted, 'Battle Points' are from removing buildings and tokens in battle, and 'Other Points' are for everything else.<br>
+                If you do not wish to break points down by category, use the 'Other Points' column.
+            </small></div>        
+    </div>
+  </div>
+<style>
+        .turn-form {
+                border-bottom: 1px solid black;
+        }
+        .hidden {
+                display: None ;
+        }
 
-            
+        .turn-header, .turn-form {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+
+    .turn-column {
+        flex: 1; /* Makes each column take equal width */
+        padding: 5px;
+        text-align: center; /* Center-align text */
+    }
+
+    .turn-column input,
+    .turn-column select,
+    .turn-column span {
+        width: 100%; /* Ensure form fields span the full column width */
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    #turn-form-list {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    /* Additional styling to make buttons and inputs look nice */
+    .btn {
+        margin-top: 15px;
+    }
+
+    .turn-column.total-points {
+        font-weight: bold;
+    }
+    .total-row {
+        font-weight: bold;
+    }
 
 
-                <div id="game-description-field">
-                {{ form.description.errors }}
-                Note: {{ form.description }}
-                {% if field.help_text %}
-                        <p class="help">{{ form.description.help_text | safe }}</p>
-                {% endif %}
-                </div>
 
-                <button class="btn btn-outline-success mb-2 mt-2" type="submit">Save</button>
-                {% if object.id %}
-                    <a class="btn btn-outline-danger mb-2 mt-2" href="">Delete</a>
-                {% else %}
-                    <a class="btn btn-outline-info mb-2 mt-2"  href="">Cancel</a>
-                {% endif %}
-                {% if message %}
-                    <p>{{ message }}</p>
-                {% endif %}
-            </form>
+</style>
+<div style="margin-top: 30px;">
+
+    <form method="POST">
+        {% csrf_token %}
+    
+
+    <div id="game-faction-select" class="{{ form.required_css_class }}" {% if object.id %}disabled{% endif %}>
+        {{ form.faction.errors }}
+        <h4>Faction:</h4>
+        {{ form.faction }}
+    </div>
+
+    <h4>
+        Turns{% if score %} ({{ score }} points){% endif %}:
+    </h4>
+    {% if message %}
+        <div class="alert alert-warning" role="alert">
+            {{ message }}
         </div>
+    {% endif %}
+    {{ formset.management_form }}
+
+    <div id="form-turn-list">
+        <div class="turn-header">
+            <div class="turn-column">Turn</div>
+            <div class="turn-column">Faction Points</div>
+            <div class="turn-column">Crafting Points</div>
+            <div class="turn-column">Battle Points</div>
+            <div class="turn-column">Other Points</div>
+            <div class="turn-column">Total Points</div>
+        </div>
+
+        {% for form in formset %}
+            <div id="form-{{ forloop.counter0 }}" class="turn-form">
+                <div class="turn-column">
+                    {{ forloop.counter0|add:1 }}
+                    <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}" 
+                    id="id_form-{{ forloop.counter0 }}-turn_number"/>
+                    {% if form.instance.id %}
+                        <input type="hidden" name="form-{{ forloop.counter0 }}-id" value="{{ form.instance.id }}" 
+                        id="id_form-{{ forloop.counter0 }}-id"/>
+                    {% endif %}
+
+                </div>
+                <div class="turn-column">{{ form.faction_points }}</div>
+                <div class="turn-column">{{ form.crafting_points }}</div>
+                <div class="turn-column">{{ form.battle_points }}</div>
+                <div class="turn-column">{{ form.other_points }}</div>
+                <div class="turn-column total-points" id="total-points-{{ forloop.counter0 }}">0</div>
+            </div>
+        {% endfor %}
+
+        <div id="total-row" class="turn-form total-row">
+            <div class="turn-column">Totals</div>
+            <div id="total-faction" class="turn-column">0</div>
+            <div id="total-crafting" class="turn-column">0</div>
+            <div id="total-battle" class="turn-column">0</div>
+            <div id="total-other" class="turn-column">0</div>
+            <div id="total-total" class="turn-column">0</div>
+        </div>
+
+    </div>
+
+    <div id="empty-form" class="hidden">
+        <div class="turn-column">
+            <input type="hidden" name="form-__prefix__-turn_number" value="0" 
+                    id="id_form-__prefix__-turn_number"/>
+        </div>
+        <div class="turn-column">{{ formset.empty_form.faction_points }}</div>
+        <div class="turn-column">{{ formset.empty_form.crafting_points }}</div>
+        <div class="turn-column">{{ formset.empty_form.battle_points }}</div>
+        <div class="turn-column">{{ formset.empty_form.other_points }}</div>
+        <div class="turn-column total-points" id="total-points-__prefix__">0</div>
+    </div>
+    <button class="btn btn-outline-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
+    <button class="btn btn-outline-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
+
+    <div id="game-description-field">
+        <h4>Notes:</h4>{{ form.description }}
+        {{ form.description.errors }}
+    </div>
+
+    <button class="btn btn-outline-success mb-2 mt-2" type="submit">Save</button>
+    {% if object.id %}
+        <a class="btn btn-outline-danger mb-2 mt-2" href="{% url 'delete-scorecard' object.id %}">Delete</a>
+    {% else %}
+        <a class="btn btn-outline-info mb-2 mt-2" href="{% url 'games-home' %}">Cancel</a>
+    {% endif %}
+
+    </form>
+</div>
 
 
         
@@ -143,51 +168,229 @@
 
 {% block scripts %}
 <script>
-$('#id_faction').select2();
+$(document).ready(function () {
+    $('#id_faction').select2();
 
-        let nextFormIndex = document.querySelectorAll('.turn-form').length-1;
-                console.log(nextFormIndex)
-        document.addEventListener('click', (event)=>{
-                if (event.target.id == 'add-more'){
-                        add_new_form(event)
-                }
-        })
-
-        function add_new_form(event) {
-                
-                if (event) {
-                        event.preventDefault()
-                }
-                const totalNewForms = document.getElementById('id_form-TOTAL_FORMS')
-                console.log(totalNewForms)
-                // const currentturnForms = document.getElementsByClassName('turn-form')
-                // const currentFormCount = currentturnForms.length
-                const formCopyTarget = document.getElementById("form-turn-table")
-                console.log(formCopyTarget)
-                
-                const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
-                console.log(copyEmptyFormEl)
-                copyEmptyFormEl.setAttribute('class', 'turn-form form-control')
-                copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`)
-                const regex = new RegExp('__prefix__', 'g')
-                console.log(regex)
-                copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex)
-                totalNewForms.setAttribute('value', nextFormIndex + 1)
-
-                formCopyTarget.append(copyEmptyFormEl)
+    // Initial index for adding new forms
+    let nextFormIndex = parseInt($('#id_form-TOTAL_FORMS').val(), 10);
 
 
-                nextFormIndex++;
-                // console.log(nextFormIndex)
-                
+
+
+    // Click event to add a new form
+    document.addEventListener('click', (event) => {
+        if (event.target.id == 'add-more') {
+            add_new_form(event);
+        }
+        if (event.target.id == 'remove-turn') {
+            remove_last_turn(event);
+        }
+    });
+
+    function remove_last_turn(event){
+        if (event) {
+            event.preventDefault();
+        }
+        const formCopyTarget = document.getElementById("form-turn-list");
+        const lastChild = formCopyTarget.lastElementChild;
+        const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
+        const secondChild = formCopyTarget.children[1];
+        // Remove the second-to-last child if it exists
+        if (secondToLastChild && secondToLastChild !== secondChild) {
+            formCopyTarget.removeChild(secondToLastChild);
+            // Update the total form count after removing a form
+            const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+            totalNewForms.value = parseInt(totalNewForms.value, 10) - 1;
+            nextFormIndex--;
+        }else {
+            // If there is no second-to-last child, log a message
+            console.log("No second-to-last child to remove.");
+        }
+        const turnRows = document.querySelectorAll('[id$="-turn_number"]');
+        turnRows.forEach((turnRow, index) => {
+            if (index < turnRows.length - 1) {
+                calculateTotalPoints(turnRow);
+            }
+        });
+
+
+    }
+
+    function add_new_form(event) {
+        if (event) {
+            event.preventDefault();
         }
 
-        function clearForm(button) {
-                var formDiv = button.closest('.turn-form'); // Find the parent form div
-                formDiv.remove(); // Remove the form from the DOM
+        // Get the total number of forms
+        const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+        const formCopyTarget = document.getElementById("form-turn-list");
+        const lastChild = formCopyTarget.lastElementChild;
+        const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
+
+        // Clone the empty form
+        const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true);
+
+        // Remove the hidden class to make it visible
+        copyEmptyFormEl.classList.remove('hidden');
+
+        // Update the class and ID of the cloned form
+        copyEmptyFormEl.setAttribute('class', 'turn-form');
+        copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`);
+
+        // Replace the __prefix__ in all form field names with the correct index
+        const regex = new RegExp('__prefix__', 'g');
+        copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex);
+
+        // Update the value of the turn_number field for the cloned form
+        const turnNumberInput = copyEmptyFormEl.querySelector('input[name="form-' + nextFormIndex + '-turn_number"]');
+        if (turnNumberInput) {
+            turnNumberInput.value = nextFormIndex + 1;  // Set the value of turn_number to nextFormIndex + 1
+
+            // Create a new span element to display the turn number above the input
+            const turnNumberDisplay = document.createElement('span');
+            turnNumberDisplay.classList.add('turn-number-display');
+            turnNumberDisplay.textContent = `${nextFormIndex + 1}`;  // Display the turn number
+
+            // Insert the turn number display above the turn_number input
+            turnNumberInput.parentNode.insertBefore(turnNumberDisplay, turnNumberInput);
+
+
+
         }
 
-        
+
+        // Correctly update the form field names to match Django's expectations
+        $(copyEmptyFormEl).find('input, select, span').each(function() {
+            var name = $(this).attr('name');
+            if (name) {
+                $(this).attr('name', name.replace('__prefix__', nextFormIndex));
+            }
+            var id = $(this).attr('id');
+            if (id) {
+                $(this).attr('id', id.replace('__prefix__', nextFormIndex));
+            }
+        });
+
+        // Append the cloned form to the target form list
+        formCopyTarget.insertBefore(copyEmptyFormEl, lastChild);
+        // formCopyTarget.append(copyEmptyFormEl);
+
+        // Increment the form count
+        totalNewForms.value = nextFormIndex + 1;
+
+        // Increment the form index for the next addition
+        nextFormIndex++;
+    }
+
+
+
+
+
+
+
+
+
+    
+// });
+
+
+
+
+
+
+
+
+
+
+// document.addEventListener("DOMContentLoaded", function() {
+    // Select the form container for turns
+    const formTurnList = document.getElementById("form-turn-list");
+
+
+
+    const turnRows = document.querySelectorAll('[id$="-turn_number"]');
+    turnRows.forEach((turnRow, index) => {
+        if (index < turnRows.length - 1) {
+            calculateTotalPoints(turnRow);
+        }
+    });
+
+
+    // Add event listener to listen for any input change within the turn columns
+    formTurnList.addEventListener("input", function(event) {
+        // Check if the event target is an input element inside a turn column
+        if (event.target && event.target.matches(".turn-column input")) {
+            // You can perform actions based on which input was changed
+            // For example, you can calculate the total points here
+            calculateTotalPoints(event.target);
+        }
+    });
+
+    // Function to calculate total points for each turn
+    function calculateTotalPoints(inputElement) {
+        const turnForm = inputElement.closest('.turn-form'); // Find the closest turn form
+        const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
+        const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
+        const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
+        const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
+
+        const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints;
+
+        // Update the total points display in the current turn form
+        const totalPointsElement = turnForm.querySelector('.total-points');
+        if (totalPointsElement) {
+            totalPointsElement.textContent = totalPoints;
+        }
+
+        // Optionally, update the overall totals (if applicable)
+        updateOverallTotals();
+    }
+
+    // Function to update the overall totals (faction, crafting, battle, other, total)
+    function updateOverallTotals() {
+        let totalFaction = 0;
+        let totalCrafting = 0;
+        let totalBattle = 0;
+        let totalOther = 0;
+        let grandTotal = 0;
+
+        // Loop over all turn forms and sum up the points
+        const turnForms = formTurnList.querySelectorAll('.turn-form');
+        turnForms.forEach(turnForm => {
+            const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
+            const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
+            const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
+            const otherPointsField = turnForm.querySelector('[name*="other_points"]');
+
+            // Check if the fields exist before parsing
+            if (factionPointsField && craftingPointsField && battlePointsField && otherPointsField) {
+                const factionPoints = parseFloat(factionPointsField.value) || 0;
+                const craftingPoints = parseFloat(craftingPointsField.value) || 0;
+                const battlePoints = parseFloat(battlePointsField.value) || 0;
+                const otherPoints = parseFloat(otherPointsField.value) || 0;
+
+                totalFaction += factionPoints;
+                totalCrafting += craftingPoints;
+                totalBattle += battlePoints;
+                totalOther += otherPoints;
+                grandTotal += factionPoints + craftingPoints + battlePoints + otherPoints;
+            }
+        });
+
+
+        // Update the total rows
+        document.getElementById("total-faction").textContent = totalFaction;
+        document.getElementById("total-crafting").textContent = totalCrafting;
+        document.getElementById("total-battle").textContent = totalBattle;
+        document.getElementById("total-other").textContent = totalOther;
+        document.getElementById("total-total").textContent = grandTotal;
+    }
+});
+
+
+
+
+
 </script>
 
 

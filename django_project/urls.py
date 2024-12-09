@@ -27,7 +27,7 @@ from the_keep.api_views import get_decks_by_platform, get_factions_by_platform, 
 
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('woodland-admin/', admin.site.urls),
     path('api/decks/<str:platform>/', get_decks_by_platform, name='get_decks_by_platform'),
     path('api/factions/<str:platform>/', get_factions_by_platform, name='get_factions_by_platform'),
     path('api/maps/<str:platform>/', get_maps_by_platform, name='get_maps_by_platform'),

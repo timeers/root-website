@@ -84,6 +84,14 @@ class Profile(models.Model):
     #         img.save(self.image.path)
 
     @property
+    def banned(self):
+        group = self.group
+        if group == "B":
+            return True
+        else:
+            return False
+
+    @property
     def admin(self):
         group = self.group
         if group == "A":

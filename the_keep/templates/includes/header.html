@@ -12,6 +12,9 @@
           <div class="navbar-nav mr-auto">
             <a class="nav-item nav-link" href="{% url 'keep-home' %}">Home</a>
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
+            {% if user.profile.designer %}
+              <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>
+            {% endif %}
             <a class="nav-item nav-link" href="{% url 'keep-about' %}">About</a>
 
           </div>
@@ -49,6 +52,9 @@
                         <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{% url 'expansion-create' %}">Expansion</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">Point Breakdown</a></li>
+                        
                         {% endif %}
                       </ul>
                     </li>

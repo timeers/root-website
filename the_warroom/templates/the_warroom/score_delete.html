@@ -1,0 +1,15 @@
+{% extends 'the_keep/base.html' %}
+{% block content %}
+
+{% if object %}
+<form method="POST" action="{% url 'delete-scorecard' object.id %}">
+    {% csrf_token %}
+    <h1>Delete Score Card?</h1>
+    <p>Are you sure you want to delete the selected score card{% if object.faction %} for {{ object.faction.title }}{% endif %}? This cannot be undone.</p>
+    <button class="btn btn-danger" type="submit">Yes, delete</button>
+    <a class="btn btn-outline-secondary" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
+</form>
+{% include 'the_warroom/partials/scorecard.html' %}
+{% endif %}
+
+{% endblock content %}

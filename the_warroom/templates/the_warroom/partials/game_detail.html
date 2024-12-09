@@ -6,11 +6,18 @@
 
     <div class="article-metadata">
         <small class="text-muted">
-
-            {% if game.tournament %}
-                <a href="{% url 'game-detail' game.id %}">{{ game.tournament.name }} Tournament Game</a> |
+            {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
+                {% if game.tournament %}
+                    {{ game.tournament.name }} Tournament Game |
+                {% else %}
+                    {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game |
+                {% endif %}
             {% else %}
-                <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game</a> |
+                {% if game.tournament %}
+                    <a href="{% url 'game-detail' game.id %}">{{ game.tournament.name }} Tournament Game</a> |
+                {% else %}
+                    <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game</a> |
+                {% endif %}
             {% endif %}
             {{ game.date_posted | date:"Y-m-d" }} |
             <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
@@ -44,83 +51,32 @@
                 <th>Player</th>
                 <th>Faction</th>
                 <th>Score</th>
+                {% if user.profile.designer %}
+                {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
+                    <th>Detail</th>
+                {% endif %}
+                {% endif %}
+                {% if user.profile.admin  %}
+                {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
+                    <th>Admin</th>
+                {% endif %}
+                {% endif %}
             </tr>
         </thead>
         <tbody class="effort-rows">
 
-
-        {% for effort in game.get_efforts %}
-
-        <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
-            <td>
-
-            {% if effort.player %}
-                {% if user.profile.player %}
-                    <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.display_name }}</a>
-                {% else %}
-                    {{ effort.player.display_name }}
-                {% endif %}
-            {% else %}
-                Anonymous Player
-            {% endif %}
-        </td>
-        <td>
-            {% if effort.faction %}
-                <a href="{% url 'faction-detail' effort.faction.slug %}">
-                    <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
-                </a>
-                <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
-                {% if effort.vagabond %}
-                    (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
-                {% endif %}
-            {% else %}
-                Faction N/A
-            {% endif %}
-        </td>
-        <td>
-            {% if effort.dominance %}
-                {{ effort.dominance }} Dominance
-            {% elif effort.coalition_with %}
-                Coalition with {{ effort.coalition_with.title }}
-            {% else %}
-                {% if effort.score %}
-                    {{ effort.score }}
-                {% endif %}
-            {% endif %}
-            {% if effort.win %}
-                 (Victory)
-            {% endif %}
-
-        </td>
-        {% if user.profile.group == "A" and game.efforts.count > 1 %}
-        {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
-        <td>   
-            {% if game.efforts.count > 1 %}
-                <a class="btn btn-outline-danger btn-sm"
-                hx-delete="{% url 'effort-hx-delete' effort.id %}"
-                hx-confirm="Are you sure you want to delete this player data? This cannot be undone. If you need to edit the player data use the Edit button below instead."
-                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-                hx-target="#game-{{ game.id }}" 
-                hx-swap="outerHTML">
-                Delete
-            </a>
-            {% else %}
-                <a class="btn btn-outline-danger btn-sm" href="{{ game.get_delete_url }}">Delete Game</a>
-            {% endif %}
-        </td>
-        {% endif %}
-        {% endif %}
-    </tr>
-
-
-
-
+{% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
+    {% for effort in efforts %}
+            {% include 'the_warroom/partials/effort_detail.html' %}
     {% endfor %}
+{% else %}
+    {% for effort in game.get_efforts %}
+        {% include 'the_warroom/partials/effort_detail.html' %}
+    {% endfor %}
+{% endif %}
+
 </tbody>
 </table>
-
-
-
 
 </div>
 </article>

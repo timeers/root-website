@@ -6,10 +6,11 @@
 
 <article class="media content-section">
     <div class="media-body">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
         <h2>Game Details</h2>
 
         {% include 'the_warroom/partials/bookmarks.html' %}
-        
+        </div>
         {% if game.tournament %}
         <div>
             {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game
@@ -54,10 +55,11 @@
         {% endif %}
 
         {% if user.is_authenticated %}
-            {% if user.profile in participants %}
+            {% if user.profile in participants or user.profile == game.recorder %}
                 {% include 'the_tavern/game_comment_form.html' %}
             {% endif %}
         {% endif %}
+        {% if user.profile.player %}
         <h3>Notes</h3>
         <span id="commentscount">({{ game.comments.count }})</span>
         <div id="game-notes">
@@ -65,7 +67,7 @@
             {% include 'the_tavern/comment.html' %}
         {% endfor %}
         </div>
-    
+        {% endif %}
 
 
     </div>
@@ -73,13 +75,13 @@
 
 
 
-{% if user.profile.group == 'A' %}
+{% if user.profile.admin %}
 <article class="media content-section">
     <div class="media-body">
     <h2>Admin Options</h2>
     <div>
         Admin users can edit and delete game data.<br>
-        This cannot be undone and should be handled carefully.
+        This cannot be undone and should be handled with care.
     </div>
 <small>
     <a class="btn btn-outline-secondary" href="{{ game.get_edit_url }}">Edit Game</a>

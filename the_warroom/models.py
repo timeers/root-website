@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
-from django.db import models
-from django.db.models import Q
+from django.db import models, transaction
+from django.db.models import Q, Sum, F
 from django.utils import timezone 
 from django.urls import reverse
 from django.core.validators import MinValueValidator
@@ -8,6 +8,7 @@ from the_gatehouse.models import Profile
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
+
 
 
 class GameQuerySet(models.QuerySet):
@@ -155,52 +156,48 @@ class Effort(models.Model):
              "id": self.id,
         }
         return reverse("effort-delete", kwargs=kwargs)
+
+    def available_scorecard(self, user):
+        # Use Q to filter for scorecards made by the user, with no linked effort, matching faction and score
+        scorecards = ScoreCard.objects.filter(
+            Q(recorder=user.profile) &
+            Q(effort=None) &
+            Q(faction=self.faction) &
+            Q(total_points=self.score)
+        )
+        # If there is a queryset return True
+        return scorecards.exists()
+
     
     class Meta:
         ordering = ['game', 'seat']    
 
 
 class ScoreCard(models.Model):
-    effort = models.OneToOneField(Effort, on_delete=models.CASCADE, null=True, blank=True)
+    effort = models.OneToOneField(Effort, related_name='scorecard', on_delete=models.CASCADE, null=True, blank=True)
     faction = models.ForeignKey(Faction, related_name='scorecards', on_delete=models.CASCADE)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
+
+    total_points = models.IntegerField(default=0)
+    total_battle_points = models.IntegerField(default=0)
+    total_crafting_points = models.IntegerField(default=0)
+    total_faction_points = models.IntegerField(default=0)
+    total_other_points = models.IntegerField(default=0)
+
+
     def __str__(self):
-        return f"{self.turns.count()} Turn Game Score for {self.faction} on {self.date_posted.strftime('%Y-%m-%d %H:%M')}"
+        if self.description:
+            if len(self.description) > 10:
+                description = f'{self.description[:10]}...'
+            else:
+                description = self.description
+        else:
+            description = 'No Note'
+        return f"{self.turns.count()} Turn - {self.total_points} Point Game - {self.date_posted.strftime('%Y-%m-%d')} - {description}"
     def get_absolute_url(self):
-        return reverse("game-scores", kwargs={"id": self.id})
-    @property
-    def total_points(self):
-        calc = 0
-        for turn in self.turns.all():
-            calc += turn.total_points
-        return calc
-    
-    @property
-    def total_battle_points(self):
-        calc = 0
-        for turn in self.turns.all():
-            calc += turn.battle_points
-        return calc
-    @property
-    def total_crafting_points(self):
-        calc = 0
-        for turn in self.turns.all():
-            calc += turn.crafting_points
-        return calc
-    @property
-    def total_faction_points(self):
-        calc = 0
-        for turn in self.turns.all():
-            calc += turn.faction_points
-        return calc
-    @property
-    def total_other_points(self):
-        calc = 0
-        for turn in self.turns.all():
-            calc += turn.other_points
-        return calc
+        return reverse("detail-scorecard", kwargs={"id": self.id})
 
 class TurnScore(models.Model):
     scorecard = models.ForeignKey(ScoreCard, related_name='turns', on_delete=models.CASCADE, null=True, blank=True)
@@ -211,11 +208,22 @@ class TurnScore(models.Model):
     other_points = models.IntegerField(default=0)
     total_points = models.IntegerField(default=0)
 
-    def save(self, *args, **kwargs):
-        self.total_points = (self.battle_points + self.crafting_points + self.faction_points + self.other_points)
-        super().save(*args, **kwargs)
     def __str__(self):
-            return f"Turn {self.turn_number} Score for {self.scorecard.faction} - Total Points: {self.total_points}"
+            return f"Turn {self.turn_number} - Total Points: {self.total_points}"
     class Meta:
         unique_together = ('scorecard', 'turn_number')  # Ensure each game has only one entry per turn_number
         ordering = ['scorecard', 'turn_number']   
+
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            self.total_points = (self.battle_points + self.crafting_points + self.faction_points + self.other_points)
+            super().save(*args, **kwargs)
+            if self.scorecard:
+                scorecard = self.scorecard
+                scorecard.total_points = scorecard.turns.aggregate(Sum('total_points'))['total_points__sum'] or 0
+                scorecard.total_battle_points = scorecard.turns.aggregate(Sum('battle_points'))['battle_points__sum'] or 0
+                scorecard.total_crafting_points = scorecard.turns.aggregate(Sum('crafting_points'))['crafting_points__sum'] or 0
+                scorecard.total_faction_points = scorecard.turns.aggregate(Sum('faction_points'))['faction_points__sum'] or 0
+                scorecard.total_other_points = scorecard.turns.aggregate(Sum('other_points'))['other_points__sum'] or 0
+                scorecard.save()

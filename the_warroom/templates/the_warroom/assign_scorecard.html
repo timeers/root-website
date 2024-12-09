@@ -1,0 +1,34 @@
+{% extends 'the_keep/base.html' %}
+{% block content %}
+
+<h1>Link a Scorecard</h1>
+{% include 'the_warroom/partials/game_detail.html' %}
+
+
+<h2>{{ form.scorecard.field.queryset.count }} Available Scorecard{% if form.scorecard.field.queryset.count > 1 %}s{% endif %}</h2>
+<h3>for {{ effort.faction.title }} Game</h3>
+<ul>
+    {% for scorecard in form.scorecard.field.queryset %}
+        <div>
+            <strong>{{ scorecard }}</strong>
+            <ul>
+            <li>{{ scorecard.total_faction_points }} Faction Points</li>
+            <li>{{ scorecard.total_battle_points }} Battle Points</li>
+            <li>{{ scorecard.total_crafting_points }} Crafting Points</li>
+            <li>{{ scorecard.total_other_points }} Other Points</li>
+            {% if scorecard.description %}
+                <div>{{ scorecard.description }}</div>
+            {% endif %}
+            </ul>
+
+        </div>
+    {% endfor %}
+</ul>
+<form method="POST">
+    {% csrf_token %}
+    {{ form }}
+    <button type="submit" class="btn btn-primary">Link</button>
+</form>
+
+
+{% endblock content %}

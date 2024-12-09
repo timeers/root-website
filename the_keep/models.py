@@ -452,31 +452,25 @@ class Piece(models.Model):
         return f"{self.name} (x{self.quantity})"
 
 class Warrior(Piece):
-    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
-    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
+    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
     class Meta:
         verbose_name_plural = "Warriors" 
 
 class Building(Piece):
-    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
-    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
+    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
+
 
 class Token(Piece):
-    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
-    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
+    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
+
 
 class Card(Piece):
-    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
-    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
+    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
+
 
 class OtherPiece(Piece):
-    faction = models.ForeignKey(Faction, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
-    vagabond = models.ForeignKey(Vagabond, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
-    hireling = models.ForeignKey(Hireling, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
+    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
+
     
 
 

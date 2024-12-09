@@ -1,30 +1,28 @@
 from django.shortcuts import render
-# from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.generic import ListView
 from django.views.decorators.http import require_http_methods
-from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, HttpResponseRedirect
 from django.forms.models import modelformset_factory
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse, Http404, HttpResponseForbidden
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
-# from django.db import transaction
 from django.db.models import Q
+
 from .models import Game, Effort, TurnScore, ScoreCard
-from .forms import GameCreateForm, EffortCreateForm, TurnScoreCreateForm, ScoreCardCreateForm
+from .forms import GameCreateForm, EffortCreateForm, TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm
 from .filters import GameFilter
+
 from the_gatehouse.models import Profile
-# from the_keep.models import Post
 from the_gatehouse.views import player_required, admin_required, designer_required
 from the_gatehouse.forms import PlayerCreateForm
+
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
-from datetime import datetime
+
 
 
 
@@ -157,12 +155,19 @@ def game_detail_view(request, id=None):
             participants.append(effort.player)
     except ObjectDoesNotExist:
         obj = None
+
+    # Add efforts directly to context to get the available_scorecard field
+    efforts = obj.efforts.all()
+    for effort in efforts:
+        effort.available_scorecard = effort.available_scorecard(request.user)
+
     commentform = GameCommentCreateForm()
     context=  {
         'hx_url': hx_url,
         'game': obj,
         'commentform': commentform,
-        'participants': participants
+        'participants': participants,
+        'efforts': efforts,
     }
     return render(request, "the_warroom/game_detail.html", context)
 
@@ -324,49 +329,109 @@ def bookmark_game(request, object):
 
 # VIEW FOR RECORDING TURN BY TURN SCORES
 @designer_required
-def manage_score(request, id=None):
+def scorecard_manage_view(request, id=None):
+    existing_scorecard = False
+    faction = request.GET.get('faction', None)
+    effort_id = request.GET.get('effort', None)
+    try:
+        effort = Effort.objects.get(id=effort_id)
+
+        game = effort.game
+        participants = []
+        for participant_effort in game.efforts.all():
+            participants.append(participant_effort.player)
+        if game.recorder:
+            participants.append(game.recorder)
+        if not request.user.profile in participants:
+                    return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+
+
+    except Effort.DoesNotExist:
+        effort = None
+
     if id:
         obj = get_object_or_404(ScoreCard, id=id)
+        # Check if the current user is the same as the recorder
+        if obj.recorder != request.user.profile:
+            return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+        if obj.faction != None:
+            faction = obj.faction.id
+        if obj.effort != None:
+            effort = obj.effort
+        existing_scorecard = True
     else:
         obj = ScoreCard()  # Create a new ScoreCard instance but do not save it yet
     user = request.user
-    form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user)
+
+    form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user, faction=faction)
 
     if id:  # Only check for existing turns if updating an existing game score
         existing_turns = obj.turns.all()
         existing_count = existing_turns.count()
-        extra_forms = 1
+        extra_forms = 0
     else:
         existing_count = 0  # New game has no existing turns
-        extra_forms = 7
-
+        extra_forms = 1
     TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms)
     qs = obj.turns.all() if id else TurnScore.objects.none()  # Only fetch existing turns if updating
     formset = TurnFormset(request.POST or None, queryset=qs)
-    form_count = extra_forms + existing_count
+    form_count = extra_forms + existing_count        
+
+    if effort:
+        score = effort.score
+    else:
+        score = None
+
+
     context = {
         'form': form,
         'formset': formset,
         'object': obj,
         'form_count': form_count,
+        'faction': faction,
+        'score': score,
     }
 
     if not form.is_valid():
         print("Form errors:", form.errors)
-
     if not formset.is_valid():
         print("Formset errors:", formset.errors)
 
-
-
     # Handle form submission
-
     if form.is_valid() and formset.is_valid():
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
+        parent.effort = effort
         parent.save()  # Save the new or updated Game Score instance
+
+
+        # Calculate the total points from the formset
+        total_points = 0
+        for form in formset:
+            total_points += (
+                form.cleaned_data.get('faction_points', 0) +
+                form.cleaned_data.get('crafting_points', 0) +
+                form.cleaned_data.get('battle_points', 0) +
+                form.cleaned_data.get('other_points', 0)
+            )
+        if effort and total_points != effort.score and effort.score:
+            # If points don't match effort.score
+            context['message'] = f"Error: The recorded points ({total_points}) do not match the total game points ({effort.score})."
+            if existing_scorecard == False:
+                parent.delete()
+            return render(request, 'the_warroom/record_scores.html', context)
+
+        elif total_points < 0:
+            # If points are negative
+            context['message'] = f"Error: The recorded points ({total_points}) are negative."
+            if existing_scorecard == False:
+                parent.delete()
+            return render(request, 'the_warroom/record_scores.html', context)
+
+        
         for form in formset:
             child = form.save(commit=False)
+            print(parent)
             child.scorecard = parent  # Link the turn to the game
             child.save()
 
@@ -376,13 +441,107 @@ def manage_score(request, id=None):
     return render(request, 'the_warroom/record_scores.html', context)
 
 @player_required
-def score_detail_view(request, id=None):
+def scorecard_detail_view(request, id=None):
     try:
         obj = ScoreCard.objects.get(id=id)
-
     except ObjectDoesNotExist:
         obj = None
     context=  {
         'object': obj,
     }
     return render(request, "the_warroom/score_detail.html", context)
+
+
+@designer_required
+def scorecard_assign_view(request, id):
+    effort = get_object_or_404(Effort, id=id)
+    game = effort.game
+    participants = []
+    for participant_effort in game.efforts.all():
+        participants.append(participant_effort.player)
+    if game.recorder:
+        participants.append(game.recorder)
+    if not request.user.profile in participants:
+                return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+    if request.method == 'POST':
+        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score)
+        if form.is_valid():
+            scorecard = form.cleaned_data['scorecard']
+            scorecard.effort = effort  # Assign the Effort to the selected Scorecard
+            scorecard.save()  # Save the updated Scorecard
+            return redirect('game-detail', id=effort.game.id)
+    else:
+        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score)
+
+    context = {
+        'form': form, 
+        'effort': effort,
+        'game': game,
+        }
+
+    return render(request, 'the_warroom/assign_scorecard.html', context)
+
+@designer_required
+def scorecard_delete_view(request, id=None):
+    try:
+        obj = ScoreCard.objects.get(id=id, recorder=request.user.profile)
+    except:
+        obj = None
+    if obj is None:
+        if request.htmx:
+            return HttpResponse("Not Found")
+        raise Http404
+    if request.method == "POST":
+        if obj.effort:
+            success_url = obj.effort.game.get_absolute_url()
+        else:
+            success_url = reverse('list-scorecard')
+        obj.delete()
+        if request.htmx:
+            headers = {
+                'HX-Redirect': success_url,
+            }
+            return HttpResponse("Success", headers=headers)
+        return redirect(success_url)
+    context=  {
+        'object': obj
+    }
+    return render(request, "the_warroom/score_delete.html", context)
+
+@designer_required
+def scorecard_list_view(request):
+    unassigned_scorecards = ScoreCard.objects.filter(
+            Q(recorder=request.user.profile) & 
+            Q(effort=None)
+        )
+    complete_scorecards = ScoreCard.objects.filter(
+            recorder=request.user.profile).exclude(effort=None)
+    
+
+    unassigned_efforts = Effort.objects.filter(
+        Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
+        Q(game__recorder=request.user.profile),  # Recorder is the current user
+        scorecard=None  # Effort has no associated scorecard
+    ).distinct()
+
+
+    for scorecard in unassigned_scorecards:
+        # Check if there is a matching effort for each scorecard
+        # scorecard.matches_effort = unassigned_efforts.filter(
+        #     faction=scorecard.faction,
+        #     score=scorecard.total_points
+        # ).exists()
+
+        # # Find matching efforts based on faction and total_points
+        matching_efforts = unassigned_efforts.filter(
+            faction=scorecard.faction,
+            score=scorecard.total_points
+        )
+        # Add the matching efforts as a property on the scorecard
+        scorecard.matching_efforts = matching_efforts
+
+    context = {
+        'unassigned_scorecards': unassigned_scorecards,
+        'complete_scorecards': complete_scorecards,
+    }
+    return render(request, 'the_warroom/scorecard_list.html', context)

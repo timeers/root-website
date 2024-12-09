@@ -8,7 +8,7 @@ from django.core.validators import URLValidator
 
 
 top_fields = ['title', 'expansion']
-bottom_fields = ['lore','description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'picture', 'artist']
+bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'picture', 'artist']
 
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
@@ -27,6 +27,38 @@ class ExpansionCreateForm(forms.ModelForm):
                 'rows': '2',
                 'placeholder': 'Enter any thematic text here...'
                 })
+
+class PostImportForm(forms.ModelForm):
+    form_type = 'Component'
+    expansion = forms.ModelChoiceField(
+        queryset=Expansion.objects.all(),  # Default empty queryset
+        required=False
+    )
+    class Meta:
+        model = Post
+        fields = ['picture', 'title', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
+    def clean(self):
+            cleaned_data = super().clean()
+            bgg_link = cleaned_data.get('bgg_link')
+            tts_link = cleaned_data.get('tts_link')
+            ww_link = cleaned_data.get('ww_link')
+            wr_link = cleaned_data.get('wr_link')
+            pnp_link = cleaned_data.get('pnp_link')
+            url_validator = URLValidator()
+            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link]:
+                if url:  # Only validate if the field is filled
+                    try:
+                        url_validator(url)
+                    except ValidationError:
+                        raise ValidationError(f"The field '{url}' must be a valid URL.")
+            return cleaned_data
+
+
+
+
+
+
+
 
 class PostCreateForm(forms.ModelForm):
     form_type = 'Component'
@@ -145,8 +177,8 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             raise ValidationError(f'A map with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
-class MapImportForm(MapCreateForm):  # Inherit from PostCreateForm
-    class Meta(MapCreateForm.Meta):  # Inherit Meta from PostCreateForm
+class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
+    class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
         fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable', 'expansion'] + bottom_fields
 
@@ -198,10 +230,10 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             raise ValidationError(f'A deck with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
-class DeckImportForm(DeckCreateForm):
-    class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
+class DeckImportForm(PostImportForm):
+    class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'stable', 'expansion'] + bottom_fields
+        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'stable'] + bottom_fields
 
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -347,10 +379,10 @@ class VagabondCreateForm(PostCreateForm):
                 raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
             return cleaned_data
 
-class VagabondImportForm(PostCreateForm): 
-    class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
+class VagabondImportForm(PostImportForm): 
+    class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'official', 'designer', 'expansion',
+        fields = top_fields + ['animal', 'stable', 'official', 'designer', 'expansion',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
@@ -465,9 +497,9 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
 
 
-class FactionImportForm(FactionCreateForm):
+class FactionImportForm(PostImportForm):
     reach = forms.IntegerField(min_value=0, max_value=10)
-    class Meta(FactionCreateForm):
+    class Meta(PostImportForm):
         model = Faction 
         fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
@@ -484,7 +516,7 @@ class FactionImportForm(FactionCreateForm):
 class WarriorForm(forms.ModelForm):
     class Meta:
         model = Warrior
-        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        fields = ['name', 'quantity', 'description', 'suited', 'parent']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }
@@ -492,7 +524,7 @@ class WarriorForm(forms.ModelForm):
 class BuildingForm(forms.ModelForm):
     class Meta:
         model = Building
-        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        fields = ['name', 'quantity', 'description', 'suited', 'parent']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }
@@ -500,7 +532,7 @@ class BuildingForm(forms.ModelForm):
 class TokenForm(forms.ModelForm):
     class Meta:
         model = Token
-        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        fields = ['name', 'quantity', 'description', 'suited', 'parent']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }
@@ -508,7 +540,7 @@ class TokenForm(forms.ModelForm):
 class CardForm(forms.ModelForm):
     class Meta:
         model = Card
-        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling']
+        fields = ['name', 'quantity', 'description', 'suited', 'parent']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }
@@ -516,7 +548,7 @@ class CardForm(forms.ModelForm):
 class OtherPieceForm(forms.ModelForm):
     class Meta:
         model = OtherPiece
-        fields = ['name', 'quantity', 'description', 'suited', 'faction', 'hireling', 'vagabond']
+        fields = ['name', 'quantity', 'description', 'suited', 'parent']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }

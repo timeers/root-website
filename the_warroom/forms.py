@@ -2,6 +2,7 @@ from django import forms
 from .models import Effort, Game, TurnScore, ScoreCard
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 
 
 class GameCreateForm(forms.ModelForm):  
@@ -62,8 +63,11 @@ class EffortCreateForm(forms.ModelForm):
 class TurnScoreCreateForm(forms.ModelForm):
     class Meta:
         model = TurnScore
-        fields = ['turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points']
-
+        fields = ['id', 'turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points']
+    faction_points = forms.IntegerField(required=False, initial=0)
+    crafting_points = forms.IntegerField(required=False, initial=0)
+    battle_points = forms.IntegerField(required=False, initial=0)
+    other_points = forms.IntegerField(required=False, initial=0)
     # Custom validation for turn_number field
     def clean_turn_number(self):
         turn_number = self.cleaned_data.get('turn_number')
@@ -86,6 +90,12 @@ class TurnScoreCreateForm(forms.ModelForm):
         return total_points
     def clean(self):
         cleaned_data = super().clean()
+
+        # Set any missing points to 0
+        for field in ['faction_points', 'crafting_points', 'battle_points', 'other_points']:
+            if field in cleaned_data and not cleaned_data.get(field):
+                cleaned_data[field] = 0
+
         return cleaned_data
     
 class ScoreCardCreateForm(forms.ModelForm):
@@ -96,9 +106,15 @@ class ScoreCardCreateForm(forms.ModelForm):
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
         }
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, faction=None, **kwargs):
         # Call the parent constructor
         super(ScoreCardCreateForm, self).__init__(*args, **kwargs)
+        # Check if faction is passed to the form
+        if faction:
+            self.fields['faction'].queryset = Faction.objects.filter(id=faction)
+            self.fields['faction'].initial = faction  # Set the initial value of the faction
+            self.fields['faction'].empty_label = None
+            # self.fields['faction'].disabled = True
         self.user = user  # Save the user parameter for later use
 
     def clean(self):
@@ -128,8 +144,27 @@ class GameImportForm(forms.ModelForm):
     class Meta:
         model = Game
         fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
+
+
+
+class AssignScorecardForm(forms.ModelForm):  
+    scorecard = forms.ModelChoiceField(queryset=ScoreCard.objects.all(), required=True)
+
+    class Meta:
+        model = Effort
+        fields = ['scorecard']
         widgets = {
-            'type': forms.RadioSelect,
+            'scorecard': forms.ModelChoiceField(queryset=ScoreCard.objects.all(), required=True),
         }
 
-
+    def __init__(self, *args, user=None, total_points=None, faction=None, **kwargs):
+        # Call the parent constructor
+        super(AssignScorecardForm, self).__init__(*args, **kwargs)
+        print(faction)
+        self.fields['scorecard'].queryset = ScoreCard.objects.filter(
+            Q(recorder=user.profile) & 
+            Q(effort=None) & 
+            Q(faction=faction) &
+            Q(total_points=total_points)
+        )
+        self.fields['scorecard'].empty_label = None
