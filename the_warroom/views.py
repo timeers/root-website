@@ -49,7 +49,7 @@ class GameListView(ListView):
                 queryset = super().get_queryset()
             else:
                 queryset = super().get_queryset().only_official_components()
-        self.filterset = GameFilter(self.request.GET, queryset=queryset)
+        self.filterset = GameFilter(self.request.GET, queryset=queryset, user=self.request.user)
         return self.filterset.qs
     
     def get_context_data(self, **kwargs):
@@ -57,6 +57,10 @@ class GameListView(ListView):
 
         # Get the ordered queryset of games
         games = self.get_queryset()
+
+        # Get the total count of games (total number of records in the queryset)
+        games_count = games.count()
+
         # Paginate games
         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
         page_number = self.request.GET.get('page')  # Get the page number from the request
@@ -72,6 +76,8 @@ class GameListView(ListView):
 
         context['form'] = self.filterset.form
         context['filterset'] = self.filterset
+
+        context['games_count'] = games_count
         
         return context
     
@@ -169,7 +175,7 @@ def game_detail_view(request, id=None):
         'participants': participants,
         'efforts': efforts,
     }
-    return render(request, "the_warroom/game_detail.html", context)
+    return render(request, "the_warroom/game_detail_page.html", context)
 
 @staff_member_required
 def game_delete_view(request, id=None):
@@ -371,7 +377,7 @@ def scorecard_manage_view(request, id=None):
         extra_forms = 0
     else:
         existing_count = 0  # New game has no existing turns
-        extra_forms = 1
+        extra_forms = 5
     TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms)
     qs = obj.turns.all() if id else TurnScore.objects.none()  # Only fetch existing turns if updating
     formset = TurnFormset(request.POST or None, queryset=qs)
@@ -455,6 +461,9 @@ def scorecard_detail_view(request, id=None):
 @designer_required
 def scorecard_assign_view(request, id):
     effort = get_object_or_404(Effort, id=id)
+
+    selected_scorecard = request.GET.get('scorecard')
+    print(selected_scorecard)
     game = effort.game
     participants = []
     for participant_effort in game.efforts.all():
@@ -464,14 +473,14 @@ def scorecard_assign_view(request, id):
     if not request.user.profile in participants:
                 return HttpResponseForbidden("You do not have permission to edit this scorecard.")
     if request.method == 'POST':
-        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score)
+        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard)
         if form.is_valid():
             scorecard = form.cleaned_data['scorecard']
             scorecard.effort = effort  # Assign the Effort to the selected Scorecard
             scorecard.save()  # Save the updated Scorecard
             return redirect('game-detail', id=effort.game.id)
     else:
-        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score)
+        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard)
 
     context = {
         'form': form, 
@@ -516,22 +525,13 @@ def scorecard_list_view(request):
         )
     complete_scorecards = ScoreCard.objects.filter(
             recorder=request.user.profile).exclude(effort=None)
-    
-
+    # Scorecards that need to be assigned
     unassigned_efforts = Effort.objects.filter(
         Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
         Q(game__recorder=request.user.profile),  # Recorder is the current user
         scorecard=None  # Effort has no associated scorecard
     ).distinct()
-
-
     for scorecard in unassigned_scorecards:
-        # Check if there is a matching effort for each scorecard
-        # scorecard.matches_effort = unassigned_efforts.filter(
-        #     faction=scorecard.faction,
-        #     score=scorecard.total_points
-        # ).exists()
-
         # # Find matching efforts based on faction and total_points
         matching_efforts = unassigned_efforts.filter(
             faction=scorecard.faction,

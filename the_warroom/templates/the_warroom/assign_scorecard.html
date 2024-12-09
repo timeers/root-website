@@ -5,7 +5,7 @@
 {% include 'the_warroom/partials/game_detail.html' %}
 
 
-<h2>{{ form.scorecard.field.queryset.count }} Available Scorecard{% if form.scorecard.field.queryset.count > 1 %}s{% endif %}</h2>
+<h2>{{ form.scorecard.field.queryset.count }} Available Scorecard{% if form.scorecard.field.queryset.count != 1 %}s{% endif %}</h2>
 <h3>for {{ effort.faction.title }} Game</h3>
 <ul>
     {% for scorecard in form.scorecard.field.queryset %}

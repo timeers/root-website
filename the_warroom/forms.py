@@ -157,14 +157,24 @@ class AssignScorecardForm(forms.ModelForm):
             'scorecard': forms.ModelChoiceField(queryset=ScoreCard.objects.all(), required=True),
         }
 
-    def __init__(self, *args, user=None, total_points=None, faction=None, **kwargs):
+    def __init__(self, *args, user=None, total_points=None, faction=None, selected_scorecard=None, **kwargs):
         # Call the parent constructor
         super(AssignScorecardForm, self).__init__(*args, **kwargs)
-        print(faction)
-        self.fields['scorecard'].queryset = ScoreCard.objects.filter(
-            Q(recorder=user.profile) & 
-            Q(effort=None) & 
-            Q(faction=faction) &
-            Q(total_points=total_points)
-        )
+        print(f'Selected Scorecard: {selected_scorecard}')
+        if selected_scorecard:
+            self.fields['scorecard'].queryset = ScoreCard.objects.filter(
+                Q(recorder=user.profile) & 
+                Q(effort=None) & 
+                Q(faction=faction) &
+                Q(total_points=total_points) &
+                Q(id=selected_scorecard)
+            )
+        else:
+            print('All matching cards')
+            self.fields['scorecard'].queryset = ScoreCard.objects.filter(
+                Q(recorder=user.profile) & 
+                Q(effort=None) & 
+                Q(faction=faction) &
+                Q(total_points=total_points)
+            )
         self.fields['scorecard'].empty_label = None

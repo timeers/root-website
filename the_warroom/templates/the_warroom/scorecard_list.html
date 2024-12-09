@@ -3,7 +3,7 @@
 
 <a class="btn btn-success ml-1 ms-1 mb-1" href="{% url 'record-scorecard' %}">New Scorecard</a>
 {% if unassigned_scorecards %}
-<h1>Unassigned Scorecards</h1>
+<h1>Unassigned Scorecards ({{ unassigned_scorecards|length }})</h1>
 These scorecards have not been linked to any game:
 
 
@@ -46,11 +46,11 @@ These scorecards have not been linked to any game:
                 <a class="btn btn-outline-danger btn-sm ml-1 ms-1 mb-1" href="{% url 'delete-scorecard' object.id %}">
                     <i class="bi bi-trash3"></i>
                 </a>
-                <a class="btn btn-outline-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
+                <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
                     <i class="bi bi-pencil-square"></i>
                 </a>
                 {% if object.matching_efforts %}
-                    <button class="btn btn-outline-success btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-game-{{ object.id }}" aria-expanded="false" aria-controls="collapse-game-{{ object.id }}">
+                    <button class="btn btn-outline-warning btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-game-{{ object.id }}" aria-expanded="false" aria-controls="collapse-game-{{ object.id }}">
                         <i class="bi bi-link"></i>
                     </button>
                 {% endif %}
@@ -87,7 +87,7 @@ These scorecards have not been linked to any game:
                 {% endif %}
             </td>
             <td>
-                <a class="btn btn-outline-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-scorecard' id=effort.id %}">
+                <a class="btn btn-outline-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-scorecard' id=effort.id %}?scorecard={{ object.id }}">
                     <i class="bi bi-link"></i>
                 </a>
             </td>
@@ -144,7 +144,7 @@ These scorecards have not been linked to any game:
 
         <td>
 
-            <a class="btn btn-outline-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
+            <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
                 <i class="bi bi-pencil-square"></i>
             </a>
 

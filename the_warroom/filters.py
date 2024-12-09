@@ -37,11 +37,15 @@ class GameFilter(django_filters.FilterSet):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         official_only = True
+        print(f'Checking user {user}')
         if user and user.is_authenticated:
+            print('checking for weirdness')
             if user.profile.weird:
+                print('Verdict: pretty weird')
                 official_only = False
         # Filter for only Official content if not a member of Weird Root
         if official_only:
+            print('Verdict: not weird enough')
             self.filters['deck'].queryset = Deck.objects.filter(official=True)
             self.filters['map'].queryset = Map.objects.filter(official=True)
             self.filters['faction'].queryset = Faction.objects.filter(official=True)

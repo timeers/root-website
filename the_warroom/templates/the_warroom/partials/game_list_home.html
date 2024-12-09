@@ -1,6 +1,9 @@
 
 <div id="games-container">
-Games Home HTML
+
+    {% if page_obj.number == 1 %}
+    <h2>Total games: {{ games_count }}</h2> 
+    {% endif %}
 {% for game in games %}
 
 

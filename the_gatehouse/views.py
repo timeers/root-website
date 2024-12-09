@@ -73,9 +73,8 @@ def player_page_view(request, slug):
 
     quantity_faction = player.most_used_faction()
     quality_faction = player.most_successful_faction()
-    quality_winrate = player.winrate(quality_faction)
+    quality_winrate = player.winrate(faction=quality_faction)
     quantity_count = player.games_played(quantity_faction)
-
 
     context = {
         'games': games, 

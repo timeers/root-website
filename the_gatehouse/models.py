@@ -116,11 +116,14 @@ class Profile(models.Model):
             return False
         
 
-    def winrate(self, faction = None):
+    def winrate(self, faction = None, deck = None):
         efforts = self.efforts.all()  # Access the related Effort objects for this player
 
         if faction:
             efforts = efforts.filter(faction=faction)
+
+        if deck:
+            efforts = efforts.filter(game__deck=deck)
 
         all_games = efforts.count()
         wins = efforts.filter(win=True)

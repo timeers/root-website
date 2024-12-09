@@ -73,16 +73,17 @@
 
     <div id="games-container">
 
-        {% if games.count > 0 %}
+        {% if games|length > 0 %}
         Games found
             {% include 'the_warroom/partials/hx_game_list.html' %}
         {% else %}
-            No games found for this player.
+            No games actually found for this player.
         {% endif %}
+
         {% for game in games %}
             {% include 'the_warroom/partials/game_detail.html' %}
         {% empty %}
-            No games found for this player.
+            No games really found for this player.
         {% endfor %}
     </div>
     
