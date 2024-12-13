@@ -5,8 +5,15 @@
     }
 </style>
 
+
+
+
 <div style="display: flex; align-items: center;">
-    <form method="POST" action="{% url 'post-comment-sent' object.id %}" class="inline-form">
+    <form class="inline-form"
+            hx-post="{% url 'post-comment-sent' object.id %}" 
+            hx-target="#post-notes"
+            hx-swap="beforeend"
+            _="on htmx:afterRequest reset() me">
         {% csrf_token %}
         {{ commentform }}
         <button class="btn btn-success btn-sm" type="submit">Submit</button>

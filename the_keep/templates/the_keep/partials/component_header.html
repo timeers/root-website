@@ -6,8 +6,11 @@
             <div class="article-metadata">
                 {% if object.clockwork %}Clockwork {% endif %}
                 {{ object.component }} by 
-                <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
-    
+                {% if user.profile.player %}
+                    <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
+                {% else %}
+                    {{ object.designer.name }}
+                {% endif %}
                 <small class="text-muted">{{ object.date_updated | date:"Y-m-d" }}</small>
 
                 {% if object.expansion %}

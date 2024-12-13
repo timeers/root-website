@@ -7,12 +7,7 @@
     </div>
         {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
         <h2><a class="article-title" href="{% url object.component|lower|add:'-detail' object.slug %}">{{ object.title }}</a></h2>
-<!-- Compnent specific Info -->
 
-
-
-
-<!-- End component specific Info -->
      {% if object.artist %}
     <div class="article-metadata">
         Art by 
@@ -21,7 +16,4 @@
     {% endif %}
 
 </div>
-    <!-- Bookmarks -->
-    {% if user.is_authenticated %}
-        {% include 'the_keep/partials/bookmarks.html' %}
-    {% endif %}
+    <!-- Bookmarks Removed from list view-->

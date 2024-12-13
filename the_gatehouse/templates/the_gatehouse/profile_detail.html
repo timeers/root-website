@@ -7,7 +7,7 @@
         <div class="media">
         <img class="article-img" src="{{ player.image.url }}">
             <div class="media-body">
-                <h1 class="account-heading">{{ player.display_name }}</h1>
+                <h1 class="account-heading">{{ player.name }}</h1>
                 {% if player.discord %}
                     <span class="text-secondary">Discord: {{ player.discord }}</span><br>
                 {% endif %}
@@ -18,74 +18,81 @@
                         <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
                     {% endif %}
                 {% endif %}
-                {% if quantity_faction %}
-                <div>Most played Faction: {{ quantity_faction }}: {{ quantity_count }} Games</div>
-                {% endif %}
-                {% if quality_faction %}
-                <div>Highest winrate with: {{ quality_faction }}: {{ quality_winrate|floatformat:2 }}%</div>
-                {% endif %}
+                
+                    {% if quantity_faction %}
+                    <div>Most played Faction: {{ quantity_faction }}: {{ quantity_count }} Games</div>
+                    {% endif %}
+                    {% if quality_faction %}
+                    <div>Highest winrate with: {{ quality_faction }}: {{ quality_winrate|floatformat:2 }}%</div>
+                    {% endif %}
+                
             </div>
  
             <!-- Winrate -->
+            {% if player.efforts.count > 0 %}
             <div class="media-body">
                 <div>{{ player.winrate|floatformat:2 }}% Winrate</div>
                 <div>{{ player.games_played }} Games Played</div>
             </div>
+            {% endif %}
             
             {% if player == user.profile %}
-            <div class="media-body">
                 <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}">Edit Profile</a>
-            </div>
-            {% endif %}
-
-            <!-- Bookmarks -->
-            {% if user.is_authenticated %}
+            {% else %}
+                <!-- Bookmarks -->
                 {% include 'the_gatehouse/partials/bookmarks.html' %}
             {% endif %}
+
+            
 
         </div>
     </div>
     
-    <div class="btn-group" role="group" aria-label="Profile Buttons">
-        <button type="button" class="btn btn-secondary">Components</button>
-        <button type="button" class="btn btn-secondary active">Games</button>
-      </div>
 
-
-      <div class="container mt-4">
+    <div class="container mt-4">
 
         <ul class="nav nav-tabs" id="myTab" role="tablist">
+
             <li class="nav-item" role="presentation">
-                <a class="nav-link active" id="home-tab" data-bs-toggle="tab" href="#home" role="tab" aria-controls="home" aria-selected="true">Home</a>
+                <a class="nav-link active" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="true" 
+                hx-get="{% url 'player-games' player.slug %}" 
+                hx-target="#tab-contents" 
+                hx-push-url="false">Games</a>
             </li>
+            {% if player == user.profile %}
             <li class="nav-item" role="presentation">
-                <a class="nav-link" id="profile-tab" data-bs-toggle="tab" href="#profile" role="tab" aria-controls="profile" aria-selected="false">Profile</a>
+                <a class="nav-link" id="game-bookmarks-tab" data-bs-toggle="tab" href="#game-bookmarks" role="tab" aria-controls="game-bookmarks" aria-selected="false" 
+                hx-get="{% url 'game-bookmarks' user.profile.slug %}" 
+                hx-target="#tab-contents" 
+                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Saved Games</i></a>
             </li>
+            {% endif %}
+            {% if user.profile.weird and player.posts.count > 0 %}
             <li class="nav-item" role="presentation">
-                <a class="nav-link" id="contact-tab" data-bs-toggle="tab" href="#contact" role="tab" aria-controls="contact" aria-selected="false">Contact</a>
+                <a class="nav-link{% if player.efforts.count == 0 %} active{% endif %}" id="components-tab" data-bs-toggle="tab" href="#components" role="tab" aria-controls="components" aria-selected="false" 
+                hx-get="{% url 'designer-components' player.slug %}" 
+                hx-target="#tab-contents" 
+                hx-push-url="false">Components</a>
             </li>
+            {% endif %}
+            {% if player == user.profile %}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="post-bookmarks-tab" data-bs-toggle="tab" href="#post-bookmarks" role="tab" aria-controls="post-bookmarks" aria-selected="false" 
+                hx-get="{% url 'post-bookmarks' user.profile.slug %}" 
+                hx-target="#tab-contents" 
+                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks</a>
+            </li>
+            {% endif %}
+
         </ul>
     </div>
 
+
 <div id="tab-contents">
 
-    <h2>{{ player.name }}'s Games</h2>
 
-    <div id="games-container">
-
-        {% if games|length > 0 %}
-        Games found
             {% include 'the_warroom/partials/hx_game_list.html' %}
-        {% else %}
-            No games actually found for this player.
-        {% endif %}
 
-        {% for game in games %}
-            {% include 'the_warroom/partials/game_detail.html' %}
-        {% empty %}
-            No games really found for this player.
-        {% endfor %}
-    </div>
     
 </div>
 

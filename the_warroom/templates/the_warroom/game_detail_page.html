@@ -7,7 +7,7 @@
 <article class="media content-section">
     <div class="media-body">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h2>Game Details</h2>
+        <h2>{% if game.test_match %}Multihanded Playtest{% else %}Game{% endif %} Details</h2>
 
         {% include 'the_warroom/partials/bookmarks.html' %}
         </div>
@@ -50,7 +50,7 @@
         {% endif %}
         {% if game.recorder %}
         <div>
-            Recorded by: {{ game.recorder.display_name }}
+            Recorded by: {{ game.recorder.name }}
         </div>
         {% endif %}
 
@@ -60,13 +60,13 @@
             {% endif %}
         {% endif %}
         {% if user.profile.player %}
-        <h3>Notes</h3>
-        <span id="commentscount">({{ game.comments.count }})</span>
-        <div id="game-notes">
-        {% for comment in game.comments.all %}
-            {% include 'the_tavern/comment.html' %}
-        {% endfor %}
-        </div>
+            <h3>Notes</h3>
+            <span id="commentscount">({{ game.comments.count }})</span>
+            <div id="game-notes">
+            {% for comment in game.comments.all %}
+                {% include 'the_tavern/comment.html' %}
+            {% endfor %}
+            </div>
         {% endif %}
 
 

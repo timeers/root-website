@@ -1,0 +1,43 @@
+<script>
+
+
+let isInitialLoad = true;
+
+
+
+
+    $(document).ready(function() {
+            // Initialize Select2 on the designer select box
+            $('#designer-select').select2({
+                placeholder: "Select Designer",  // Optional: display this as the placeholder
+                allowClear: true,  // Enable the "clear" button (X)
+                width: '200px'
+            });
+
+            // Prevent the change event from triggering on initial page load
+            
+
+            // If there's a selected designer, set the value
+            const selectedDesigner = "{{ designer }}";  // Get the selected designer from context
+            console.log(selectedDesigner)
+            if (selectedDesigner) {
+                // Set the selected value in select2
+                $('#designer-select').val(selectedDesigner);
+            }
+            $('#designer-select').trigger('change')
+        });
+
+
+
+
+        // Bind select2 change event to trigger htmx request manually
+        $('#designer-select').on('change', function() {
+            if (isInitialLoad) {
+                // If it's the initial load, don't trigger form submission
+                isInitialLoad = false;  // Set flag to false after first load
+                return;  // Exit early without submitting the form
+            }
+            // Manually trigger htmx to perform the GET request
+            $(this).closest('form').trigger('submit');
+        });
+</script>

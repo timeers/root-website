@@ -1,0 +1,26 @@
+<table>
+    <thead>
+        <tr>
+            <th>Player</th>
+            <th>Winrate</th>
+            <th>Games Played</th>
+        </tr>
+    </thead>
+    <tbody class="effort-rows">
+        {% for player in leaderboard_players %}
+        <tr>
+            <td>
+                {{ player.name }}
+            </td>
+            <td>
+                {{ player.win_rate|floatformat:2 }}%
+            </td>
+            <td>
+                {{ player.total_efforts }}
+            </td>
+        </tr>
+
+
+        {% endfor %}
+    </tbody>
+</table>

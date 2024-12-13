@@ -4,7 +4,7 @@
 
     {% if effort.player %}
         {% if user.profile.player %}
-            <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.display_name }}</a>
+            <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.name }}</a>
         {% else %}
             {{ effort.player.name }}
         {% endif %}

@@ -3,20 +3,19 @@
 
 <article class="media content-section" id="game-{{ game.id }}">
 <div class="media-body">
-
     <div class="article-metadata">
         <small class="text-muted">
-            {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
+            {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' or user.profile.banned %}
                 {% if game.tournament %}
                     {{ game.tournament.name }} Tournament Game |
                 {% else %}
-                    {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game |
+                    {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                 {% endif %}
             {% else %}
                 {% if game.tournament %}
                     <a href="{% url 'game-detail' game.id %}">{{ game.tournament.name }} Tournament Game</a> |
                 {% else %}
-                    <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game</a> |
+                    <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %}</a> |
                 {% endif %}
             {% endif %}
             {{ game.date_posted | date:"Y-m-d" }} |
@@ -64,7 +63,7 @@
             </tr>
         </thead>
         <tbody class="effort-rows">
-
+{{ request.resolver_match.view_name }}
 {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
     {% for effort in efforts %}
             {% include 'the_warroom/partials/effort_detail.html' %}

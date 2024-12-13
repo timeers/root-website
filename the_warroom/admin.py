@@ -49,6 +49,7 @@ class EffortInline(admin.StackedInline):
 
 class GameAdmin(admin.ModelAdmin):
     list_display = ('id', 'recorder__discord', 'date_posted', 'deck', 'map', 'type', 'platform', 'league')
+    search_fields = ['id', 'deck__title', 'map__title', 'type', 'platform', 'efforts__player__discord', 'efforts__faction__title']
     inlines = [EffortInline]
      
     def get_urls(self):

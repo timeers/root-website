@@ -20,7 +20,7 @@ def game_comment_sent(request, pk):
             comment.player = request.user.profile
             comment.game = game
             comment.save()
-    return render(request, 'snippets/add_comment.html', {'comment': comment, 'game': game})
+    return render(request, 'snippets/add_comment.html', {'comment': comment, 'object': game})
 
 @login_required
 @require_http_methods(['DELETE'])
@@ -36,7 +36,6 @@ def game_comment_delete(request, pk):
 @login_required
 def post_comment_sent(request, pk):
     post = get_object_or_404(Post, id=pk)
-    component = post.component
 
     if request.method == 'POST':
         form = PostCommentCreateForm(request.POST)
@@ -45,7 +44,7 @@ def post_comment_sent(request, pk):
             comment.player = request.user.profile
             comment.post = post
             comment.save()
-    return redirect(f'{component.lower()}-detail', post.slug)
+    return render(request, 'snippets/add_comment.html', {'comment': comment, 'object': post})
 
 # @login_required
 # def post_comment_delete(request, pk):

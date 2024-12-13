@@ -7,7 +7,11 @@
         <img class="article-img" src="{{ user.profile.image.url }}">
             <div class="media-body">
                 
-                <h2 class="account-heading"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.display_name }}</a></h2>
+                {% if user.profile.player %}
+                    <h2 class="account-heading"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h2>
+                {% else %}
+                    <h2 class="account-heading">{{ user.profile.name }}</h2>
+                {% endif %}
                 {% if user.profile.discord %}
                     <span class="text-secondary">Discord: {{ user.profile.discord }}</span><br>
                 {% endif %}

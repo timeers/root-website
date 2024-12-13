@@ -1,22 +1,25 @@
-{% if user.is_authenticated %}
-{% if object.designer == user.profile or object.comments.count %}
-    <article class="media content-section">
-    {% if object.comments.count or object.designer == user.profile %}
-        <div class="media-body">
-        {% if object.comments.count %}
+{% if user.profile.player %}
+    {% if object.designer == user.profile or object.comments.count %}
+        <article class="media content-section">
+        
+            <div class="media-body">
+                <h3>Design Notes</h3>
+                {% if object.designer == user.profile %}
+                    (Notes are visible to all logged in users)
+                {% endif %}
+                <div id="post-notes">
 
-            <h3>Notes</h3>
-            {% for comment in object.comments.all %}
-                {% include 'the_tavern/comment.html' %}
-            {% endfor %}
-            
-        {% endif %}
+                {% for comment in object.comments.all %}
+                    {% if comment.player == object.designer %}
+                        {% include 'the_tavern/comment.html' %}
+                    {% endif %}
+                {% endfor %}
 
-        {% if object.designer == user.profile %}
-            {% include 'the_tavern/post_comment_form.html' %}
-        {% endif %}
-    </div>
+                </div>
+                {% if object.designer == user.profile %}
+                    {% include 'the_tavern/post_comment_form.html' %}
+                {% endif %}
+            </div>
+        </article>
     {% endif %}
-    </article>
-{% endif %}
 {% endif %}

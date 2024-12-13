@@ -5,13 +5,18 @@ body {
     font-family: 'Baskerville', serif; /* Use Baskerville for body text */
   }
   
-  h1, h2, h3, h4, h5, h6 {
+  /* h1, h2, h3, h4, h5, h6 {
+    color: #444444;
+    font-family: 'Luminari', serif; 
+  } */
+  
+  legend {
     color: #444444;
     font-family: 'Luminari', serif; 
     /* Use Luminari for titles */
   }
-  
-  legend {
+
+  .root-title {
     color: #444444;
     font-family: 'Luminari', serif; 
     /* Use Luminari for titles */

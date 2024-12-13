@@ -65,15 +65,25 @@
         <div id="effort-form-list">
                 {% for form in formset %}
                         <div id="form-{{ forloop.counter0 }}" class="effort-form form-control">
-                        {% for field in form %}
-                                {% include 'the_warroom/partials/effort_field_form.html' %}
-                        {% endfor %}
+
+
+                        
+                        <div class="player-field">Player: {{ form.player }}</div>    
+                        <div class="faction-field">Faction: {{ form.faction }}</div>
+                        <div class="vagabond-field" style="display:none;">Vagabond: {{ form.vagabond }}</div>
+                        <div class="captains-field" style="display:none;">Captains: {{ form.captains }}</div>
+                        <div class="score-field">Score: {{ form.score }}</div>
+                        <div class="win-field">Win: {{ form.win }}</div>
+                        <div class="coalition-field" style="display:none;">Coalition: {{ form.coalition_with }}</div>
+                        <div class="dominance-field">Dominance: {{ form.dominance }}</div>
 
                         {% if not form.instance.id %}
                                 <button class="btn btn-outline-warning btn-sm" type="button"
                                         onclick="clearForm(this)">
                                         Remove
                                 </button>
+                        {% else %}
+                                <div class="id-field" style="display:none;">{{ form.id }}</div>
                         {% endif %}
 
                         </div>

@@ -63,7 +63,7 @@ class EffortCreateForm(forms.ModelForm):
 class TurnScoreCreateForm(forms.ModelForm):
     class Meta:
         model = TurnScore
-        fields = ['id', 'turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points']
+        fields = ['id', 'turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points', 'dominance']
     faction_points = forms.IntegerField(required=False, initial=0)
     crafting_points = forms.IntegerField(required=False, initial=0)
     battle_points = forms.IntegerField(required=False, initial=0)

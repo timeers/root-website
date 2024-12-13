@@ -185,18 +185,6 @@ class Post(models.Model):
             case _:
                 return Post.objects.none()  # or return an empty queryset
             
-    # def get_games_queryset(self):
-    #     match self.component:
-    #         case "Map" | "Deck" | "Landmark" | "Hireling":
-    #             # return self.game_set.order_by('-date_posted') 
-    #             return list(self.game_set.order_by('-date_posted')) 
-    #         case "Faction" | "Vagabond":
-    #             efforts = self.effort_set.order_by('-date_posted') 
-    #             games = list({effort.game for effort in efforts})
-    #             return sorted(games, key=lambda game: game.date_posted, reverse=True) 
-    #         case _:
-    #             Game = apps.get_model('the_warroom', 'Game')
-    #             return list(Game.objects.none())
     
     def get_games_queryset(self):
         Game = apps.get_model('the_warroom', 'Game')
@@ -308,7 +296,7 @@ class Vagabond(Post):
 
 
     animal = models.CharField(max_length=15)
-    ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, null=True, blank=True)
+    ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
     starting_coins = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -337,11 +325,11 @@ class Vagabond(Post):
     
     def wins(self):
         plays = self.get_plays_queryset()
-        wins = plays.filter(win=True)
+        wins = plays.filter(win=True, game__test_match=False)
         return wins.count() if plays else 0
 
     def get_wins_queryset(self):
-        return self.efforts.all().filter(win=True)
+        return self.efforts.all().filter(win=True, game__test_match=False)
 
     @property
     def winrate(self):
@@ -353,7 +341,7 @@ class Vagabond(Post):
             if winners_count > 0:
                 points += 1 / winners_count
 
-        total_plays = self.plays()
+        total_plays = self.get_plays_queryset().filter(game__test_match=False).count()
         return points / total_plays * 100 if total_plays > 0 else 0
 
 
@@ -399,23 +387,23 @@ class Faction(Post):
     
     def wins(self):
         plays = self.get_plays_queryset()
-        wins = plays.filter(win=True)
+        wins = plays.filter(win=True, game__test_match=False)
         return wins.count() if plays else 0
 
     def get_wins_queryset(self):
-        return self.efforts.all().filter(win=True)
+        return self.efforts.all().filter(win=True, game__test_match=False)
 
     @property
     def winrate(self):
         points = 0
         wins = self.get_wins_queryset()
-
+        print(len(wins))
         for effort in wins:
             winners_count = effort.game.get_winners().count()
             if winners_count > 0:
                 points += 1 / winners_count
 
-        total_plays = self.plays()
+        total_plays = self.get_plays_queryset().filter(game__test_match=False).count()
         return points / total_plays * 100 if total_plays > 0 else 0
 
 

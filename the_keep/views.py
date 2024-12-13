@@ -380,7 +380,16 @@ class ComponentDetailListView(ListView):
         commentform = PostCommentCreateForm()
         # Get the ordered queryset of games
         games = self.get_queryset()
-
+        
+        # Get top players for factions
+        top_players = []
+        most_players = []
+        if self.object.component == "Faction":
+            top_players = Profile.top_players(faction_id=self.object.id, limit=5)
+            most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True)
+            # for top_player in top_players:
+            #     print(f'{top_player.name} - {top_player.win_rate} - {top_player.win_count} - {top_player.total_efforts}')
+        
         # Paginate games
         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
         page_number = self.request.GET.get('page')  # Get the page number from the request
@@ -395,7 +404,10 @@ class ComponentDetailListView(ListView):
         context['page_obj'] = page_obj  # Pass the page_obj to the context
         context['commentform'] = commentform
         context['form'] = self.filterset.form
-        context['filterset'] = self.filterset     
+        context['filterset'] = self.filterset    
+        context['top_players'] = top_players 
+        context['most_players'] = most_players 
+
         
         return context
 
@@ -420,6 +432,9 @@ def list_view(request, slug=None):
         'is_search_view': False,
         'slug': slug,
         }
+    # if request.htmx:
+    #     return render(request, "the_keep/partials/search_body.html", context)    
+
     return render(request, "the_keep/list.html", context)
 
 

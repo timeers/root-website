@@ -10,7 +10,18 @@
             hx-target="#games-container"
             hx-swap="outerHTML"
             id="gamefilterform">
-        {{ form.as_p }}
+        <!-- {{ form }} -->
+        Map:
+        {{ form.map }}
+        Deck:
+        {{ form.deck }}
+        Factions:
+        {{ form.faction }}
+        Vagabonds:
+        {{ form.vagabond }}
+        Players:
+        {{ form.player }}
+
         <button class="btn btn-primary mb-3">Filter</button>
     </form>
 

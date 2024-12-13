@@ -97,6 +97,7 @@
             <div class="turn-column">Battle Points</div>
             <div class="turn-column">Other Points</div>
             <div class="turn-column">Total Points</div>
+            <!-- <div class="turn-column">Dom</div> -->
         </div>
 
         {% for form in formset %}
@@ -116,6 +117,7 @@
                 <div class="turn-column">{{ form.battle_points }}</div>
                 <div class="turn-column">{{ form.other_points }}</div>
                 <div class="turn-column total-points" id="total-points-{{ forloop.counter0 }}">0</div>
+                <!-- <div class="turn-column"> form.dominance </div> -->
             </div>
         {% endfor %}
 
@@ -126,6 +128,7 @@
             <div id="total-battle" class="turn-column">0</div>
             <div id="total-other" class="turn-column">0</div>
             <div id="total-total" class="turn-column">0</div>
+            <!-- <div id="total-dominance" class="turn-column"></div> -->
         </div>
 
     </div>
@@ -141,8 +144,8 @@
         <div class="turn-column">{{ formset.empty_form.other_points }}</div>
         <div class="turn-column total-points" id="total-points-__prefix__">0</div>
     </div>
-    <button class="btn btn-outline-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
     <button class="btn btn-outline-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
+    <button class="btn btn-outline-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
 
     <div id="game-description-field">
         <h4>Notes:</h4>{{ form.description }}
@@ -151,6 +154,7 @@
 
     <button class="btn btn-outline-success mb-2 mt-2" type="submit">Save</button>
     {% if object.id %}
+        <a class="btn btn-outline-secondary mb-2 mt-2" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
         <a class="btn btn-outline-danger mb-2 mt-2" href="{% url 'delete-scorecard' object.id %}">Delete</a>
     {% else %}
         <a class="btn btn-outline-info mb-2 mt-2" href="{% url 'games-home' %}">Cancel</a>
@@ -173,9 +177,11 @@ $(document).ready(function () {
 
     // Initial index for adding new forms
     let nextFormIndex = parseInt($('#id_form-TOTAL_FORMS').val(), 10);
+    const startingIndex = nextFormIndex
+    const removeFormEl = document.getElementById('remove-turn');
+    const addFormEl = document.getElementById('add-more');
 
-
-
+    show_hide_remove()
 
     // Click event to add a new form
     document.addEventListener('click', (event) => {
@@ -196,15 +202,21 @@ $(document).ready(function () {
         const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
         const secondChild = formCopyTarget.children[1];
         // Remove the second-to-last child if it exists
-        if (secondToLastChild && secondToLastChild !== secondChild) {
+        if (secondToLastChild && secondToLastChild !== secondChild && nextFormIndex > startingIndex) {
             formCopyTarget.removeChild(secondToLastChild);
             // Update the total form count after removing a form
             const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
             totalNewForms.value = parseInt(totalNewForms.value, 10) - 1;
             nextFormIndex--;
+            show_hide_remove()
+
+
+
+
+
         }else {
             // If there is no second-to-last child, log a message
-            console.log("No second-to-last child to remove.");
+            console.log("Unable to remove turn. Contact admin or delete and start over.");
         }
         const turnRows = document.querySelectorAll('[id$="-turn_number"]');
         turnRows.forEach((turnRow, index) => {
@@ -217,74 +229,90 @@ $(document).ready(function () {
     }
 
     function add_new_form(event) {
-        if (event) {
-            event.preventDefault();
+        if (nextFormIndex < 30){
+            if (event) {
+                event.preventDefault();
+            }
+
+            // Get the total number of forms
+            const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+            const formCopyTarget = document.getElementById("form-turn-list");
+            const lastChild = formCopyTarget.lastElementChild;
+            const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
+
+            // Clone the empty form
+            const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true);
+
+            // Remove the hidden class to make it visible
+            copyEmptyFormEl.classList.remove('hidden');
+
+            // Update the class and ID of the cloned form
+            copyEmptyFormEl.setAttribute('class', 'turn-form');
+            copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`);
+
+            // Replace the __prefix__ in all form field names with the correct index
+            const regex = new RegExp('__prefix__', 'g');
+            copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex);
+
+            // Update the value of the turn_number field for the cloned form
+            const turnNumberInput = copyEmptyFormEl.querySelector('input[name="form-' + nextFormIndex + '-turn_number"]');
+            if (turnNumberInput) {
+                turnNumberInput.value = nextFormIndex + 1;  // Set the value of turn_number to nextFormIndex + 1
+
+                // Create a new span element to display the turn number above the input
+                const turnNumberDisplay = document.createElement('span');
+                turnNumberDisplay.classList.add('turn-number-display');
+                turnNumberDisplay.textContent = `${nextFormIndex + 1}`;  // Display the turn number
+
+                // Insert the turn number display above the turn_number input
+                turnNumberInput.parentNode.insertBefore(turnNumberDisplay, turnNumberInput);
+
+
+
+            }
+
+
+            // Correctly update the form field names to match Django's expectations
+            $(copyEmptyFormEl).find('input, select, span').each(function() {
+                var name = $(this).attr('name');
+                if (name) {
+                    $(this).attr('name', name.replace('__prefix__', nextFormIndex));
+                }
+                var id = $(this).attr('id');
+                if (id) {
+                    $(this).attr('id', id.replace('__prefix__', nextFormIndex));
+                }
+            });
+
+            // Append the cloned form to the target form list
+            formCopyTarget.insertBefore(copyEmptyFormEl, lastChild);
+            // formCopyTarget.append(copyEmptyFormEl);
+
+            // Increment the form count
+            totalNewForms.value = nextFormIndex + 1;
+
+            // Increment the form index for the next addition
+            nextFormIndex++;
+
+            show_hide_remove()
         }
 
-        // Get the total number of forms
-        const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
-        const formCopyTarget = document.getElementById("form-turn-list");
-        const lastChild = formCopyTarget.lastElementChild;
-        const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
-
-        // Clone the empty form
-        const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true);
-
-        // Remove the hidden class to make it visible
-        copyEmptyFormEl.classList.remove('hidden');
-
-        // Update the class and ID of the cloned form
-        copyEmptyFormEl.setAttribute('class', 'turn-form');
-        copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`);
-
-        // Replace the __prefix__ in all form field names with the correct index
-        const regex = new RegExp('__prefix__', 'g');
-        copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex);
-
-        // Update the value of the turn_number field for the cloned form
-        const turnNumberInput = copyEmptyFormEl.querySelector('input[name="form-' + nextFormIndex + '-turn_number"]');
-        if (turnNumberInput) {
-            turnNumberInput.value = nextFormIndex + 1;  // Set the value of turn_number to nextFormIndex + 1
-
-            // Create a new span element to display the turn number above the input
-            const turnNumberDisplay = document.createElement('span');
-            turnNumberDisplay.classList.add('turn-number-display');
-            turnNumberDisplay.textContent = `${nextFormIndex + 1}`;  // Display the turn number
-
-            // Insert the turn number display above the turn_number input
-            turnNumberInput.parentNode.insertBefore(turnNumberDisplay, turnNumberInput);
-
-
-
-        }
-
-
-        // Correctly update the form field names to match Django's expectations
-        $(copyEmptyFormEl).find('input, select, span').each(function() {
-            var name = $(this).attr('name');
-            if (name) {
-                $(this).attr('name', name.replace('__prefix__', nextFormIndex));
-            }
-            var id = $(this).attr('id');
-            if (id) {
-                $(this).attr('id', id.replace('__prefix__', nextFormIndex));
-            }
-        });
-
-        // Append the cloned form to the target form list
-        formCopyTarget.insertBefore(copyEmptyFormEl, lastChild);
-        // formCopyTarget.append(copyEmptyFormEl);
-
-        // Increment the form count
-        totalNewForms.value = nextFormIndex + 1;
-
-        // Increment the form index for the next addition
-        nextFormIndex++;
     }
 
 
 
-
+    function show_hide_remove(){
+        if (nextFormIndex > startingIndex){
+            removeFormEl.classList.remove('hidden');
+        }else{
+            removeFormEl.classList.add('hidden');
+        }
+        if (nextFormIndex > 29){
+            addFormEl.classList.add('hidden');
+        }else{
+            addFormEl.classList.remove('hidden');
+        }
+    }
 
 
 
@@ -385,6 +413,12 @@ $(document).ready(function () {
         document.getElementById("total-other").textContent = totalOther;
         document.getElementById("total-total").textContent = grandTotal;
     }
+
+    // Automatically select the current value when clicking into any of the input fields for points
+    $('.turn-column input').on('focus', function() {
+        this.select();  // Selects the text inside the input field when focused
+    });
+
 });
 
 

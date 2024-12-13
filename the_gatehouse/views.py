@@ -55,38 +55,6 @@ def profile(request):
     return render(request, 'the_gatehouse/profile.html', context)
 
 
-# class PlayerDetailView(LoginRequiredMixin, DetailView):
-#     model = Profile
-
-@login_required
-def player_page_view(request, slug):
-    player = get_object_or_404(Profile, slug=slug)
-    if request.user.profile.weird :
-        queryset = player.get_games_queryset()
-    else:
-        queryset = player.get_games_queryset().only_official_components()
-    
-    # efforts = player.efforts.all()
-    # games = list({effort.game for effort in efforts})
-    # games.sort(key=lambda game: game.date_posted, reverse=True)
-    games = list(queryset)
-
-    quantity_faction = player.most_used_faction()
-    quality_faction = player.most_successful_faction()
-    quality_winrate = player.winrate(faction=quality_faction)
-    quantity_count = player.games_played(quantity_faction)
-
-    context = {
-        'games': games, 
-        'player': player,
-        'quality_faction': quality_faction,
-        'quality_winrate': quality_winrate,
-        'quantity_faction': quantity_faction,
-        'quantity_count': quantity_count,
-        }
-
-    return render(request, 'the_gatehouse/profile_detail.html', context=context)
-
 
 # Decorators
 def designer_required(view_func):
@@ -161,3 +129,128 @@ def add_player(request):
             return JsonResponse({'error': errors}, status=400)  # Return the errors in JSON
 
     return JsonResponse({'error': 'Invalid request'}, status=400)  # Return a 400 error for invalid requests
+
+
+
+@login_required
+def player_page_view(request, slug):
+    player = get_object_or_404(Profile, slug=slug)
+    if request.user.profile.weird :
+        queryset = player.get_games_queryset()
+    else:
+        queryset = player.get_games_queryset().only_official_components()
+    
+    # efforts = player.efforts.all()
+    # games = list({effort.game for effort in efforts})
+    # games.sort(key=lambda game: game.date_posted, reverse=True)
+    games = list(queryset)
+
+    quantity_faction = player.most_used_faction()
+    quality_faction = player.most_successful_faction()
+    quality_winrate = player.winrate(faction=quality_faction)
+    quantity_count = player.games_played(quantity_faction)
+
+    context = {
+        'games': games, 
+        'player': player,
+        'quality_faction': quality_faction,
+        'quality_winrate': quality_winrate,
+        'quantity_faction': quantity_faction,
+        'quantity_count': quantity_count,
+        }
+    if request.htmx:
+        return render(request, 'the_warroom/partials/hx_game_list.html', context=context)
+    
+    if request.user.profile.banned:
+        return redirect('profile')
+    
+    return render(request, 'the_gatehouse/profile_detail.html', context=context)
+
+
+
+
+@login_required
+def designer_component_view(request, slug):
+    # Get the designer object using the slug from the URL path
+    designer = get_object_or_404(Profile, slug=slug)
+
+    # Get the component from the query parameters
+    component = request.GET.get('component')  # e.g., /designer/john-doe/component/?component=some_component
+    # Filter posts based on the designer and the component (if provided)
+    if component:
+        components = designer.posts.filter(component__icontains=component)
+    else:
+        components = designer.posts.all()
+    print(f'Components: {components.count()}')
+    # Get the total count of components (total posts matching the filter)
+    total_count = components.count()
+ 
+    # Pagination
+    paginator = Paginator(components, settings.PAGE_SIZE)  # Show 10 posts per page
+ 
+    # Get the current page number from the request (default to 1)
+    page_number = request.GET.get('page')  # e.g., ?page=2
+    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+    print(f'Page: {page_number}')
+    context = {
+        'posts': page_obj,
+        'total_count': total_count,  # Pass the total count to the template
+    }
+
+
+    if request.htmx:
+        return render(request, "the_gatehouse/partials/posts_list.html", context)   
+ 
+    return redirect('player-detail', slug=slug)
+
+
+@login_required
+def post_bookmarks(request, slug):
+    from django.apps import apps
+    Post = apps.get_model('the_keep', 'Post')
+    components = Post.objects.filter(postbookmark__player=request.user.profile)
+    
+    print(f'Components: {components.count()}')
+    # Get the total count of components (total posts matching the filter)
+    total_count = components.count()
+ 
+    # Pagination
+    paginator = Paginator(components, settings.PAGE_SIZE)  # Show 10 posts per page
+ 
+    # Get the current page number from the request (default to 1)
+    page_number = request.GET.get('page')  # e.g., ?page=2
+    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+    print(f'Page: {page_number}')
+    context = {
+        'posts': page_obj,
+        'total_count': total_count,  # Pass the total count to the template
+    }
+    if request.htmx:
+        return render(request, "the_gatehouse/partials/posts_list.html", context)   
+ 
+    return redirect('player-detail', slug=slug)
+
+@login_required
+def game_bookmarks(request, slug):
+    from django.apps import apps
+    Game = apps.get_model('the_warroom', 'Game')
+    games = Game.objects.filter(gamebookmark__player=request.user.profile)
+    
+    print(f'games: {games.count()}')
+    # Get the total count of games (total posts matching the filter)
+    total_count = games.count()
+ 
+    # Pagination
+    paginator = Paginator(games, settings.PAGE_SIZE)  # Show 10 posts per page
+ 
+    # Get the current page number from the request (default to 1)
+    page_number = request.GET.get('page')  # e.g., ?page=2
+    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+    print(f'Page: {page_number}')
+    context = {
+        'games': page_obj,
+        'total_count': total_count,  # Pass the total count to the template
+    }
+    if request.htmx:
+        return render(request, 'the_warroom/partials/hx_game_list.html', context=context)
+    return redirect('player-detail', slug=slug)

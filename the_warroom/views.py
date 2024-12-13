@@ -151,7 +151,7 @@ class GameListViewHX(ListView):
         return context
 
 
-@login_required
+@player_required
 def game_detail_view(request, id=None):
     hx_url = reverse("game-hx-detail", kwargs={"id": id})
     participants = []
@@ -212,9 +212,13 @@ def effort_hx_delete(request, id):
     game = effort.game
     # Delete the effort
     effort.delete()
-    
+    remaining_efforts = game.get_efforts()
+    context = {
+        'game': game,
+        'efforts': remaining_efforts,
+               }
     # Return updated game data
-    return render(request, 'the_warroom/partials/game_detail.html', {'game': game})
+    return render(request, 'the_warroom/partials/game_detail.html', context)
 
 @admin_required
 @require_http_methods(['DELETE'])
@@ -300,6 +304,7 @@ def manage_game(request, id=None):
         parent.save()  # Save the new or updated Game instance
         form.save_m2m()
         seat = 1
+        roster = []
         for form in formset:
             child = form.save(commit=False)
             if child.faction_id is not None:  # Only save if faction_id is present
@@ -313,7 +318,12 @@ def manage_game(request, id=None):
                 child.seat = seat
                 child.save()
                 seat += 1
-
+                if child.player:
+                    # Add player.id to the roster
+                    roster.append(child.player.id)
+        if len(roster) != len(set(roster)):
+            parent.test_match = True
+            parent.save()
         context['message'] = "Game Saved"
         return redirect(parent.get_absolute_url())
 
@@ -338,6 +348,7 @@ def bookmark_game(request, object):
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
     faction = request.GET.get('faction', None)
+    print(faction)
     effort_id = request.GET.get('effort', None)
     try:
         effort = Effort.objects.get(id=effort_id)
@@ -362,6 +373,7 @@ def scorecard_manage_view(request, id=None):
             return HttpResponseForbidden("You do not have permission to edit this scorecard.")
         if obj.faction != None:
             faction = obj.faction.id
+            print(faction)
         if obj.effort != None:
             effort = obj.effort
         existing_scorecard = True
@@ -377,7 +389,7 @@ def scorecard_manage_view(request, id=None):
         extra_forms = 0
     else:
         existing_count = 0  # New game has no existing turns
-        extra_forms = 5
+        extra_forms = 4
     TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms)
     qs = obj.turns.all() if id else TurnScore.objects.none()  # Only fetch existing turns if updating
     formset = TurnFormset(request.POST or None, queryset=qs)
@@ -405,6 +417,7 @@ def scorecard_manage_view(request, id=None):
 
     # Handle form submission
     if form.is_valid() and formset.is_valid():
+        print(formset.cleaned_data)
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
         parent.effort = effort
@@ -413,13 +426,20 @@ def scorecard_manage_view(request, id=None):
 
         # Calculate the total points from the formset
         total_points = 0
-        for form in formset:
-            total_points += (
-                form.cleaned_data.get('faction_points', 0) +
-                form.cleaned_data.get('crafting_points', 0) +
-                form.cleaned_data.get('battle_points', 0) +
-                form.cleaned_data.get('other_points', 0)
-            )
+        for child_form in formset:
+            # print(child_form.cleaned_data)
+            if child_form.cleaned_data.get('DELETE'):
+                print('Delete')
+                # If the DELETE checkbox is checked, delete the object
+                deleted_instance = child_form.instance
+                deleted_instance.delete()
+            else:
+                total_points += (
+                    child_form.cleaned_data.get('faction_points', 0) +
+                    child_form.cleaned_data.get('crafting_points', 0) +
+                    child_form.cleaned_data.get('battle_points', 0) +
+                    child_form.cleaned_data.get('other_points', 0)
+                )
         if effort and total_points != effort.score and effort.score:
             # If points don't match effort.score
             context['message'] = f"Error: The recorded points ({total_points}) do not match the total game points ({effort.score})."
@@ -435,9 +455,8 @@ def scorecard_manage_view(request, id=None):
             return render(request, 'the_warroom/record_scores.html', context)
 
         
-        for form in formset:
-            child = form.save(commit=False)
-            print(parent)
+        for turn_form in formset:
+            child = turn_form.save(commit=False)
             child.scorecard = parent  # Link the turn to the game
             child.save()
 
