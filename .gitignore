@@ -6,6 +6,14 @@ profiles.csv
 game_test.csv
 blog/migrations/
 blog/__pycache__/
+the_gatehouse/migrations/
+the_gatehouse/__pycache__/
+the_keep/migrations/
+the_keep/__pycache__/
+the_tavern/migrations/
+the_tavern/__pycache__/
+the_warroom/migrations/
+the_warroom/__pycache__/
 
 # Django stuff:
 *.log
