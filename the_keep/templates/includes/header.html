@@ -5,7 +5,7 @@
     <nav class="navbar navbar-expand-md navbar-dark bg-steel fixed-top">
       <div class="container">
         <h1><a class="navbar-brand mr-4 root-title" href="{% url 'keep-home' %}">Root Database</a></h1>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
       
@@ -50,8 +50,10 @@
                     </li>
               {% endif %}
               {% if user.is_authenticated %}
-                  <img class="user-icon" src="{{ user.profile.image.url }}">
+              <div class="d-flex align-items-center">
+                  <img class="user-icon img-fluid mr-2" src="{{ user.profile.image.url }}">
                   <a class="nav-item nav-link" href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a>
+                </div>
                   {% if user.is_staff %}
                     <a class="nav-item nav-link" href="{% url 'admin:index' %}">Admin</a>
                   {% endif %}

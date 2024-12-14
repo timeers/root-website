@@ -89,11 +89,11 @@
 
 
 <div id="tab-contents">
-
-
-            {% include 'the_warroom/partials/hx_game_list.html' %}
-
-    
+    <div hx-trigger="revealed" 
+    hx-target="#tab-contents"
+    hx-get="{% url 'player-games' player.slug %}?page={{ page_obj.number|add:1 }}"
+    hx-swap="innerHTML">
+    <!-- hx-include="#gamefilterform"> -->
 </div>
 
 {% endblock content %}

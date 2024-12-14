@@ -62,7 +62,7 @@ class Game(models.Model):
     date_posted = models.DateTimeField(default=timezone.now)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
     test_match = models.BooleanField(default=False)
-
+    coalition_win = models.BooleanField(default=False)
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
 
@@ -122,10 +122,6 @@ class Effort(models.Model):
         RABBIT = 'Rabbit'
         BIRD = 'Bird'
         DARK = 'Dark'
-    # class LeaguePointsChoices(models.TextChoices):
-    #     ONE = 1.0, '1'
-    #     ZERO = 0.0, '0'
-    #     HALF = 0.5, '0.5'
 
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
@@ -136,11 +132,6 @@ class Effort(models.Model):
     dominance = models.CharField(max_length=10, choices=DominanceChoices.choices, null=True, blank=True)
     clockwork = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
-    # league_points = models.DecimalField(
-    #     max_digits=3, decimal_places=1,
-    #     choices=LeaguePointsChoices.choices,
-    #     default=LeaguePointsChoices.ZERO
-    # )
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')
     faction_status = models.CharField(max_length=50, null=True, blank=True) #This should not be null.
@@ -149,14 +140,14 @@ class Effort(models.Model):
 
     def clean(self):
         super().clean()
-        
-        # Ensure no more than 3 captains are assigned
-        # if self.captains.count() > 3:
-        #     raise ValidationError({'captains': 'You cannot assign more than 3 Vagabonds as captains.'})
+
 
     def save(self, *args, **kwargs):
         self.full_clean()  # This ensures the clean() method is called before saving
         super().save(*args, **kwargs)
+        if self.coalition_with and self.win:
+            self.game.coalition_win = True
+            self.game.save()
 
     def get_absolute_url(self):
         return self.game.get_absolute_url()

@@ -287,11 +287,11 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
     def test_func(self):
         post = self.get_object()
-        print("testing delete function")
+        # print("testing delete function")
         return self.request.user.profile == post.designer  # Ensure only the designer can delete
 
     def post(self, request, *args, **kwargs):
-        print('Trying to delete')
+        # print('Trying to delete')
         post = self.get_object()
         name = post.title
         detail_view = f'{post.component.lower()}-detail'
@@ -316,8 +316,6 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 def about(request, *args, **kwargs):
     return render(request, 'the_keep/about.html', {'title': 'About'})
 
-def test(request):
-    return render(request, 'the_keep/test.html', {'title': 'Test'})
 
 
 
@@ -386,7 +384,7 @@ class ComponentDetailListView(ListView):
         most_players = []
         if self.object.component == "Faction":
             top_players = Profile.top_players(faction_id=self.object.id, limit=5)
-            most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True)
+            most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
             # for top_player in top_players:
             #     print(f'{top_player.name} - {top_player.win_rate} - {top_player.win_count} - {top_player.total_efforts}')
         

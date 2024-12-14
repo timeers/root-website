@@ -63,7 +63,7 @@
             </tr>
         </thead>
         <tbody class="effort-rows">
-{{ request.resolver_match.view_name }}
+            
 {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
     {% for effort in efforts %}
             {% include 'the_warroom/partials/effort_detail.html' %}

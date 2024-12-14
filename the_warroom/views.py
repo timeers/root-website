@@ -177,7 +177,7 @@ def game_detail_view(request, id=None):
     }
     return render(request, "the_warroom/game_detail_page.html", context)
 
-@staff_member_required
+@admin_required
 def game_delete_view(request, id=None):
     try:
         obj = Game.objects.get(id=id)
@@ -296,18 +296,19 @@ def manage_game(request, id=None):
         'player_form': player_form,
     }
 
-
+    print(f'Forms: {formset.total_form_count()}')
     # Handle form submission
     if form.is_valid() and formset.is_valid():
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
         parent.save()  # Save the new or updated Game instance
         form.save_m2m()
-        seat = 1
+        seat = 0
         roster = []
         for form in formset:
             child = form.save(commit=False)
             if child.faction_id is not None:  # Only save if faction_id is present
+                seat += 1
                 # Save current status of faction. Might be useful somewhere.
                 if child.faction.status == "Stable":
                     status = "Stable"
@@ -317,13 +318,21 @@ def manage_game(request, id=None):
                 child.game = parent  # Link the effort to the game
                 child.seat = seat
                 child.save()
-                seat += 1
+                
                 if child.player:
                     # Add player.id to the roster
                     roster.append(child.player.id)
+
+        if seat == 0:
+            parent.delete()
+            context['message'] = "Game must include a player"
+            return redirect('games-home')
+
+
         if len(roster) != len(set(roster)):
             parent.test_match = True
             parent.save()
+
         context['message'] = "Game Saved"
         return redirect(parent.get_absolute_url())
 

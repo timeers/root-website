@@ -52,12 +52,20 @@ class EffortCreateForm(forms.ModelForm):
     class Meta:
         model = Effort
         fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
+        captains = forms.ModelMultipleChoiceField(
+            queryset=Vagabond.objects.all(),
+            widget=forms.SelectMultiple(attrs={'class': 'select2'}),
+        )
     def clean(self):
         cleaned_data = super().clean()
         faction = cleaned_data.get('faction')
         if faction is None or faction == "":
             raise ValidationError("Please select a faction for each player.")
-
+        # If captains are assigned ensure no more than 3 captains are assigned
+        if faction.title == "Knaves of the Deepwood":
+            captains = cleaned_data.get('captains')
+            if captains.count() != 3 and captains.count() != 0:
+                raise ValidationError({'captains': 'Please assign 3 Vagabonds as captains.'})
         return cleaned_data
 
 class TurnScoreCreateForm(forms.ModelForm):

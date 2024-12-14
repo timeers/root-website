@@ -6,13 +6,15 @@
 
 
     <!-- Component Specific Details -->
-    {% include 'the_keep/partials/'|add:object.component|add:'_data.html' %}
+    {% include 'the_keep/partials/'|add:object.component|lower|add:'_data.html' %}
 
 
     {% include 'the_keep/partials/links.html' %}
 
     {% include 'the_keep/partials/comments.html' %}
     
+{% if games %}
+
     {% include 'the_warroom/partials/game_filter_form.html' %}
 
     {% include 'the_warroom/partials/hx_games_stats.html' %}
@@ -24,6 +26,7 @@
 
     </div>
 
+{% endif %}
 
 {% endblock content %} 
 
