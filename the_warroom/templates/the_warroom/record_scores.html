@@ -97,7 +97,7 @@
             <div class="turn-column">Battle Points</div>
             <div class="turn-column">Other Points</div>
             <div class="turn-column">Total Points</div>
-            <!-- <div class="turn-column">Dom</div> -->
+            <div class="turn-column dom-column hidden" id="id_dominance-column">Dom</div>
         </div>
 
         {% for form in formset %}
@@ -117,7 +117,7 @@
                 <div class="turn-column">{{ form.battle_points }}</div>
                 <div class="turn-column">{{ form.other_points }}</div>
                 <div class="turn-column total-points" id="total-points-{{ forloop.counter0 }}">0</div>
-                <!-- <div class="turn-column"> form.dominance </div> -->
+                <div class="turn-column dom-column hidden">{{ form.dominance }}</div>
             </div>
         {% endfor %}
 
@@ -128,7 +128,7 @@
             <div id="total-battle" class="turn-column">0</div>
             <div id="total-other" class="turn-column">0</div>
             <div id="total-total" class="turn-column">0</div>
-            <!-- <div id="total-dominance" class="turn-column"></div> -->
+            <div id="total-dominance" class="turn-column dom-column hidden"></div>
         </div>
 
     </div>
@@ -143,10 +143,11 @@
         <div class="turn-column">{{ formset.empty_form.battle_points }}</div>
         <div class="turn-column">{{ formset.empty_form.other_points }}</div>
         <div class="turn-column total-points" id="total-points-__prefix__">0</div>
+        <div class="turn-column dom-column hidden">{{ formset.empty_form.dominance }}</div>
     </div>
     <button class="btn btn-outline-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
     <button class="btn btn-outline-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
-
+    <button class="btn btn-outline-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">Play Dominance</button>
     <div id="game-description-field">
         <h4>Notes:</h4>{{ form.description }}
     </div>
@@ -181,6 +182,7 @@ $(document).ready(function () {
     const addFormEl = document.getElementById('add-more');
 
     show_hide_remove()
+    setInitialDominance()
 
     // Click event to add a new form
     document.addEventListener('click', (event) => {
@@ -190,7 +192,11 @@ $(document).ready(function () {
         if (event.target.id == 'remove-turn') {
             remove_last_turn(event);
         }
+        if (event.target.id == 'toggle-dominance') {
+            toggle_dominance(event);
+        }
     });
+
 
     function remove_last_turn(event){
         if (event) {
@@ -208,11 +214,6 @@ $(document).ready(function () {
             totalNewForms.value = parseInt(totalNewForms.value, 10) - 1;
             nextFormIndex--;
             show_hide_remove()
-
-
-
-
-
         }else {
             // If there is no second-to-last child, log a message
             console.log("Unable to remove turn. Contact admin or delete and start over.");
@@ -238,6 +239,7 @@ $(document).ready(function () {
             const formCopyTarget = document.getElementById("form-turn-list");
             const lastChild = formCopyTarget.lastElementChild;
             const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
+            const domButton = document.getElementById("toggle-dominance")
 
             // Clone the empty form
             const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true);
@@ -268,6 +270,11 @@ $(document).ready(function () {
 
 
 
+            }
+
+            const dominanceInput = copyEmptyFormEl.querySelector('input[name="form-' + nextFormIndex + '-dominance"]');
+            if (dominanceInput && domButton.value === 'enabled') {
+                dominanceInput.checked = true
             }
 
 
@@ -316,21 +323,6 @@ $(document).ready(function () {
 
 
 
-
-    
-// });
-
-
-
-
-
-
-
-
-
-
-// document.addEventListener("DOMContentLoaded", function() {
-    // Select the form container for turns
     const formTurnList = document.getElementById("form-turn-list");
 
 
@@ -347,9 +339,11 @@ $(document).ready(function () {
     formTurnList.addEventListener("input", function(event) {
         // Check if the event target is an input element inside a turn column
         if (event.target && event.target.matches(".turn-column input")) {
-            // You can perform actions based on which input was changed
-            // For example, you can calculate the total points here
             calculateTotalPoints(event.target);
+        }
+        // Check for Dom changes
+        if (event.target && event.target.matches(".dom-column input")) {
+            selectDominance(event.target);
         }
     });
 
@@ -417,6 +411,100 @@ $(document).ready(function () {
     $('.turn-column input').on('focus', function() {
         this.select();  // Selects the text inside the input field when focused
     });
+
+
+    function setInitialDominance(){
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
+        const domColumns = document.querySelectorAll('.dom-column');
+        const domButton = document.getElementById("toggle-dominance")
+        let initialDom = false
+        checkboxes.forEach(function(checkbox) {
+                if (checkbox.checked) {
+                    initialDom = true
+                }
+            });
+        if (initialDom){
+            domColumns.forEach(function(element) {
+                element.classList.remove('hidden');
+            });
+            domButton.innerText = "Undo Dominance";
+            domButton.value = "enabled"; 
+        }else{
+            domColumns.forEach(function(element) {
+                element.classList.add('hidden');
+            });
+        }
+    }
+
+    // Dominance Functions
+    function toggle_dominance(event){
+        if (event) {
+            event.preventDefault();
+        }
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
+        const dominanceColumn = document.getElementById("id_dominance-column")
+        const domColumns = document.querySelectorAll('.dom-column');
+
+        // Hide/unhide column
+        if (dominanceColumn.classList.contains('hidden')) {
+            domColumns.forEach(function(element) {
+                element.classList.remove('hidden');
+            });
+            // Add dominance to last turn
+            const lastCheckbox = checkboxes[checkboxes.length - 2];
+            if (lastCheckbox) {
+                lastCheckbox.checked = true;
+            }
+            event.target.innerText = "Undo Dominance";
+            event.target.value = "enabled"; 
+        } else {
+            domColumns.forEach(function(element) {
+                element.classList.add('hidden');
+            });
+            // Remove Dominance from each turn
+            checkboxes.forEach(function(checkbox) {
+                checkbox.checked = false; 
+            });
+            event.target.innerText = "Play Dominance";
+            event.target.value = "disabled"; 
+        }
+        
+    }
+
+    function selectDominance(inputElement){
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
+        const currentId = inputElement.id;
+        const currentNumber = parseInt(currentId.split('-')[1]);
+        const emptyFormDom = document.getElementById("id_form-__prefix__-dominance")
+        if(inputElement.checked)
+            {
+                // Loop through all checkboxes and add check to future turns
+                checkboxes.forEach(function(checkbox) {
+                    const checkboxId = checkbox.id;
+                    const checkboxNumber = parseInt(checkboxId.split('-')[1]);
+
+                    if (checkboxNumber > currentNumber && checkbox.checked === false) {
+                        // console.log(`Turn ${checkboxNumber + 1} added Dominance`);
+                        checkbox.checked = true; 
+                    }
+                });
+                emptyFormDom.checked = true
+            }
+        else
+            {
+                // Loop through all checkboxes and remove check from prior turns
+                checkboxes.forEach(function(checkbox) {
+                    const checkboxId = checkbox.id;
+                    const checkboxNumber = parseInt(checkboxId.split('-')[1]);
+
+                    if (checkboxNumber < currentNumber && checkbox.checked === true) {
+                        // console.log(`Turn ${checkboxNumber + 1} removed Dominance`);
+                        checkbox.checked = false; 
+                    }
+                });
+            }
+    }
+
 
 });
 

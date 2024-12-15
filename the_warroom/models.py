@@ -167,7 +167,18 @@ class Effort(models.Model):
             Q(faction=self.faction) &
             Q(total_points=self.score)
         )
-        # If there is a queryset return True
+
+        if not scorecards.exists() and self.dominance:
+            # Query dominance scorecards if no regular scorecards were found and dominance is True
+            dominance_scorecards = ScoreCard.objects.filter(
+                Q(recorder=user.profile) &
+                Q(effort=None) &
+                Q(faction=self.faction) &
+                Q(turns__dominance=True)
+            )
+            return dominance_scorecards.exists()
+
+        # Return True if regular scorecards exist
         return scorecards.exists()
 
     
@@ -188,6 +199,9 @@ class ScoreCard(models.Model):
     total_faction_points = models.IntegerField(default=0)
     total_other_points = models.IntegerField(default=0)
 
+    @property
+    def dominance(self):
+        return self.turns.filter(dominance=True).exists()
 
     def __str__(self):
         if self.description:

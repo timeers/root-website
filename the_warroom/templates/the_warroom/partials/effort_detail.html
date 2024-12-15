@@ -27,16 +27,22 @@
 </td>
 <td>
     {% if effort.dominance %}
-        {{ effort.dominance }} Dominance
+        <img class="faction-icon"  
+            src="/media/default_images/{{ effort.dominance }}_Icon.png" 
+            alt="{{ effort.dominance }} Dominance">
     {% elif effort.coalition_with %}
-        Coalition with {{ effort.coalition_with.title }}
+        <a href="{% url 'faction-detail' effort.coalition_with.slug %}">
+            <img class="faction-icon" 
+            src="{{ effort.coalition_with.small_icon.url }}"
+            alt="{{ effort.coalition_with.title }} Icon">
+        </a>
     {% else %}
         {% if effort.score %}
             {{ effort.score }}
         {% endif %}
     {% endif %}
     {% if effort.win %}
-         (Victory)
+        <img class="faction-icon"  src="/media/winner.png" alt="Win">
     {% endif %}
 
 </td>

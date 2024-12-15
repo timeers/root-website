@@ -165,24 +165,31 @@ class AssignScorecardForm(forms.ModelForm):
             'scorecard': forms.ModelChoiceField(queryset=ScoreCard.objects.all(), required=True),
         }
 
-    def __init__(self, *args, user=None, total_points=None, faction=None, selected_scorecard=None, **kwargs):
+    def __init__(self, *args, user=None, total_points=None, faction=None, selected_scorecard=None, dominance=False, **kwargs):
         # Call the parent constructor
         super(AssignScorecardForm, self).__init__(*args, **kwargs)
         print(f'Selected Scorecard: {selected_scorecard}')
+        queryset = ScoreCard.objects.filter(
+            Q(recorder=user.profile) & 
+            Q(effort=None) & 
+            Q(faction=faction) &
+            Q(total_points=total_points)
+        )
+
+        # If dominance is True, add the dominance condition
+        if dominance:
+            dominance_queryset = ScoreCard.objects.filter(
+                Q(recorder=user.profile) &
+                Q(effort=None) &
+                Q(faction=faction) &
+                Q(turns__dominance=True)
+            )
+            # Combine the regular and dominance querysets, ensuring distinct results
+            queryset = queryset | dominance_queryset
+            
+        # If selected_scorecard is provided, filter by that as well
         if selected_scorecard:
-            self.fields['scorecard'].queryset = ScoreCard.objects.filter(
-                Q(recorder=user.profile) & 
-                Q(effort=None) & 
-                Q(faction=faction) &
-                Q(total_points=total_points) &
-                Q(id=selected_scorecard)
-            )
-        else:
-            print('All matching cards')
-            self.fields['scorecard'].queryset = ScoreCard.objects.filter(
-                Q(recorder=user.profile) & 
-                Q(effort=None) & 
-                Q(faction=faction) &
-                Q(total_points=total_points)
-            )
+            queryset = queryset.filter(Q(id=selected_scorecard))
+        # Set the queryset for the scorecard field and ensure it has a non-empty label
+        self.fields['scorecard'].queryset = queryset.distinct()
         self.fields['scorecard'].empty_label = None

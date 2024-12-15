@@ -27,6 +27,7 @@ class Profile(models.Model):
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
+    in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)

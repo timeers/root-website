@@ -46,9 +46,11 @@
                 {% endif %}
             
             </fieldset>
+            {% if not user.profile.banned and not user.profile.outcast %}
             <div class="form-group">
                 <button class="btn btn-outline-info" type="submit">Save</button>
             </div>
+            {% endif %}
         </form>
     </div>
 {% endblock content %}

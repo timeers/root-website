@@ -64,15 +64,11 @@
         </thead>
         <tbody class="effort-rows">
 
-{% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
+
     {% for effort in efforts %}
             {% include 'the_warroom/partials/effort_detail.html' %}
     {% endfor %}
-{% else %}
-    {% for effort in game.get_efforts %}
-        {% include 'the_warroom/partials/effort_detail.html' %}
-    {% endfor %}
-{% endif %}
+
 
 </tbody>
 </table>

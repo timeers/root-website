@@ -500,15 +500,18 @@ def scorecard_assign_view(request, id):
         participants.append(game.recorder)
     if not request.user.profile in participants:
                 return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+    dominance = False
+    if effort.dominance:
+        dominance = True
     if request.method == 'POST':
-        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard)
+        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard, dominance=dominance)
         if form.is_valid():
             scorecard = form.cleaned_data['scorecard']
             scorecard.effort = effort  # Assign the Effort to the selected Scorecard
             scorecard.save()  # Save the updated Scorecard
             return redirect('game-detail', id=effort.game.id)
     else:
-        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard)
+        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard, dominance=dominance)
 
     context = {
         'form': form, 
@@ -565,8 +568,20 @@ def scorecard_list_view(request):
             faction=scorecard.faction,
             score=scorecard.total_points
         )
+        dominance = False
+        for turn in scorecard.turns.all():
+            if turn.dominance:
+                dominance = True
+        if dominance:
+            print("Found Dominance")
+            dominance_efforts = unassigned_efforts.filter(
+                faction=scorecard.faction,
+                dominance__isnull=False
+            )
+            print(dominance_efforts)
+            matching_efforts = matching_efforts | dominance_efforts
         # Add the matching efforts as a property on the scorecard
-        scorecard.matching_efforts = matching_efforts
+        scorecard.matching_efforts = matching_efforts.distinct()
 
     context = {
         'unassigned_scorecards': unassigned_scorecards,

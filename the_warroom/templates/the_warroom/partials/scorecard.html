@@ -8,6 +8,9 @@
             <th>Battle Points</th>
             <th>Other Points</th>
             <th>Turn Total</th>
+            {% if object.dominance %}
+                <th>Dom</th>
+            {% endif %}
         </tr>
     </thead>
     <tbody class="effort-rows">
@@ -36,6 +39,20 @@
     <td>
         {{ turn.total_points }}
     </td>
+    {% if object.dominance %}
+        <td>
+            {% if turn.dominance %}
+
+                {% if object.effort %}
+                    <img class="faction-icon"  
+                    src="/media/default_images/{{ object.effort.dominance }}_Icon.png" 
+                    alt="{{ object.effort.dominance }} Dominance">
+                {% else %}
+                    Dom
+                {% endif %}
+            {% endif %}
+        </td>
+    {% endif %}
 </tr>
 
 

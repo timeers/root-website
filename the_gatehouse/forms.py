@@ -24,14 +24,19 @@ class ProfileUpdateForm(forms.ModelForm):
     class Meta:
         model = Profile
         # fields = ['display_name','image', 'dwd', 'league']       
-        fields = ['image', 'dwd', 'league']
+        fields = ['image', 'dwd', 'league', 'weird']
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Registered for Digital League?',
+            'weird' : 'Show Fan Content',
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        
+        # Only show the 'dwd' field if 'in_weird_root' is True
+        if self.instance and not self.instance.in_weird_root:
+            self.fields.pop('weird')  # Remove the dwd field from the form if the profile's in_weird_root is False
 
         # Check if the instance has a value for dwd
         if self.instance and self.instance.dwd:

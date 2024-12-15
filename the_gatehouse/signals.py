@@ -89,11 +89,13 @@ def user_logged_in_handler(request, user, **kwargs):
         profile_updated = True
 
     # If user is a member of WR but does not have the weird view (add view)
-    if not profile.weird and in_wr:
+    if not profile.in_weird_root and in_wr:
+        profile.in_weird_root = True
         profile.weird = True
         profile_updated = True
 
-    if profile.designer and not profile.weird:
+    if profile.designer and not profile.in_weird_root:
+        profile.in_weird_root = True
         profile.weird = True
         profile_updated = True
 

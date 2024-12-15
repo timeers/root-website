@@ -39,9 +39,9 @@
         <div>
     {% endif %}
 
-
+    {% with game.get_efforts as efforts %}
     {% include 'the_warroom/partials/game_detail.html' %}
-
+    {% endwith %}
     </div>
 {% empty %}
     No games recorded{% if object %} for {{ object }}{% endif %}.
