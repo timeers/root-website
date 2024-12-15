@@ -52,18 +52,9 @@
         {% endfor %}
     {% endif %}
 
-    {% if object.otherpiece.all %}
-        <h4>Other Pieces</h4>
-        <div>
-        {% for piece in object.otherpiece.all %}
-            {% if piece.suited %}
-                <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
-            {% else %}
-                <div>{{ piece.quantity }} {{ piece.name }}</div>
-            {% endif %}
-        {% endfor %}
-        </div>
-    {% endif %}
+
+    {% include 'the_keep/partials/pieces.html' %}
+
 
     <h2>Ability</h2>
     <h4>{{ object.ability }}</h4>

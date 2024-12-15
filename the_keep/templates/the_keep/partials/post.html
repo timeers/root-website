@@ -3,9 +3,9 @@
 <div class="media-body">
     <div class="article-metadata">
         <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
-        <small class="text-muted">{{ object.date_updated | date:"Y-m-d" }}</small>
+        <small class="text-muted">{{ object.date_posted | date:"Y-m-d" }}</small>
     </div>
-        {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
+        {% if not object.official %}Fan Made {% endif %}{{ object.component }}
         <h2><a class="article-title" href="{% url object.component|lower|add:'-detail' object.slug %}">{{ object.title }}</a></h2>
 
      {% if object.artist %}

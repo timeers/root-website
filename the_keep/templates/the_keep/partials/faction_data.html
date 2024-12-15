@@ -37,76 +37,9 @@
         {% if object.board_image %}
             <img class="board-img" src="{{ object.board_image.url }}">
         {% endif %}
+        
+        {% include 'the_keep/partials/pieces.html' %}
 
-        <p class="article-content">
-        <h3>Components</h3>
-        <div class="d-flex flex-wrap justify-content-between">
-        {% if object.warrior.all %}
-            <div>
-                <h4>Warriors</h4> 
-            {% for piece in object.warrior.all %}
-                {% if piece.suited %}
-                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
-                {% else %}
-                    <div>{{ piece.quantity }} {{ piece.name }}</div>
-                {% endif %}
-            {% endfor %}
-            </div>
-        {% endif %}
-        {% if object.building.all %}
-        <div>
-        <h4>Buildings</h4> 
-            
-            {% for piece in object.building.all %}
-                {% if piece.suited %}
-                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
-                {% else %}
-                    <div>{{ piece.quantity }} {{ piece.name }}</div>
-                {% endif %}
-            {% endfor %}
-            </div>
-        {% endif %}
-        {% if object.token.all %}
-        <div>
-        <h4>Tokens</h4> 
-            
-            {% for piece in object.token.all %}
-                {% if piece.suited %}
-                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
-                {% else %}
-                    <div>{{ piece.quantity }} {{ piece.name }}</div>
-                {% endif %}
-            {% endfor %}
-            </div>
-        {% endif %}
-        {% if object.card.all %}
-        <div>
-            <h4>Cards</h4> 
-            
-            {% for piece in object.card.all %}
-                {% if piece.suited %}
-                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
-                {% else %}
-                    <div>{{ piece.quantity }} {{ piece.name }}</div>
-                {% endif %}
-            {% endfor %}
-            </div>
-        {% endif %}
-        {% if object.otherpiece.all %}
-        <div>
-            <h4>Other Pieces</h4>
-            
-            {% for piece in object.otherpiece.all %}
-                {% if piece.suited %}
-                    <div>{{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}</div>
-                {% else %}
-                    <div>{{ piece.quantity }} {{ piece.name }}</div>
-                {% endif %}
-            {% endfor %}
-            </div>
-        {% endif %}
-        </div>
-        </p>
     </div>
 </article>
 

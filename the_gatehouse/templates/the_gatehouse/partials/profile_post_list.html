@@ -1,0 +1,28 @@
+
+{% for object in posts %}
+
+    {% if forloop.last and posts.has_next %}
+        {% if bookmark_page %}
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'post-bookmarks' player.slug %}?page={{ posts.number|add:1 }}"
+            hx-swap="afterend">
+            <!-- hx-include="#gamefilterform"> -->
+        {% else %}
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'designer-components' player.slug %}?page={{ posts.number|add:1 }}"
+            hx-swap="afterend">
+            <!-- hx-include="#gamefilterform"> -->
+        {% endif %}
+    {% else %}
+        <div>
+    {% endif %}
+
+
+    <article class="media content-section">
+        {% include 'the_keep/partials/post.html' %}
+    </article>
+
+    </div>
+{% empty %}
+    No posts.
+{% endfor %}

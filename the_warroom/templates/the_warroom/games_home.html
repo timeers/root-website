@@ -2,7 +2,7 @@
 {% block content %}
 {% if user.profile.player %}
     <a href="{% url 'record-game' %}" class="btn btn-success mb-3" id="recordgame">
-        Record New Game +
+        New Game
     </a>
 {% endif %}
 
@@ -14,11 +14,11 @@
         Map:
         {{ form.map }}
         Deck:
-        {{ form.deck }}
+        {{ form.deck }}<br>
         Factions:
         {{ form.faction }}
         Vagabonds:
-        {{ form.vagabond }}
+        {{ form.vagabond }}<br>
         Players:
         {{ form.player }}
 
@@ -37,18 +37,15 @@
 
 
 {% block scripts %}
-        <script>
-                $('#id_faction').select2({
-                    placeholder: "Select an option",
-                    allowClear: true
-                });
-                $('#id_player').select2({
-                    placeholder: "Select an option",
-                    allowClear: true
-                });
-                $('#id_vagabond').select2({
-                    placeholder: "Select an option",
-                    allowClear: true
-                });
-        </script>
+    <script>
+        const selectIds = ['#id_faction', '#id_player', '#id_vagabond', '#id_map', '#id_deck'];
+
+        // Apply select2 to all select elements in the list
+        selectIds.forEach(id => {
+            $(id).select2({
+                placeholder: "Select an option",
+                allowClear: true
+            });
+        });
+    </script>
 {% endblock %}

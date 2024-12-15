@@ -68,6 +68,7 @@ class Post(models.Model):
         FACTION = 'Faction'
 
     title = models.CharField(max_length=35)
+    animal = models.CharField(max_length=15, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)
@@ -94,6 +95,18 @@ class Post(models.Model):
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
 
     objects = PostManager()
+
+
+    def warriors(self):
+        return Piece.objects.filter(parent=self, type=Piece.TypeChoices.WARRIOR)
+    def buildings(self):
+        return Piece.objects.filter(parent=self, type=Piece.TypeChoices.BUILDING)
+    def tokens(self):
+        return Piece.objects.filter(parent=self, type=Piece.TypeChoices.TOKEN)
+    def cards(self):
+        return Piece.objects.filter(parent=self, type=Piece.TypeChoices.CARD)
+    def otherpieces(self):
+        return Piece.objects.filter(parent=self, type=Piece.TypeChoices.OTHER)
 
     def save(self, *args, **kwargs):
 
@@ -171,10 +184,6 @@ class Post(models.Model):
     def __str__(self):
         return self.title
     
-
-    # # This might need to be moved to each type of component? map-detail, deck-detail etc.
-    # def get_absolute_url(self):
-    #     return reverse('post-detail', kwargs={'pk': self.pk})
     
     def get_plays_queryset(self):
         match self.component:
@@ -184,8 +193,7 @@ class Post(models.Model):
                 return self.efforts.order_by('-date_posted') 
             case _:
                 return Post.objects.none()  # or return an empty queryset
-            
-    
+
     def get_games_queryset(self):
         Game = apps.get_model('the_warroom', 'Game')
         match self.component:
@@ -295,7 +303,7 @@ class Vagabond(Post):
         OTHER = 'Other'
 
 
-    animal = models.CharField(max_length=15)
+    
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
@@ -354,7 +362,7 @@ class Faction(Post):
         LOW = 'L'
         MODERATE = 'M'
         HIGH = 'H'                
-    animal = models.CharField(max_length=15)
+
     type = models.CharField(max_length=10, choices=TypeChoices.choices)
     reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
     complexity = models.CharField(max_length=1, choices=StyleChoices.choices)
@@ -412,7 +420,7 @@ class Hireling(Post):
     class TypeChoices(models.TextChoices):
         PROMOTED = 'P'
         DEMOTED = 'D'
-    animal = models.CharField(max_length=15)
+
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
@@ -427,40 +435,21 @@ class Hireling(Post):
     
 # Game Pieces for Factions and Hirelings
 class Piece(models.Model):
+    class TypeChoices(models.TextChoices):
+        WARRIOR = 'W'
+        BUILDING = 'B'
+        TOKEN = 'T'
+        CARD = 'C'
+        OTHER = 'O'
     name = models.CharField(max_length=30)
     quantity = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(40)])
     description = models.TextField(null=True, blank=True)
     suited = models.BooleanField(default=False)
-
-
-    class Meta:
-        abstract = True  # This ensures that Piece won't create a table
+    parent = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='pieces')
+    type = models.CharField(max_length=1, choices=TypeChoices.choices)
 
     def __str__(self):
         return f"{self.name} (x{self.quantity})"
-
-class Warrior(Piece):
-    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='warrior')
-    class Meta:
-        verbose_name_plural = "Warriors" 
-
-class Building(Piece):
-    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='building')
-
-
-class Token(Piece):
-    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='token')
-
-
-class Card(Piece):
-    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='card')
-
-
-class OtherPiece(Piece):
-    parent = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='otherpiece')
-
-    
-
 
 
 def animal_default_picture(instance):

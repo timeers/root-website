@@ -135,39 +135,10 @@ def add_player(request):
 @login_required
 def player_page_view(request, slug):
     player = get_object_or_404(Profile, slug=slug)
-    if request.user.profile.weird :
-        queryset = player.get_games_queryset()
-    else:
-        queryset = player.get_games_queryset().only_official_components()
-    
-    # efforts = player.efforts.all()
-    # games = list({effort.game for effort in efforts})
-    # games.sort(key=lambda game: game.date_posted, reverse=True)
-    games = list(queryset)
-    
-
-    quantity_faction = player.most_used_faction()
-    quality_faction = player.most_successful_faction()
-    quality_winrate = player.winrate(faction=quality_faction)
-    quantity_count = player.games_played(quantity_faction)
-
     context = {
-        'games': games, 
         'player': player,
-        'quality_faction': quality_faction,
-        'quality_winrate': quality_winrate,
-        'quantity_faction': quantity_faction,
-        'quantity_count': quantity_count,
         }
-    if request.htmx:
-        return render(request, 'the_warroom/partials/hx_game_list.html', context=context)
-    
-    if request.user.profile.banned:
-        return redirect('profile')
-    
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
-
-
 
 
 @login_required
@@ -192,15 +163,18 @@ def designer_component_view(request, slug):
     # Get the current page number from the request (default to 1)
     page_number = request.GET.get('page')  # e.g., ?page=2
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+
     print(f'Page: {page_number}')
     context = {
         'posts': page_obj,
         'total_count': total_count,  # Pass the total count to the template
+        'bookmark_page': False,
+        'player': designer,
     }
 
 
     if request.htmx:
-        return render(request, "the_gatehouse/partials/posts_list.html", context)   
+        return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
  
     return redirect('player-detail', slug=slug)
 
@@ -225,9 +199,11 @@ def post_bookmarks(request, slug):
     context = {
         'posts': page_obj,
         'total_count': total_count,  # Pass the total count to the template
+        'bookmark_page': True,
+        'player': request.user.profile,
     }
     if request.htmx:
-        return render(request, "the_gatehouse/partials/posts_list.html", context)   
+        return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
  
     return redirect('player-detail', slug=slug)
 
@@ -277,14 +253,29 @@ def game_list(request, slug):
  
     # Get the current page number from the request (default to 1)
     page_number = request.GET.get('page')  # e.g., ?page=2
+
+
+    quantity_faction = None
+    quality_faction = None
+    quality_winrate = None
+    quantity_count = None
+    if not page_number:
+            quantity_faction = player.most_used_faction()
+            quality_faction = player.most_successful_faction()
+            quality_winrate = player.winrate(faction=quality_faction)
+            quantity_count = player.games_played(quantity_faction)
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
     # print(f'Page: {page_number}')
     context = {
         'games': page_obj,
         'total_count': total_count,  # Pass the total count to the template
         'page_obj': page_obj,
-        'player': request.user.profile,
+        'player': player,
         'bookmark_page': False,
+        'quality_faction': quality_faction,
+        'quality_winrate': quality_winrate,
+        'quantity_faction': quantity_faction,
+        'quantity_count': quantity_count,
     }
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)

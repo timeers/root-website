@@ -1,0 +1,19 @@
+<div id="piece-{{ piece.id }}">
+    <form hx-post="{% url 'update-piece' piece.id %}?piece={{ piece_type }}&slug={{ object.slug }}"
+            hx-target="#piece-{{ piece.id }}"
+            hx-swap="outerHTML"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-on="htmx:afterRequest: this.remove()"
+            hx-trigger="click from:#save-all">
+    <div class="hidden">{{ form.id }}</div>
+    {{ form.quantity }} {{ form.name }}<br>
+    {% if form.quantity.errors %}
+            {% for error in form.quantity.errors %}
+                <div class="alert alert-danger" role="alert">
+                    {{ error }}
+                </div>
+            {% endfor %}
+    {% endif %}
+    Suited:{{ form.suited }}
+    </form>
+</div>

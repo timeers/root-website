@@ -1,6 +1,6 @@
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import Http404
+from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
@@ -20,17 +20,19 @@ from django.views.generic import (
     DeleteView
 )
 from the_gatehouse.models import Profile
-from the_gatehouse.views import designer_required_class_based_view
+from the_gatehouse.views import designer_required_class_based_view, designer_required
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
       Map, Deck,
-      Hireling, Landmark
+      Hireling, Landmark,
+      Piece,
     )
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
-                    FactionCreateForm, ExpansionCreateForm
+                    FactionCreateForm, ExpansionCreateForm,
+                    PieceForm
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -333,22 +335,16 @@ class ComponentDetailListView(ListView):
             return 'the_warroom/partials/hx_game_list.html'
         return 'the_keep/component_detail_list.html'
 
-    # def get_queryset(self):
-    #     queryset = self.object.get_games_queryset() 
-    #     self.filterset = GameFilter(self.request.GET, queryset=queryset)
-    #     return self.filterset.qs
-    
     def get_queryset(self):
         if not hasattr(self, 'object'):
             self.object = self.get_object()  # Ensure the object is set
         if not self.request.user.is_authenticated:
             queryset = self.object.get_games_queryset().only_official_components()
         else:
+            # If show official only if user is not a member of Weird Root
             if self.request.user.profile.weird:
-                print("include weird games")
                 queryset = self.object.get_games_queryset()
             else:
-                print('exclude weird games')
                 queryset = self.object.get_games_queryset().only_official_components()
 
         self.filterset = GameFilter(self.request.GET, queryset=queryset)
@@ -385,9 +381,7 @@ class ComponentDetailListView(ListView):
         if self.object.component == "Faction":
             top_players = Profile.top_players(faction_id=self.object.id, limit=5)
             most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
-            # for top_player in top_players:
-            #     print(f'{top_player.name} - {top_player.win_rate} - {top_player.win_count} - {top_player.total_efforts}')
-        
+
         # Paginate games
         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
         page_number = self.request.GET.get('page')  # Get the page number from the request
@@ -405,7 +399,6 @@ class ComponentDetailListView(ListView):
         context['filterset'] = self.filterset    
         context['top_players'] = top_players 
         context['most_players'] = most_players 
-
         
         return context
 
@@ -469,7 +462,7 @@ def _search_components(request, slug=None):
         posts = posts.filter(designer=player)
     if search:
         # posts = posts.filter(title__icontains=search)
-        posts = posts.filter(title__icontains=search)
+        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search))
         
     if search_type:
         posts = posts.filter(component__icontains=search_type)
@@ -488,3 +481,61 @@ def _search_components(request, slug=None):
 
 
 
+@designer_required
+def add_piece(request, id=None):
+    if not request.htmx:
+        raise Http404("Not an HTMX request")
+    if id:
+        obj = get_object_or_404(Piece, id=id)
+        #Check if user owns this object
+        if obj.parent.designer!=request.user.profile:
+            raise HttpResponseForbidden()
+    else:
+        obj = Piece()  # Create a new Piece instance but do not save it yet
+
+    form = PieceForm(request.POST or None, instance=obj)
+
+    piece_type = request.GET.get('piece')
+    slug = request.GET.get('slug')
+
+    parent = Post.objects.get(slug=slug)
+
+    context = {
+        'form': form,
+        'object': parent,
+        'piece_type': piece_type,
+        'piece': obj,
+    }
+
+    if request.method == 'POST':
+        if form.is_valid():
+            # Form is valid, save the piece
+            child = form.save(commit=False)
+            child.parent = parent
+            child.type = piece_type
+            child.save()
+
+            # Return a partial to indicate the piece has been updated
+            return render(request, 'the_keep/partials/piece_line.html', context)
+        else:
+            # If form is not valid, it will still return the form with error messages
+            return render(request, 'the_keep/partials/piece_add.html', context)  # Render the form with error messages
+    
+    # If GET request, render the form without errors (initial state)
+
+    if id:
+        return render(request, 'the_keep/partials/piece_update.html', context)
+    else:
+        return render(request, 'the_keep/partials/piece_add.html', context)
+
+@designer_required
+def delete_piece(request, id):
+    if not request.htmx:
+        raise Http404("Not an HTMX request")
+    piece = get_object_or_404(Piece, id=id)
+    # Check if user owns this object
+    if piece.parent.designer==request.user.profile:
+        piece.delete()
+        return HttpResponse('')
+    else:
+        raise HttpResponseForbidden()

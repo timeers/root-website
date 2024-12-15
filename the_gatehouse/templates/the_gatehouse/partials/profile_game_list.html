@@ -1,4 +1,26 @@
+{% if page_obj.number == 1 and bookmark_page == False %}
+<div class="content-section">
+    <div class="media">
+        <!-- Winrate -->
+        <div class="media-body">
+            <div>{{ player.winrate|floatformat:2 }}% Winrate</div>
+            <div>{{ player.games_played }} Games Played</div>
+        </div>
 
+        
+        <div class="media-body">
+            {% if quantity_faction %}
+            <div>Most played Faction: {{ quantity_faction }}: {{ quantity_count }} Games</div>
+            {% endif %}
+            {% if quality_faction %}
+            <div>Highest winrate with: {{ quality_faction }}: {{ quality_winrate|floatformat:2 }}%</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+
+{% endif %}
 {% for game in games %}
 
     {% if forloop.last and games.has_next %}

@@ -74,7 +74,6 @@
     
 
     <div id="game-faction-select" class="{{ form.required_css_class }}" {% if object.id %}disabled{% endif %}>
-        {{ form.faction.errors }}
         <h4>Faction:</h4>
         {{ form.faction }}
     </div>
@@ -87,7 +86,8 @@
             {{ message }}
         </div>
     {% endif %}
-    {{ formset.management_form }}
+    <div class="hidden">{{ formset.management_form }}</div>
+    
 
     <div id="form-turn-list">
         <div class="turn-header">
@@ -149,7 +149,6 @@
 
     <div id="game-description-field">
         <h4>Notes:</h4>{{ form.description }}
-        {{ form.description.errors }}
     </div>
 
     <button class="btn btn-outline-success mb-2 mt-2" type="submit">Save</button>

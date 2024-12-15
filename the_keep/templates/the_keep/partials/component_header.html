@@ -1,9 +1,24 @@
-<article class="media content-section">
-    <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
-    <div class="media-body">
-
-            <h1>{{ object.title }}</h1>
-            <div class="article-metadata">
+<article class="content-section">
+<div class="d-flex flex-wrap justify-content-between">
+    <div class="d-flex">
+        <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+        <h1>{{ object.title }}</h1>
+    </div>
+    <div>
+            {% if object.designer == user.profile and user.profile.designer %}
+                    <div>
+                        <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url object.component|lower|add:'-update' object.slug %}">Update</a>
+                        <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' object.id %}">Delete</a>
+                    </div>
+            {% endif %}
+            <!-- Bookmarks -->
+            {% if user.is_authenticated %}
+                {% include 'the_keep/partials/bookmarks.html' %}
+            {% endif %}
+        </div>
+</div>
+<div>
+            <div>
                 {% if object.clockwork %}Clockwork {% endif %}
                 {{ object.component }} by 
                 {% if user.profile.player %}
@@ -11,15 +26,17 @@
                 {% else %}
                     {{ object.designer.name }}
                 {% endif %}
+            </div>
                 <small class="text-muted">{{ object.date_updated | date:"Y-m-d" }}</small>
-
+</div>
+<div>
                 {% if object.expansion %}
                     <div>
                         <a class="mr-2" href="{% url 'expansion-detail' object.expansion.slug %}">{{ object.expansion.title }}</a>
                     </div>
                 {% endif %}
                 {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
-                    <div class="article-content">Animal: {{ object.animal }}</div>
+                    <div>Animal: {{ object.animal }}</div>
                 {% endif %}
     
                 {% if object.artist %}
@@ -34,28 +51,17 @@
                 {% endif %}
 
 
-            </div>
             
+            </div>
 
             {% if object.lore %}
                 <p class="lore-content mt-2">{{ object.lore }}</p>
             {% endif %}
 
 
-            <p class="article-content">Status: {{ object.status }}</p>
-</div>
-{% if user.is_superuser and object.designer.user == None %}
-    <!-- <h5>{{ object.designer }} is not registered</h5> -->
-{% endif %}
-{% if object.designer == user.profile and user.profile.designer %}
-        <div>
-            <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url object.component|lower|add:'-update' object.slug %}">Update</a>
-            <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'post-delete' object.id %}">Delete</a>
-        </div>
-{% endif %}
-<!-- Bookmarks -->
-{% if user.is_authenticated %}
-    {% include 'the_keep/partials/bookmarks.html' %}
-{% endif %}
+            <p>Status: {{ object.status }}</p>
+
+
+
 
 </article>

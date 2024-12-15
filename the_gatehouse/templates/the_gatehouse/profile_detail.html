@@ -3,11 +3,12 @@
 {% block title %} - {{ player.discord }}{% endblock %}
 
 {% block content %}
-    <div class="content-section">
-        <div class="media">
-        <img class="article-img" src="{{ player.image.url }}">
+    <div class="media content-section">
+
+            <img class="article-img" src="{{ player.image.url }}">
             <div class="media-body">
                 <h1 class="account-heading">{{ player.name }}</h1>
+                {% if user.profile.player or player == user.profile %}
                 {% if player.discord %}
                     <span class="text-secondary">Discord: {{ player.discord }}</span><br>
                 {% endif %}
@@ -18,69 +19,52 @@
                         <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
                     {% endif %}
                 {% endif %}
-                
-                    {% if quantity_faction %}
-                    <div>Most played Faction: {{ quantity_faction }}: {{ quantity_count }} Games</div>
-                    {% endif %}
-                    {% if quality_faction %}
-                    <div>Highest winrate with: {{ quality_faction }}: {{ quality_winrate|floatformat:2 }}%</div>
-                    {% endif %}
+                {% endif %}
                 
             </div>
- 
-            <!-- Winrate -->
-            {% if player.efforts.count > 0 %}
-            <div class="media-body">
-                <div>{{ player.winrate|floatformat:2 }}% Winrate</div>
-                <div>{{ player.games_played }} Games Played</div>
-            </div>
-            {% endif %}
-            
             {% if player == user.profile %}
                 <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}">Edit Profile</a>
-            {% else %}
+            {% elif user.profile.player %}
                 <!-- Bookmarks -->
                 {% include 'the_gatehouse/partials/bookmarks.html' %}
             {% endif %}
 
-            
-
-        </div>
     </div>
     
-
+{% if user.profile.player or user.profile == player %}
     <div class="container mt-4">
 
         <ul class="nav nav-tabs" id="myTab" role="tablist">
-
+            {% if player.efforts.count %}
             <li class="nav-item" role="presentation">
-                <a class="nav-link active" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="true" 
+                <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false" 
                 hx-get="{% url 'player-games' player.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false">Games</a>
+                hx-push-url="false">Games ({{ player.efforts.count }})</a>
             </li>
-            {% if player == user.profile %}
+            {% endif %}
+            {% if player == user.profile and player.bookmarkedgames.count %}
             <li class="nav-item" role="presentation">
                 <a class="nav-link" id="game-bookmarks-tab" data-bs-toggle="tab" href="#game-bookmarks" role="tab" aria-controls="game-bookmarks" aria-selected="false" 
                 hx-get="{% url 'game-bookmarks' user.profile.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Saved Games</i></a>
+                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Saved Games ({{ player.bookmarkedgames.count }})</i></a>
             </li>
             {% endif %}
-            {% if user.profile.weird and player.posts.count > 0 %}
+            {% if user.profile.weird and player.posts.count %}
             <li class="nav-item" role="presentation">
-                <a class="nav-link{% if player.efforts.count == 0 %} active{% endif %}" id="components-tab" data-bs-toggle="tab" href="#components" role="tab" aria-controls="components" aria-selected="false" 
+                <a class="nav-link" id="components-tab" data-bs-toggle="tab" href="#components" role="tab" aria-controls="components" aria-selected="false" 
                 hx-get="{% url 'designer-components' player.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false">Components</a>
+                hx-push-url="false">Components ({{ player.posts.count }})</a>
             </li>
             {% endif %}
-            {% if player == user.profile %}
+            {% if player == user.profile and player.bookmarkedposts.count %}
             <li class="nav-item" role="presentation">
                 <a class="nav-link" id="post-bookmarks-tab" data-bs-toggle="tab" href="#post-bookmarks" role="tab" aria-controls="post-bookmarks" aria-selected="false" 
                 hx-get="{% url 'post-bookmarks' user.profile.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks</a>
+                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
             </li>
             {% endif %}
 
@@ -89,11 +73,7 @@
 
 
 <div id="tab-contents">
-    <div hx-trigger="revealed" 
-    hx-target="#tab-contents"
-    hx-get="{% url 'player-games' player.slug %}?page={{ page_obj.number|add:1 }}"
-    hx-swap="innerHTML">
-    <!-- hx-include="#gamefilterform"> -->
-</div>
 
+</div>
+{% endif %}
 {% endblock content %}

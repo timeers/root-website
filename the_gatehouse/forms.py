@@ -2,6 +2,7 @@ import re
 from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
+from django.core.exceptions import ValidationError
 from .models import Profile
 
 class UserRegisterForm(UserCreationForm):
@@ -26,7 +27,7 @@ class ProfileUpdateForm(forms.ModelForm):
         fields = ['image', 'dwd', 'league']
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
-            'league' : 'Registered for Digital League',
+            'league' : 'Registered for Digital League?',
         }
 
     def __init__(self, *args, **kwargs):
@@ -41,8 +42,22 @@ class ProfileUpdateForm(forms.ModelForm):
         if self.instance and self.instance.league == True:
             self.fields.pop('league')
 
+    def clean(self):
+        cleaned_data = super().clean()
+        dwd = cleaned_data.get('dwd')
+        league = cleaned_data.get('league')
+
+        # Check if dwd matches the pattern of any alphanumeric characters followed by a '+' and exactly 4 digits
+        if dwd and not re.match(r'^[a-zA-Z0-9]+(\+\d{4})$', dwd):
+            cleaned_data['dwd'] = None
+            raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
+
+        if league and dwd == None:
+            raise ValidationError(f"Must have a DWD username to be registered for Leauge.")
 
 
+
+        return cleaned_data
 
 
 

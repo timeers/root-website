@@ -13,8 +13,7 @@ from .views import (
     bookmark_post,
     list_view,
     search_view,
-    # manage_expansion,
-    # component_detail_view,
+    add_piece, delete_piece,
 )
 from . import views
 
@@ -38,7 +37,6 @@ urlpatterns = [
     path('expansion/<slug:slug>/factions', ExpansionDetailView.as_view(), name='expansion-factions'),
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
-    # path('expansion/<slug:slug>/update/', manage_expansion, name='expansion-update'),
 
     path('map/<slug:slug>/', ComponentDetailListView.as_view(), name='map-detail'),
     path('deck/<slug:slug>/', ComponentDetailListView.as_view(), name='deck-detail'),
@@ -58,4 +56,7 @@ urlpatterns = [
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),
+    path('piece/add/', add_piece, name='add-piece'),
+    path('piece/update/<int:id>', add_piece, name='update-piece'),
+    path('piece/delete/<int:id>', delete_piece, name='delete-piece'),
 ]

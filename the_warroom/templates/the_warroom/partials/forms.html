@@ -8,53 +8,28 @@
     {% for field in form %}
         {% if field.label == 'Undrafted vagabond' %}
                 <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
-                        {{ field.errors }}
                         {{ field.label_tag }} {{ field }}
-                        {% if field.help_text %}
-                                <p class="help">{{ field.help_text | safe }}</p>
-                        {% endif %}
                 </div>
         {% elif field.label == 'League' %}
                 <div class="league-field" style="display:none;">
-                        {{ field.errors }}
                         {{ field.label_tag }} {{ field }}
-                        {% if field.help_text %}
-                                <p class="help">{{ field.help_text | safe }}</p>
-                        {% endif %}
                 </div>
         {% elif field.label == 'Random clearing' %}
                 <div class="rc-field" style="display:none;">
-                        {{ field.errors }}
                         {{ field.label_tag }} {{ field }}
-                        {% if field.help_text %}
-                                <p class="help">{{ field.help_text | safe }}</p>
-                        {% endif %}
                 </div>
         {% elif field.label == 'Type' %}
                 <div class="timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
-                        {{ field.errors }}
                         {{ field.label_tag }} {{ field }}
-                        {% if field.help_text %}
-                                <p class="help">{{ field.help_text | safe }}</p>
-                        {% endif %}
                 </div>
         {% elif field.label == 'Hirelings' %}
         <div class="hireling-field" id="hireling-field" {% if object.platform == "Root Digital" %}style="display:none;"{% endif %}>
-                {{ field.errors }}
                 {{ field.label_tag }} {{ field }}
-                {% if field.help_text %}
-                        <p class="help">{{ field.help_text | safe }}</p>
-                {% endif %}
         </div>
 
         {% else %}
             <div id="game-{{ field.label.lower }}-field" class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
-                
-            {{ field.errors }}
-            {{ field.label_tag }} {{ field }}
-            {% if field.help_text %}
-                    <p class="help">{{ field.help_text | safe }}</p>
-            {% endif %}
+                {{ field.label_tag }} {{ field }}
             </div>
         {% endif %}
     {% endfor %}

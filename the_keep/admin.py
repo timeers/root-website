@@ -5,28 +5,16 @@ from django.http import HttpResponseRedirect
 import csv
 from io import StringIO
 from .models import (Post, Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     Warrior, Building, Token, Card, OtherPiece, PostBookmark)
+                     PostBookmark, Piece)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
-                    WarriorForm, BuildingForm, TokenForm, CardForm, OtherPieceForm)
+                   PieceImportForm)
 from .models import Profile
 from the_warroom.admin import CsvImportForm
 from datetime import datetime
 from django.utils import timezone
 
-class WarriorInline(admin.StackedInline):
-    model = Warrior
-    extra = 0
-class BuildingInline(admin.StackedInline):
-    model = Building
-    extra = 0
-class TokenInline(admin.StackedInline):
-    model = Token
-    extra = 0
-class CardInline(admin.StackedInline):
-    model = Card
-    extra = 0
-class OtherPieceInline(admin.StackedInline):
-    model = OtherPiece
+class PieceInline(admin.StackedInline):
+    model = Piece
     extra = 0
 
 class MapAdmin(admin.ModelAdmin):
@@ -225,7 +213,7 @@ class HirelingAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [WarriorInline, BuildingInline, TokenInline, CardInline, OtherPieceInline]
+    inlines = [PieceInline]
 class PostAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
     search_fields = ['title']
@@ -246,7 +234,7 @@ class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [WarriorInline, BuildingInline, TokenInline, CardInline, OtherPieceInline]
+    inlines = [PieceInline]
 
 
 
@@ -349,9 +337,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': "Card",
                             'quantity': int(fields[44]),
                             'parent': faction_instance,
+                            'type': 'C'
                         }
 
-                        card_form = CardForm(card_data)
+                        card_form = PieceImportForm(card_data)
                         if card_form.is_valid():
                             print('Valid Effort')
                             card_form.save()
@@ -367,9 +356,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[20],
                             'quantity': int(fields[21]),
                             'parent': faction_instance,
+                            'type': 'W',
                         }
 
-                        warrior_form = WarriorForm(warrior_data)
+                        warrior_form = PieceImportForm(warrior_data)
                         if warrior_form.is_valid():
                             print('Valid Warrior')
                             warrior_form.save()
@@ -384,9 +374,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[22],
                             'quantity': int(fields[23]),
                             'parent': faction_instance,
+                            'type': 'W',
                         }
 
-                        warrior_form = WarriorForm(warrior_data)
+                        warrior_form = PieceImportForm(warrior_data)
                         if warrior_form.is_valid():
                             print('Valid Warrior')
                             warrior_form.save()
@@ -401,9 +392,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[24],
                             'quantity': int(fields[25]),
                             'parent': faction_instance,
+                            'type': 'W',
                         }
 
-                        warrior_form = WarriorForm(warrior_data)
+                        warrior_form = PieceImportForm(warrior_data)
                         if warrior_form.is_valid():
                             print('Valid Warrior')
                             warrior_form.save()
@@ -420,10 +412,11 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[27],
                             'quantity': int(fields[28]),
                             'parent': faction_instance,
-                            'suited': suited
+                            'suited': suited,
+                            'type': 'B',
                         }
 
-                        building_form = BuildingForm(building_data)
+                        building_form = PieceImportForm(building_data)
                         if building_form.is_valid():
                             print('Valid Building')
                             building_form.save()
@@ -438,9 +431,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[30],
                             'quantity': int(fields[31]),
                             'parent': faction_instance,
+                            'type': 'B',
                         }
 
-                        building_form = BuildingForm(building_data)
+                        building_form = PieceImportForm(building_data)
                         if building_form.is_valid():
                             print('Valid Building')
                             building_form.save()
@@ -455,9 +449,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[32],
                             'quantity': int(fields[33]),
                             'parent': faction_instance,
+                            'type': 'B',
                         }
 
-                        building_form = BuildingForm(building_data)
+                        building_form = PieceImportForm(building_data)
                         if building_form.is_valid():
                             print('Valid Building')
                             building_form.save()
@@ -475,10 +470,11 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[35],
                             'quantity': int(fields[36]),
                             'parent': faction_instance,
-                            'suited': suited
+                            'suited': suited,
+                            'type': 'T',
                         }
 
-                        token_form = TokenForm(token_data)
+                        token_form = PieceImportForm(token_data)
                         if token_form.is_valid():
                             print('Valid Token')
                             token_form.save()
@@ -493,9 +489,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[38],
                             'quantity': int(fields[39]),
                             'parent': faction_instance,
+                            'type': 'T',
                         }
 
-                        token_form = TokenForm(token_data)
+                        token_form = PieceImportForm(token_data)
                         if token_form.is_valid():
                             print('Valid Token')
                             token_form.save()
@@ -510,9 +507,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[40],
                             'quantity': int(fields[41]),
                             'parent': faction_instance,
+                            'type': 'T',
                         }
 
-                        token_form = TokenForm(token_data)
+                        token_form = PieceImportForm(token_data)
                         if token_form.is_valid():
                             print('Valid Token')
                             token_form.save()
@@ -527,9 +525,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[42],
                             'quantity': int(fields[43]),
                             'parent': faction_instance,
+                            'type': 'T',
                         }
 
-                        token_form = TokenForm(token_data)
+                        token_form = PieceImportForm(token_data)
                         if token_form.is_valid():
                             print('Valid Token')
                             token_form.save()
@@ -548,9 +547,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[46],
                             'quantity': int(fields[47]),
                             'parent': faction_instance,
+                            'type': 'O',
                         }
 
-                        other_piece_form = OtherPieceForm(other_piece_data)
+                        other_piece_form = PieceImportForm(other_piece_data)
                         if other_piece_form.is_valid():
                             print('Valid OtherPiece')
                             other_piece_form.save()
@@ -565,9 +565,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[48],
                             'quantity': int(fields[49]),
                             'parent': faction_instance,
+                            'type': 'O',
                         }
 
-                        other_piece_form = OtherPieceForm(other_piece_data)
+                        other_piece_form = PieceImportForm(other_piece_data)
                         if other_piece_form.is_valid():
                             print('Valid OtherPiece')
                             other_piece_form.save()
@@ -582,9 +583,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[50],
                             'quantity': int(fields[51]),
                             'parent': faction_instance,
+                            'type': 'O',
                         }
 
-                        other_piece_form = OtherPieceForm(other_piece_data)
+                        other_piece_form = PieceImportForm(other_piece_data)
                         if other_piece_form.is_valid():
                             print('Valid OtherPiece')
                             other_piece_form.save()
@@ -599,9 +601,10 @@ class FactionAdmin(admin.ModelAdmin):
                             'name': fields[52],
                             'quantity': int(fields[53]),
                             'parent': faction_instance,
+                            'type': 'O',
                         }
 
-                        other_piece_form = OtherPieceForm(other_piece_data)
+                        other_piece_form = PieceImportForm(other_piece_data)
                         if other_piece_form.is_valid():
                             print('Valid OtherPiece')
                             other_piece_form.save()
@@ -632,7 +635,7 @@ class VagabondAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer']
-    inlines = [OtherPieceInline]
+    inlines = [PieceInline]
     def get_urls(self):
         urls = super().get_urls()
         new_urls = [path('upload-vagabond-csv/', self.upload_vagabond_csv)]
@@ -760,9 +763,10 @@ class VagabondAdmin(admin.ModelAdmin):
                             'name': fields[16],
                             'quantity': int(fields[15]),
                             'parent': vagabond_instance,
+                            'type': 'O',
                         }
 
-                        other_piece_form = OtherPieceForm(other_piece_data)
+                        other_piece_form = PieceInline(other_piece_data)
                         if other_piece_form.is_valid():
                             other_piece_form.save()
                         else:
@@ -795,11 +799,6 @@ admin.site.register(PostBookmark, PostBookmarkAdmin)
 
 
 # Registering the models with the GroupedModelAdmin
-# admin.site.register(Warrior, WarriorAdmin)
-# admin.site.register(Building, BuildingAdmin)
-# admin.site.register(Token, TokenAdmin)
-# admin.site.register(Card, CardAdmin)
-# admin.site.register(OtherPiece, OtherPieceAdmin)
 
 # admin.site.register(Post, PostAdmin)
 admin.site.register(Map, MapAdmin)

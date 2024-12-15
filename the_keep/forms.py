@@ -1,7 +1,7 @@
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Warrior, Building, Token, Card, OtherPiece, Expansion
+    Piece, Expansion
 )
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
@@ -279,6 +279,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Hireling Name',
         required=True
     )
+    animal = forms.CharField(required=True)
     TYPE_CHOICES = [
         ('P', 'Promoted'),
         ('D', 'Demoted'),
@@ -289,7 +290,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=True
     )
     based_on = forms.ModelChoiceField(
-        queryset=Post.objects.filter(component__in=['Faction', 'Vagabond', 'Hireling']),
+        queryset=Post.objects.filter(component__in=['Faction', 'Hireling']),
         required=False
     )
     picture = forms.ImageField(
@@ -325,6 +326,7 @@ class VagabondCreateForm(PostCreateForm):
         label='Vagabond Name',
         required=True
     )
+    animal = forms.CharField(required=True)
     starting_torch = forms.IntegerField(initial=1, min_value=0, max_value=2)
     starting_coins = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_boots = forms.IntegerField(initial=0, min_value=0, max_value=4)
@@ -409,13 +411,12 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Faction Name',
         required=True
     )
-    
+    animal = forms.CharField(required=True)
     TYPE_CHOICES = [
         ('I', 'Insurgent'),
         ('M', 'Militant'),
     ]
     STYLE_CHOICES = [
-        ('N', 'None'),
         ('L', 'Low'),
         ('M', 'Moderate'),
         ('H', 'High'),
@@ -513,42 +514,22 @@ class FactionImportForm(PostImportForm):
                 self.fields['small_icon'].initial = faction_instance.small_icon
 
 
-class WarriorForm(forms.ModelForm):
+class PieceImportForm(forms.ModelForm):
     class Meta:
-        model = Warrior
-        fields = ['name', 'quantity', 'description', 'suited', 'parent']
-        widgets = {
-            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
-        }
+        model = Piece
+        fields = ['name', 'quantity', 'description', 'suited', 'parent', 'type']
 
-class BuildingForm(forms.ModelForm):
-    class Meta:
-        model = Building
-        fields = ['name', 'quantity', 'description', 'suited', 'parent']
-        widgets = {
-            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
-        }
 
-class TokenForm(forms.ModelForm):
+class PieceForm(forms.ModelForm):
     class Meta:
-        model = Token
-        fields = ['name', 'quantity', 'description', 'suited', 'parent']
-        widgets = {
-            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
-        }
+        model = Piece
+        fields = ['name', 'quantity', 'suited', 'id']
 
-class CardForm(forms.ModelForm):
-    class Meta:
-        model = Card
-        fields = ['name', 'quantity', 'description', 'suited', 'parent']
-        widgets = {
-            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
-        }
+    # Override clean_quantity method for custom validation
+    def clean_quantity(self):
+        quantity = self.cleaned_data.get('quantity')
 
-class OtherPieceForm(forms.ModelForm):
-    class Meta:
-        model = OtherPiece
-        fields = ['name', 'quantity', 'description', 'suited', 'parent']
-        widgets = {
-            'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
-        }
+        if quantity > 36:
+            raise ValidationError('Quantity cannot be greater than 36.')
+        
+        return quantity

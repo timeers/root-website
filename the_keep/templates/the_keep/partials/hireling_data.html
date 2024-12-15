@@ -8,5 +8,7 @@
         <p class="article-content">{{ object.description }}</p>
     {% endif %}
         <p class="article-content">{{ object.get_type_display }}</p> 
+
+        {% include 'the_keep/partials/pieces.html' %}
     </div>
 </article>

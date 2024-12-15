@@ -1,0 +1,21 @@
+<div>
+    <form hx-post="{% url 'add-piece' %}?piece={{ piece_type }}&slug={{ object.slug }}"
+            hx-target="#{{ piece_type }}-pieces"
+            hx-swap="beforeend"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-on="htmx:afterRequest: this.remove()"
+            hx-trigger="click from:#save-all">
+    <div class="hidden">{{ form.id }}</div>
+    {{ form.quantity }} {{ form.name }}<br>
+    {% if form.quantity.errors %}
+            {% for error in form.quantity.errors %}
+                <div class="alert alert-danger mt-1" role="alert">
+                    {{ error }}
+                </div>
+            {% endfor %}
+    {% endif %}
+    Suited:{{ form.suited }}
+    <button class="btn btn-outline-danger btn-sm" type="button"
+        hx-on="click: this.closest('form').remove()"><i class="bi bi-trash3"></i></button>
+    </form>
+</div>

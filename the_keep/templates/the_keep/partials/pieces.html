@@ -1,0 +1,114 @@
+
+{% if object.pieces.count or object.designer == user.profile %}
+<p class="article-content">
+{% if object.component != "Vagabond" %}
+<h3>Components</h3>
+{% endif %}
+    <div class="d-flex flex-wrap justify-content-between">
+        {% if object.component != "Vagabond" %}
+        {% if object.warriors.all or object.designer == user.profile  %}
+        <div>
+            <h4>Warriors</h4>
+            <div id="W-pieces">
+                {% for piece in object.warriors.all %}
+                    {% include 'the_keep/partials/piece_line.html' %}
+                {% endfor %}
+            </div>
+            {% if object.designer == user.profile and object.warriors.count < 6 and user.profile.designer %}
+                <div>
+                    <button type="button" class="btn btn-primary me-2"
+                        hx-get="{% url 'add-piece' %}?piece=W&slug={{ object.slug }}"
+                        hx-target="#W-pieces"
+                        hx-swap="afterend"
+                    >Add+</button>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if object.buildings.all or object.designer == user.profile  %}
+        <div>
+            <h4>Buildings</h4>
+            <div id="B-pieces">
+                {% for piece in object.buildings.all %}
+                    {% include 'the_keep/partials/piece_line.html' %}
+                {% endfor %}
+            </div>
+            {% if object.designer == user.profile and object.buildings.count < 6 and user.profile.designer %}
+                <div>
+                    <button type="button" class="btn btn-primary me-2"
+                        hx-get="{% url 'add-piece' %}?piece=B&slug={{ object.slug }}"
+                        hx-target="#B-pieces"
+                        hx-swap="afterend"
+                    >Add+</button>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if object.tokens.all or object.designer == user.profile  %}
+        <div>
+            <h4>Tokens</h4>
+            <div id="T-pieces">
+                {% for piece in object.tokens.all %}
+                    {% include 'the_keep/partials/piece_line.html' %}
+                {% endfor %}
+            </div>
+            {% if object.designer == user.profile and object.tokens.count < 6 and user.profile.designer %}
+                <div>
+                    <button type="button" class="btn btn-primary me-2"
+                        hx-get="{% url 'add-piece' %}?piece=T&slug={{ object.slug }}"
+                        hx-target="#T-pieces"
+                        hx-swap="afterend"
+                    >Add+</button>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if object.cards.all or object.designer == user.profile  %}
+        <div>
+            <h4>Cards</h4>
+            <div id="C-pieces">
+                {% for piece in object.cards.all %}
+                    {% include 'the_keep/partials/piece_line.html' %}
+                {% endfor %}
+            </div>
+            {% if object.designer == user.profile and object.cards.count < 6 and user.profile.designer %}
+                <div>
+                    <button type="button" class="btn btn-primary me-2"
+                        hx-get="{% url 'add-piece' %}?piece=C&slug={{ object.slug }}"
+                        hx-target="#C-pieces"
+                        hx-swap="afterend"
+                    >Add+</button>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+{% endif %}
+        {% if object.otherpieces.all or object.designer == user.profile  %}
+        <div>
+            <h4>Other Pieces</h4>
+            <div id="O-pieces">
+                {% for piece in object.otherpieces.all %}
+                    {% include 'the_keep/partials/piece_line.html' %}
+                {% endfor %}
+            </div>
+            {% if object.designer == user.profile and object.otherpieces.count < 6 and user.profile.designer %}
+                <div>
+                    <button type="button" class="btn btn-primary me-2"
+                        hx-get="{% url 'add-piece' %}?piece=O&slug={{ object.slug }}"
+                        hx-target="#O-pieces"
+                        hx-swap="afterend"
+                    >Add+</button>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+    </div>
+    {% if object.designer == user.profile and user.profile.designer %}
+    <button type="button" id="save-all" class="btn btn-success mt-1">Save</button>
+    {% endif %}
+</p>
+{% endif %}
