@@ -2,7 +2,7 @@ from django.contrib import admin, messages
 from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
-from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore
+from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
 from the_keep.models import Deck, Map, Faction, Vagabond
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
@@ -13,7 +13,14 @@ import re
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField()
 
+class RoundInline(admin.StackedInline):
+    model = Round
+    extra = 0
 
+class TournamentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'status', 'start_date', 'end_date')
+    search_fields = ('name', 'status')
+    inlines = [RoundInline]
 
 class TurnInline(admin.StackedInline):
     model = TurnScore
@@ -223,6 +230,6 @@ admin.site.register(GameBookmark, GameBookmarkAdmin)
 # Register your models here.
 admin.site.register(Game, GameAdmin)
 # admin.site.register(Effort, EffortAdmin)
-admin.site.register(Tournament)
+admin.site.register(Tournament, TournamentAdmin)
 admin.site.register(ScoreCard, ScoreCardAdmin)
 # admin.site.register(TurnScore)

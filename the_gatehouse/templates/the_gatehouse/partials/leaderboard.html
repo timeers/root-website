@@ -1,22 +1,22 @@
 <table>
     <thead>
         <tr>
-            <th>Faction</th>
+            <th>Player</th>
             <th>Winrate</th>
             <th>Games Played</th>
         </tr>
     </thead>
     <tbody class="effort-rows">
-        {% for faction in leaderboard_factions %}
+        {% for player in leaderboard_players %}
         <tr>
             <td>
-                <a href="{% url 'faction-detail' faction.slug %}">{{ faction.title }}</a>
+                <a href="{% url 'player-detail' player.slug %}">{{ player.name }}</a>
             </td>
             <td>
-                {{ faction.win_rate|floatformat:2 }}%
+                {{ player.win_rate|floatformat:2 }}%
             </td>
             <td>
-                {{ faction.total_efforts }}
+                {{ player.total_efforts }}
             </td>
         </tr>
 

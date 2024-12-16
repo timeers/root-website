@@ -1,7 +1,8 @@
 import os
 from django.db import models
-from django.db.models import Q
 from django.db.models.signals import pre_save, post_save
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
+from django.db.models.functions import Cast
 from django.utils import timezone 
 from datetime import timedelta
 from django.urls import reverse
@@ -413,6 +414,58 @@ class Faction(Post):
 
         total_plays = self.get_plays_queryset().filter(game__test_match=False).count()
         return points / total_plays * 100 if total_plays > 0 else 0
+
+    @classmethod
+    def top_factions(cls, player_id=None, top_quantity=False, tournament=None, round=None, limit=5, game_threshold=10):
+        """
+        Get the top factions based on their win rate (default) or total efforts.
+        If player_id is provided, get the top factions for that faction.
+        Otherwise, get the top factions across all factions.
+        The `limit` parameter controls how many factions to return.
+        """
+        # Start with the base queryset for factions
+        queryset = cls.objects.all()
+
+        # If a tournament is provided, filter efforts that are related to that tournament
+        if tournament:
+            queryset = queryset.filter(
+                efforts__game__round__tournament=tournament  # Filter efforts linked to a specific tournament
+            )
+
+        # If a round is provided, filter efforts that are related to that round
+        if round:
+            queryset = queryset.filter(
+                efforts__game__round=round  # Filter efforts linked to a specific round
+            )
+        # Now, annotate with the total efforts and win counts
+        queryset = queryset.annotate(
+            total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id) if player_id else Q()),
+            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True))
+        )
+        
+        # Filter factions who have enough efforts (before doing the annotation)
+
+        queryset = queryset.filter(total_efforts__gte=game_threshold)
+
+        # Annotate with win_rate after filtering
+        queryset = queryset.annotate(
+            win_rate=Case(
+                When(total_efforts=0, then=Value(0)),
+                default=ExpressionWrapper(
+                    Cast(F('win_count'), FloatField()) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    output_field=FloatField()
+                ),
+                output_field=FloatField()
+            )
+        )
+        # Now we can order the queryset
+        if top_quantity:
+            # If top_quantity is True, order by total_efforts (most efforts) first
+            return queryset.order_by('-total_efforts', '-win_rate')[:limit]
+        else:
+            # Otherwise, order by win_rate (highest win rate) first
+            return queryset.order_by('-win_rate', '-total_efforts')[:limit]
+
 
 
 

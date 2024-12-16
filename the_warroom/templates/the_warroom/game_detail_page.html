@@ -11,9 +11,9 @@
 
         {% include 'the_warroom/partials/bookmarks.html' %}
         </div>
-        {% if game.tournament %}
+        {% if game.round %}
         <div>
-            {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} Game
+            <a href="{{ game.round.get_absolute_url }}">{{ game.type }} {{ game.round }} Game</a>
         </div>
         {% endif %}
 

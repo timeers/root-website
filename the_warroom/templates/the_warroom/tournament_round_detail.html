@@ -1,0 +1,46 @@
+{% extends 'the_keep/base.html' %}
+{% block content %}
+
+{{ object }}
+
+
+{% if top_players or most_players %}
+<article class="media content-section">
+    <div class="media-body">
+
+    <h2>Player Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+    {% if top_players %}
+        <h4>By Winrate</h4>
+        {% with top_players as leaderboard_players %}
+            {% include 'the_gatehouse/partials/leaderboard.html' %}
+        {% endwith %}
+    {% endif %}
+    <h4>By Games Played</h4>
+    {% with most_players as leaderboard_players %}
+        {% include 'the_gatehouse/partials/leaderboard.html' %}
+    {% endwith %}
+    </div>
+</article>
+{% endif %}
+
+{% if top_factions or most_factions %}
+<article class="media content-section">
+    <div class="media-body">
+
+    <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+    {% if top_factions %}
+        <h4>By Winrate</h4>
+        {% with top_factions as leaderboard_factions %}
+            {% include 'the_keep/partials/leaderboard.html' %}
+        {% endwith %}
+    {% endif %}
+    <h4>By Games Played</h4>
+    {% with most_factions as leaderboard_factions %}
+        {% include 'the_keep/partials/leaderboard.html' %}
+    {% endwith %}
+    </div>
+</article>
+{% endif %}
+
+
+{% endblock %}

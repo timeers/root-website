@@ -52,12 +52,12 @@
     {% if top_players %}
         <h4>By Winrate</h4>
         {% with top_players as leaderboard_players %}
-            {% include 'the_keep/partials/leaderboard.html' %}
+            {% include 'the_gatehouse/partials/leaderboard.html' %}
         {% endwith %}
     {% endif %}
     <h4>By Games Played</h4>
     {% with most_players as leaderboard_players %}
-        {% include 'the_keep/partials/leaderboard.html' %}
+        {% include 'the_gatehouse/partials/leaderboard.html' %}
     {% endwith %}
     </div>
 </article>

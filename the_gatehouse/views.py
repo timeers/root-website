@@ -134,7 +134,7 @@ def add_player(request):
 
 @login_required
 def player_page_view(request, slug):
-    player = get_object_or_404(Profile, slug=slug)
+    player = get_object_or_404(Profile, slug=slug.lower())
     context = {
         'player': player,
         }
@@ -144,7 +144,7 @@ def player_page_view(request, slug):
 @login_required
 def designer_component_view(request, slug):
     # Get the designer object using the slug from the URL path
-    designer = get_object_or_404(Profile, slug=slug)
+    designer = get_object_or_404(Profile, slug=slug.lower())
 
     # Get the component from the query parameters
     component = request.GET.get('component')  # e.g., /designer/john-doe/component/?component=some_component
@@ -238,7 +238,7 @@ def game_bookmarks(request, slug):
 
 @login_required
 def game_list(request, slug):
-    player = get_object_or_404(Profile, slug=slug)
+    player = get_object_or_404(Profile, slug=slug.lower())
     if request.user.profile.weird :
         games = player.get_games_queryset()
     else:

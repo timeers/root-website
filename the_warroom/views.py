@@ -11,10 +11,13 @@ from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse
 from django.conf import settings
 from django.db.models import Q
+from django.utils import timezone 
 
-from .models import Game, Effort, TurnScore, ScoreCard
+from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
 from .forms import GameCreateForm, EffortCreateForm, TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm
 from .filters import GameFilter
+
+from the_keep.views import Faction
 
 from the_gatehouse.models import Profile
 from the_gatehouse.views import player_required, admin_required, designer_required
@@ -296,7 +299,7 @@ def manage_game(request, id=None):
         'player_form': player_form,
     }
 
-    print(f'Forms: {formset.total_form_count()}')
+    # print(f'Forms: {formset.total_form_count()}')
     # Handle form submission
     if form.is_valid() and formset.is_valid():
         parent = form.save(commit=False)
@@ -419,10 +422,6 @@ def scorecard_manage_view(request, id=None):
         'score': score,
     }
 
-    if not form.is_valid():
-        print("Form errors:", form.errors)
-    if not formset.is_valid():
-        print("Formset errors:", formset.errors)
 
     # Handle form submission
     if form.is_valid() and formset.is_valid():
@@ -438,7 +437,6 @@ def scorecard_manage_view(request, id=None):
         for child_form in formset:
             # print(child_form.cleaned_data)
             if child_form.cleaned_data.get('DELETE'):
-                print('Delete')
                 # If the DELETE checkbox is checked, delete the object
                 deleted_instance = child_form.instance
                 deleted_instance.delete()
@@ -578,7 +576,7 @@ def scorecard_list_view(request):
                 faction=scorecard.faction,
                 dominance__isnull=False
             )
-            print(dominance_efforts)
+            # print(dominance_efforts)
             matching_efforts = matching_efforts | dominance_efforts
         # Add the matching efforts as a property on the scorecard
         scorecard.matching_efforts = matching_efforts.distinct()
@@ -588,3 +586,61 @@ def scorecard_list_view(request):
         'complete_scorecards': complete_scorecards,
     }
     return render(request, 'the_warroom/scorecard_list.html', context)
+
+
+def tournament_detail_view(request, slug):
+    # Get the tournament from slug
+    tournament = get_object_or_404(Tournament, slug=slug.lower())
+
+    active_rounds = Round.objects.filter(tournament=tournament, start_date__lt=timezone.now())
+
+    top_players = []
+    most_players = []
+    top_players = Profile.top_players(limit=5, tournament=tournament, game_threshold=tournament.game_threshold)
+    most_players = Profile.top_players(limit=5, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
+    top_factions = []
+    most_factions = []
+    top_factions = Faction.top_factions(limit=5, tournament=tournament, game_threshold=tournament.game_threshold)
+    most_factions = Faction.top_factions(limit=5, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
+
+    context = {
+        'object': tournament,
+        'active_rounds': active_rounds,
+        'top_players': top_players,
+        'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+    }
+    
+    if request.htmx:
+        return render(request, 'the_warroom/tournament_round_detail.html', context)
+    return render(request, 'the_warroom/tournament_overview.html', context)
+
+def round_detail_view(request, tournament_slug, round_slug):
+
+    # Get the tournament from slug
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+    # Fetch the round using its slug, and filter it by the related tournament
+    round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
+
+
+    top_players = []
+    most_players = []
+    top_players = Profile.top_players(limit=5, round=round, game_threshold=round.game_threshold)
+    most_players = Profile.top_players(limit=5, round=round, top_quantity=True, game_threshold=round.game_threshold)
+    top_factions = []
+    most_factions = []
+    top_factions = Faction.top_factions(limit=5, round=round, game_threshold=round.game_threshold)
+    most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=round.game_threshold)
+
+
+    context = {
+        'tournament': tournament,
+        'object': round,
+        'top_players': top_players,
+        'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+    }
+    
+    return render(request, 'the_warroom/tournament_round_detail.html', context)

@@ -6,14 +6,14 @@
     <div class="article-metadata">
         <small class="text-muted">
             {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' or user.profile.outcast %}
-                {% if game.tournament %}
-                    {{ game.tournament.name }} Tournament Game |
+                {% if game.round %}
+                    {{ game.type }} {{ game.round.tournament.name }} Game |
                 {% else %}
                     {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                 {% endif %}
             {% else %}
-                {% if game.tournament %}
-                    <a href="{% url 'game-detail' game.id %}">{{ game.tournament.name }} Tournament Game</a> |
+                {% if game.round %}
+                    <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.round.tournament.name }} Game</a> |
                 {% else %}
                     <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %}</a> |
                 {% endif %}

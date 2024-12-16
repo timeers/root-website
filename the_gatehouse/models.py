@@ -258,21 +258,35 @@ class Profile(models.Model):
     #         return queryset.order_by('-win_rate','-total_efforts')[:limit]
  
     @classmethod
-    def top_players(cls, faction_id=None, top_quantity=False, limit=5, game_threshold=10):
+    def top_players(cls, faction_id=None, top_quantity=False, tournament=None, round=None, limit=5, game_threshold=10):
         """
         Get the top players based on their win rate (default) or total efforts.
         If faction_id is provided, get the top players for that faction.
         Otherwise, get the top players across all factions.
         The `limit` parameter controls how many players to return.
         """
-
         # Start with the base queryset for players
-        queryset = cls.objects.annotate(
+        queryset = cls.objects.all()
+
+        # If a tournament is provided, filter efforts that are related to that tournament
+        if tournament:
+            queryset = queryset.filter(
+                efforts__game__round__tournament=tournament  # Filter efforts linked to a specific tournament
+            )
+
+        # If a round is provided, filter efforts that are related to that round
+        if round:
+            queryset = queryset.filter(
+                efforts__game__round=round  # Filter efforts linked to a specific round
+            )
+        # Now, annotate with the total efforts and win counts
+        queryset = queryset.annotate(
             total_efforts=Count('efforts', filter=Q(efforts__faction_id=faction_id) if faction_id else Q()),
             win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction_id=faction_id) if faction_id else Q(efforts__win=True))
         )
-
+        
         # Filter players who have enough efforts (before doing the annotation)
+
         queryset = queryset.filter(total_efforts__gte=game_threshold)
 
         # Annotate with win_rate after filtering
@@ -286,7 +300,6 @@ class Profile(models.Model):
                 output_field=FloatField()
             )
         )
-
         # Now we can order the queryset
         if top_quantity:
             # If top_quantity is True, order by total_efforts (most efforts) first

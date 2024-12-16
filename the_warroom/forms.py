@@ -1,5 +1,5 @@
 from django import forms
-from .models import Effort, Game, TurnScore, ScoreCard
+from .models import Effort, Game, TurnScore, ScoreCard, Round
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
 from django.core.exceptions import ValidationError
 from django.db.models import Q
@@ -27,16 +27,19 @@ class GameCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Game
-        fields = ['platform', 'type', 'league', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        fields = ['platform', 'round', 'type', 'league', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }
+        labels = {
+            'round': "Tournament",
+            }
 
     def __init__(self, *args, user=None, **kwargs):
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
         # Filter for only Official content if not a member of Weird Root
-        print(user)
+
         if not user.profile.weird:
             self.fields['deck'].queryset = Deck.objects.filter(official=True)
             self.fields['map'].queryset = Map.objects.filter(official=True)
@@ -44,7 +47,51 @@ class GameCreateForm(forms.ModelForm):
             self.fields['undrafted_vagabond'].queryset = Vagabond.objects.filter(official=True)
             self.fields['landmarks'].queryset = Landmark.objects.filter(official=True)
             self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
+
+        if user:
+            # Select rounds in ongoing tournaments where the user is a player
+            active_rounds = Round.objects.filter(tournament__status="ongoing",
+                            tournament__players=user.profile)
+            # Filter rounds to only include the current round based on end_date
+            current_rounds = [round for round in active_rounds if round.is_current_round()]
+            user_in_rounds = []
+
+            for round in current_rounds:
+                # Call the 'get_active_player_queryset()' method and check if the user is in the returned queryset
+                if user.profile in round.tournament.get_active_player_queryset():  # Corrected method call
+                    user_in_rounds.append(round)
+
+            # Set the queryset to the filtered list of current rounds
+            self.fields['round'].queryset = Round.objects.filter(id__in=[round.id for round in user_in_rounds])
+
+        # If a specific round is provided, add it to the queryset
+        # if round:
+        #     # Ensure round is a single object, otherwise handle accordingly
+        #     if isinstance(round, Round):
+        #         self.fields['round'].queryset |= Round.objects.filter(id=round.id)
+                # if round.designer != user.profile:
+                #     self.fields['round'].disabled = True  # Disable the field
             
+
+        # If no rounds exist in the queryset, hide the field
+        if not self.fields['round'].queryset.exists():
+            del self.fields['round']
+    def clean(self):
+        cleaned_data = super().clean()
+        print(cleaned_data)
+        round = cleaned_data.get('round')
+        platform = cleaned_data.get('platform')
+        link = cleaned_data.get('link')
+        # print(f'Selected: {platform} for {round.tournament.platform} Tournament')
+       
+        if round:
+            # Error if platform does not match tournament platform
+            if round.tournament.platform and platform != round.tournament.platform:
+                raise ValidationError(f"Please select {round.tournament.platform} for this {round} Game.")
+            # Error if link not supplied for 
+            if round.tournament.link_required and not link:
+                raise ValidationError("Please provide a link to this game's thread.")
+        return cleaned_data
 
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
@@ -59,8 +106,9 @@ class EffortCreateForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         faction = cleaned_data.get('faction')
+        player = cleaned_data.get('player')
         if faction is None or faction == "":
-            raise ValidationError("Please select a faction for each player.")
+            raise ValidationError(f"Please select a faction for {player}.")
         # If captains are assigned ensure no more than 3 captains are assigned
         if faction.title == "Knaves of the Deepwood":
             captains = cleaned_data.get('captains')
@@ -186,7 +234,7 @@ class AssignScorecardForm(forms.ModelForm):
             )
             # Combine the regular and dominance querysets, ensuring distinct results
             queryset = queryset | dominance_queryset
-            
+
         # If selected_scorecard is provided, filter by that as well
         if selected_scorecard:
             queryset = queryset.filter(Q(id=selected_scorecard))

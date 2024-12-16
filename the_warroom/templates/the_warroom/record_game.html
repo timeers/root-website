@@ -12,7 +12,27 @@
                         display: None ;
                 }
         </style>
-
+        {% if form.errors or form.non_field_errors or formset.errors or non_field_errors.errors %}
+        <div class="alert alert-warning" role="alert">
+                <ul>
+                {% for field in form %}
+                {% for error in field.errors %}
+                        <li>{{ error }}</li>
+                {% endfor %}
+                {% endfor %}
+                {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                {% endfor %}
+                {% if formset.errors %}
+                {% for form in formset %}
+                {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                {% endfor %}
+                {% endfor %}
+                {% endif %}
+        </ul>
+        </div>
+        {% endif %}
         <div style="margin-top: 30px;">
                 {% include 'the_warroom/partials/forms.html' %}
         </div>

@@ -4,7 +4,8 @@ from .views import (GameListView, GameListViewHX,
                     game_detail_hx_view, game_detail_view, 
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game, scorecard_manage_view, scorecard_detail_view,
-                    scorecard_assign_view, scorecard_delete_view, scorecard_list_view)
+                    scorecard_assign_view, scorecard_delete_view, scorecard_list_view,
+                    tournament_detail_view, round_detail_view)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -27,4 +28,8 @@ urlpatterns = [
     path("scorecard/<int:id>/delete", scorecard_delete_view, name='delete-scorecard'),
     path('scorecard/assign/<int:id>/', scorecard_assign_view, name='assign-scorecard'),
     path('scorecard/list/', scorecard_list_view, name='list-scorecard'),
+
+    path('<slug:slug>/', tournament_detail_view, name='tournament-detail'),
+    path('<slug:tournament_slug>/<slug:round_slug>/', round_detail_view, name='round-detail'),
+
 ]

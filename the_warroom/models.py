@@ -1,6 +1,7 @@
 from django.contrib.auth.models import User
 from django.db import models, transaction
 from django.db.models import Q, Sum, F
+from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
 from django.urls import reverse
 from django.core.validators import MinValueValidator
@@ -8,8 +9,14 @@ from the_gatehouse.models import Profile
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
+from .utils import slugify_tournament_name, slugify_round_name
 
-
+class PlatformChoices(models.TextChoices):
+    TTS = 'Tabletop Simulator'
+    # HRF = 'hrf.com'
+    DWD = 'Root Digital'
+    IRL = 'In Person'
+    # ETC = 'Other'
 
 class GameQuerySet(models.QuerySet):
     def only_official_components(self):
@@ -25,20 +32,88 @@ class GameQuerySet(models.QuerySet):
 
 class Tournament(models.Model):
     name = models.CharField(max_length=30)
-    participants = models.ManyToManyField(Profile, blank=True)
+    players = models.ManyToManyField(Profile, blank=True, related_name='tournaments')
     description = models.TextField(null=True, blank=True)
-    active = models.BooleanField(default=True)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=50, choices=[('scheduled', 'Scheduled'), ('ongoing', 'Ongoing'), ('completed', 'Completed')], default='scheduled')
+    elimination = models.IntegerField(default=None, null=True, blank=True)
+    platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
+    link_required = models.BooleanField(default=False)
+    game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
+    slug = models.SlugField(unique=True, null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+    def get_absolute_url(self):
+        return reverse('tournament-detail', kwargs={'slug': self.slug})
+    def get_active_player_queryset(self):
+        # Get all players in the tournament
+        players = self.players.all()
+        player_queryset = []
+
+        # If the tournament has an elimination rule
+        if self.elimination:
+            # Loop through each player
+            for player in players:
+                player_eliminated = False
+
+                # Loop through each round in the tournament
+                for round in self.round_set.all():  # Access the rounds related to this tournament
+                    # Count the number of losses for the current player in this round
+
+                    losses = Effort.objects.filter(
+                        game__round=round,  # Filter efforts by the round
+                        player=player,  # Filter efforts by the current player
+                        win=False  # Only count losses
+                    ).count()
+                    # print(f'Losses: {losses} out of {self.elimination}')
+
+                    # If the player has exceeded the elimination threshold, mark them as eliminated
+                    if losses >= self.elimination:
+                        player_eliminated = True
+                        break  # Exit the loop as the player is eliminated
+
+                # If the player has not been eliminated, add them to the queryset
+                if not player_eliminated:
+                    player_queryset.append(player)
+        else:
+            # If there's no elimination rule, return all players
+            player_queryset = players
+        return player_queryset
+
+
+
+class Round(models.Model):
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE)  # Link to the tournament
+    round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
+    name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
+    start_date = models.DateTimeField()
+    game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
+    end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
+    slug = models.SlugField(null=True, blank=True)
+
+    def get_absolute_url(self):
+        return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+    
+    def __str__(self):
+        return f"{self.tournament.name} - {self.name}"
+
+    def is_current_round(self):
+        # Check if end_date is not set or is in the future
+        if not self.end_date or self.end_date > timezone.now():
+            return True
+        return False
+    
+    class Meta:
+        ordering = ['-round_number']
+
 
 class Game(models.Model):
     class TypeChoices(models.TextChoices):
         ASYNC = 'Async'
         LIVE = 'Live'
-    class PlatformChoices(models.TextChoices):
-        TTS = 'Tabletop Simulator'
-        # HRF = 'hrf.com'
-        DWD = 'Root Digital'
-        IRL = 'In Person'
-        # ETC = 'Other'
+
     # Required
     type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.LIVE)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.TTS)
@@ -46,7 +121,8 @@ class Game(models.Model):
     map = models.ForeignKey(Map, on_delete=models.PROTECT, null=True, related_name='games')
 
     league = models.BooleanField(default=False)
-    tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
+    # tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
+    round = models.ForeignKey(Round, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')
@@ -122,6 +198,9 @@ class Effort(models.Model):
         RABBIT = 'Rabbit'
         BIRD = 'Bird'
         DARK = 'Dark'
+    class StatusChoices(models.TextChoices):
+        ACTIVE = 'Active'
+        ELIMINATED = 'Eliminated'
 
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
@@ -137,7 +216,7 @@ class Effort(models.Model):
     faction_status = models.CharField(max_length=50, null=True, blank=True) #This should not be null.
     # notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
-
+    player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
     def clean(self):
         super().clean()
 
@@ -244,3 +323,29 @@ class TurnScore(models.Model):
                 scorecard.total_faction_points = scorecard.turns.aggregate(Sum('faction_points'))['faction_points__sum'] or 0
                 scorecard.total_other_points = scorecard.turns.aggregate(Sum('other_points'))['other_points__sum'] or 0
                 scorecard.save()
+
+
+
+def tournament_pre_save(sender, instance, *args, **kwargs):
+    if instance.slug is None:
+        slugify_tournament_name(instance, save=False)
+
+def round_pre_save(sender, instance, *args, **kwargs):
+    if instance.slug is None:
+        slugify_round_name(instance, save=False)
+
+
+pre_save.connect(tournament_pre_save, sender=Tournament)
+pre_save.connect(round_pre_save, sender=Round)
+
+
+def tournament_post_save(sender, instance, created, *args, **kwargs):
+    if created:
+        slugify_tournament_name(instance, save=True)
+
+def round_post_save(sender, instance, created, *args, **kwargs):
+    if created:
+        slugify_round_name(instance, save=True)
+
+post_save.connect(tournament_post_save, sender=Tournament)
+post_save.connect(round_post_save, sender=Round)
