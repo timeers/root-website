@@ -67,7 +67,14 @@
                 hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
             </li>
             {% endif %}
-
+            {% if player.efforts.count %}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="stats-tab" data-bs-toggle="tab" href="#stats" role="tab" aria-controls="stats" aria-selected="false" 
+                hx-get="{% url 'player-stats' player.slug %}" 
+                hx-target="#tab-contents" 
+                hx-push-url="false">Stats</a>
+            </li>
+            {% endif %}
         </ul>
     </div>
 

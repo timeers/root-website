@@ -35,6 +35,9 @@
     {% endfor %}
 
 
+
+
+
         <h2>Players</h2>
         {{ formset.management_form }}
         <div id="effort-form-list">
@@ -62,6 +65,16 @@
                         {% endif %}
 
                         </div>
+
+                        {% if form.errors %}
+                        <div class="alert alert-warning mt-1" role="alert">
+                                <ul>
+                                {% for error in form.non_field_errors %}
+                                        <li>{{ error }}</li>
+                                {% endfor %}
+                        </ul>
+                        </div>
+                        {% endif %}
                 {% endfor %}
         </div>
 

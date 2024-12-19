@@ -1,0 +1,16 @@
+<a href="{% url object.component|lower|add:'-detail' object.slug %}">
+<article class="media content-section">
+<img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+<div class="media-body">
+
+   <div class="article">
+        
+        <h2>{{ object.title }}</h2>
+
+        {% if not object.official %}Fan Made {% endif %}{{ object.component }} by 
+        <span class="mr-2">{{ object.designer.name }}</span>
+    </div>
+        <small class="text-muted">{{ object.date_posted | date:"Y-m-d" }}</small>
+</div>
+</article>
+</a>

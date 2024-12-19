@@ -61,7 +61,12 @@ class ProfileAdmin(admin.ModelAdmin):
         elif len(users) > 1:
             messages.error(request, "Only one user may be selected to absorb other players.")
         else:
-            messages.error(request, "No user was selected to inherit selected players.")
+            # Merge profiles together into the first profile. Cannot select which profile inherits.
+            user = players[0]
+            merge_players = players[1:]
+            self.merge_user_with_players(request, user, merge_players)
+            self.message_user(request, f"Player(s) merged successfully with {user}")
+            # messages.error(request, "No user was selected to inherit selected players.")
 
     # This should makes it so that if the full merge is not successful it will undo the changes.
     @transaction.atomic

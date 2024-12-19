@@ -3,7 +3,14 @@
 
 <h1>{{ object }}</h1>
 
-
+{% if user.profile.admin %}
+<div>
+    <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url 'tournament-update' object.slug %}">Update</a>
+    <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round</a>
+    <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{% url 'tournament-players' object.slug %}">Manage Players</a>
+    <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{% url 'tournament-assets' object.slug %}">Manage Assets</a>
+</div>
+{% endif %}
 
 
 
@@ -23,7 +30,24 @@
                Overall
             </a>
         </li>
-        
+        {% if user.profile.admin %}
+            {% for round in future_rounds %}
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" 
+                    id="round-{{ round.id }}-tab" 
+                    data-bs-toggle="tab" 
+                    href="#round-{{ round.id }}" 
+                    role="tab" 
+                    aria-controls="round-{{ round.id }}" 
+                    aria-selected="false" 
+                    hx-get="{{ round.get_absolute_url }}" 
+                    hx-target="#tab-contents" 
+                    hx-push-url="false">
+                    {{ round.name }} ({{ round.start_date | date:"Y-m-d" }})
+                    </a>
+                </li>
+            {% endfor %}
+        {% endif %}
         {% for round in active_rounds %}
             <li class="nav-item" role="presentation">
                 <a class="nav-link" 
@@ -36,10 +60,12 @@
                    hx-get="{{ round.get_absolute_url }}" 
                    hx-target="#tab-contents" 
                    hx-push-url="false">
-                   {{ round.name }}
+                   {{ round.name }} - ({{ round.round_number }})
                 </a>
             </li>
         {% endfor %}
+
+
     </ul>
 </div>
 

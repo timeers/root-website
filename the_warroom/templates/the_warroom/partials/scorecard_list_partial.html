@@ -1,0 +1,81 @@
+{% for object in complete_scorecards %}
+
+    {% if forloop.last and complete_scorecards.has_next %}
+    <tr id="load-more-row" hx-get="{% url 'list-scorecard' %}?page={{ complete_scorecards.number|add:1 }}"
+    hx-trigger="revealed" 
+    hx-target="this" 
+    hx-swap="afterend">
+            <!-- hx-include="#gamefilterform"> -->
+    {% else %}
+        <tr>
+    {% endif %}
+
+
+
+ 
+        <td>
+            <a href="{% url 'faction-detail' object.faction.slug %}">{{  object.faction }}</a>
+        </td>
+        <td>
+            {{ object.total_points }}
+        </td>
+        <td>
+            {{ object.turns.count }}
+        </td>
+
+        <td>
+            {% if object.effort.player %}
+                <a href="{% url 'player-detail' object.effort.player.slug %}">{{  object.effort.player.name }}</a>
+            {% else %}
+                No Player
+            {% endif %}
+        </td>
+
+        <td>
+
+            <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
+                <i class="bi bi-pencil-square"></i>
+            </a>
+
+        </td>
+        <td>
+            <button class="btn btn-outline-info btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ object.id }}" aria-expanded="false" aria-controls="collapse-{{ object.id }}">
+                <i class="bi bi-info-circle"></i>
+            </button>
+        </td>
+</tr>
+
+<!-- Hidden row that will be shown when the button is clicked -->
+<tr id="collapse-{{ object.id }}" class="collapse">
+    <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
+        <div class="card card-body">
+            <!-- Hidden content -->
+            {% with object.effort.game as game %}
+            {% with game.get_efforts as efforts %}
+            {% include 'the_warroom/partials/game_detail.html' %}
+            {% endwith %}
+            {% endwith %}
+        </div>
+    </td>
+</tr>
+<tr id="collapse-{{ object.id }}" class="collapse">
+    <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
+        <div class="card card-body">
+            <!-- Hidden content -->
+            {% include 'the_warroom/partials/scorecard.html' %}
+        </div>
+    </td>
+
+
+
+
+
+
+
+
+
+
+        </tr>
+{% empty %}
+    No Scorecards.
+{% endfor %}

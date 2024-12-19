@@ -19,6 +19,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
+from the_warroom.models import Game
 from the_gatehouse.models import Profile
 from the_gatehouse.views import designer_required_class_based_view, designer_required
 from .models import (
@@ -412,6 +413,11 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
+    onboard_data = request.session.get('onboard_data', {})
+    print(onboard_data)
+    if onboard_data:
+        print("Onboarding")
+        return redirect('onboard-user')
     posts, search, search_type, designer = _search_components(request, slug)
     designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {
@@ -539,3 +545,26 @@ def delete_piece(request, id):
         return HttpResponse('')
     else:
         raise HttpResponseForbidden()
+
+
+
+
+
+def activity_list(request):
+    from itertools import chain
+    from operator import attrgetter
+    # Retrieve the objects
+    game_list = Game.objects.all().order_by('-date_posted')[:50]
+    post_list = Post.objects.all().order_by('-date_posted')[:50]
+    
+    # Combine both lists
+    combined_list = list(chain(game_list, post_list))
+
+    # Sort combined list by date_posted (latest first)
+    sorted_combined_list = sorted(combined_list, key=attrgetter('date_posted'), reverse=True)
+
+    context = {
+        'sorted_combined_list': sorted_combined_list
+    }
+    
+    return render(request, 'the_keep/activity_list.html', context)

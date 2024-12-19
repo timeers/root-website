@@ -31,22 +31,36 @@ class GameQuerySet(models.QuerySet):
 
 
 class Tournament(models.Model):
-    name = models.CharField(max_length=30)
+    name = models.CharField(max_length=30, unique=True)
+
     players = models.ManyToManyField(Profile, blank=True, related_name='tournaments')
-    description = models.TextField(null=True, blank=True)
-    start_date = models.DateTimeField()
-    end_date = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=50, choices=[('scheduled', 'Scheduled'), ('ongoing', 'Ongoing'), ('completed', 'Completed')], default='scheduled')
+    factions = models.ManyToManyField(Faction, blank=True, related_name='tournaments')
+    maps = models.ManyToManyField(Map, blank=True, related_name='tournaments')
+    decks = models.ManyToManyField(Deck, blank=True, related_name='tournaments')
+    hirelings = models.ManyToManyField(Hireling, blank=True, related_name='tournaments')
+    landmarks = models.ManyToManyField(Landmark, blank=True, related_name='tournaments')
+    vagabonds = models.ManyToManyField(Vagabond, blank=True, related_name='tournaments')
+
+    max_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
+    min_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
+
     elimination = models.IntegerField(default=None, null=True, blank=True)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
     link_required = models.BooleanField(default=False)
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
+    include_fan_content = models.BooleanField(default=False)
+
+    description = models.TextField(null=True, blank=True)
+
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField(null=True, blank=True)
+    
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     def __str__(self):
         return self.name
     def get_absolute_url(self):
-        return reverse('tournament-detail', kwargs={'slug': self.slug})
+        return reverse('tournament-detail', kwargs={'tournament_slug': self.slug})
     def get_active_player_queryset(self):
         # Get all players in the tournament
         players = self.players.all()
@@ -91,6 +105,7 @@ class Round(models.Model):
     start_date = models.DateTimeField()
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
     end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
+    players = models.ManyToManyField(Profile, blank=True, related_name='rounds')
     slug = models.SlugField(null=True, blank=True)
 
     def get_absolute_url(self):
@@ -98,12 +113,6 @@ class Round(models.Model):
     
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
-
-    def is_current_round(self):
-        # Check if end_date is not set or is in the future
-        if not self.end_date or self.end_date > timezone.now():
-            return True
-        return False
     
     class Meta:
         ordering = ['-round_number']
@@ -113,7 +122,7 @@ class Game(models.Model):
     class TypeChoices(models.TextChoices):
         ASYNC = 'Async'
         LIVE = 'Live'
-
+    component = 'Game'
     # Required
     type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.LIVE)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.TTS)
@@ -293,6 +302,8 @@ class ScoreCard(models.Model):
         return f"{self.turns.count()} Turn - {self.total_points} Point Game - {self.date_posted.strftime('%Y-%m-%d')} - {description}"
     def get_absolute_url(self):
         return reverse("detail-scorecard", kwargs={"id": self.id})
+    class Meta:
+        ordering = ['-date_posted']  
 
 class TurnScore(models.Model):
     scorecard = models.ForeignKey(ScoreCard, related_name='turns', on_delete=models.CASCADE, null=True, blank=True)

@@ -11,7 +11,7 @@ from .views import (
 
     ComponentDetailListView,
     bookmark_post,
-    list_view,
+    list_view, activity_list,
     search_view,
     add_piece, delete_piece,
 )
@@ -20,6 +20,7 @@ from . import views
 urlpatterns = [
     # path('', PostListView.as_view(), name='keep-home'),
     path("", list_view, name='keep-home'),
+    path("new/", activity_list, name='activity-list'),
     path('user/<slug:slug>/art/', ArtistPostListView.as_view(), name='artist-posts'),
     path('user/<slug:slug>/', UserPostListView.as_view(), name='user-posts'),
 
@@ -34,7 +35,7 @@ urlpatterns = [
     path('new/expansion/', ExpansionCreateView.as_view(), name='expansion-create'),
     
     path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
-    path('expansion/<slug:slug>/factions', ExpansionDetailView.as_view(), name='expansion-factions'),
+    path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
 

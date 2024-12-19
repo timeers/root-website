@@ -1,0 +1,15 @@
+{% extends 'the_keep/base.html' %}
+
+{% block content %}
+<h1>Recent Activity</h1>
+{% for object in sorted_combined_list %}
+    <div>
+        {% if object.title %}
+            {% include 'the_keep/partials/snippet_component.html' %}
+        {% else %}
+            {% include 'the_warroom/partials/snippet_game.html' %}
+        {% endif %}
+    </div>
+{% endfor %}
+
+{% endblock content %}

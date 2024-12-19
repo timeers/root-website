@@ -12,6 +12,7 @@ from the_tavern.views import bookmark_toggle
 from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
 from the_warroom.filters import GameFilter
+from the_warroom.models import Tournament
 
 
 
@@ -31,6 +32,7 @@ def register(request):
 
 @login_required
 def profile(request):
+    league_status = request.user.profile.league
     if request.method == 'POST':
         # u_form = UserUpdateForm(request.POST, instance=request.user)
         p_form = ProfileUpdateForm(request.POST, 
@@ -40,6 +42,20 @@ def profile(request):
         if p_form.is_valid():
             # u_form.save()
             p_form.save()
+            # Check if user Registered for Digital League
+            new_status = p_form.instance.league
+            if new_status and not league_status:
+                try:
+                    # Get the 'Root Digital League' tournament, or return 404 if not found
+                    digital_league = get_object_or_404(Tournament, name="Root Digital League")
+                    
+                    # Add the user to the tournament's players
+                    digital_league.players.add(request.user.profile)
+                    messages.success(request, f'You are now registered for Root Digital League!')
+                except Tournament.DoesNotExist:
+                    # Handle the case where the tournament doesn't exist
+                    messages.error(request, 'Could not find the Root Digital League.')
+
             messages.success(request, f'Account updated!')
             return redirect('profile')
         
@@ -280,3 +296,65 @@ def game_list(request, slug):
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
     return redirect('player-detail', slug=slug)
+
+@login_required
+def onboard_user(request, user_type=None):
+    """
+    This view handles the onboarding process for players, designers and admins.
+    It updates the onboard fields depending on the user_type passed.
+    """
+    if request.method == 'POST':
+        profile = request.user.profile
+        # Check the user_type and update the corresponding onboarding field
+        if user_type == 'player' and not profile.player_onboard:
+            profile.player_onboard = True
+            profile.save()
+            messages.info(request, "Welcome!")
+        elif user_type == 'designer' and not profile.designer_onboard:
+            profile.designer_onboard = True
+            profile.save()
+            messages.info(request, "Have fun!")
+        elif user_type == 'admin' and not profile.admin_onboard:
+            profile.admin_onboard = True
+            profile.save()
+            messages.info(request, "Thank you for helping out!")
+        else:
+            # Handle cases where the user is already onboarded
+            if user_type == 'player':
+                messages.info(request, "You are already onboarded as a player.")
+            elif user_type == 'designer':
+                messages.info(request, "You are already onboarded as a designer.")
+            elif user_type == 'admin':
+                messages.info(request, "You are already onboarded as an admin.")
+        request.session.pop('onboard_data', None)
+        # Redirect to a relevant page after onboarding
+        return redirect('keep-home') 
+    onboard_data = request.session.get('onboard_data', {})
+    # Load onboard page with relevant onboard data
+    return render(request, 'the_gatehouse/onboard_user.html', onboard_data)
+
+
+@login_required
+def onboard_decline(request):
+    """
+    This view handles the onboarding process for players, designers and admins.
+    It updates the onboard fields depending on the user_type passed.
+    """
+    if request.method == 'POST':
+        profile = request.user.profile
+        # Deactivate the user's account
+        profile.group = "B"
+        profile.admin_onboard = False
+        profile.designer_onboard = False
+        profile.player_onboard = False
+        profile.save()
+        messages.error(request, "We're sorry to see you go.")
+
+        request.session.pop('onboard_data', None)
+        # Redirect to homepage
+        return redirect('keep-home') 
+    
+    onboard_data = request.session.get('onboard_data', {})
+    # Load onboard page with relevant onboard data
+    return render(request, 'the_gatehouse/onboard_user.html', onboard_data)
+

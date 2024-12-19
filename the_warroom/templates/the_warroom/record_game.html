@@ -12,7 +12,7 @@
                         display: None ;
                 }
         </style>
-        {% if form.errors or form.non_field_errors or formset.errors or non_field_errors.errors %}
+        {% if form.errors or form.non_field_errors or non_field_errors.errors or message %}
         <div class="alert alert-warning" role="alert">
                 <ul>
                 {% for field in form %}
@@ -23,16 +23,14 @@
                 {% for error in form.non_field_errors %}
                         <li>{{ error }}</li>
                 {% endfor %}
-                {% if formset.errors %}
-                {% for form in formset %}
-                {% for error in form.non_field_errors %}
-                        <li>{{ error }}</li>
-                {% endfor %}
-                {% endfor %}
+                {% if message %}
+                        <li>{{ message }}</li>
                 {% endif %}
         </ul>
         </div>
         {% endif %}
+
+
         <div style="margin-top: 30px;">
                 {% include 'the_warroom/partials/forms.html' %}
         </div>
@@ -47,6 +45,7 @@
 
 document.addEventListener('DOMContentLoaded', function() {
     const platformSelect = document.getElementById('id_platform');
+    const tournamentSelect = document.getElementById('id_round');
     const deckSelect = document.getElementById('id_deck');
     const mapSelect = document.getElementById('id_map');
     const landmarksSelect = document.getElementById('id_landmarks');
@@ -56,8 +55,63 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Function to update all select options based on the platform
     function updateOptions(platformValue) {
+        const tournamentValue = tournamentSelect.value;
+        let tournamentCount = tournamentSelect.options.length;
+        var tournamentBlock = document.getElementById("game-tournament-field");
+        // console.log(tournamentCount)
+        // Remove blank tournament field
+        if (tournamentCount < 2) {
+                tournamentBlock.style.display = "none";
+                $('#id_round').val(null).trigger('change');
+        }
+
         // Build the URL to fetch data for all fields
-        const url = getAllOptionsUrlForPlatform(platformValue);
+        
+                const url = getAllOptionsUrlForPlatform(platformValue);
+                
+                // Return the promise from fetch so that it can be chained with .then()
+                return fetch(url)
+                        .then(response => {
+                        // Check if the response is ok (status code 2xx)
+                        if (!response.ok) {
+                                throw new Error(`Network response was not ok: ${response.statusText}`);
+                        }
+                        return response.json();  // Parse the response as JSON
+                        })
+                        .then(data => {
+                                
+                        if (!tournamentValue){
+                              
+                        // Update each select field with the data from the API
+                        updateSelectOptions(deckSelect, data.decks, 'Choose a deck');
+                        updateSelectOptions(mapSelect, data.maps, 'Choose a map');
+                        updateSelectOptions(landmarksSelect, data.landmarks);
+                        updateSelectOptions(hirelingsSelect, data.hirelings);
+                        updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
+                        updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+                        
+                        // Update player field to include all players
+                        updatePlayerFields(data.players);
+                        
+                        // Update faction and vagabond fields with the same data
+                        updateFactionFields(data.factions);
+                        // updateCoalitionFields(data.factions);
+                        updateCoalitionList()
+                        updateVagabondsFields(data.vagabonds);
+                        updateCaptainsFields(data.vagabonds);
+                        }
+                        })
+                        .catch(error => {
+                        console.error('Error fetching options:', error);
+                        // Optionally, handle errors more gracefully (e.g., show a user-friendly message)
+                        });
+                
+        }
+
+          // Function to update all select options based on the platform
+    function updateTournamentOptions(tournamentValue) {
+        // Build the URL to fetch data for all fields
+        const url = getAllOptionsUrlForTournament(tournamentValue);
         
         // Return the promise from fetch so that it can be chained with .then()
         return fetch(url)
@@ -69,6 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();  // Parse the response as JSON
                 })
                 .then(data => {
+                        
                 // Update each select field with the data from the API
                 updateSelectOptions(deckSelect, data.decks, 'Choose a deck');
                 updateSelectOptions(mapSelect, data.maps, 'Choose a map');
@@ -77,12 +132,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
                 updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
                 
+                updatePlayerFields(data.players);
                 // Update faction and vagabond fields with the same data
                 updateFactionFields(data.factions);
                 // updateCoalitionFields(data.factions);
                 updateCoalitionList()
                 updateVagabondsFields(data.vagabonds);
                 updateCaptainsFields(data.vagabonds);
+                updatePlatformField(data.platform);
+               
                 })
                 .catch(error => {
                 console.error('Error fetching options:', error);
@@ -91,14 +149,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
 
+
     // Helper function to get the URL for the combined API call based on platform
     function getAllOptionsUrlForPlatform(platformValue) {
         const urls = {
-            'Tabletop Simulator': '/api/options/tabletop_simulator/',
-            'Root Digital': '/api/options/root_digital/',
-            'In Person': '/api/options/in_person/'
+            'Tabletop Simulator': '/api/platform/tabletop_simulator/',
+            'Root Digital': '/api/platform/root_digital/',
+            'In Person': '/api/platform/in_person/'
         };
         return urls[platformValue] || '';
+    }
+
+    function getAllOptionsUrlForTournament(tournamentValue) {
+        const url = `/api/tournament/${tournamentValue}/`;  // Template literal with interpolation
+        return url || '';
+    }
+
+    // Function to update all player select fields
+    function updatePlayerFields(playersData) {
+        // Find all select elements with the format '*-player'
+        const playerFields = document.querySelectorAll('[id$="-player"]');
+        
+        playerFields.forEach(playerField => {
+            // For each player field, update options
+            updateSelectOptions(playerField, playersData, '----------');
+        });
     }
 
     // Function to update all faction select fields (with id_form-*faction)
@@ -168,38 +243,125 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set up the event listener on the platform select element
     platformSelect.addEventListener('change', function() {
         const platformValue = platformSelect.value;
+        const tournamentValue = tournamentSelect.value;
 
-        // Update all fields with one API call, but wait for the API response
-        updateOptions(platformValue).then(() => {
-                // Now, the options are updated. Check the number of options
-                let hirelingsCount = hirelingsSelect.options.length;
-                // console.log('Number of hirelings after update:', hirelingsCount);
+                // Update all fields with one API call, but wait for the API response
+                updateOptions(platformValue).then(() => {
+                        // Now, the options are updated. Check the number of options
+                        let hirelingsCount = hirelingsSelect.options.length;
+                        let landmarksCount = landmarksSelect.options.length;
+                        
 
-                var timingBlock = document.getElementById("timing-field");
-                var hirelingsBlock = document.getElementById("hireling-field");
+                        var timingBlock = document.getElementById("timing-field");
+                        var hirelingsBlock = document.getElementById("hireling-field");
+                        var landmarksBlock = document.getElementById("game-landmarks-field");
 
-                if (platformValue == "Root Digital") {
-                var asyn = document.getElementById("id_type_0");
-                asyn.checked = true;
-                var live = document.getElementById("id_type_1");
-                live.checked = false;
-                timingBlock.style = "display:block;";
-                if (hirelingsCount < 1) {
-                hirelingsBlock.style.display = "none";
-                $('#id_hirelings').val(null).trigger('change');
-                }
-                } else {
-                var asyn = document.getElementById("id_type_0");
-                asyn.checked = false;
-                var live = document.getElementById("id_type_1");
-                live.checked = true;
-                timingBlock.style = "display:none;";
-                hirelingsBlock.style = "display:block;";
-                $('#id_hirelings').select2();
-                }
-                $('#id_deck').trigger('change');
+                        if (platformValue == "Root Digital") {
+                                var asyn = document.getElementById("id_type_0");
+                                asyn.checked = true;
+                                var live = document.getElementById("id_type_1");
+                                live.checked = false;
+                                timingBlock.style = "display:block;";
+                        } else {
+                                var asyn = document.getElementById("id_type_0");
+                                asyn.checked = false;
+                                var live = document.getElementById("id_type_1");
+                                live.checked = true;
+                                timingBlock.style = "display:none;";
+                        }
+                        if (hirelingsCount < 1) {
+                                hirelingsBlock.style.display = "none";
+                                $('#id_hirelings').val(null).trigger('change');
+                        }else{
+                                hirelingsBlock.style = "display:block;";
+                                $('#id_hirelings').select2();
+                        }
+                        if (landmarksCount < 1) {
+                                landmarksBlock.style.display = "none";
+                                $('#id_landmarks').val(null).trigger('change');
+                        }else{
+                                landmarksBlock.style = "display:block;";
+                                $('#id_landmarks').select2();
+                        }
+
+
+                        $('#id_deck').trigger('change');
+                });
         });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // Set up the event listener on the Tournament Select Field
+        tournamentSelect.addEventListener('change', function() {
+        const tournamentValue = tournamentSelect.value;
+        const platformValue = platformSelect.value;
+        if (tournamentValue){
+                // Filter by tournament
+                // Update all fields with one API call, but wait for the API response
+                updateTournamentOptions(tournamentValue).then(() => {
+                        // Now, the options are updated. Check the number of options
+                        let hirelingsCount = hirelingsSelect.options.length;
+                        let landmarksCount = landmarksSelect.options.length;
+                        
+
+                        var hirelingsBlock = document.getElementById("hireling-field");
+                        var landmarksBlock = document.getElementById("game-landmarks-field");
+
+                        if (hirelingsCount < 1) {
+                                hirelingsBlock.style.display = "none";
+                                $('#id_hirelings').val(null).trigger('change');
+                        }else{
+                                hirelingsBlock.style = "display:block;";
+                                $('#id_hirelings').select2();
+                        }
+                        if (landmarksCount < 1) {
+                                landmarksBlock.style.display = "none";
+                                $('#id_landmarks').val(null).trigger('change');
+                        }else{
+                                landmarksBlock.style = "display:block;";
+                                $('#id_landmarks').select2();
+                        }
+
+
+                        $('#id_deck').trigger('change');
+                });
+        }else{
+                // Filter by platform
+                updateOptions(platformSelect.value);
+                updatePlatformField()
+        }
         });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -334,10 +496,10 @@ document.addEventListener('htmx:afterRequest', function(event) {
             }
         }
     }
-
     // Handle success response (200)
     if (event.detail.xhr.status === 200) {
         const response = JSON.parse(event.detail.xhr.responseText);  // Parse the JSON response
+
 
         if (response.id && response.discord) {
             // Clear the form fields
@@ -355,19 +517,23 @@ document.addEventListener('htmx:afterRequest', function(event) {
             // Append the success message to the player-form-errors div
             errorContainer.appendChild(successDiv);
 
-            // Find all fields whose ID ends with '-player' and update their options
-            const playerFields = document.querySelectorAll('[id$="-player"]');
-            playerFields.forEach(playerField => {
-                console.log(playerField.value, 'Player Field')
-                const newPlayerOption = document.createElement('option');
-                        newPlayerOption.value = response.id;
-                        newPlayerOption.text = response.discord + " (New)";
-                        playerField.appendChild(newPlayerOption);
+            const tournamentSelect = document.getElementById('id_round');
+            const tournamentValue = tournamentSelect.value;
+            // Add players to list only if tournament not selected
+            if (!tournamentValue){
+                // Find all fields whose ID ends with '-player' and update their options
+                const playerFields = document.querySelectorAll('[id$="-player"]');
+                playerFields.forEach(playerField => {
+                        const newPlayerOption = document.createElement('option');
+                                newPlayerOption.value = response.id;
+                                newPlayerOption.text = response.discord + " (New)";
+                                playerField.appendChild(newPlayerOption);
 
-                    // Trigger a change event to update the select field
-                    $(playerField).trigger('change');
-                
-            });
+                        // Trigger a change event to update the select field
+                        $(playerField).trigger('change');
+                        
+                });
+            }
         }
     }
 });
@@ -381,7 +547,31 @@ document.addEventListener('htmx:afterRequest', function(event) {
 
 
 
-
+        function updatePlatformField(platform=null){
+                const platformSelectField = document.getElementById('id_platform');
+                let availablePlatforms = [];
+                if (platform){
+                        // console.log(platform)
+                        availablePlatforms.push({
+                                        id: platform,
+                                        name: platform
+                                });
+                }else{
+                        // console.log("All Platforms")
+                        availablePlatforms = [
+                        { id: "Tabletop Simulator", name: "Tabletop Simulator" },
+                        { id: "Root Digital", name: "Root Digital" },
+                        { id: "In Person", name: "In Person" }
+                        ];
+                }
+                // Update the platform field with the limited list
+                updateSelectOptions(platformSelectField, availablePlatforms, '')
+                // If no value select the first value
+                if (!platformSelectField.value){
+                        platformSelectField.selectedIndex = 0;
+                        // console.log(platformSelectField.value)
+                }
+        }
 
 
 

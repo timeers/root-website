@@ -1,5 +1,6 @@
 from django.db.models.signals import post_save
 from django.contrib.auth.signals import user_logged_in
+from django.shortcuts import redirect
 from django.dispatch import receiver
 from django.contrib.auth.models import User
 from .models import Profile  # Adjust the import based on your project structure
@@ -69,15 +70,15 @@ def manage_profile(sender, instance, created, **kwargs):
 def user_logged_in_handler(request, user, **kwargs):
     print(f'{user} logged in')
     if not hasattr(user, 'profile'):
-        print('User updated or no profile found')
         user.save()
 
-    print("checking profile")
+    
     profile = user.profile
     profile_updated = False
     current_group = profile.group
     in_ww, in_wr = check_user_guilds(user)
     display_name = get_discord_display_name(user)
+
 
     if display_name and profile.display_name != display_name:
         profile.display_name = display_name
@@ -125,6 +126,30 @@ def user_logged_in_handler(request, user, **kwargs):
         print(f'User {user} removed from {group_name}')
         user.save()
 
+    if user.profile.player_onboard == False and user.profile.player:
+        onboard_for_player = True
+    else:
+        onboard_for_player = False
+
+    if user.profile.designer_onboard == False and user.profile.designer:
+        onboard_for_designer = True
+    else:
+        onboard_for_designer = False
+
+    if user.profile.admin_onboard == False and user.profile.admin:
+        onboard_for_admin = True
+    else:
+        onboard_for_admin = False
+
+    print(f'Player onboard:{onboard_for_player}, Designer onboard:{onboard_for_designer}, Admin Onboard:{onboard_for_admin}')
+    # If any of the onboard flags are True, store them in the session
+    if onboard_for_admin or onboard_for_designer or onboard_for_player:
+        request.session['onboard_data'] = {
+            'admin_onboard': onboard_for_admin,
+            'player_onboard': onboard_for_player,
+            'designer_onboard': onboard_for_designer,
+        }
+        
 
 
 

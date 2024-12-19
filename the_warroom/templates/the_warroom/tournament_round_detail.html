@@ -1,46 +1,106 @@
-{% extends 'the_keep/base.html' %}
+
 {% block content %}
 
-{{ object }}
 
 
-{% if top_players or most_players %}
-<article class="media content-section">
-    <div class="media-body">
+<div class="container mt-4">
+    <!-- Tab navigation -->
+    <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
 
-    <h2>Player Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
-    {% if top_players %}
-        <h4>By Winrate</h4>
-        {% with top_players as leaderboard_players %}
-            {% include 'the_gatehouse/partials/leaderboard.html' %}
-        {% endwith %}
-    {% endif %}
-    <h4>By Games Played</h4>
-    {% with most_players as leaderboard_players %}
-        {% include 'the_gatehouse/partials/leaderboard.html' %}
-    {% endwith %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="leaderboard-tab" data-bs-toggle="tab" href="#leaderboard" role="tab" aria-controls="leaderboard" aria-selected="false">Leaderboards</a>
+        </li>
+
+        <li class="nav-item" role="presentation">
+            <a class="nav-link active" id="roster-tab" data-bs-toggle="tab" href="#roster" role="tab" aria-controls="roster" aria-selected="false">Players</a>
+        </li>
+
+        {% if user.profile.admin %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="admin-tab" data-bs-toggle="tab" href="#admin" role="tab" aria-controls="admin" aria-selected="false">Admin</a>
+        </li>
+        {% endif %}
+    </ul>
+
+    <!-- Tab content -->
+    <div class="tab-content" id="tournamentTabsContent">
+        <!-- Leaderboard Tournaments -->
+        <div class="tab-pane fade" id="leaderboard" role="tabpanel" aria-labelledby="leaderboard-tab">
+           
+            
+
+
+
+        {% if top_players or most_players %}
+        <article class="media content-section">
+            <div class="media-body">
+
+            <h2>Player Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+            {% if top_players %}
+                <h4>By Winrate</h4>
+                {% with top_players as leaderboard_players %}
+                    {% include 'the_gatehouse/partials/leaderboard.html' %}
+                {% endwith %}
+            {% endif %}
+            <h4>By Games Played</h4>
+            {% with most_players as leaderboard_players %}
+                {% include 'the_gatehouse/partials/leaderboard.html' %}
+            {% endwith %}
+            </div>
+        </article>
+        {% endif %}
+
+        {% if top_factions or most_factions %}
+        <article class="media content-section">
+            <div class="media-body">
+
+            <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+            {% if top_factions %}
+                <h4>By Winrate</h4>
+                {% with top_factions as leaderboard_factions %}
+                    {% include 'the_keep/partials/leaderboard.html' %}
+                {% endwith %}
+            {% endif %}
+            <h4>By Games Played</h4>
+            {% with most_factions as leaderboard_factions %}
+                {% include 'the_keep/partials/leaderboard.html' %}
+            {% endwith %}
+            </div>
+        </article>
+        {% endif %}
+
+
+
+
+
+
+        </div>
+
+        <!-- Active Players -->
+        <div class="tab-pane fade show active" id="roster" role="tabpanel" aria-labelledby="roster-tab">
+            <h3>Players</h3>
+            
+        </div>
+
+        <div class="tab-pane fade show" id="admin" role="tabpanel" aria-labelledby="admin-tab">
+            <h1>Manage Tournament</h1>
+            {% if tournament %}
+                <a href="{% url 'round-players' round_slug=object.slug tournament_slug=tournament.slug %}">Manage Players</a>
+            {% endif %}
+            
+            
+        </div>
+
     </div>
-</article>
-{% endif %}
+</div>
 
-{% if top_factions or most_factions %}
-<article class="media content-section">
-    <div class="media-body">
 
-    <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
-    {% if top_factions %}
-        <h4>By Winrate</h4>
-        {% with top_factions as leaderboard_factions %}
-            {% include 'the_keep/partials/leaderboard.html' %}
-        {% endwith %}
-    {% endif %}
-    <h4>By Games Played</h4>
-    {% with most_factions as leaderboard_factions %}
-        {% include 'the_keep/partials/leaderboard.html' %}
-    {% endwith %}
-    </div>
-</article>
-{% endif %}
+
+
+
+
+
+
 
 
 {% endblock %}

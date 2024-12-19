@@ -27,7 +27,7 @@ class ProfileUpdateForm(forms.ModelForm):
         fields = ['image', 'dwd', 'league', 'weird']
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
-            'league' : 'Registered for Digital League?',
+            'league' : 'Register for Root Digital League',
             'weird' : 'Show Fan Content',
         }
 
@@ -57,10 +57,8 @@ class ProfileUpdateForm(forms.ModelForm):
             cleaned_data['dwd'] = None
             raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
 
-        if league and dwd == None:
+        if league and dwd == None and not self.instance.dwd:
             raise ValidationError(f"Must have a DWD username to be registered for Leauge.")
-
-
 
         return cleaned_data
 

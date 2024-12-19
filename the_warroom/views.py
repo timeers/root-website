@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
-from django.views.generic import ListView
+from django.views.generic import ListView, UpdateView, CreateView, DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect, HttpResponseRedirect
 from django.forms.models import modelformset_factory
@@ -14,13 +14,17 @@ from django.db.models import Q
 from django.utils import timezone 
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
-from .forms import GameCreateForm, EffortCreateForm, TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm
+from .forms import (GameCreateForm, EffortCreateForm, 
+                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, 
+                    TournamentCreateForm, RoundCreateForm, 
+                    TournamentManagePlayersForm, TournamentManageAssetsForm,
+                    RoundManagePlayersForm)
 from .filters import GameFilter
 
-from the_keep.views import Faction
+from the_keep.views import Faction, Deck, Map, Vagabond, Hireling, Landmark
 
 from the_gatehouse.models import Profile
-from the_gatehouse.views import player_required, admin_required, designer_required
+from the_gatehouse.views import player_required, admin_required, designer_required, admin_required_class_based_view
 from the_gatehouse.forms import PlayerCreateForm
 
 from the_tavern.forms import GameCommentCreateForm
@@ -107,7 +111,7 @@ class GameListViewHX(ListView):
         full_path = self.request.path
         # Get the first part of the path after the domain
         first_part = full_path.split('/')[1] if len(full_path.split('/')) > 1 else ''
-        print(first_part)
+        
 
         if first_part != 'games':
             # Get the slug from the URL (assuming your URL pattern captures a slug)
@@ -290,6 +294,12 @@ def manage_game(request, id=None):
     EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
     qs = obj.efforts.all() if id else Effort.objects.none()  # Only fetch existing efforts if updating
     formset = EffortFormset(request.POST or None, queryset=qs)
+
+
+    # Pass the formset to the parent form by storing it in the parent form instance
+    # Allowing validation based on the total form
+    form = GameCreateForm(request.POST or None, instance=obj, user=user, effort_formset=formset)
+
     form_count = extra_forms + existing_count
     context = {
         'form': form,
@@ -299,45 +309,45 @@ def manage_game(request, id=None):
         'player_form': player_form,
     }
 
-    # print(f'Forms: {formset.total_form_count()}')
+
     # Handle form submission
-    if form.is_valid() and formset.is_valid():
-        parent = form.save(commit=False)
-        parent.recorder = request.user.profile  # Set the recorder
-        parent.save()  # Save the new or updated Game instance
-        form.save_m2m()
-        seat = 0
-        roster = []
-        for form in formset:
-            child = form.save(commit=False)
-            if child.faction_id is not None:  # Only save if faction_id is present
-                seat += 1
-                # Save current status of faction. Might be useful somewhere.
-                if child.faction.status == "Stable":
-                    status = "Stable"
-                else:
-                    status = f"{child.faction.status()} - {child.faction.date_updated.strftime('%Y-%m-%d')}"
-                child.faction_status = status
-                child.game = parent  # Link the effort to the game
-                child.seat = seat
-                child.save()
-                
-                if child.player:
-                    # Add player.id to the roster
-                    roster.append(child.player.id)
+    if request.method == 'POST':
+        if form.is_valid() and formset.is_valid():
 
-        if seat == 0:
-            parent.delete()
-            context['message'] = "Game must include a player"
-            return redirect('games-home')
+            parent = form.save(commit=False)
+            parent.recorder = request.user.profile  # Set the recorder
+            parent.save()  # Save the new or updated Game instance
+            form.save_m2m()
+            seat = 0
+            roster = []
+            for form in formset:
+                child = form.save(commit=False)
+                if child.faction_id is not None:  # Only save if faction_id is present
 
+                    seat += 1
+                    # Save current status of faction. Might be useful somewhere.
+                    if child.faction.status == "Stable":
+                        status = "Stable"
+                    else:
+                        status = f"{child.faction.status()} - {child.faction.date_updated.strftime('%Y-%m-%d')}"
+                    child.faction_status = status
+                    child.game = parent  # Link the effort to the game
+                    child.seat = seat
+                    child.save()
+                    
+                    if child.player:
+                        # Add player.id to the roster
+                        roster.append(child.player.id)
 
-        if len(roster) != len(set(roster)):
-            parent.test_match = True
-            parent.save()
+            if len(roster) != len(set(roster)):
+                parent.test_match = True
+                parent.save()
+            elif id and parent.test_match == True:
+                parent.test_match = False
+                parent.save()
 
-        context['message'] = "Game Saved"
-        return redirect(parent.get_absolute_url())
+            context['message'] = "Game Saved"
+            return redirect(parent.get_absolute_url())
 
     if request.htmx:
         return render(request, 'the_warroom/partials/forms.html', context)
@@ -571,7 +581,6 @@ def scorecard_list_view(request):
             if turn.dominance:
                 dominance = True
         if dominance:
-            print("Found Dominance")
             dominance_efforts = unassigned_efforts.filter(
                 faction=scorecard.faction,
                 dominance__isnull=False
@@ -581,18 +590,32 @@ def scorecard_list_view(request):
         # Add the matching efforts as a property on the scorecard
         scorecard.matching_efforts = matching_efforts.distinct()
 
+    # Pagination
+    # paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)  # Show 10 posts per page
+    paginator = Paginator(complete_scorecards, 5) 
+    # Get the current page number from the request (default to 1)
+    page_number = request.GET.get('page')  # e.g., ?page=2
+    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+
+
     context = {
         'unassigned_scorecards': unassigned_scorecards,
-        'complete_scorecards': complete_scorecards,
+        # 'complete_scorecards': complete_scorecards,
+        'complete_scorecards': page_obj,
     }
+
+    if request.htmx:
+        return render(request, "the_warroom/partials/scorecard_list_partial.html", context)   
+
     return render(request, 'the_warroom/scorecard_list.html', context)
 
 
-def tournament_detail_view(request, slug):
+def tournament_detail_view(request, tournament_slug):
     # Get the tournament from slug
-    tournament = get_object_or_404(Tournament, slug=slug.lower())
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
 
     active_rounds = Round.objects.filter(tournament=tournament, start_date__lt=timezone.now())
+    future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
 
     top_players = []
     most_players = []
@@ -606,6 +629,7 @@ def tournament_detail_view(request, slug):
     context = {
         'object': tournament,
         'active_rounds': active_rounds,
+        'future_rounds': future_rounds,
         'top_players': top_players,
         'most_players': most_players,
         'top_factions': top_factions,
@@ -623,15 +647,18 @@ def round_detail_view(request, tournament_slug, round_slug):
     # Fetch the round using its slug, and filter it by the related tournament
     round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
 
+    
+    threshold = round.game_threshold
+
 
     top_players = []
     most_players = []
-    top_players = Profile.top_players(limit=5, round=round, game_threshold=round.game_threshold)
-    most_players = Profile.top_players(limit=5, round=round, top_quantity=True, game_threshold=round.game_threshold)
+    top_players = Profile.top_players(limit=5, round=round, game_threshold=threshold)
+    most_players = Profile.top_players(limit=5, round=round, top_quantity=True, game_threshold=threshold)
     top_factions = []
     most_factions = []
-    top_factions = Faction.top_factions(limit=5, round=round, game_threshold=round.game_threshold)
-    most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=round.game_threshold)
+    top_factions = Faction.top_factions(limit=5, round=round, game_threshold=threshold)
+    most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=threshold)
 
 
     context = {
@@ -644,3 +671,309 @@ def round_detail_view(request, tournament_slug, round_slug):
     }
     
     return render(request, 'the_warroom/tournament_round_detail.html', context)
+
+
+@admin_required_class_based_view  
+class TournamentUpdateView(UpdateView):
+    model = Tournament
+    form_class = TournamentCreateForm
+
+@admin_required_class_based_view  
+class TournamentCreateView(CreateView):
+    model = Tournament
+    form_class = TournamentCreateForm
+
+@admin_required_class_based_view  
+class TournamentDeleteView(DeleteView):
+    model = Tournament
+    form_class = TournamentCreateForm
+
+
+@admin_required
+def round_manage_view(request, tournament_slug, round_slug=None):
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    current_round = 1
+    for tournament_round in tournament.round_set.all():
+        current_round = max(tournament_round.round_number, current_round)
+    
+    round_instance = None
+    # If round_slug is provided, update the existing round
+    if round_slug:
+        round_instance = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+        form = RoundCreateForm(request.POST or None, tournament=tournament, instance=round_instance, current_round=current_round)
+    else:
+        # Otherwise, create a new round
+        form = RoundCreateForm(request.POST or None, tournament=tournament, current_round=current_round)
+
+    if form.is_valid():
+        form.save()
+        return redirect('tournament-detail', tournament_slug=tournament_slug)
+    context = {
+        'form': form,
+        'tournament': tournament,
+        'round': round_instance,
+        }
+    return render(request, 'the_warroom/tournament_round_form.html', context)
+
+
+
+@admin_required
+def tournament_manage_players(request, tournament_slug):
+    # Fetch the tournament object
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    # Initialize the querysets based on whether fan content is included
+    available_players = Profile.objects.exclude(tournaments=tournament)
+
+    # Assets already in the tournament
+    current_players = Profile.objects.filter(tournaments=tournament)
+
+
+    # Initialize the form and pass the querysets to it
+    form = TournamentManagePlayersForm(request.POST or None,
+        tournament=tournament,
+        available_players_query=available_players,
+        current_players_query=current_players,
+    )
+
+    # Handle form submission
+    if request.method == 'POST':
+        # form = TournamentManageAssetsForm(request.POST)
+
+        if form.is_valid():
+            
+            # Save the changes made to players
+            form.save()
+            # Redirect or show a success message
+            return redirect(tournament.get_absolute_url())  # or any other success URL
+        else:
+            # If form is invalid, print the errors for debugging
+            print("Error")
+            print(form.errors)
+            print(form.data)
+    # Render the template with the form
+    context = {
+        'form': form,
+        'tournament': tournament,
+        'available_players_count': available_players.count(),
+        'current_players_count': current_players.count(),
+    }
+
+    return render(request, 'the_warroom/tournament_manage_players.html', context)
+
+
+
+@admin_required
+def tournament_manage_assets(request, tournament_slug):
+    # Fetch the tournament object
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    # Initialize the querysets based on whether fan content is included
+    if tournament.include_fan_content:
+        available_factions = Faction.objects.exclude(tournaments__id=tournament.id)
+        available_decks = Deck.objects.exclude(tournaments__id=tournament.id)
+        available_maps = Map.objects.exclude(tournaments__id=tournament.id)
+        available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id)
+        available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id)
+        available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id)
+    else:
+        available_factions = Faction.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        available_decks = Deck.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        available_maps = Map.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+
+    # Assets already in the tournament
+    tournament_factions = Faction.objects.filter(tournaments__id=tournament.id)
+    tournament_decks = Deck.objects.filter(tournaments__id=tournament.id)
+    tournament_maps = Map.objects.filter(tournaments__id=tournament.id)
+    tournament_landmarks = Landmark.objects.filter(tournaments__id=tournament.id)
+    tournament_hirelings = Hireling.objects.filter(tournaments__id=tournament.id)
+    tournament_vagabonds = Vagabond.objects.filter(tournaments__id=tournament.id)
+
+    # Initialize the form and pass the querysets to it
+    form = TournamentManageAssetsForm(request.POST or None,
+        tournament=tournament,
+        available_factions_query=available_factions,
+        tournament_factions_query=tournament_factions,
+        available_decks_query=available_decks,
+        tournament_decks_query=tournament_decks,
+        available_maps_query=available_maps,
+        tournament_maps_query=tournament_maps,
+        available_landmarks_query=available_landmarks,
+        tournament_landmarks_query=tournament_landmarks,
+        available_hirelings_query=available_hirelings,
+        tournament_hirelings_query=tournament_hirelings,
+        available_vagabonds_query=available_vagabonds,
+        tournament_vagabonds_query=tournament_vagabonds
+    )
+
+    # Handle form submission
+    if request.method == 'POST':
+        # form = TournamentManageAssetsForm(request.POST)
+        
+        if form.is_valid():
+            
+            # Save the changes made to assets (factions, decks, maps, etc.)
+            form.save()
+            # form.save_m2m()
+            # Redirect or show a success message
+            return redirect(tournament.get_absolute_url())  # or any other success URL
+        else:
+            # If form is invalid, print the errors for debugging
+            print("Error")
+            print(form.errors)
+            print(form.data)
+    # Render the template with the form
+    context = {
+        'form': form,
+        'tournament': tournament,
+        'available_factions_count': available_factions.count(),
+        'available_decks_count': available_decks.count(),
+        'available_maps_count': available_maps.count(),
+        'available_vagabonds_count': available_vagabonds.count(),
+        'available_hirelings_count': available_hirelings.count(),
+        'available_landmarks_count': available_landmarks.count(),
+    }
+
+    return render(request, 'the_warroom/tournament_manage_assets.html', context)
+
+@player_required
+def tournaments_home(request):
+    scheduled_tournaments = Tournament.objects.filter(start_date__gt=timezone.now())
+    concluded_tournaments = Tournament.objects.filter(end_date__lt=timezone.now())
+    ongoing_tournaments = Tournament.objects.filter(
+        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), 
+        start_date__lt=timezone.now()
+    )
+    all_tournaments = Tournament.objects.all()
+
+    context = {
+        'scheduled': scheduled_tournaments,
+        'concluded': concluded_tournaments,
+        'ongoing': ongoing_tournaments,
+        'all': all_tournaments,
+    }
+    return render(request, 'the_warroom/tournaments_home.html', context)
+
+
+
+@admin_required
+def round_manage_players(request, round_slug, tournament_slug):
+    # Fetch the tournament object
+    selected_round = get_object_or_404(Round, slug=round_slug)
+    tournament = selected_round.tournament
+
+    round_number = selected_round.round_number
+
+    # QS of players in tournament that are not in this round.
+    available_players = Profile.objects.exclude(rounds=selected_round).filter(tournaments=tournament)
+
+    # Find players already in the same tournament round.
+    other_rounds = Round.objects.filter(tournament=tournament, round_number=round_number).exclude(id=selected_round.id)
+    taken_players = []
+    if other_rounds:
+        for round in other_rounds:
+            taken_players = taken_players + list(round.players.all())
+    exclude_ids = [obj.id for obj in taken_players] 
+    # Remove players from the available list if they are already in another concurrent round
+    available_players = available_players.exclude(id__in=exclude_ids)
+
+    # Players already in this round that can be removed.
+    current_players = Profile.objects.filter(rounds=selected_round)
+
+
+    # Initialize the form and pass the querysets to it
+    form = RoundManagePlayersForm(request.POST or None,
+        round=selected_round,
+        available_players_query=available_players,
+        current_players_query=current_players,
+    )
+
+    # Handle form submission
+    if request.method == 'POST':
+        # form = TournamentManageAssetsForm(request.POST)
+        if form.is_valid():
+            # Save the changes made to players
+            form.save()
+            # Redirect or show a success message
+            return redirect(tournament.get_absolute_url())  # or any other success URL
+        else:
+            # If form is invalid, print the errors for debugging
+            print("Error")
+            print(form.errors)
+            print(form.data)
+    # Render the template with the form
+    context = {
+        'form': form,
+        'tournament': tournament,
+        'round': selected_round,
+        'available_players_count': available_players.count(),
+        'current_players_count': current_players.count(),
+    }
+
+    return render(request, 'the_warroom/tournament_manage_players.html', context)
+
+@login_required
+def player_stats(request, slug):
+    tournament_slug = request.GET.get('tournament_slug')
+    round_slug = request.GET.get('round_slug')
+    player = get_object_or_404(Profile, slug=slug)
+    tournament = None
+    round = None
+    if tournament_slug:
+        tournament = get_object_or_404(Tournament, slug=tournament_slug)
+        if round_slug:
+            round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
+    
+    if round:
+        efforts = Effort.objects.filter(player=player, game__round=round)
+    elif tournament:
+        efforts = Effort.objects.filter(player=player, game__round__tournament=tournament)
+    else:
+        efforts = Effort.objects.filter(player=player, game__test_match=False)
+
+    if not tournament and not round:
+        if efforts.count() > 100:
+            game_threshold = 10
+        elif efforts.count() > 50:
+            game_threshold = 5
+        elif efforts.count() > 20:
+            game_threshold = 2
+        else:
+            game_threshold = 1
+
+    print(f"{player.name} Game Threshold {game_threshold}")
+
+
+    win_games = 0
+    all_games = efforts.count()
+    coalition_games = 0
+    for effort in efforts:
+        if effort.win:
+            if effort.coalition_with:
+                coalition_games += 1
+            else:
+                win_games += 1
+    
+    win_points = win_games + (coalition_games * .5)
+    win_rate = win_points / all_games if all_games > 0 else 0
+
+
+    top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
+    most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
+
+    context = {
+        'selected_tournament': tournament,
+        'tournament_round': round,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+        'all_games': all_games,
+        'win_points': win_points,
+        'win_rate': win_rate,
+    }
+    if request.htmx:
+        return render(request, 'the_warroom/partials/player_stats.html', context)
+
+    return render(request, 'the_warroom/player_tournament_stats.html', context)

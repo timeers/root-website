@@ -22,16 +22,16 @@ from django.conf.urls.static import static
 from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
 from the_keep.views import list_view, search_view
-from the_keep.api_views import get_decks_by_platform, get_factions_by_platform, get_maps_by_platform, get_options_for_platform
+from the_keep.api_views import get_options_for_platform
+from the_warroom.api_views import get_options_for_tournament
+from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline
 # from debug_toolbar.toolbar import debug_toolbar_urls
 
 
 urlpatterns = [
     path('woodland-admin/', admin.site.urls),
-    path('api/decks/<str:platform>/', get_decks_by_platform, name='get_decks_by_platform'),
-    path('api/factions/<str:platform>/', get_factions_by_platform, name='get_factions_by_platform'),
-    path('api/maps/<str:platform>/', get_maps_by_platform, name='get_maps_by_platform'),
-    path('api/options/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
+    path('api/platform/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
+    path('api/tournament/<pk>/', get_options_for_tournament, name='get_options_for_tournament'),
     # path('register/', user_views.register, name='register'),
     # path('player/<slug:slug>/', user_views.PlayerDetailView.as_view(), name='player-detail'),
 
@@ -52,16 +52,19 @@ urlpatterns = [
          name='password_reset_complete'),
          
 
-    path('gamecommentsent/<pk>/', comment_views.game_comment_sent, name='game-comment-sent'),
-    path('comment/game/delete/<pk>/', comment_views.game_comment_delete, name='game-comment-delete'),
-    path('postcommentsent/<pk>/', comment_views.post_comment_sent, name='post-comment-sent'),
-    path('comment/post/delete/<pk>/', comment_views.post_comment_delete, name='post-comment-delete'),
-
+    path('hx/gamecommentsent/<pk>/', comment_views.game_comment_sent, name='game-comment-sent'),
+    path('hx/comment/game/delete/<pk>/', comment_views.game_comment_delete, name='game-comment-delete'),
+    path('hx/postcommentsent/<pk>/', comment_views.post_comment_sent, name='post-comment-sent'),
+    path('hx/comment/post/delete/<pk>/', comment_views.post_comment_delete, name='post-comment-delete'),
     path('hx/add-player/', user_views.add_player,name='add-discord-player'),
+    path("hx/profile/<int:id>/bookmark/", bookmark_player, name='bookmark-player'), 
 
+    path('onboard/', onboard_user, name='onboard-user'),
+    path('onboard/reject/', onboard_decline, name='onboard-decline'),
+    path('onboard/<str:user_type>/', onboard_user, name='onboard-user'),
     path('', include('the_keep.urls')),
     path('profile/', include('the_gatehouse.urls')),
-    path('games/', include('the_warroom.urls')),
+    path('', include('the_warroom.urls')),
     path('accounts/', include('allauth.urls')),
 
 

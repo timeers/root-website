@@ -18,9 +18,13 @@ class RoundInline(admin.StackedInline):
     extra = 0
 
 class TournamentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'status', 'start_date', 'end_date')
-    search_fields = ('name', 'status')
+    list_display = ('name', 'start_date', 'end_date', 'platform', 'include_fan_content')
+    search_fields = ('name', 'description')
     inlines = [RoundInline]
+
+class RoundAdmin(admin.ModelAdmin):
+    list_display = ('name', 'tournament', 'round_number', 'start_date', 'end_date')
+    search_fields = ['name', 'tournament__name']
 
 class TurnInline(admin.StackedInline):
     model = TurnScore
@@ -231,5 +235,6 @@ admin.site.register(GameBookmark, GameBookmarkAdmin)
 admin.site.register(Game, GameAdmin)
 # admin.site.register(Effort, EffortAdmin)
 admin.site.register(Tournament, TournamentAdmin)
+admin.site.register(Round, RoundAdmin)
 admin.site.register(ScoreCard, ScoreCardAdmin)
 # admin.site.register(TurnScore)

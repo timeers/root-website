@@ -1,0 +1,42 @@
+{% extends 'the_keep/base.html' %}
+{% block title %} - Logout{% endblock %}
+{% block content %}
+
+<h1>Welcome</h1>
+<div>Please read below and accept:</div>
+
+<div>
+{% if admin_onboard %}
+    You are seeing this page because you have been added as an admin.
+{% elif designer_onboard %}
+    You are seeing this page because you have been added as a designer.
+{% elif player_onboard %}
+    Thank you for logging in. Please be respectful and enjoy.
+{% else %}
+    You are seeing this page in error. Please let us know so that we can fix your account.
+{% endif %}
+</div>
+
+<div style="display: flex; gap: 10px;">
+{% if admin_onboard %}
+<form action="{% url 'onboard-user' user_type='admin' %}" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Agree</button>
+</form>
+{% elif designer_onboard %}
+<form action="{% url 'onboard-user' user_type='designer' %}" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Agree</button>
+</form>
+{% elif player_onboard %}
+<form action="{% url 'onboard-user' user_type='player' %}" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Agree</button>
+</form>
+{% endif %}
+<form action="{% url 'onboard-decline' %}" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Decline</button>
+</form>
+</div>
+{% endblock %}

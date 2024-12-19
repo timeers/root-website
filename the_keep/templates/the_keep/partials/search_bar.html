@@ -12,7 +12,7 @@
         <option value="">Select Designer</option>
         {% for designer in designers %}
             <option value="{{ designer.id }}" {% if designer.id == search_type %}selected{% endif %}>
-                {{ designer.name }}  <!-- Assuming 'name' is the field you want to display -->
+                {{ designer }}  <!-- Assuming 'name' is the field you want to display -->
             </option>
         {% endfor %}
     </select>

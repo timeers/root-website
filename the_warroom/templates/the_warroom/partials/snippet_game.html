@@ -1,0 +1,55 @@
+<a href="{% url 'game-detail' object.id %}">
+<article class="media content-section">
+{% for effort in object.efforts.all %}
+        {% if effort.win and not effort.coalition_with %}
+                <img class="article-img" src="{{ effort.faction.designer.image.url }}">
+        {% endif %}
+{% endfor %}
+        <div class="media-body">
+        <div class="article">
+                {% for effort in object.efforts.all %}
+                        {% if effort.win and not effort.coalition_with %}
+                        
+                                {% if effort.player %}
+                                        {{ effort.player.name }} 
+                                {% endif %}
+                                won a 
+                                {% if object.round %}
+                                        {{ object.type }} {{ object.round.tournament.name }} Game
+                                {% else %}
+                                        {{ object.type }} {{ object.platform }}{% if object.league %} League{% endif %} {% if object.test_match %}Playtest{% else %}Game{% endif %}
+                                {% endif %}
+                                with {{ effort.faction.title }}
+                        {% endif %}
+                {% endfor %}
+            </div>
+            
+                {% for effort in object.efforts.all %}
+                        {% if effort.win and effort.coalition_with %}
+                        <div class="article">
+                                Coalition with 
+                                {% if effort.player %}
+                                        {{ effort.player.name }} as
+                                {% endif %}
+                                {{ effort.vagabond.title }}
+                        </div>
+                        {% endif %}
+                {% endfor %}
+
+                <div class="article">
+                        Against
+                        {% for effort in object.efforts.all %}
+                                {% if not effort.win %}
+                                        <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
+                                        {% if effort.player %}
+                                                {{ effort.player.name }} as
+                                        {% endif %}
+                                        {{ effort.faction.title }}
+                                {% endif %}
+                        {% endfor %}
+                </div>
+                <small class="text-muted">{{ object.date_posted | date:"Y-m-d" }}</small>
+            
+</div>
+</article>
+</a>
