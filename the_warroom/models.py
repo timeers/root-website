@@ -33,7 +33,8 @@ class GameQuerySet(models.QuerySet):
 class Tournament(models.Model):
     name = models.CharField(max_length=30, unique=True)
 
-    players = models.ManyToManyField(Profile, blank=True, related_name='tournaments')
+    players = models.ManyToManyField(Profile, blank=True, related_name='current_tournaments')
+    eliminated_players = models.ManyToManyField(Profile, blank=True, related_name='past_tournaments')
     factions = models.ManyToManyField(Faction, blank=True, related_name='tournaments')
     maps = models.ManyToManyField(Map, blank=True, related_name='tournaments')
     decks = models.ManyToManyField(Deck, blank=True, related_name='tournaments')
@@ -61,6 +62,15 @@ class Tournament(models.Model):
         return self.name
     def get_absolute_url(self):
         return reverse('tournament-detail', kwargs={'tournament_slug': self.slug})
+    
+    def all_player_count(self):
+        all_players = self.players.count() + self.eliminated_players.count()
+        return all_players
+    
+    def game_count(self):
+        # Counts the number of games associated with this tournament
+        return Game.objects.filter(round__tournament=self).count()
+
     def get_active_player_queryset(self):
         # Get all players in the tournament
         players = self.players.all()
@@ -113,7 +123,17 @@ class Round(models.Model):
     
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
-    
+
+    def all_player_count(self):
+        if self.players:
+            all_players = self.players.count()
+        else:
+            all_players = self.tournament.all_player_count()
+        return all_players   
+     
+    def game_count(self):
+        return self.games.count()
+
     class Meta:
         ordering = ['-round_number']
 
@@ -131,7 +151,7 @@ class Game(models.Model):
 
     league = models.BooleanField(default=False)
     # tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
-    round = models.ForeignKey(Round, on_delete=models.SET_NULL, null=True, blank=True)
+    round = models.ForeignKey(Round, on_delete=models.SET_NULL, null=True, blank=True, related_name='games')
     
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')

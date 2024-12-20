@@ -1,0 +1,22 @@
+<tr data-href="{% url 'tournament-detail' tournament.slug %}">
+    <td>
+        {{ tournament.name }}
+    </td>
+        
+    <td>
+        {{ tournament.start_date }}
+    </td>
+    <td>
+        {% if tournament.end_date %}
+        {{ tournament.end_date }}
+        {% else %}
+        -
+        {% endif %}
+    </td>
+    <td>
+        {{ tournament.game_count }}
+    </td>
+    <td>
+        {{ tournament.all_player_count }}
+    </td>
+</tr>

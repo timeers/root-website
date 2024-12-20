@@ -8,7 +8,7 @@ from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404, HttpResponseForbidden
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone 
@@ -614,6 +614,7 @@ def tournament_detail_view(request, tournament_slug):
     # Get the tournament from slug
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
 
+    past_rounds = Round.objects.filter(tournament=tournament, end_date__lt=timezone.now())
     active_rounds = Round.objects.filter(tournament=tournament, start_date__lt=timezone.now())
     future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
 
@@ -628,8 +629,9 @@ def tournament_detail_view(request, tournament_slug):
 
     context = {
         'object': tournament,
-        'active_rounds': active_rounds,
-        'future_rounds': future_rounds,
+        'active': active_rounds,
+        'future': future_rounds,
+        'past': past_rounds,
         'top_players': top_players,
         'most_players': most_players,
         'top_factions': top_factions,
@@ -686,7 +688,7 @@ class TournamentCreateView(CreateView):
 @admin_required_class_based_view  
 class TournamentDeleteView(DeleteView):
     model = Tournament
-    form_class = TournamentCreateForm
+    success_url = reverse_lazy('tournaments-home')  # Redirect to the tournament list or a suitable page
 
 
 @admin_required
@@ -723,10 +725,10 @@ def tournament_manage_players(request, tournament_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
 
     # Initialize the querysets based on whether fan content is included
-    available_players = Profile.objects.exclude(tournaments=tournament)
+    available_players = Profile.objects.exclude(current_tournaments=tournament)
 
     # Assets already in the tournament
-    current_players = Profile.objects.filter(tournaments=tournament)
+    current_players = Profile.objects.filter(current_tournaments=tournament)
 
 
     # Initialize the form and pass the querysets to it
@@ -868,7 +870,7 @@ def round_manage_players(request, round_slug, tournament_slug):
     round_number = selected_round.round_number
 
     # QS of players in tournament that are not in this round.
-    available_players = Profile.objects.exclude(rounds=selected_round).filter(tournaments=tournament)
+    available_players = Profile.objects.exclude(rounds=selected_round).filter(current_tournaments=tournament)
 
     # Find players already in the same tournament round.
     other_rounds = Round.objects.filter(tournament=tournament, round_number=round_number).exclude(id=selected_round.id)

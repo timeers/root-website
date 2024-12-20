@@ -36,7 +36,7 @@ urlpatterns = [
     path('tournament/<slug:tournament_slug>/new/round/', round_manage_view, name='round-create'),
     path('tournament/<slug:tournament_slug>/round/<slug:round_slug>/', round_detail_view, name='round-detail'),
     path('tournament/<slug:tournament_slug>/round/<slug:round_slug>/manage-players/', round_manage_players, name='round-players'),
-    path('tournament/<slug:tournament_slug>/update/round/<slug:round_slug>/', round_manage_view, name='round-update'),
+    path('tournament/<slug:tournament_slug>/round/<slug:round_slug>/update/', round_manage_view, name='round-update'),
 
     path('tournaments/', tournaments_home, name='tournaments-home'),
 

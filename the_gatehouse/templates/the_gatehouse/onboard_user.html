@@ -3,17 +3,30 @@
 {% block content %}
 
 <h1>Welcome</h1>
-<div>Please read below and accept:</div>
+
 
 <div>
 {% if admin_onboard %}
-    You are seeing this page because you have been added as an admin.
+    <div>Thank you for your interest in helping moderate the site.</div>
+    <div>By accepting you agree to not abuse Admin actions.</div>
+    <div>You will be able to organize tournaments, edit and delete games and demote or promote users.</div>
+    <div>If you are found to be abusing these responsibilities you may lose your Admin status.</div>
+    <div>Thank you for your help!</div>
 {% elif designer_onboard %}
-    You are seeing this page because you have been added as a designer.
+    <div>Thank you for your interest in creating fan made Root content.</div>
+    <div>By accepting you agree to post only content that you have playtested at least once.</div>
+    <div>By accepting you agree to not over-post or post offensive material.</div>
+    <div>If you do not accept or are found to be abusing the database your privledges will be revoked.</div>
+    <div>You will still be able to view your content but you will no longer be able to make changes.</div>
+    <div>Have fun creating and enjoy!</div>
 {% elif player_onboard %}
-    Thank you for logging in. Please be respectful and enjoy.
+    <div>Thank you for logging in.</div> 
+    <div>By accepting you agree to treat other users with kidness and respect.</div>
+    <div>By accepting you agree to post only games that are accurate to the best of your knoledge.</div>
+    <div>If you do not accept or are found to be abusing the database or mistreating other users your account will be deactivated</div>
+    <div>Please be respectful and enjoy!</div>
 {% else %}
-    You are seeing this page in error. Please let us know so that we can fix your account.
+    <div>You are all up to date. Enjoy the database.</div>
 {% endif %}
 </div>
 
@@ -23,20 +36,29 @@
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Agree</button>
 </form>
+<form action="{% url 'onboard-decline' %}?type=D" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Decline</button>
+</form>
 {% elif designer_onboard %}
 <form action="{% url 'onboard-user' user_type='designer' %}" method="post">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Agree</button>
+</form>
+<form action="{% url 'onboard-decline' %}?type=P" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Decline</button>
 </form>
 {% elif player_onboard %}
 <form action="{% url 'onboard-user' user_type='player' %}" method="post">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Agree</button>
 </form>
-{% endif %}
-<form action="{% url 'onboard-decline' %}" method="post">
+<form action="{% url 'onboard-decline' %}?type=B" method="post">
     {% csrf_token %}
     <button type="submit" class="btn btn-danger">Decline</button>
 </form>
+{% endif %}
+
 </div>
 {% endblock %}
