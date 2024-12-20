@@ -39,7 +39,7 @@
 
 
         <h2>Players</h2>
-        {{ formset.management_form }}
+        <div class="hidden">{{ formset.management_form }}</div>
         <div id="effort-form-list">
                 {% for form in formset %}
                         <div id="form-{{ forloop.counter0 }}" class="effort-form form-control">

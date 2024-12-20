@@ -189,31 +189,37 @@ class PostCreateView(LoginRequiredMixin, CreateView):
 class MapCreateView(PostCreateView):
     model = Map
     form_class = MapCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class DeckCreateView(PostCreateView):
     model = Deck
     form_class = DeckCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class LandmarkCreateView(PostCreateView):
     model = Landmark
     form_class = LandmarkCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class HirelingCreateView(PostCreateView):
     model = Hireling
     form_class = HirelingCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class VagabondCreateView(PostCreateView):
     model = Vagabond
     form_class = VagabondCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class FactionCreateView(PostCreateView):
     model = Faction
     form_class = FactionCreateForm
+    template_name = 'the_keep/post_form.html'
 
 # END CREATE VIEWS
 
@@ -257,31 +263,37 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 class MapUpdateView(PostUpdateView):
     model = Map
     form_class = MapCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class DeckUpdateView(PostUpdateView):
     model = Deck
     form_class = DeckCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class LandmarkUpdateView(PostUpdateView):
     model = Landmark
     form_class = LandmarkCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class HirelingUpdateView(PostUpdateView):
     model = Hireling
     form_class = HirelingCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class VagabondUpdateView(PostUpdateView):
     model = Vagabond
     form_class = VagabondCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view  
 class FactionUpdateView(PostUpdateView):
     model = Faction
     form_class = FactionCreateForm
+    template_name = 'the_keep/post_form.html'
 
 
 class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):

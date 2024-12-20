@@ -65,7 +65,7 @@
         <tbody class="effort-rows">
 
 
-    {% for effort in efforts %}
+    {% for effort in game.get_efforts %}
             {% include 'the_warroom/partials/effort_detail.html' %}
     {% endfor %}
 

@@ -13,13 +13,21 @@
                         New {{ tournament.name }} Round
                     {% endif %}
                 </h1>
+                {% if not round.id %}
                 A Tournament Round can be a structured subset of games (e.g., Finals, Semi-Finals) or an ongoing series. 
                 A season of the Root Digital League is an example of a Tournament Round. 
                 Each Tournament Round will have its own leaderboard, which feeds into the overall leaderboard.
+                {% endif %}
                 {{ form | crispy }}
             </fieldset>
             <div class="form-group">
                 <button class="btn btn-outline-info" type="submit">Save</button>
+                {% if not round.id %}
+                <a class="btn btn-outline-secondary" href="{{ tournament.get_absolute_url }}">Cancel</a>
+                {% else %}
+                <a class="btn btn-outline-secondary" href="{{ round.get_absolute_url }}">Cancel</a>
+                <a class="btn btn-outline-danger" href="{{ round.get_delete_url }}">Delete</a>
+                {% endif %}
             </div>
         </form>
     </div>

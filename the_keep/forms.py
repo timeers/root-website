@@ -5,10 +5,11 @@ from .models import (
 )
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+from django.db.models import Q
 
 
-top_fields = ['title', 'expansion']
-bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'picture', 'artist']
+top_fields = ['designer', 'title', 'expansion']
+bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'picture', 'artist']
 
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
@@ -68,15 +69,17 @@ class PostCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Post
-        fields = ['picture', 'title', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
+        fields = top_fields + bottom_fields
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
-            'pnp_link': "Link to Print and Play Files"
+            'pnp_link': "Link to Print and Play Files",
+            'stl_link': "Link to STL Files (if not in PNP)"
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
+        
         super().__init__(*args, **kwargs)
         # If a user is provided, filter the queryset for the `expansion` field
         if user:
@@ -95,8 +98,6 @@ class PostCreateForm(forms.ModelForm):
         if not self.fields['expansion'].queryset.exists():
             del self.fields['expansion']
         
-        
-
         self.fields['lore'].widget.attrs.update({
             'rows': '2',
             'placeholder': 'Enter any thematic text here...'
@@ -104,6 +105,26 @@ class PostCreateForm(forms.ModelForm):
         self.fields['description'].widget.attrs.update({
             'rows': '2'
             })
+        
+        post_instance = kwargs.pop('instance', None)
+
+
+
+        # If not admin user the designer will be the active user
+        # Admin users can create posts for any user.
+        if not user.profile.admin:
+            self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
+        else:
+            self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
+            Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B")
+        )
+        if not post_instance:
+            self.fields['designer'].initial = user.profile.id
+
+        self.fields['designer'].label = "Designer (Admin Only)"
+        # Hide the designer field for non-admin users
+        if not user.profile.admin:
+            self.fields.pop('designer', None)  # Remove designer field entirely
 
 
     def clean(self):
@@ -113,6 +134,12 @@ class PostCreateForm(forms.ModelForm):
             ww_link = cleaned_data.get('ww_link')
             wr_link = cleaned_data.get('wr_link')
             pnp_link = cleaned_data.get('pnp_link')
+            # designer = cleaned_data.get('designer')
+
+            # # # If designer is None, set it to the current user's profile
+            # # if not designer and self.user:
+            # #     designer = self.user.profile
+
             # Check that at least one of the links are filled
             if not any([bgg_link, tts_link, ww_link, wr_link, pnp_link]):
                 raise ValidationError("Please include a link to one of the following: a Board Game Geek post, a Tabletop Simulator Mod, a Woodland Warriors Discord Thread, a Weird Root Discord Thread, or Print and Play Files.")

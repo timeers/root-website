@@ -31,6 +31,7 @@ class GameQuerySet(models.QuerySet):
 
 
 class Tournament(models.Model):
+    type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
 
     players = models.ManyToManyField(Profile, blank=True, related_name='current_tournaments')
@@ -60,16 +61,44 @@ class Tournament(models.Model):
 
     def __str__(self):
         return self.name
+    
     def get_absolute_url(self):
         return reverse('tournament-detail', kwargs={'tournament_slug': self.slug})
     
-    def all_player_count(self):
-        all_players = self.players.count() + self.eliminated_players.count()
-        return all_players
+    def get_players_url(self):
+        return reverse('tournament-players', kwargs={'tournament_slug': self.slug})
     
+    def get_assets_url(self):
+        return reverse('tournament-assets', kwargs={'tournament_slug': self.slug})
+    
+    def get_update_url(self):
+        return reverse('tournament-update', kwargs={'slug': self.slug})
+    
+
     def game_count(self):
         # Counts the number of games associated with this tournament
         return Game.objects.filter(round__tournament=self).count()
+    
+    def get_game_queryset(self):
+        games = Game.objects.filter(round__tournament=self).all()
+        return games
+
+
+    def all_player_count(self):
+        all_players = self.players.count() + self.eliminated_players.count()
+        return all_players
+
+
+    def all_player_queryset(self):
+        # Use union to combine the two querysets (must be the same model)
+        players = self.players.all()
+        eliminated_players = self.eliminated_players.all()
+
+        # Combine the two querysets and return as a QuerySet
+        all_players = players.union(eliminated_players)
+
+        return all_players
+
 
     def get_active_player_queryset(self):
         # Get all players in the tournament
@@ -109,6 +138,7 @@ class Tournament(models.Model):
 
 
 class Round(models.Model):
+    type = "Round"
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE)  # Link to the tournament
     round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
@@ -120,19 +150,48 @@ class Round(models.Model):
 
     def get_absolute_url(self):
         return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+
+    def get_players_url(self):
+        return reverse('round-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
     
+    def get_assets_url(self):
+        return reverse('tournament-assets', kwargs={'tournament_slug': self.tournament.slug})  
+
+    def get_update_url(self):
+        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+    
+    def get_delete_url(self):
+        return reverse('round-delete', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug, 'pk': self.id})
+    
+    def current_player_queryset(self):
+        if self.players.count() == 0:
+            qs = self.tournament.players.all()
+        else:
+            qs = self.players.all()
+        return qs
+
+    def all_player_queryset(self):
+        # Use union to combine the two querysets (must be the same model)
+        players = self.current_player_queryset.all()
+        eliminated_players = self.tournament.eliminated_players.all()
+        # Combine the two querysets and return as a QuerySet
+        all_players = players.union(eliminated_players)
+
+        return all_players
+
+
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
 
     def all_player_count(self):
-        if self.players:
+        if self.players.count() > 0:
             all_players = self.players.count()
         else:
             all_players = self.tournament.all_player_count()
         return all_players   
      
     def game_count(self):
-        return self.games.count()
+        return Game.objects.filter(round=self).count()
 
     class Meta:
         ordering = ['-round_number']

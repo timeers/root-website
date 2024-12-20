@@ -1,8 +1,7 @@
 from django.urls import path
 from the_keep.views import list_view
-from the_warroom.views import player_stats
 from .views import (profile, player_page_view, 
-                    designer_component_view, post_bookmarks, game_bookmarks, game_list, onboard_user)
+                    designer_component_view, post_bookmarks, game_bookmarks, game_list, onboard_user, player_stats)
 
 urlpatterns = [
     

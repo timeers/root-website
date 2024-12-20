@@ -1,31 +1,42 @@
 
+
+
 {% block content %}
 
 
+{% include 'the_warroom/partials/tournament_list_header.html' %}
+{% with object as tournament %}
+    {% include 'the_warroom/partials/tournament_line.html' %}
+{% endwith %}
+{% include 'the_warroom/partials/tournament_list_footer.html' %}
 
 <div class="container mt-4">
     <!-- Tab navigation -->
     <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
 
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="detail-leaderboard-tab" data-bs-toggle="tab" href="#detail-leaderboard" role="tab" aria-controls="detail-leaderboard" aria-selected="false">detail-Leaderboards</a>
+            <a class="nav-link active" id="leaderboard-tab" data-bs-toggle="tab" href="#leaderboard" role="tab" aria-controls="leaderboard" aria-selected="false">Leaderboards</a>
         </li>
 
         <li class="nav-item" role="presentation">
-            <a class="nav-link active" id="roster-tab" data-bs-toggle="tab" href="#roster" role="tab" aria-controls="roster" aria-selected="false">Players</a>
+            <a class="nav-link" id="roster-tab" data-bs-toggle="tab" href="#roster" role="tab" aria-controls="roster" aria-selected="false">Players</a>
+        </li>
+
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">Games</a>
         </li>
 
         {% if user.profile.admin %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="detail-admin-tab" data-bs-toggle="tab" href="#detail-admin" role="tab" aria-controls="detail-admin" aria-selected="false">detail-Admin</a>
+            <a class="nav-link" id="admin-tab" data-bs-toggle="tab" href="#admin" role="tab" aria-controls="admin" aria-selected="false">{{ object.type }} Admin</a>
         </li>
         {% endif %}
     </ul>
 
     <!-- Tab content -->
     <div class="tab-content" id="tournamentTabsContent">
-        <!-- detail-Leaderboard Tournaments -->
-        <div class="tab-pane fade" id="detail-leaderboard" role="tabpanel" aria-labelledby="detail-leaderboard-tab">
+        <!-- Leaderboard Tournaments -->
+        <div class="tab-pane fade show active" id="leaderboard" role="tabpanel" aria-labelledby="leaderboard-tab">
            
 
 
@@ -75,17 +86,34 @@
         </div>
 
         <!-- Active Players -->
-        <div class="tab-pane fade show active" id="roster" role="tabpanel" aria-labelledby="roster-tab">
+        <div class="tab-pane fade" id="roster" role="tabpanel" aria-labelledby="roster-tab">
             <h3>Players</h3>
-            
+            {% for player in players %}
+            <div>
+            {% if object.type == "Tournament" %}
+                <a href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.slug }}">{{ player.name }}</a>
+            {% else %}
+                <a href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}&round_slug={{ object.slug }}">{{ player.name }}</a>
+            {% endif %}
+            </div>
+            {% endfor %}
         </div>
 
-        <div class="tab-pane fade show" id="detail-admin" role="tabpanel" aria-labelledby="detail-admin-tab">
-            <h1>Manage Tournament</h1>
-            {% if tournament %}
-                <a href="{% url 'round-players' round_slug=object.slug tournament_slug=tournament.slug %}">Manage Players</a>
+        <div class="tab-pane fade" id="games" role="tabpanel" aria-labelledby="games-tab">
+            <h3>Games</h3>
+            {% for game in games %}
+                
+                {% include 'the_warroom/partials/game_detail.html' %}
+            {% endfor %}
+        </div>
+
+        <div class="tab-pane fade" id="admin" role="tabpanel" aria-labelledby="admin-tab">
+            {% if object.type == "Tournament" %}
+            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets</a>
             {% endif %}
-            
+            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
+            <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{{ object.get_update_url }}">Edit {{ object.type }}</a>
+
             
         </div>
 

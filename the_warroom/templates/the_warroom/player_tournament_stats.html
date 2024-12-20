@@ -1,8 +1,14 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
 
-
-
+<h1>Stats for {{ player.name }}</h1>
+{% if selected_tournament %}
+    {% if tournament_round %}
+    <h2>{{ tournament_round }}</h2>
+    {% else %}
+    <h2>{{ selected_tournament }}</h2>
+    {% endif %}
+{% endif %}
 
 {% include 'the_warroom/partials/player_stats.html' %}
 

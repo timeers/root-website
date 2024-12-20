@@ -51,9 +51,9 @@
         <div class="card card-body">
             <!-- Hidden content -->
             {% with object.effort.game as game %}
-            {% with game.get_efforts as efforts %}
+            
             {% include 'the_warroom/partials/game_detail.html' %}
-            {% endwith %}
+            
             {% endwith %}
         </div>
     </td>

@@ -80,9 +80,9 @@ These scorecards have not been linked with a game:
             <td colspan="5">
                 {% if effort.game %}
                     {% with effort.game as game %}
-                    {% with game.get_efforts as efforts %}
+                   
                     {% include 'the_warroom/partials/game_detail.html' %}
-                    {% endwith %}
+                   
                     {% endwith %}
                 {% else %}
                     <p>No game associated with this effort.</p>
@@ -164,9 +164,9 @@ These scorecards have not been linked with a game:
         <div class="card card-body">
             <!-- Hidden content -->
             {% with object.effort.game as game %}
-            {% with game.get_efforts as efforts %}
+            
             {% include 'the_warroom/partials/game_detail.html' %}
-            {% endwith %}
+           
             {% endwith %}
         </div>
     </td>

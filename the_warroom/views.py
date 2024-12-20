@@ -1,9 +1,9 @@
 from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from django.contrib.admin.views.decorators import staff_member_required
+# from django.contrib.auth.decorators import login_required
+# from django.contrib.admin.views.decorators import staff_member_required
 from django.views.generic import ListView, UpdateView, CreateView, DeleteView
 from django.views.decorators.http import require_http_methods
-from django.shortcuts import get_object_or_404, redirect, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404, HttpResponseForbidden
 from django.core.exceptions import ObjectDoesNotExist
@@ -21,10 +21,11 @@ from .forms import (GameCreateForm, EffortCreateForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter
 
-from the_keep.views import Faction, Deck, Map, Vagabond, Hireling, Landmark
+from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark
 
 from the_gatehouse.models import Profile
-from the_gatehouse.views import player_required, admin_required, designer_required, admin_required_class_based_view
+from the_gatehouse.views import (player_required, admin_required, designer_required, 
+                                 admin_required_class_based_view, player_required_class_based_view)
 from the_gatehouse.forms import PlayerCreateForm
 
 from the_tavern.forms import GameCommentCreateForm
@@ -34,7 +35,13 @@ from the_tavern.views import bookmark_toggle
 
 
 
+
+# ============================
+# Game Views
+# ============================
+
 #  A list of all the games. Most recent update first
+@player_required_class_based_view
 class GameListView(ListView):
     queryset = Game.objects.all()
     model = Game
@@ -90,6 +97,7 @@ class GameListView(ListView):
     
 
 # Not used currently.
+@player_required_class_based_view
 class GameListViewHX(ListView):
     queryset = Game.objects.all()
     model = Game
@@ -124,11 +132,6 @@ class GameListViewHX(ListView):
                     print(f'found player {player}')
                     queryset = queryset.filter(
                         Q(efforts__player=player)) # Filter by Profile Page
-                # else:
-                #     component = get_object_or_404(Post, slug=slug)
-                #     queryset = queryset.filter(
-                #         Q(efforts__faction=faction)  # Filter by any selected faction
-                #     )
 
 
 
@@ -210,6 +213,16 @@ def game_delete_view(request, id=None):
     return render(request, "the_warroom/game_delete.html", context)
 
 
+
+
+
+
+
+
+# ============================
+# Effort Views (Player details for a game)
+# ============================
+
 @admin_required
 @require_http_methods(['DELETE'])
 def effort_hx_delete(request, id):
@@ -240,7 +253,7 @@ def game_hx_delete(request, id):
     return response
 
 
-@login_required
+@player_required
 def game_detail_hx_view(request, id=None):
     if not request.htmx:
         raise Http404
@@ -254,21 +267,6 @@ def game_detail_hx_view(request, id=None):
         'game': obj
     }
     return render(request, "the_warroom/partials/game_detail.html", context)
-
-# @login_required
-# def effort_update_hx_view(request, id=None):
-#     if not request.htmx:
-#         raise Http404("Not an HTMX request")
-    
-#     try:
-#         obj = Effort.objects.get(id=id)
-#     except Effort.DoesNotExist:
-#         return HttpResponse('Effort Not Found', status=404)
-
-#     context = {
-#         'effort': obj
-#     }
-#     return render(request, "the_warroom/partials/effort_partial.html", context)
 
 
 
@@ -355,7 +353,7 @@ def manage_game(request, id=None):
     return render(request, 'the_warroom/record_game.html', context)
 
 
-@login_required
+@player_required
 @bookmark_toggle(Game)
 def bookmark_game(request, object):
     return render(request, 'the_warroom/partials/bookmarks.html', {'game': object })
@@ -365,7 +363,16 @@ def bookmark_game(request, object):
 
 
 
-# VIEW FOR RECORDING TURN BY TURN SCORES
+
+
+
+
+
+
+# ============================
+# Scorecard Views
+# ============================
+
 @designer_required
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
@@ -610,13 +617,35 @@ def scorecard_list_view(request):
     return render(request, 'the_warroom/scorecard_list.html', context)
 
 
+
+
+
+
+
+
+
+
+
+
+# ============================
+# Tournament Views
+# ============================
+
+@player_required
 def tournament_detail_view(request, tournament_slug):
     # Get the tournament from slug
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
 
     past_rounds = Round.objects.filter(tournament=tournament, end_date__lt=timezone.now())
-    active_rounds = Round.objects.filter(tournament=tournament, start_date__lt=timezone.now())
+    active_rounds = Round.objects.filter(
+        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
+        tournament=tournament, 
+        start_date__lt=timezone.now()
+        )
     future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
+
+    players = tournament.players.all()
+    games = tournament.get_game_queryset()
 
     top_players = []
     most_players = []
@@ -636,43 +665,14 @@ def tournament_detail_view(request, tournament_slug):
         'most_players': most_players,
         'top_factions': top_factions,
         'most_factions': most_factions,
+        'players': players,
+        'games': games,
     }
     
     if request.htmx:
         return render(request, 'the_warroom/tournament_round_detail.html', context)
     return render(request, 'the_warroom/tournament_overview.html', context)
 
-def round_detail_view(request, tournament_slug, round_slug):
-
-    # Get the tournament from slug
-    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
-    # Fetch the round using its slug, and filter it by the related tournament
-    round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
-
-    
-    threshold = round.game_threshold
-
-
-    top_players = []
-    most_players = []
-    top_players = Profile.top_players(limit=5, round=round, game_threshold=threshold)
-    most_players = Profile.top_players(limit=5, round=round, top_quantity=True, game_threshold=threshold)
-    top_factions = []
-    most_factions = []
-    top_factions = Faction.top_factions(limit=5, round=round, game_threshold=threshold)
-    most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=threshold)
-
-
-    context = {
-        'tournament': tournament,
-        'object': round,
-        'top_players': top_players,
-        'most_players': most_players,
-        'top_factions': top_factions,
-        'most_factions': most_factions,
-    }
-    
-    return render(request, 'the_warroom/tournament_round_detail.html', context)
 
 
 @admin_required_class_based_view  
@@ -689,33 +689,6 @@ class TournamentCreateView(CreateView):
 class TournamentDeleteView(DeleteView):
     model = Tournament
     success_url = reverse_lazy('tournaments-home')  # Redirect to the tournament list or a suitable page
-
-
-@admin_required
-def round_manage_view(request, tournament_slug, round_slug=None):
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    current_round = 1
-    for tournament_round in tournament.round_set.all():
-        current_round = max(tournament_round.round_number, current_round)
-    
-    round_instance = None
-    # If round_slug is provided, update the existing round
-    if round_slug:
-        round_instance = get_object_or_404(Round, slug=round_slug, tournament=tournament)
-        form = RoundCreateForm(request.POST or None, tournament=tournament, instance=round_instance, current_round=current_round)
-    else:
-        # Otherwise, create a new round
-        form = RoundCreateForm(request.POST or None, tournament=tournament, current_round=current_round)
-
-    if form.is_valid():
-        form.save()
-        return redirect('tournament-detail', tournament_slug=tournament_slug)
-    context = {
-        'form': form,
-        'tournament': tournament,
-        'round': round_instance,
-        }
-    return render(request, 'the_warroom/tournament_round_form.html', context)
 
 
 
@@ -861,6 +834,85 @@ def tournaments_home(request):
 
 
 
+
+
+
+
+
+
+
+
+
+
+# ============================
+# Round Views (Individual Round/Season of a Tournament)
+# ============================
+
+
+@player_required
+def round_detail_view(request, tournament_slug, round_slug):
+
+    # Get the tournament from slug
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+    # Fetch the round using its slug, and filter it by the related tournament
+    round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
+
+    
+    threshold = round.game_threshold
+
+
+    top_players = []
+    most_players = []
+    top_players = Profile.top_players(limit=5, round=round, game_threshold=threshold)
+    most_players = Profile.top_players(limit=5, round=round, top_quantity=True, game_threshold=threshold)
+    top_factions = []
+    most_factions = []
+    top_factions = Faction.top_factions(limit=5, round=round, game_threshold=threshold)
+    most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=threshold)
+    players = round.current_player_queryset()
+    games = round.games.all()
+
+    context = {
+        'tournament': tournament,
+        'object': round,
+        'top_players': top_players,
+        'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+        'players': players,
+        'games': games,
+    }
+    
+    return render(request, 'the_warroom/round_detail.html', context)
+
+
+@admin_required
+def round_manage_view(request, tournament_slug, round_slug=None):
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    current_round = 1
+    for tournament_round in tournament.round_set.all():
+        current_round = max(tournament_round.round_number, current_round)
+    
+    round_instance = None
+    # If round_slug is provided, update the existing round
+    if round_slug:
+        round_instance = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+        form = RoundCreateForm(request.POST or None, tournament=tournament, instance=round_instance, current_round=current_round)
+    else:
+        # Otherwise, create a new round
+        form = RoundCreateForm(request.POST or None, tournament=tournament, current_round=current_round)
+
+    if form.is_valid():
+        form.save()
+        return redirect('tournament-detail', tournament_slug=tournament_slug)
+    context = {
+        'form': form,
+        'tournament': tournament,
+        'round': round_instance,
+        }
+    return render(request, 'the_warroom/tournament_round_form.html', context)
+
+
 @admin_required
 def round_manage_players(request, round_slug, tournament_slug):
     # Fetch the tournament object
@@ -917,65 +969,13 @@ def round_manage_players(request, round_slug, tournament_slug):
 
     return render(request, 'the_warroom/tournament_manage_players.html', context)
 
-@login_required
-def player_stats(request, slug):
-    tournament_slug = request.GET.get('tournament_slug')
-    round_slug = request.GET.get('round_slug')
-    player = get_object_or_404(Profile, slug=slug)
-    tournament = None
-    round = None
-    if tournament_slug:
-        tournament = get_object_or_404(Tournament, slug=tournament_slug)
-        if round_slug:
-            round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
-    
-    if round:
-        efforts = Effort.objects.filter(player=player, game__round=round)
-    elif tournament:
-        efforts = Effort.objects.filter(player=player, game__round__tournament=tournament)
-    else:
-        efforts = Effort.objects.filter(player=player, game__test_match=False)
 
-    if not tournament and not round:
-        if efforts.count() > 100:
-            game_threshold = 10
-        elif efforts.count() > 50:
-            game_threshold = 5
-        elif efforts.count() > 20:
-            game_threshold = 2
-        else:
-            game_threshold = 1
+@admin_required_class_based_view  
+class RoundDeleteView(DeleteView):
+    model = Round
 
-    print(f"{player.name} Game Threshold {game_threshold}")
-
-
-    win_games = 0
-    all_games = efforts.count()
-    coalition_games = 0
-    for effort in efforts:
-        if effort.win:
-            if effort.coalition_with:
-                coalition_games += 1
-            else:
-                win_games += 1
-    
-    win_points = win_games + (coalition_games * .5)
-    win_rate = win_points / all_games if all_games > 0 else 0
-
-
-    top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
-    most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
-
-    context = {
-        'selected_tournament': tournament,
-        'tournament_round': round,
-        'top_factions': top_factions,
-        'most_factions': most_factions,
-        'all_games': all_games,
-        'win_points': win_points,
-        'win_rate': win_rate,
-    }
-    if request.htmx:
-        return render(request, 'the_warroom/partials/player_stats.html', context)
-
-    return render(request, 'the_warroom/player_tournament_stats.html', context)
+    # Dynamically set the success URL based on the round's tournament
+    def get_success_url(self):
+        # Redirect to the tournament detail page using the tournament slug
+        tournament_slug = self.object.tournament.slug
+        return reverse_lazy('tournament-detail', kwargs={'tournament_slug': tournament_slug})

@@ -12,8 +12,10 @@
         <div class="collapse navbar-collapse" id="navbarToggle">
           <div class="navbar-nav mr-auto">
             <a class="nav-item nav-link" href="{% url 'keep-home' %}">Home</a>
+            {% if user.profile.player %}
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
             <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Tournaments</a>
+            {% endif %}
             {% if user.profile.designer %}
               <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>
             {% endif %}

@@ -289,25 +289,25 @@ class Profile(models.Model):
             from the_keep.models import Faction
             # Start with the base queryset for players
             queryset = Faction.objects.filter(efforts__player=self)
-
+            print("got qs", most_wins, tournament, round, limit, game_threshold)
             # Now, annotate with the total efforts and win counts for player
             if round:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self, game__round=round)),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, game__round=round))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round=round)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round=round))
                 )
             elif tournament:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self), game__round__tournament=tournament),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, game__round__tournament=tournament))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round__tournament=tournament)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round__tournament=tournament))
                 )
             else:
                 queryset = queryset.annotate(
                     total_efforts=Count('efforts', filter=Q(efforts__player=self)),
                     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self))
                 )
-            
-            # Filter players who have enough efforts (before doing the annotation)
+
+            # Filter factions who have enough efforts
             queryset = queryset.filter(total_efforts__gte=game_threshold)
 
             # Annotate with win_rate after filtering
@@ -321,6 +321,10 @@ class Profile(models.Model):
                     output_field=FloatField()
                 )
             )
+
+            for faction in queryset:
+                print(f'Faction-{faction.title}, Wins-{faction.win_count}, Games-{faction.total_efforts}')
+
             # Now we can order the queryset
             if most_wins:
                 # If most_wins is True, order by total_efforts (most efforts) first

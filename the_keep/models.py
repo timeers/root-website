@@ -86,6 +86,7 @@ class Post(models.Model):
     ww_link = models.CharField(max_length=200, null=True, blank=True)
     wr_link = models.CharField(max_length=200, null=True, blank=True)
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
+    stl_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=10, choices=ComponentChoices.choices, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)

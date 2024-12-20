@@ -5,14 +5,16 @@ from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.views.generic import DetailView, ListView
 from django.contrib.auth.mixins import LoginRequiredMixin
-from functools import wraps
-from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm, PlayerCreateForm
-from .models import Profile
-from the_tavern.views import bookmark_toggle
 from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
+from functools import wraps
+
+from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm, PlayerCreateForm
+from .models import Profile
+
+from the_tavern.views import bookmark_toggle
 from the_warroom.filters import GameFilter
-from the_warroom.models import Tournament
+from the_warroom.models import Tournament, Round, Effort
 
 
 
@@ -369,3 +371,69 @@ def onboard_decline(request):
     # Load onboard page with relevant onboard data
     return render(request, 'the_gatehouse/onboard_user.html', onboard_data)
 
+
+
+@player_required
+def player_stats(request, slug):
+    tournament_slug = request.GET.get('tournament_slug')
+    round_slug = request.GET.get('round_slug')
+    player = get_object_or_404(Profile, slug=slug)
+    tournament = None
+    round = None
+    if tournament_slug:
+        tournament = get_object_or_404(Tournament, slug=tournament_slug)
+        if round_slug:
+            round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
+
+    if round:
+        efforts = Effort.objects.filter(player=player, game__round=round)
+    elif tournament:
+        efforts = Effort.objects.filter(player=player, game__round__tournament=tournament)
+    else:
+        efforts = Effort.objects.filter(player=player, game__test_match=False)
+
+    game_threshold = 1
+    if not tournament and not round:
+        if efforts.count() > 100:
+            game_threshold = 10
+        elif efforts.count() > 50:
+            game_threshold = 5
+        elif efforts.count() > 20:
+            game_threshold = 2
+        else:
+            game_threshold = 1
+
+    print(f"{player.name} Game Threshold {game_threshold}")
+
+
+    win_games = 0
+    all_games = efforts.count()
+    coalition_games = 0
+    for effort in efforts:
+        if effort.win:
+            if effort.coalition_with:
+                coalition_games += 1
+            else:
+                win_games += 1
+    
+    win_points = win_games + (coalition_games * .5)
+    win_rate = win_points / all_games if all_games > 0 else 0
+
+    # print("Stat Lookup", f'tournament-{tournament}', f'round-{round}', f'game threshold-{game_threshold}')
+    top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
+    most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
+
+    context = {
+        'player': player,
+        'selected_tournament': tournament,
+        'tournament_round': round,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+        'all_games': all_games,
+        'win_points': win_points,
+        'win_rate': win_rate,
+    }
+    if request.htmx:
+        return render(request, 'the_warroom/partials/player_stats.html', context)
+
+    return render(request, 'the_warroom/player_tournament_stats.html', context)

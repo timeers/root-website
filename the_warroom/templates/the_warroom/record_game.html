@@ -368,7 +368,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     // Initial call to populate options when the page loads
-    updateOptions(platformSelect.value);
+    if (tournamentSelect.value === ""){
+        updateOptions(platformSelect.value);
+        }else{
+        updateTournamentOptions(tournamentSelect.value);
+        }
     $('#id_undrafted_faction').trigger('change');
     $('#id_deck').trigger('change');
     
