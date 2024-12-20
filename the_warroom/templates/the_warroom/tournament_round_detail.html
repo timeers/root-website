@@ -8,7 +8,7 @@
     <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
 
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="leaderboard-tab" data-bs-toggle="tab" href="#leaderboard" role="tab" aria-controls="leaderboard" aria-selected="false">Leaderboards</a>
+            <a class="nav-link" id="detail-leaderboard-tab" data-bs-toggle="tab" href="#detail-leaderboard" role="tab" aria-controls="detail-leaderboard" aria-selected="false">detail-Leaderboards</a>
         </li>
 
         <li class="nav-item" role="presentation">
@@ -17,18 +17,16 @@
 
         {% if user.profile.admin %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="admin-tab" data-bs-toggle="tab" href="#admin" role="tab" aria-controls="admin" aria-selected="false">Admin</a>
+            <a class="nav-link" id="detail-admin-tab" data-bs-toggle="tab" href="#detail-admin" role="tab" aria-controls="detail-admin" aria-selected="false">detail-Admin</a>
         </li>
         {% endif %}
     </ul>
 
     <!-- Tab content -->
     <div class="tab-content" id="tournamentTabsContent">
-        <!-- Leaderboard Tournaments -->
-        <div class="tab-pane fade" id="leaderboard" role="tabpanel" aria-labelledby="leaderboard-tab">
+        <!-- detail-Leaderboard Tournaments -->
+        <div class="tab-pane fade" id="detail-leaderboard" role="tabpanel" aria-labelledby="detail-leaderboard-tab">
            
-            
-
 
 
         {% if top_players or most_players %}
@@ -82,7 +80,7 @@
             
         </div>
 
-        <div class="tab-pane fade show" id="admin" role="tabpanel" aria-labelledby="admin-tab">
+        <div class="tab-pane fade show" id="detail-admin" role="tabpanel" aria-labelledby="detail-admin-tab">
             <h1>Manage Tournament</h1>
             {% if tournament %}
                 <a href="{% url 'round-players' round_slug=object.slug tournament_slug=tournament.slug %}">Manage Players</a>

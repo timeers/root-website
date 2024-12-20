@@ -240,6 +240,10 @@ th, td {
   flex-basis: 8ch;
 }
 
+tr[data-href] {
+  cursor: pointer;
+}
+
 /* @font-face {
   font-family: 'Baskerville';
   src: url('fonts/Baskerville-Regular.ttf') format('truetype');

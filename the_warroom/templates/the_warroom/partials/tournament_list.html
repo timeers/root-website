@@ -1,0 +1,39 @@
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+            <th>Games</th>
+            <th>Players</th>
+        </tr>
+    </thead>
+    <tbody class="effort-rows">
+
+    {% for tournament in tournaments %}
+        {% include 'the_warroom/partials/tournament_line.html' %}
+    {% empty %}
+        <tr>    
+            <td>
+                No Tournaments
+            </td>
+            <td>
+                -
+            </td>
+            <td>
+                -
+            </td>
+            <td>
+                -
+            </td>
+            <td>
+                -
+            </td>
+    </tr>
+    {% endfor %}
+
+</tbody>
+
+</table>
+
+

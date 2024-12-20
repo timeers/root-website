@@ -22,46 +22,26 @@
             <!-- Scheduled Tournaments -->
             <div class="tab-pane fade" id="scheduled" role="tabpanel" aria-labelledby="scheduled-tab">
                 <h3>Scheduled Tournaments</h3>
-                <ul class="list-group">
-                    {% for tournament in scheduled %}
-                        <li class="list-group-item">
-                            <a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a>
-                            <span class="text-muted">{{ tournament.start_date|date:"F j, Y" }}</span>
-                        </li>
-                    {% empty %}
-                        <li class="list-group-item">No scheduled tournaments</li>
-                    {% endfor %}
-                </ul>
+                {% with scheduled as tournaments %}
+                    {% include 'the_warroom/partials/tournament_list.html' %}
+                {% endwith %}
             </div>
 
             <!-- Ongoing Tournaments -->
             <div class="tab-pane fade show active" id="ongoing" role="tabpanel" aria-labelledby="ongoing-tab">
                 <h3>Ongoing Tournaments</h3>
-                <ul class="list-group">
-                    {% for tournament in ongoing %}
-                        <li class="list-group-item">
-                            <a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a>
-                            <span class="text-muted">{{ tournament.start_date|date:"F j, Y" }} - {{ tournament.end_date|date:"F j, Y" }}</span>
-                        </li>
-                    {% empty %}
-                        <li class="list-group-item">No ongoing tournaments</li>
-                    {% endfor %}
-                </ul>
+
+                {% with ongoing as tournaments %}
+                    {% include 'the_warroom/partials/tournament_list.html' %}
+                {% endwith %}
             </div>
 
             <!-- Concluded Tournaments -->
             <div class="tab-pane fade" id="concluded" role="tabpanel" aria-labelledby="concluded-tab">
                 <h3>Concluded Tournaments</h3>
-                <ul class="list-group">
-                    {% for tournament in concluded %}
-                        <li class="list-group-item">
-                            <a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a>
-                            <span class="text-muted">{{ tournament.end_date|date:"F j, Y" }}</span>
-                        </li>
-                    {% empty %}
-                        <li class="list-group-item">No concluded tournaments</li>
-                    {% endfor %}
-                </ul>
+                {% with concluded as tournaments %}
+                    {% include 'the_warroom/partials/tournament_list.html' %}
+                {% endwith %}
             </div>
         </div>
     </div>
@@ -70,3 +50,30 @@
 
 
 {% endblock%}
+
+
+{% block scripts %}
+
+<script>
+
+    // document.addEventListener("DOMContentLoaded", () => {
+    //     const rows = document.querySelectorAll("tr[data-href]");
+
+    //     rows.forEach(row => {
+    //         row.addEventListener('click', () => {
+    //             window.location.href = row.dataset.href;
+    //         });
+    //     });
+    // });
+
+
+    $(document).ready(function () {
+        $(document.body).on("click", "tr[data-href]", function () {
+            window.location.href = this.dataset.href;
+        });
+    });
+
+</script>
+
+
+{% endblock scripts %}

@@ -63,7 +63,9 @@ class GameCreateForm(forms.ModelForm):
                     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now(),
                     tournament__players=user.profile
                     )
-                
+                active_rounds = active_rounds.filter(
+                    Q(players__isnull=False) & Q(players__in=[user.profile]) | Q(players__isnull=True)
+)
             
             self.fields['round'].queryset = active_rounds
             # Removed this, the elimination property does nothing to prevent players from recording games. Admin can manage it manually.
@@ -483,7 +485,24 @@ class RoundCreateForm(forms.ModelForm):
             instance.save()
 
         return instance
+    def clean(self):
+        cleaned_data = super().clean()
 
+        tournament = self.tournament
+        # tournament = cleaned_data.get('tournament')
+        name = cleaned_data.get('name')
+
+        # Exclude the current round from validation if it exists
+        if self.instance.id:
+            # Exclude the current round's ID from the query
+            qs = Round.objects.filter(tournament=tournament, name=name).exclude(id=self.instance.id)
+        else:
+            # If no current round is passed, just check for a round with the same name
+            qs = Round.objects.filter(tournament=tournament, name=name)
+
+        if qs.exists():
+            raise ValidationError(f"A round with this name already exists for {tournament.name}")
+        return cleaned_data
 
 class TournamentManageAssetsForm(forms.Form):
     # Multiple select field for Factions not yet in the tournament
@@ -748,6 +767,16 @@ class TournamentManagePlayersForm(forms.Form):
         required=False,
         label='Remove Players'
     )
+
+    # Multiple select field for players already in the tournament
+    eliminated_players = forms.ModelMultipleChoiceField(
+        queryset=Profile.objects.none(),
+        widget=forms.SelectMultiple(attrs={'size': '10'}),
+        required=False,
+        label='Eliminate/Ban Players'
+    )
+
+
     # Don't want to be able to add all players to a tournament.
     # # Checkbox to select all players in the available players list
     # add_all_players = forms.BooleanField(
@@ -786,34 +815,30 @@ class TournamentManagePlayersForm(forms.Form):
         # Get the tournament and querysets passed from the view
         available_players_query = kwargs.pop('available_players_query', None)
         current_players_query = kwargs.pop('current_players_query', None)
+        
 
         super().__init__(*args, **kwargs)
 
         # Set the querysets for the fields
         self.fields['available_players'].queryset = available_players_query
         self.fields['current_players'].queryset = current_players_query
+        self.fields['eliminated_players'].queryset = current_players_query
     
-    # def save(self):
-    #     if self.cleaned_data:
-    #         # Add selected players to the tournament
-    #         for player in self.cleaned_data['available_players']:
-    #             self.tournament.players.add(player)
-
-    #         for player in self.cleaned_data['current_players']:
-    #             self.tournament.players.remove(player)
-    #         if self.cleaned_data['current_players']:
-    #             for round in self.tournament.round_set.all():
-    #                 for player in self.cleaned_data['current_players']:
-                        # round.players.remove(player)
-
 
     def save(self):
         if self.cleaned_data:
             # Add selected players to the tournament
             self.tournament.players.add(*self.cleaned_data['available_players'])
+            self.tournament.eliminated_players.remove(*self.cleaned_data['available_players'])
 
-            # Remove selected players from the tournament
+            # Add eliminated players to the tournament and remove them from players
+            self.tournament.eliminated_players.add(*self.cleaned_data['eliminated_players'])
+            self.tournament.players.remove(*self.cleaned_data['eliminated_players'])
+
+            # Remove selected current players from the tournament players
             self.tournament.players.remove(*self.cleaned_data['current_players'])
+
+
 
             # If players were removed from the tournament, remove them from all rounds
             if self.cleaned_data['current_players']:
@@ -821,7 +846,7 @@ class TournamentManagePlayersForm(forms.Form):
                 rounds = self.tournament.round_set.all()
 
                 # Create a set of players to remove
-                players_to_remove = set(self.cleaned_data['current_players'])
+                players_to_remove = set(self.cleaned_data['current_players']) | set(self.cleaned_data['eliminated_players'])
 
                 # For each round, remove the players in bulk (minimizes queries)
                 for round in rounds:

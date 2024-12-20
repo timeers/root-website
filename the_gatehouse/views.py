@@ -340,15 +340,26 @@ def onboard_decline(request):
     This view handles the onboarding process for players, designers and admins.
     It updates the onboard fields depending on the user_type passed.
     """
+    # If a user refuses to accept website policies they will demote themselves
     if request.method == 'POST':
+        decline_type = request.GET.get('type')
         profile = request.user.profile
-        # Deactivate the user's account
-        profile.group = "B"
+        # Refused admin become designers. Refused designers become players. Refused players become banned (deactivated)
+        if decline_type == "D" or decline_type == "P" or decline_type == "B":
+            profile.group = decline_type
+        else:
+            profile.group = "B"
         profile.admin_onboard = False
         profile.designer_onboard = False
         profile.player_onboard = False
         profile.save()
-        messages.error(request, "We're sorry to see you go.")
+        match decline_type:
+            case "D":
+                messages.error(request, "No problem. Contact an Administrator if you change your mind")
+            case "P":
+                messages.error(request, "No problem. Contact an Administrator if you change your mind")
+            case _:
+                messages.error(request, "We're sorry to see you go")
 
         request.session.pop('onboard_data', None)
         # Redirect to homepage
