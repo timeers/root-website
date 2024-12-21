@@ -441,7 +441,8 @@ class Faction(Post):
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id) if player_id else Q()),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True))
+            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True)),
+            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True))
         )
         
         # Filter factions who have enough efforts (before doing the annotation)
@@ -453,7 +454,15 @@ class Faction(Post):
             win_rate=Case(
                 When(total_efforts=0, then=Value(0)),
                 default=ExpressionWrapper(
-                    Cast(F('win_count'), FloatField()) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    output_field=FloatField()
+                ),
+                output_field=FloatField()
+            ),
+            tourney_points=Case(
+                When(total_efforts=0, then=Value(0)),
+                default=ExpressionWrapper(
+                    Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Win rate as percentage
                     output_field=FloatField()
                 ),
                 output_field=FloatField()
@@ -462,7 +471,7 @@ class Faction(Post):
         # Now we can order the queryset
         if top_quantity:
             # If top_quantity is True, order by total_efforts (most efforts) first
-            return queryset.order_by('-total_efforts', '-win_rate')[:limit]
+            return queryset.order_by('-tourney_points', '-win_rate')[:limit]
         else:
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]

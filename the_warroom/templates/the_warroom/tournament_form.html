@@ -5,7 +5,7 @@
         <form method="POST">
             {% csrf_token %}
             <fieldset class="form-group">
-                <h1 class="border-bottom mb-4">{% if object.id %}Update {{ object.name }}{% else %}New Tournament{% endif %}</h1>
+                <legend class="border-bottom mb-4">{% if object.id %}Update {{ object.name }}{% else %}New Tournament{% endif %}</legend>
                 {% if not object.id %}
                 A Tournament can be an ongoing or limited series of games. Once created you can schedule and create new Rounds for the Tournament.
                 Root Digital League is an example of a Tournament and each Season is a Round of Root Digital League.

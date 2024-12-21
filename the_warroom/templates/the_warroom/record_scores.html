@@ -1,7 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-<h1>{% if object.id %}Update{% else %}Record{% endif %} Detailed Game Scores</h1>
+<legend>{% if object.id %}Update{% else %}Record{% endif %} Detailed Game Scores</legend>
     <button class="btn btn-outline-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
         <i class="bi bi-info-circle"></i>
     </button>

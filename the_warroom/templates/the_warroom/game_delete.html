@@ -7,7 +7,7 @@
     <h1>Delete Game?</h1>
     <p>Are you sure you want to delete the selected game? This cannot be undone.</p>
     
-    {% include 'the_warroom/partials/game_detail.html' %}
+    {% include 'the_warroom/partials/game_detail_button.html' %}
     
     <button class="btn btn-danger" type="submit">Yes, delete</button>
     <a class="btn btn-outline-secondary" href="{% url 'game-detail' game.id %}">Cancel</a>

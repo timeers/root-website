@@ -43,7 +43,7 @@
                     hx-get="{{ round.get_absolute_url }}" 
                     hx-target="#tab-contents" 
                     hx-push-url="false">
-                    {{ round.name }} ({{ round.start_date | date:"Y-m-d" }})
+                    {{ round.name }} ({{ round.start_date|date:"F j, Y" }})
                     </a>
                 </li>
             {% endfor %}

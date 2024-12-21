@@ -10,7 +10,10 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage
 from django.urls import reverse, reverse_lazy
 from django.conf import settings
-from django.db.models import Q
+from django.contrib import messages
+from django.db import IntegrityError
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError
+from django.db.models.functions import Cast
 from django.utils import timezone 
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
@@ -163,7 +166,7 @@ class GameListViewHX(ListView):
 
 @player_required
 def game_detail_view(request, id=None):
-    hx_url = reverse("game-hx-detail", kwargs={"id": id})
+    # hx_url = reverse("game-hx-detail", kwargs={"id": id})
     participants = []
     try:
         obj = Game.objects.get(id=id)
@@ -179,7 +182,7 @@ def game_detail_view(request, id=None):
 
     commentform = GameCommentCreateForm()
     context=  {
-        'hx_url': hx_url,
+        # 'hx_url': hx_url,
         'game': obj,
         'commentform': commentform,
         'participants': participants,
@@ -277,7 +280,8 @@ def manage_game(request, id=None):
     else:
         obj = Game()  # Create a new Game instance but do not save it yet
     user = request.user
-    form = GameCreateForm(request.POST or None, instance=obj, user=user)
+    # Don't think the form needs to be initiated here
+    # form = GameCreateForm(request.POST or None, instance=obj, user=user)
     player_form = PlayerCreateForm()
 
     # Default to 4 players
@@ -598,8 +602,8 @@ def scorecard_list_view(request):
         scorecard.matching_efforts = matching_efforts.distinct()
 
     # Pagination
-    # paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)  # Show 10 posts per page
-    paginator = Paginator(complete_scorecards, 5) 
+    paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)  # Show default number per page
+
     # Get the current page number from the request (default to 1)
     page_number = request.GET.get('page')  # e.g., ?page=2
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
@@ -644,7 +648,45 @@ def tournament_detail_view(request, tournament_slug):
         )
     future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
 
-    players = tournament.players.all()
+    # players = tournament.players.all()
+    players = Profile.objects.filter(current_tournaments=tournament)
+
+
+
+    players = players.annotate(
+        total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
+        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
+        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament))
+    )
+
+    # Annotate with win_rate after filtering
+    players = players.annotate(
+        win_rate=Case(
+            When(total_efforts=0, then=Value(0)),
+            default=ExpressionWrapper(
+                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                output_field=FloatField()
+            ),
+            output_field=FloatField()
+        ),
+        tourney_points=Case(
+            When(total_efforts=0, then=Value(0)),
+            default=ExpressionWrapper(
+                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
+                output_field=FloatField()
+            ),
+            output_field=FloatField()
+        )
+    ).order_by('-tourney_points', '-win_rate', '-total_efforts', 'display_name')
+
+
+
+
+
+
+
+
+
     games = tournament.get_game_queryset()
 
     top_players = []
@@ -659,7 +701,7 @@ def tournament_detail_view(request, tournament_slug):
     context = {
         'object': tournament,
         'active': active_rounds,
-        'future': future_rounds,
+        'scheduled': future_rounds,
         'past': past_rounds,
         'top_players': top_players,
         'most_players': most_players,
@@ -689,6 +731,27 @@ class TournamentCreateView(CreateView):
 class TournamentDeleteView(DeleteView):
     model = Tournament
     success_url = reverse_lazy('tournaments-home')  # Redirect to the tournament list or a suitable page
+
+    def post(self, request, *args, **kwargs):
+        # print('Trying to delete')
+        tournament = self.get_object()
+        print(tournament)
+        name = tournament.name
+        try:
+            # Attempt to delete the tournament
+            response = self.delete(request, *args, **kwargs)
+            # Add success message upon successful deletion
+            messages.success(request, f"The Tournament '{name}' was successfully deleted.")
+            return response
+        except ProtectedError:
+            # Handle the case where the deletion fails due to foreign key protection
+            messages.error(request, f"The Tournament '{name}' cannot be deleted because games have already been recorded.")
+            # Redirect back to the tournament detail page
+            return redirect(tournament.get_absolute_url())  # Make sure `tournament.get_absolute_url()` is correct
+        except IntegrityError:
+            # Handle other integrity errors (if any)
+            messages.error(request, "An error occurred while trying to delete this tournament.")
+            return redirect(tournament.get_absolute_url())
 
 
 
@@ -903,8 +966,8 @@ def round_manage_view(request, tournament_slug, round_slug=None):
         form = RoundCreateForm(request.POST or None, tournament=tournament, current_round=current_round)
 
     if form.is_valid():
-        form.save()
-        return redirect('tournament-detail', tournament_slug=tournament_slug)
+        round_instance = form.save()  # Save the round instance
+        return redirect(round_instance.get_absolute_url())  # Redirect to the round's absolute URL
     context = {
         'form': form,
         'tournament': tournament,
@@ -979,3 +1042,24 @@ class RoundDeleteView(DeleteView):
         # Redirect to the tournament detail page using the tournament slug
         tournament_slug = self.object.tournament.slug
         return reverse_lazy('tournament-detail', kwargs={'tournament_slug': tournament_slug})
+    
+    def post(self, request, *args, **kwargs):
+        # print('Trying to delete')
+        round = self.get_object()
+        print(round)
+        name = round.name
+        try:
+            # Attempt to delete the round
+            response = self.delete(request, *args, **kwargs)
+            # Add success message upon successful deletion
+            messages.success(request, f"'{round}' was successfully deleted.")
+            return response
+        except ProtectedError:
+            # Handle the case where the deletion fails due to foreign key protection
+            messages.error(request, f"The Tournament Round '{name}' cannot be deleted because games have already been recorded.")
+            # Redirect back to the round detail page
+            return redirect(round.get_absolute_url())  # Make sure `round.get_absolute_url()` is correct
+        except IntegrityError:
+            # Handle other integrity errors (if any)
+            messages.error(request, "An error occurred while trying to delete this Tournament Round.")
+            return redirect(round.get_absolute_url())

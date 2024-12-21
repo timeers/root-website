@@ -27,7 +27,7 @@
                     {{ object.designer.name }}
                 {% endif %}
             </div>
-                <small class="text-muted">{{ object.date_updated | date:"Y-m-d" }}</small>
+                <small class="text-muted">{{ object.date_updated |date:"F j, Y" }}</small>
 </div>
 <div>
                 {% if object.expansion %}
@@ -42,12 +42,12 @@
                 {% if object.artist %}
                 <div>
                     Art by 
-                    <a class="mr-2" href="{% url 'artist-posts' object.artist.slug %}">{{ object.artist.name }}</a>
+                    <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
                 </div>
                 {% endif %}
                 {% if object.based_on %}
                     Based on: <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a>
-                    by <a class="mr-2" href="{% url 'user-posts' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
+                    by <a class="mr-2" href="{% url 'player-detail' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
                 {% endif %}
 
 

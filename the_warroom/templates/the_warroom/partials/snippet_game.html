@@ -2,7 +2,7 @@
 <article class="media content-section">
 {% for effort in object.efforts.all %}
         {% if effort.win and not effort.coalition_with %}
-                <img class="article-img" src="{{ effort.faction.designer.image.url }}">
+                <img class="article-img" src="{{ effort.faction.picture.url }}">
         {% endif %}
 {% endfor %}
         <div class="media-body">
@@ -13,7 +13,7 @@
                                 {% if effort.player %}
                                         {{ effort.player.name }} 
                                 {% endif %}
-                                won a 
+                                won a{% if object.type == "Async" %}n{% endif %} 
                                 {% if object.round %}
                                         {{ object.type }} {{ object.round.tournament.name }} Game
                                 {% else %}
@@ -48,7 +48,7 @@
                                 {% endif %}
                         {% endfor %}
                 </div>
-                <small class="text-muted">{{ object.date_posted | date:"Y-m-d" }}</small>
+                <small class="text-muted">{{ object.date_posted|date:"F j, Y" }}</small>
             
 </div>
 </article>

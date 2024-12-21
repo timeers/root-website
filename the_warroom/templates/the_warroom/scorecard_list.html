@@ -81,7 +81,7 @@ These scorecards have not been linked with a game:
                 {% if effort.game %}
                     {% with effort.game as game %}
                    
-                    {% include 'the_warroom/partials/game_detail.html' %}
+                    {% include 'the_warroom/partials/game_detail_button.html' %}
                    
                     {% endwith %}
                 {% else %}
@@ -165,7 +165,7 @@ These scorecards have not been linked with a game:
             <!-- Hidden content -->
             {% with object.effort.game as game %}
             
-            {% include 'the_warroom/partials/game_detail.html' %}
+            {% include 'the_warroom/partials/game_detail_button.html' %}
            
             {% endwith %}
         </div>

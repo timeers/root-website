@@ -6,13 +6,13 @@
         <form method="POST">
             {% csrf_token %}
             <fieldset class="form-group">
-                <h1 class="border-bottom mb-4">
+                <legend class="border-bottom mb-4">
                     {% if round.id %}
                         Update {{ round.name }}
                     {% else %}
                         New {{ tournament.name }} Round
                     {% endif %}
-                </h1>
+                </legend>
                 {% if not round.id %}
                 A Tournament Round can be a structured subset of games (e.g., Finals, Semi-Finals) or an ongoing series. 
                 A season of the Root Digital League is an example of a Tournament Round. 

@@ -1,0 +1,22 @@
+
+<article id="games-stats" class="media content-section">
+    
+    <div class="media-body">
+
+        
+        {% if object.component == 'Faction' or object.component == 'Vagabond' %}
+            
+            {% if total_efforts == object.plays %}
+                <h2>Recorded Games ({{ total_efforts }})</h2>
+            {% else %}
+                <h2>Filtered Games ({{ total_efforts }}/{{ object.plays }})</h2>
+            {% endif %}
+            <p class="article-content">{{ win_count }} Recorded Wins</p>
+            <p class="article-content">{{ win_rate|floatformat:2 }}% Winrate</p>
+            <p class="article-content">{{ tourney_points }} Points (1/2 for Coalition Wins)</p>
+        {% else %}
+            <h2>Recorded Games ({{ games_total }})</h2>
+            <p class="article-content">{{ object.plays }} Total Games</p>
+        {% endif %}
+    </div>
+</article>

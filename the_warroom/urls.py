@@ -42,7 +42,7 @@ urlpatterns = [
     path('tournaments/', tournaments_home, name='tournaments-home'),
 
     path('hx/games/games-listview', GameListViewHX.as_view(), name='hx-game-list'),
-    path("hx/games/<int:id>/", game_detail_hx_view, name='game-hx-detail'),
+    # path("hx/games/<int:id>/", game_detail_hx_view, name='game-hx-detail'),
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),
     path("hx/games/game/delete/<int:id>/", game_hx_delete, name='game-hx-delete'),

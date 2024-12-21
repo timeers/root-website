@@ -5,11 +5,11 @@
     </td>
         
     <td>
-        {{ tournament.start_date }}
+        {{ tournament.start_date|date:"F j, Y" }}
     </td>
     <td>
         {% if tournament.end_date %}
-        {{ tournament.end_date }}
+        {{ tournament.end_date|date:"F j, Y" }}
         {% else %}
         -
         {% endif %}

@@ -2,15 +2,13 @@
 {% load crispy_forms_tags %}
 {% block content %}
         
-        <h1>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</h1>
+        <legend>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</legend>
 
         <style>
                 .effort-form {
                         border-bottom: 1px solid black;
                 }
-                .hidden {
-                        display: None ;
-                }
+
         </style>
         {% if form.errors or form.non_field_errors or non_field_errors.errors or message %}
         <div class="alert alert-warning" role="alert">

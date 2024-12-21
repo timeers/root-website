@@ -1,13 +1,13 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-
+<div style="display: flex; justify-content: space-between; align-items: center;">
 <h1>{{ object }}</h1>
 
 
 {% if user.profile.admin %}
 <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round +</a>
 {% endif %}
-
+</div>
 
 <div class="container mt-4">
     <!-- Tab navigation -->
@@ -30,7 +30,7 @@
 
         {% if user.profile.admin %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="scheduled-tab" data-bs-toggle="tab" href="#scheduled" role="tab" aria-controls="scheduled" aria-selected="true">Scheduled Rounds</a>
+            <a class="nav-link" id="scheduled-tab" data-bs-toggle="tab" href="#scheduled" role="tab" aria-controls="scheduled" aria-selected="true">Scheduled Rounds ({{ scheduled.count }})</a>
         </li>
 
         {% endif %}

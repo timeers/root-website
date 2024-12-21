@@ -87,33 +87,25 @@
 
         <!-- Active Players -->
         <div class="tab-pane fade" id="roster" role="tabpanel" aria-labelledby="roster-tab">
-            <h3>Players</h3>
-            {% for player in players %}
-            <div>
-            {% if object.type == "Tournament" %}
-                <a href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.slug }}">{{ player.name }}</a>
-            {% else %}
-                <a href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}&round_slug={{ object.slug }}">{{ player.name }}</a>
-            {% endif %}
-            </div>
-            {% endfor %}
+            {% include 'the_warroom/partials/roster_button.html' %}
         </div>
 
         <div class="tab-pane fade" id="games" role="tabpanel" aria-labelledby="games-tab">
             <h3>Games</h3>
             {% for game in games %}
                 
-                {% include 'the_warroom/partials/game_detail.html' %}
+                {% include 'the_warroom/partials/game_detail_button.html' %}
             {% endfor %}
         </div>
 
         <div class="tab-pane fade" id="admin" role="tabpanel" aria-labelledby="admin-tab">
+            <div class="mt-2" style="display: flex; justify-content: space-evenly; align-items: center;">
             {% if object.type == "Tournament" %}
             <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets</a>
             {% endif %}
             <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
             <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{{ object.get_update_url }}">Edit {{ object.type }}</a>
-
+        </div>
             
         </div>
 

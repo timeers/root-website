@@ -5,20 +5,12 @@
 <div class="media-body">
     <div class="article-metadata">
         <small class="text-muted">
-            {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' or user.profile.outcast %}
                 {% if game.round %}
                     {{ game.type }} {{ game.round.tournament.name }} Game |
                 {% else %}
                     {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                 {% endif %}
-            {% else %}
-                {% if game.round %}
-                    <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.round.tournament.name }} Game</a> |
-                {% else %}
-                    <a href="{% url 'game-detail' game.id %}">{{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %}</a> |
-                {% endif %}
-            {% endif %}
-            {{ game.date_posted | date:"Y-m-d" }} |
+            {{ game.date_posted|date:"F j, Y" }} |
             <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
             <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
         </small>
@@ -51,21 +43,17 @@
                 <th>Faction</th>
                 <th>Score</th>
                 {% if user.profile.designer %}
-                {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
                     <th>Detail</th>
                 {% endif %}
-                {% endif %}
                 {% if user.profile.admin  %}
-                {% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
                     <th>Admin</th>
-                {% endif %}
                 {% endif %}
             </tr>
         </thead>
         <tbody class="effort-rows">
 
 
-    {% for effort in game.get_efforts %}
+    {% for effort in efforts %}
             {% include 'the_warroom/partials/effort_detail.html' %}
     {% endfor %}
 

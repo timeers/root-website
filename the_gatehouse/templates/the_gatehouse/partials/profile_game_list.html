@@ -10,10 +10,10 @@
         
         <div class="media-body">
             {% if quantity_faction %}
-            <div>Most played Faction: {{ quantity_faction }}: {{ quantity_count }} Games</div>
+            <div>Most plays with {{ quantity_faction }}: {{ quantity_count }} Games</div>
             {% endif %}
             {% if quality_faction %}
-            <div>Highest winrate with: {{ quality_faction }}: {{ quality_winrate|floatformat:2 }}%</div>
+            <div>Most wins with {{ quality_faction }}: {{ quality_count }} ({{ quality_winrate|floatformat:2 }}%)</div>
             {% endif %}
         </div>
     </div>
@@ -40,7 +40,7 @@
     {% endif %}
 
 
-    {% include 'the_warroom/partials/game_detail.html' %}
+    {% include 'the_warroom/partials/game_detail_button.html' %}
 
     </div>
 {% empty %}

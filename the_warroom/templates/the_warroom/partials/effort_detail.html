@@ -47,7 +47,6 @@
 
 </td>
 {% if user.profile.designer %}
-{% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
 <td>   
     {% if effort.scorecard %}
         <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-three-dots"></i></a>
@@ -66,10 +65,8 @@
     {% endif %}
 </td>
 {% endif %}
-{% endif %}
 
 {% if user.profile.admin and game.efforts.count > 1 %}
-{% if request.resolver_match.view_name == 'game-detail' or request.resolver_match.view_name == 'effort-hx-delete' %}
 <td>   
     {% if game.efforts.count > 1 %}
         <a class="btn btn-outline-danger btn-sm"
@@ -84,7 +81,6 @@
         <a class="btn btn-outline-danger btn-sm" href="{{ game.get_delete_url }}">Delete Game</a>
     {% endif %}
 </td>
-{% endif %}
 {% endif %}
 </tr>
 

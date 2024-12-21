@@ -210,7 +210,7 @@ class Game(models.Model):
 
     league = models.BooleanField(default=False)
     # tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
-    round = models.ForeignKey(Round, on_delete=models.SET_NULL, null=True, blank=True, related_name='games')
+    round = models.ForeignKey(Round, on_delete=models.PROTECT, null=True, blank=True, related_name='games')
     
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')

@@ -197,6 +197,61 @@ def designer_component_view(request, slug):
     return redirect('player-detail', slug=slug)
 
 
+
+
+
+@login_required
+def artist_component_view(request, slug):
+    # Get the artist object using the slug from the URL path
+    artist = get_object_or_404(Profile, slug=slug.lower())
+
+    # Get the component from the query parameters
+    component = request.GET.get('component')  # e.g., /artist/john-doe/component/?component=some_component
+    # Filter posts based on the artist and the component (if provided)
+    if component:
+        components = artist.artist_posts.filter(component__icontains=component)
+    else:
+        components = artist.artist_posts.all()
+    print(f'Components: {components.count()}')
+    # Get the total count of components (total posts matching the filter)
+    total_count = components.count()
+ 
+    # Pagination
+    paginator = Paginator(components, settings.PAGE_SIZE)  # Show 10 posts per page
+ 
+    # Get the current page number from the request (default to 1)
+    page_number = request.GET.get('page')  # e.g., ?page=2
+    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+
+    print(f'Page: {page_number}')
+    context = {
+        'posts': page_obj,
+        'total_count': total_count,  # Pass the total count to the template
+        'bookmark_page': False,
+        'player': artist,
+    }
+
+
+    if request.htmx:
+        return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
+ 
+    return redirect('player-detail', slug=slug)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @login_required
 def post_bookmarks(request, slug):
     from django.apps import apps
@@ -276,12 +331,16 @@ def game_list(request, slug):
     quantity_faction = None
     quality_faction = None
     quality_winrate = None
+    quality_count = None
     quantity_count = None
     if not page_number:
             quantity_faction = player.most_used_faction()
+            quantity_count = player.games_played(quantity_faction)
+
             quality_faction = player.most_successful_faction()
             quality_winrate = player.winrate(faction=quality_faction)
-            quantity_count = player.games_played(quantity_faction)
+            quality_count = player.games_won(quality_faction)
+            
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
     # print(f'Page: {page_number}')
     context = {
@@ -292,6 +351,7 @@ def game_list(request, slug):
         'bookmark_page': False,
         'quality_faction': quality_faction,
         'quality_winrate': quality_winrate,
+        'quality_count': quality_count,
         'quantity_faction': quantity_faction,
         'quantity_count': quantity_count,
     }
@@ -394,11 +454,11 @@ def player_stats(request, slug):
 
     game_threshold = 1
     if not tournament and not round:
-        if efforts.count() > 100:
+        if efforts.count() > 200:
             game_threshold = 10
-        elif efforts.count() > 50:
+        elif efforts.count() > 100:
             game_threshold = 5
-        elif efforts.count() > 20:
+        elif efforts.count() > 10:
             game_threshold = 2
         else:
             game_threshold = 1

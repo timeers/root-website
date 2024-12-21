@@ -298,3 +298,7 @@ font-weight: bold;
 font-weight: bold;
 }
 
+.inline-form {
+  display: flex;
+  align-items: center;
+}

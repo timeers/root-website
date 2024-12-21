@@ -157,8 +157,8 @@ class GameCreateForm(forms.ModelForm):
                 
             
                 player_roster = set()  # Set to track unique players
-                current_players = round.current_player_queryset.all()  # Assuming round is available and has a tournament
-                eliminated_players = round.tournament.eliminated_players.all()
+                current_players = round.current_player_queryset()  # Assuming round is available and has a tournament
+                # eliminated_players = round.tournament.eliminated_players()
                 tournament_factions = round.tournament.factions.all()
                 tournament_vagabonds = round.tournament.vagabonds.all()
 
@@ -188,10 +188,10 @@ class GameCreateForm(forms.ModelForm):
                 # Check each player in the player_roster
                 for player in player_roster:
                     if player not in current_players:
-                        if player in eliminated_players:
-                            validation_errors_to_display.append(f'{player} was previously eliminated from {round.tournament}')
-                        else:
-                            validation_errors_to_display.append(f'{player} is not registered for {round.tournament}')
+                        # if player in eliminated_players:
+                        #     validation_errors_to_display.append(f'{player} was previously eliminated from {round.tournament}')
+                        # else:
+                        validation_errors_to_display.append(f'{player} is not registered for {round.tournament}')
                 for faction in faction_roster:
                     if faction not in tournament_factions:
                         validation_errors_to_display.append(f'The Faction {faction} is not playable in {round.tournament}')

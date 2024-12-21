@@ -4,7 +4,7 @@
 <h1>Link a Scorecard</h1>
 
 
-{% include 'the_warroom/partials/game_detail.html' %}
+{% include 'the_warroom/partials/game_detail_button.html' %}
 
 
 <h2>{{ form.scorecard.field.queryset.count }} Available Scorecard{% if form.scorecard.field.queryset.count != 1 %}s{% endif %}</h2>
@@ -29,7 +29,7 @@
 <form method="POST">
     {% csrf_token %}
     {{ form }}
-    <button type="submit" class="btn btn-primary">Link</button>
+    <button type="submit" class="btn btn-primary mb-2">Link</button>
 </form>
 
 
