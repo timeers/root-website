@@ -430,7 +430,7 @@ class ComponentDetailListView(ListView):
                                     if game.coalition_win:
                                         coalition_count += 1
                         else:
-                            if effort.faction.title == "Vagabond":
+                            if effort.faction.title == "Vagabond" and effort.vagabond == self.object:
                                 total_efforts += 1
                                 if effort.win:
                                     win_count += 1

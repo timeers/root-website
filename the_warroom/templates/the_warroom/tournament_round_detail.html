@@ -55,7 +55,9 @@
             <article class="media content-section">
                 <div class="media-body">
             {% if user.profile.admin %}
+            <div style="display: flex; justify-content: flex-end;">
             <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round +</a>
+            </div>
             {% endif %}
             
             {% with 'Round' as type %}
@@ -190,7 +192,7 @@
             <article class="media content-section">
                 <div class="media-body">
             {% if user.profile.admin %}
-            <div>
+            <div style="display: flex; justify-content: flex-end;">
                 <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
             </div>
             {% endif %}
@@ -250,11 +252,13 @@
             <article class="media content-section">
                 <div class="media-body">
             {% if user.profile.admin %}
+            <div style="display: flex; justify-content: flex-end;">
             <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets/Specifications</a>
+            </div>
             {% endif %}
                 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseFactions" aria-expanded="false" aria-controls="collapseFactions">
-                <h2>Factions</h2>
+                <h2>Factions ({{ object.factions.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseFactions">
@@ -267,7 +271,7 @@
 
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseDecks" aria-expanded="false" aria-controls="collapseDecks">
-                <h2>Decks</h2>
+                <h2>Decks ({{ object.decks.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseDecks">
@@ -280,7 +284,7 @@
 
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseMaps" aria-expanded="false" aria-controls="collapseMaps">
-                <h2>Maps</h2>
+                <h2>Maps ({{ object.maps.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseMaps">
@@ -292,7 +296,7 @@
             </div>
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseVagabonds" aria-expanded="false" aria-controls="collapseVagabonds">
-                <h2>Vagabonds</h2>
+                <h2>Vagabonds ({{ object.vagabonds.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseVagabonds">
@@ -305,7 +309,7 @@
 
             {% if object.landmarks.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseLandmarks" aria-expanded="false" aria-controls="collapseLandmarks">
-                <h2>Landmarks</h2>
+                <h2>Landmarks ({{ object.landmarks.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseLandmarks">
@@ -319,7 +323,7 @@
 
             {% if object.hirelings.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseHirelings" aria-expanded="false" aria-controls="collapseHirelings">
-                <h2>Hirelings</h2>
+                <h2>Hirelings ({{ object.hirelings.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseHirelings">

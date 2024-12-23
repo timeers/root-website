@@ -34,13 +34,13 @@
 {% if user.profile.player or user.profile == player %}
     <div class="container mt-4">
 
-        <ul class="nav nav-tabs" id="myTab" role="tablist">
+        <ul class="nav nav-tabs" id="profileTabs" role="tablist">
             {% if player.efforts.count %}
             <li class="nav-item" role="presentation">
                 <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false" 
                 hx-get="{% url 'player-games' player.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false">Games ({{ player.efforts.count }})</a>
+                hx-push-url="true">Games ({{ player.efforts.count }})</a>
             </li>
             {% endif %}
             {% if player == user.profile and player.bookmarkedgames.count %}
@@ -48,7 +48,7 @@
                 <a class="nav-link" id="game-bookmarks-tab" data-bs-toggle="tab" href="#game-bookmarks" role="tab" aria-controls="game-bookmarks" aria-selected="false" 
                 hx-get="{% url 'game-bookmarks' user.profile.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Saved Games ({{ player.bookmarkedgames.count }})</i></a>
+                hx-push-url="true"><i class="bi bi-bookmark-check-fill"></i> Saved Games ({{ player.bookmarkedgames.count }})</i></a>
             </li>
             {% endif %}
             {% if user.profile.weird and player.posts.count %}
@@ -56,7 +56,7 @@
                 <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false" 
                 hx-get="{% url 'designer-components' player.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false">Components ({{ player.posts.count }})</a>
+                hx-push-url="true">Components ({{ player.posts.count }})</a>
             </li>
             {% endif %}
             {% if player.artist_posts.count %}
@@ -64,7 +64,7 @@
                 <a class="nav-link" id="art-tab" data-bs-toggle="tab" href="#art" role="tab" aria-controls="art" aria-selected="false" 
                 hx-get="{% url 'artist-components' player.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false">Artwork ({{ player.artist_posts.count }})</a>
+                hx-push-url="true">Artwork ({{ player.artist_posts.count }})</a>
             </li>
             {% endif %}
             {% if player == user.profile and player.bookmarkedposts.count %}
@@ -72,7 +72,7 @@
                 <a class="nav-link" id="post-bookmarks-tab" data-bs-toggle="tab" href="#post-bookmarks" role="tab" aria-controls="post-bookmarks" aria-selected="false" 
                 hx-get="{% url 'post-bookmarks' user.profile.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
+                hx-push-url="true"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
             </li>
             {% endif %}
             {% if player.efforts.count %}
@@ -80,7 +80,7 @@
                 <a class="nav-link" id="stats-tab" data-bs-toggle="tab" href="#stats" role="tab" aria-controls="stats" aria-selected="false" 
                 hx-get="{% url 'player-stats' player.slug %}" 
                 hx-target="#tab-contents" 
-                hx-push-url="false">Stats</a>
+                hx-push-url="true">Stats</a>
             </li>
             {% endif %}
         </ul>
@@ -92,3 +92,50 @@
 </div>
 {% endif %}
 {% endblock content %}
+
+
+{% block scripts %}
+<script>
+    
+    // Wait until the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function () {
+        // Check if there's a fragment identifier in the URL (after #)
+        var currentTab = window.location.hash;
+
+        console.log("Ready")
+
+        // If a hash exists in the URL, activate the corresponding tab
+        if (currentTab) {
+            // Find the tab link matching the hash
+            var tabTrigger = document.querySelector(`a[href="${currentTab}"]`);
+
+            // If a matching tab is found, show it and set it as active
+            if (tabTrigger) {
+                // Activate the tab
+                new bootstrap.Tab(tabTrigger).show();
+            }
+        } else {
+            // If no hash, set the first tab as active by default
+            var firstTab = document.querySelector('#profileTabs a');
+            console.log(firstTab)
+            if (firstTab) {
+                new bootstrap.Tab(firstTab).show();
+            }
+        }
+
+       // Update the URL hash when a tab is changed without causing a scroll jump
+        var tabList = document.querySelectorAll('#profileTabs a');
+        tabList.forEach(function (tab) {
+            tab.addEventListener('shown.bs.tab', function (event) {
+                // Update the browser's URL fragment to reflect the active tab
+                var newHash = event.target.getAttribute('href');
+                
+                // Use history.pushState to update the URL without jumping
+                history.pushState(null, null, newHash);
+            });
+        });
+    });
+</script>
+
+
+{% endblock %}

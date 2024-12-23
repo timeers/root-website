@@ -1160,6 +1160,9 @@ def round_manage_players(request, round_slug, tournament_slug):
     selected_round = get_object_or_404(Round, slug=round_slug)
     tournament = selected_round.tournament
 
+    if tournament.players.count() == 0:
+        return redirect('tournament-players', tournament_slug=tournament.slug)
+
     round_number = selected_round.round_number
 
     # QS of players in tournament that are not in this round.
