@@ -1,10 +1,9 @@
 
-<tr>
-    {% if not main_line %}
+<tr data-href="{{ tournament.get_absolute_url }}">
     <td>
         {{ tournament }}
     </td>
-        {% endif %}
+        
     <td>
         {{ tournament.start_date|date:"F j, Y" }}
     </td>
@@ -19,6 +18,6 @@
         {{ tournament.game_count }}
     </td>
     <td>
-        {{ tournament.all_player_count }}
+        {{ tournament.unique_players_count }}
     </td>
 </tr>

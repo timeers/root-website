@@ -1,0 +1,21 @@
+{% extends 'the_keep/base.html' %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+{% if object.type == 'Tournament' %}
+
+{% else %}
+<a class="btn btn-outline-secondary" href="{{ tournament.get_absolute_url }}"><i class="bi bi-chevron-left"></i></a>
+{% endif %}
+
+
+<h1>{{ object }}</h1>
+</div>
+
+<div>
+
+            {% include 'the_warroom/tournament_round_detail.html' %}
+        
+</div>
+
+{% endblock %}

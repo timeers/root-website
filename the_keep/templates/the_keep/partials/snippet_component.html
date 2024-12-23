@@ -10,7 +10,7 @@
         {% if not object.official %}Fan Made {% endif %}{{ object.component }} by 
         <span class="mr-2">{{ object.designer.name }}</span>
     </div>
-        <small class="text-muted">{{ object.date_posted | date:"Y-m-d" }}</small>
+        <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
 </div>
 </article>
 </a>

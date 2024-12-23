@@ -51,7 +51,9 @@ class Expansion(models.Model):
     def get_landmarks(self):
         return Landmark.objects.filter(expansion=self)
     def get_factions(self):
-        return Faction.objects.filter(expansion=self)
+        return Faction.objects.filter(expansion=self).exclude(component="Clockwork")
+    def get_clockwork(self):
+        return Faction.objects.filter(expansion=self, component="Clockwork")
     
     def get_absolute_url(self):
         return reverse('expansion-detail', kwargs={'slug': self.slug})
@@ -67,6 +69,7 @@ class Post(models.Model):
         VAGABOND = 'Vagabond'
         LANDMARK = 'Landmark'
         FACTION = 'Faction'
+        CLOCKWORK = 'Clockwork'
 
     title = models.CharField(max_length=35)
     animal = models.CharField(max_length=15, null=True, blank=True)
@@ -86,8 +89,9 @@ class Post(models.Model):
     ww_link = models.CharField(max_length=200, null=True, blank=True)
     wr_link = models.CharField(max_length=200, null=True, blank=True)
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
+    stl_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
-    component = models.CharField(max_length=10, choices=ComponentChoices.choices, null=True, blank=True)
+    component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
@@ -358,6 +362,7 @@ class Faction(Post):
     class TypeChoices(models.TextChoices):
         MILITANT = 'M'
         INSURGENT = 'I'
+        CLOCKWORK = 'C'
     class StyleChoices(models.TextChoices):
         NONE = 'N'
         LOW = 'L'
@@ -365,12 +370,11 @@ class Faction(Post):
         HIGH = 'H'                
 
     type = models.CharField(max_length=10, choices=TypeChoices.choices)
-    reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
-    complexity = models.CharField(max_length=1, choices=StyleChoices.choices)
-    card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices)
-    aggression = models.CharField(max_length=1, choices=StyleChoices.choices)
-    crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices)
-    clockwork = models.BooleanField(default=False)
+    reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)], default=0)
+    complexity = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
 
     def __add__(self, other):
         if isinstance(other, Faction):
@@ -387,8 +391,11 @@ class Faction(Post):
             self.picture = animal_default_picture(self)
         elif self.picture == 'default_images/animals/default_animal.png': #Update animal if default was previously used.
             self.picture = animal_default_picture(self)
-                
-        self.component = 'Faction'  # Set the component type
+
+        if self.type == "C":
+            self.component = 'Clockwork'
+        else:
+            self.component = 'Faction'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
 
     def get_absolute_url(self):
@@ -440,7 +447,8 @@ class Faction(Post):
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id) if player_id else Q()),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True))
+            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True)),
+            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True))
         )
         
         # Filter factions who have enough efforts (before doing the annotation)
@@ -452,7 +460,15 @@ class Faction(Post):
             win_rate=Case(
                 When(total_efforts=0, then=Value(0)),
                 default=ExpressionWrapper(
-                    Cast(F('win_count'), FloatField()) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    output_field=FloatField()
+                ),
+                output_field=FloatField()
+            ),
+            tourney_points=Case(
+                When(total_efforts=0, then=Value(0)),
+                default=ExpressionWrapper(
+                    Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Win rate as percentage
                     output_field=FloatField()
                 ),
                 output_field=FloatField()
@@ -461,7 +477,7 @@ class Faction(Post):
         # Now we can order the queryset
         if top_quantity:
             # If top_quantity is True, order by total_efforts (most efforts) first
-            return queryset.order_by('-total_efforts', '-win_rate')[:limit]
+            return queryset.order_by('-tourney_points', '-win_rate')[:limit]
         else:
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]

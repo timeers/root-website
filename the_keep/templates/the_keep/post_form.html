@@ -2,16 +2,32 @@
 {% load crispy_forms_tags %}
 {% block content %}
     <div class="content-section">
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">{{ form.form_type }}</legend>
                 {{ form | crispy }}
             </fieldset>
+
             <div class="form-group">
                 <button class="btn btn-outline-info" type="submit">Save</button>
-                <a href="{% url 'keep-home' %}" class="btn btn-outline-warning">Cancel</a>
+                {% if not object.id %}
+                    <a class="btn btn-outline-secondary" href="{% url 'keep-home' %}">Cancel</a>
+                {% else %}
+                    <a class="btn btn-outline-secondary" href="{% url object.component|lower|add:'-detail' object.slug %}">Cancel</a>
+                    <a class="btn btn-outline-danger" href="{% url 'post-delete' object.id %}">Delete</a>
+                {% endif %}
             </div>
         </form>
     </div>
 {% endblock content %}
+
+{% block scripts %}
+        <script>
+            $('#id_expansion').select2();
+            $('#id_based_on').select2();
+            if ($('#id_designer').length) {
+                $('#id_designer').select2();
+            }
+        </script>
+{% endblock %}

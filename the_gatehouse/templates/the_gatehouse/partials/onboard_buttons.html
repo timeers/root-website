@@ -1,0 +1,10 @@
+<div style="display: flex; gap: 10px;">
+    <form action="{% url 'onboard-user' user_type=user_type %}" method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">I Agree</button>
+    </form>
+    <form action="{% url 'onboard-decline' user_type=user_type %}" method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Decline</button>
+    </form>
+</div>

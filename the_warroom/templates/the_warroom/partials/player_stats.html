@@ -2,10 +2,10 @@
 
 
 
-{% if top_factions or most_factions %}
+
 <article class="media content-section">
     <div class="media-body">
-
+    {% if top_factions or most_factions %}
     <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
     {% if top_factions %}
         <h4>By Winrate</h4>
@@ -13,12 +13,17 @@
             {% include 'the_keep/partials/leaderboard.html' %}
         {% endwith %}
     {% endif %}
-    <h4>By Games Won</h4>
-    {% with most_factions as leaderboard_factions %}
-        {% include 'the_keep/partials/leaderboard.html' %}
-    {% endwith %}
+    {% if most_factions %}
+        <h4>By Games Won</h4>
+        {% with most_factions as leaderboard_factions %}
+            {% include 'the_keep/partials/leaderboard.html' %}
+        {% endwith %}
+    {% endif %}
+    {% else %}
+        <h2>No Games Recorded</h2>
+    {% endif %}
     </div>
 </article>
-{% endif %}
+
 
 

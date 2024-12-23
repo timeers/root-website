@@ -27,12 +27,14 @@ class Profile(models.Model):
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
+    tester = models.BooleanField(default=False)
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
     player_onboard = models.BooleanField(default=False)
+    tester_onboard = models.BooleanField(default=False)
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)
 
@@ -118,15 +120,16 @@ class Profile(models.Model):
     @property
     def designer(self):
         group = self.group
-        if group == "D" or group == "A":
+        if group == "A" or group == "D":
             return True
         else:
             return False
 
+
     @property
     def player(self):
         group = self.group
-        if group == "D" or group == "A" or group == "P":
+        if group == "A" or group == "D" or group == "P":
             return True
         else:
             return False
@@ -185,6 +188,22 @@ class Profile(models.Model):
         ).distinct().count()
 
         return distinct_game_count
+    
+    def games_won(self, faction=None):
+        Game = apps.get_model('the_warroom', 'Game')
+        # Access the related Effort objects for this player
+        efforts = self.efforts.all()
+        
+        # Apply the faction filter if provided
+        if faction:
+            efforts = efforts.filter(faction=faction, win=True)
+        
+        # Count the distinct games linked to the efforts
+        distinct_game_count = Game.objects.filter(
+            id__in=efforts.values_list('game', flat=True)
+        ).distinct().count()
+
+        return distinct_game_count
 
 
 
@@ -230,6 +249,7 @@ class Profile(models.Model):
             return Faction.objects.get(id=most_successful['faction'])
 
         return None  # No wins found
+    
     class Meta:
         ordering = ['display_name']
 
@@ -258,7 +278,8 @@ class Profile(models.Model):
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts', filter=Q(efforts__faction_id=faction_id) if faction_id else Q()),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction_id=faction_id) if faction_id else Q(efforts__win=True))
+            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction_id=faction_id) if faction_id else Q(efforts__win=True)),
+            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction_id=faction_id) if faction_id else Q(efforts__win=True, efforts__game__coalition_win=True))
         )
         
         # Filter players who have enough efforts (before doing the annotation)
@@ -270,7 +291,15 @@ class Profile(models.Model):
             win_rate=Case(
                 When(total_efforts=0, then=Value(0)),
                 default=ExpressionWrapper(
-                    Cast(F('win_count'), FloatField()) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    output_field=FloatField()
+                ),
+                output_field=FloatField()
+            ),
+            tourney_points=Case(
+                When(total_efforts=0, then=Value(0)),
+                default=ExpressionWrapper(
+                    Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2 ),  # Tourney Points
                     output_field=FloatField()
                 ),
                 output_field=FloatField()
@@ -279,7 +308,7 @@ class Profile(models.Model):
         # Now we can order the queryset
         if top_quantity:
             # If top_quantity is True, order by total_efforts (most efforts) first
-            return queryset.order_by('-total_efforts', '-win_rate')[:limit]
+            return queryset.order_by('-tourney_points', '-win_rate')[:limit]
         else:
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]
@@ -289,25 +318,28 @@ class Profile(models.Model):
             from the_keep.models import Faction
             # Start with the base queryset for players
             queryset = Faction.objects.filter(efforts__player=self)
-
+            print("got qs", most_wins, tournament, round, limit, game_threshold)
             # Now, annotate with the total efforts and win counts for player
             if round:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self, game__round=round)),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, game__round=round))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round=round)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round=round)),
+                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round=round))
                 )
             elif tournament:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self), game__round__tournament=tournament),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, game__round__tournament=tournament))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round__tournament=tournament)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round__tournament=tournament)),
+                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round__tournament=tournament))
                 )
             else:
                 queryset = queryset.annotate(
                     total_efforts=Count('efforts', filter=Q(efforts__player=self)),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self))
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self)),
+                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self))
                 )
-            
-            # Filter players who have enough efforts (before doing the annotation)
+
+            # Filter factions who have enough efforts
             queryset = queryset.filter(total_efforts__gte=game_threshold)
 
             # Annotate with win_rate after filtering
@@ -315,12 +347,24 @@ class Profile(models.Model):
                 win_rate=Case(
                     When(total_efforts=0, then=Value(0)),
                     default=ExpressionWrapper(
-                        Cast(F('win_count'), FloatField()) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                        (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                        output_field=FloatField()
+                    ),
+                    output_field=FloatField()
+                ),
+                tourney_points=Case(
+                    When(total_efforts=0, then=Value(0)),
+                    default=ExpressionWrapper(
+                        Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Tourney Points
                         output_field=FloatField()
                     ),
                     output_field=FloatField()
                 )
             )
+
+            for faction in queryset:
+                print(f'Faction-{faction.title}, Wins-{faction.win_count}, Games-{faction.total_efforts}')
+
             # Now we can order the queryset
             if most_wins:
                 # If most_wins is True, order by total_efforts (most efforts) first

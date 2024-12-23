@@ -22,13 +22,14 @@
                         <span class="text-secondary">DWD: {{ user.profile.dwd }}</span><br>
                     {% endif %}
                 {% endif %}
-
+                
             </div>
         </div>
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">Profile Info</legend>
+                <a class="text-muted" href="{% url 'account_change_password' %}">Change Password</a>
                 {% if user.profile.player %}
                     {{ p_form | crispy }}
                 {% else %}
@@ -44,12 +45,13 @@
                         </div>
                     {% endfor %}
                 {% endif %}
-            
+                
             </fieldset>
             {% if not user.profile.banned and not user.profile.outcast %}
             <div class="form-group">
                 <button class="btn btn-outline-info" type="submit">Save</button>
             </div>
+        
             {% endif %}
         </form>
     </div>

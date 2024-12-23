@@ -4,10 +4,10 @@
 {% if object.component != "Vagabond" %}
 <h3>Components</h3>
 {% endif %}
-    <div class="d-flex flex-wrap justify-content-between">
+    <div class="d-flex flex-wrap justify-content-evenly">
         {% if object.component != "Vagabond" %}
-        {% if object.warriors.all or object.designer == user.profile  %}
-        <div>
+        {% if object.warriors.all or object.designer == user.profile and user.profile.designer  %}
+        <div class="p-2 flex-fill">
             <h4>Warriors</h4>
             <div id="W-pieces">
                 {% for piece in object.warriors.all %}
@@ -26,8 +26,8 @@
         </div>
         {% endif %}
 
-        {% if object.buildings.all or object.designer == user.profile  %}
-        <div>
+        {% if object.buildings.all or object.designer == user.profile and user.profile.designer %}
+        <div class="p-2 flex-fill">
             <h4>Buildings</h4>
             <div id="B-pieces">
                 {% for piece in object.buildings.all %}
@@ -46,8 +46,8 @@
         </div>
         {% endif %}
 
-        {% if object.tokens.all or object.designer == user.profile  %}
-        <div>
+        {% if object.tokens.all or object.designer == user.profile and user.profile.designer %}
+        <div class="p-2 flex-fill">
             <h4>Tokens</h4>
             <div id="T-pieces">
                 {% for piece in object.tokens.all %}
@@ -66,8 +66,8 @@
         </div>
         {% endif %}
 
-        {% if object.cards.all or object.designer == user.profile  %}
-        <div>
+        {% if object.cards.all or object.designer == user.profile and user.profile.designer %}
+        <div class="p-2 flex-fill">
             <h4>Cards</h4>
             <div id="C-pieces">
                 {% for piece in object.cards.all %}
@@ -86,8 +86,8 @@
         </div>
         {% endif %}
 {% endif %}
-        {% if object.otherpieces.all or object.designer == user.profile  %}
-        <div>
+        {% if object.otherpieces.all or object.designer == user.profile and user.profile.designer %}
+        <div class="p-2 flex-fill">
             <h4>Other Pieces</h4>
             <div id="O-pieces">
                 {% for piece in object.otherpieces.all %}

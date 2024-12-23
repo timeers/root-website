@@ -273,4 +273,4 @@ AWS_S3_SIGNATURE_VERSION = 's3v4'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-PAGE_SIZE = 20
+PAGE_SIZE = 25

@@ -3,7 +3,8 @@
         <tr>
             <th>Player</th>
             <th>Winrate</th>
-            <th>Games Played</th>
+            <th>Points</th>
+            <th>Games</th>
         </tr>
     </thead>
     <tbody class="effort-rows">
@@ -16,10 +17,12 @@
                 {{ player.win_rate|floatformat:2 }}%
             </td>
             <td>
+                {{ player.tourney_points }}
+            </td>
+            <td>
                 {{ player.total_efforts }}
             </td>
         </tr>
-
 
         {% endfor %}
     </tbody>

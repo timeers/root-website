@@ -53,10 +53,18 @@
             {% endif %}
             {% if user.profile.weird and player.posts.count %}
             <li class="nav-item" role="presentation">
-                <a class="nav-link" id="components-tab" data-bs-toggle="tab" href="#components" role="tab" aria-controls="components" aria-selected="false" 
+                <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false" 
                 hx-get="{% url 'designer-components' player.slug %}" 
                 hx-target="#tab-contents" 
                 hx-push-url="false">Components ({{ player.posts.count }})</a>
+            </li>
+            {% endif %}
+            {% if player.artist_posts.count %}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="art-tab" data-bs-toggle="tab" href="#art" role="tab" aria-controls="art" aria-selected="false" 
+                hx-get="{% url 'artist-components' player.slug %}" 
+                hx-target="#tab-contents" 
+                hx-push-url="false">Artwork ({{ player.artist_posts.count }})</a>
             </li>
             {% endif %}
             {% if player == user.profile and player.bookmarkedposts.count %}

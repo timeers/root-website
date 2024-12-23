@@ -5,41 +5,42 @@
 
     
     <h2>Game Details</h2>
-    {% for field in form %}
-        {% if field.label == 'Undrafted vagabond' %}
-                <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
-                        {{ field.label_tag }} {{ field }}
-                </div>
-        {% elif field.label == 'League' %}
-                <div class="league-field" style="display:none;">
-                        {{ field.label_tag }} {{ field }}
-                </div>
-        {% elif field.label == 'Random clearing' %}
-                <div class="rc-field" style="display:none;">
-                        {{ field.label_tag }} {{ field }}
-                </div>
-        {% elif field.label == 'Type' %}
-                <div class="timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
-                        {{ field.label_tag }} {{ field }}
-                </div>
-        {% elif field.label == 'Hirelings' %}
-        <div class="hireling-field" id="hireling-field" {% if object.platform == "Root Digital" %}style="display:none;"{% endif %}>
-                {{ field.label_tag }} {{ field }}
+        <div id="game-tournament-field">
+                {{ form.round.label_tag }} {{ form.round }}
+        </div>
+        <div id="game-platform-field">
+                {{ form.platform.label_tag }} {{ form.platform }}
+        </div>
+        <div class="timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
+                {{ form.type.label_tag }} {{ form.type }}
+        </div>
+        <div id="game-deck-field">
+                {{ form.deck.label_tag }} {{ form.deck }}
+        </div>
+        <div id="game-map-field">
+                {{ form.map.label_tag }} {{ form.map }}
+        </div>
+        <div id="game-undrafted_faction-field">
+                {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
+        </div>
+        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
+                {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
+        </div>
+        <div id="game-landmarks-field">
+                {{ form.landmarks.label_tag }} {{ form.landmarks }}
+        </div>
+        <div class="hireling-field" id="hireling-field">
+                {{ form.hirelings.label_tag }} {{ form.hirelings }}
         </div>
 
-        {% else %}
-            <div id="game-{{ field.label.lower }}-field" class="{% if field.field.required %}{{ form.required_css_class }}{% endif %}">
-                {{ field.label_tag }} {{ field }}
-            </div>
-        {% endif %}
-    {% endfor %}
-
-
+        <div id="game-link-field">
+                {{ form.link.label_tag }} {{ form.link }}
+        </div>
 
 
 
         <h2>Players</h2>
-        {{ formset.management_form }}
+        <div class="hidden">{{ formset.management_form }}</div>
         <div id="effort-form-list">
                 {% for form in formset %}
                         <div id="form-{{ forloop.counter0 }}" class="effort-form form-control">

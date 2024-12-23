@@ -1,17 +1,10 @@
-<table>
-    <thead>
-        <tr>
-            <th>Name</th>
-            <th>Start Date</th>
-            <th>End Date</th>
-            <th>Games</th>
-            <th>Players</th>
-        </tr>
-    </thead>
-    <tbody class="effort-rows">
+
+    {% with 'Tournament' as type %}
+        {% include 'the_warroom/partials/tournament_list_header.html' %}
+    {% endwith %}
 
     {% for tournament in tournaments %}
-        {% include 'the_warroom/partials/tournament_line.html' %}
+        {% include 'the_warroom/partials/tournament_link.html' %}
     {% empty %}
         <tr>    
             <td>
@@ -32,8 +25,5 @@
     </tr>
     {% endfor %}
 
-</tbody>
-
-</table>
-
+    {% include 'the_warroom/partials/tournament_list_footer.html' %}
 

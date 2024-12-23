@@ -3,7 +3,8 @@
         <tr>
             <th>Faction</th>
             <th>Winrate</th>
-            <th>Games Played</th>
+            <th>Points</th>
+            <th>Games</th>
         </tr>
     </thead>
     <tbody class="effort-rows">
@@ -14,6 +15,9 @@
             </td>
             <td>
                 {{ faction.win_rate|floatformat:2 }}%
+            </td>
+            <td>
+                {{ faction.tourney_points }}
             </td>
             <td>
                 {{ faction.total_efforts }}

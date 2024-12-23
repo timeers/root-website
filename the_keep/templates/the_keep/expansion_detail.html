@@ -1,7 +1,14 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-    
+<div style="display: flex; justify-content: space-between; align-items: center;">
         <h1>{{ expansion.title }}</h1>
+        {% if expansion.designer == user.profile and user.profile.designer %}
+                <div>
+                    <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}">Update</a>
+                    <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}">Delete</a>
+                </div>
+        {% endif %}
+</div>
         {% if expansion.designer %}
             by: 
             <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
@@ -13,12 +20,7 @@
         <div>{{ expansion.description }}</div>
         {% endif %}
 
-        {% if expansion.designer == user.profile and user.profile.designer %}
-                <div>
-                    <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}">Update</a>
-                    <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}">Delete</a>
-                </div>
-        {% endif %}
+
 
 
         {% if expansion.get_posts %}
@@ -65,6 +67,14 @@
             {% if expansion.get_landmarks %}
             <h2>Landmarks</h2>
             {% for object in expansion.get_landmarks %}
+                <article class="media content-section">
+                    {% include 'the_keep/partials/post.html' %}
+                </article>
+            {% endfor %}
+            {% endif %}
+            {% if expansion.get_clockwork %}
+            <h2>Clockwork Factions</h2>
+            {% for object in expansion.get_clockwork %}
                 <article class="media content-section">
                     {% include 'the_keep/partials/post.html' %}
                 </article>

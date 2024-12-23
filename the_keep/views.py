@@ -3,7 +3,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
+from django.db.models.functions import Cast
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.conf import settings
 from django.db import IntegrityError
@@ -33,7 +34,7 @@ from .forms import (PostCreateForm, MapCreateForm,
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
-                    PieceForm
+                    PieceForm, ClockworkCreateForm
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -189,31 +190,43 @@ class PostCreateView(LoginRequiredMixin, CreateView):
 class MapCreateView(PostCreateView):
     model = Map
     form_class = MapCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class DeckCreateView(PostCreateView):
     model = Deck
     form_class = DeckCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class LandmarkCreateView(PostCreateView):
     model = Landmark
     form_class = LandmarkCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class HirelingCreateView(PostCreateView):
     model = Hireling
     form_class = HirelingCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class VagabondCreateView(PostCreateView):
     model = Vagabond
     form_class = VagabondCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class FactionCreateView(PostCreateView):
     model = Faction
     form_class = FactionCreateForm
+    template_name = 'the_keep/post_form.html'
+
+@designer_required_class_based_view
+class ClockworkCreateView(PostCreateView):
+    model = Faction
+    form_class = ClockworkCreateForm
+    template_name = 'the_keep/post_form.html'
 
 # END CREATE VIEWS
 
@@ -257,33 +270,45 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 class MapUpdateView(PostUpdateView):
     model = Map
     form_class = MapCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class DeckUpdateView(PostUpdateView):
     model = Deck
     form_class = DeckCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class LandmarkUpdateView(PostUpdateView):
     model = Landmark
     form_class = LandmarkCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class HirelingUpdateView(PostUpdateView):
     model = Hireling
     form_class = HirelingCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
 class VagabondUpdateView(PostUpdateView):
     model = Vagabond
     form_class = VagabondCreateForm
+    template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view  
 class FactionUpdateView(PostUpdateView):
     model = Faction
     form_class = FactionCreateForm
+    template_name = 'the_keep/post_form.html'
 
+@designer_required_class_based_view  
+class ClockworkUpdateView(PostUpdateView):
+    model = Faction
+    form_class = ClockworkCreateForm
+    template_name = 'the_keep/post_form.html'
 
+@designer_required_class_based_view
 class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Post
     success_url = '/'  # The default success URL after the post is deleted
@@ -333,7 +358,7 @@ class ComponentDetailListView(ListView):
 
     def get_template_names(self):
         if self.request.htmx:
-            return 'the_warroom/partials/hx_game_list.html'
+            return 'the_keep/partials/game_list.html'
         return 'the_keep/component_detail_list.html'
 
     def get_queryset(self):
@@ -365,6 +390,7 @@ class ComponentDetailListView(ListView):
             "Hireling": Hireling,
             "Vagabond": Vagabond,
             "Faction": Faction,
+            "Clockwork": Faction,
         }
         Klass = component_mapping.get(post.component)
         return get_object_or_404(Klass, slug=slug)
@@ -375,13 +401,48 @@ class ComponentDetailListView(ListView):
         commentform = PostCommentCreateForm()
         # Get the ordered queryset of games
         games = self.get_queryset()
-        
+        # Initialize variables for aggregate data
+        win_count = 0
+        coalition_count = 0
+        win_rate = 0
+        tourney_points = 0
+        total_efforts = 0
+
         # Get top players for factions
         top_players = []
         most_players = []
-        if self.object.component == "Faction":
-            top_players = Profile.top_players(faction_id=self.object.id, limit=5)
-            most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
+
+        # If loading the initial page or filtering results run this calculation
+        # If just getting the next page we can skip this
+        if not self.request.GET.get('page'):
+            if self.object.component == "Faction":
+                top_players = Profile.top_players(faction_id=self.object.id, limit=5)
+                most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
+
+            if self.object.component == "Faction" or self.object.component == "Vagabond":
+                for game in games:
+                    for effort in game.efforts.all():
+                        if self.object.component == "Faction":
+                            if effort.faction == self.object:
+                                total_efforts += 1
+                                if effort.win:
+                                    win_count += 1
+                                    if game.coalition_win:
+                                        coalition_count += 1
+                        else:
+                            if effort.faction.title == "Vagabond":
+                                total_efforts += 1
+                                if effort.win:
+                                    win_count += 1
+                                    if game.coalition_win:
+                                        coalition_count += 1
+
+                if total_efforts > 0:
+                    win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
+                else:
+                    win_rate = 0
+                tourney_points = win_count - (coalition_count / 2)
+
 
         # Paginate games
         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
@@ -391,15 +452,42 @@ class ComponentDetailListView(ListView):
             page_obj = paginator.get_page(page_number)  # Get the specific page of games
         except EmptyPage:
             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-        context['games_total'] = games.count()
-        context['games'] = page_obj  # Pass the paginated page object to the context
-        context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
-        context['page_obj'] = page_obj  # Pass the page_obj to the context
-        context['commentform'] = commentform
-        context['form'] = self.filterset.form
-        context['filterset'] = self.filterset    
-        context['top_players'] = top_players 
-        context['most_players'] = most_players 
+        # context['games_total'] = games.count()
+        # context['games'] = page_obj  # Pass the paginated page object to the context
+        # context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
+        # context['page_obj'] = page_obj  # Pass the page_obj to the context
+        # context['commentform'] = commentform
+        # context['form'] = self.filterset.form
+        # context['filterset'] = self.filterset    
+        # context['top_players'] = top_players 
+        # context['most_players'] = most_players 
+        # context['win_count'] = win_count
+        # context['coalition_count'] = coalition_count
+        # context['win_rate'] = win_rate
+        # context['tourney_points'] = tourney_points
+        # context['total_efforts'] = total_efforts
+
+        # Prepare the context dictionary
+        context_data = {
+            'games_total': games.count(),
+            'games': page_obj,  # Pagination applied here
+            'is_paginated': len(games) > self.paginate_by,
+            'page_obj': page_obj,  # Pass the paginated page object to the context
+            'commentform': commentform,
+            'form': self.filterset.form,
+            'filterset': self.filterset,
+            'top_players': top_players,
+            'most_players': most_players,
+            'win_count': win_count,
+            'coalition_count': coalition_count,
+            'win_rate': win_rate,
+            'tourney_points': tourney_points,
+            'total_efforts': total_efforts
+        }
+
+        # Update the context with the context_data
+        context.update(context_data)                        
+
         
         return context
 
@@ -413,11 +501,6 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
-    onboard_data = request.session.get('onboard_data', {})
-    print(onboard_data)
-    if onboard_data:
-        print("Onboarding")
-        return redirect('onboard-user')
     posts, search, search_type, designer = _search_components(request, slug)
     designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {

@@ -1,107 +1,28 @@
 {% extends 'the_keep/base.html' %}
+
 {% block content %}
+<div style="display: flex; align-items: center;">
+    <a href="{% url 'tournaments-home' %}">Tournaments</a>
+    <i class="bi bi-chevron-right"></i>
+    {% if object.type == 'Round' %}
+    <a href="{{ object.tournament.get_absolute_url }}">{{ object.tournament.name }}</a>
+    <i class="bi bi-chevron-right"></i>
+    {% endif %}
 
-<h1>{{ object }}</h1>
+    {{ object.name }}
 
-
-
-
-
-
-
-<div class="container mt-4">
-    <!-- Tab navigation -->
-    <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
-        <li class="nav-item" role="presentation">
-            <a class="nav-link active" id="overview-tab" data-bs-toggle="tab" href="#overview" role="tab" aria-controls="overview" aria-selected="false">Overview</a>
-        </li>
-
-        {% for round in active %}
-        <li class="nav-item" role="presentation">
-            <a class="nav-link" id="{{ round.slug }}-tab" data-bs-toggle="tab" href="#{{ round.slug }}" role="tab" aria-controls="{{ round.slug }}" aria-selected="false">{{ round.name }}</a>
-        </li>
-        {% endfor %}
-
-
-        <li class="nav-item" role="presentation">
-            <a class="nav-link" id="past-tab" data-bs-toggle="tab" href="#past" role="tab" aria-controls="past" aria-selected="false">Concluded</a>
-        </li>
-
-
-
-
-        {% if user.profile.admin %}
-        <li class="nav-item" role="presentation">
-            <a class="nav-link" id="scheduled-tab" data-bs-toggle="tab" href="#scheduled" role="tab" aria-controls="scheduled" aria-selected="true">Scheduled</a>
-        </li>
-        <li class="nav-item" role="presentation">
-            <a class="nav-link" id="admin-tab" data-bs-toggle="tab" href="#admin" role="tab" aria-controls="admin" aria-selected="true">Admin</a>
-        </li>
-        {% endif %}
-    </ul>
-
-    <!-- Tab content -->
-    <div class="tab-content" id="tournamentTabsContent">
-        <!-- Overview -->
-        <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
-            Leaderboard/Game List/Player List
-            {% include 'the_warroom/tournament_round_detail.html' %}
-        </div>
-
-        {% for round in active %}
-        <div class="tab-pane fade" id="{{ round.slug }}" role="tabpanel" aria-labelledby="{{ round.slug }}-tab">
-            Leaderboard/Game List/Player List
-          
-        </div>
-        {% endfor %}
-
-        <!-- Past -->
-        <div class="tab-pane fade" id="past" role="tabpanel" aria-labelledby="past-tab">
-            <h3>Past Rounds</h3>
-
-            {% with past as tournaments %}
-                {% include 'the_warroom/partials/tournament_list.html' %}
-            {% endwith %}
-        </div>
-
-
-
-        {% if user.profile.admin %}
-        <!-- Scheduled -->
-        <div class="tab-pane fade" id="scheduled" role="tabpanel" aria-labelledby="scheduled-tab">
-            <h3>Scheduled Rounds</h3>
-            {% with scheduled as tournaments %}
-                {% include 'the_warroom/partials/tournament_list.html' %}
-            {% endwith %}
-        </div>
-
-        <!-- Admin -->
-        <div class="tab-pane fade" id="admin" role="tabpanel" aria-labelledby="admin-tab">
-            <h3>Tournament Admin</h3>
-            {% if user.profile.admin %}
-            
-                <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url 'tournament-update' object.slug %}">Update</a>
-                <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round</a>
-                <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{% url 'tournament-players' object.slug %}">Manage Players</a>
-                <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{% url 'tournament-assets' object.slug %}">Manage Assets</a>
-            
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>{{object.name}}</h1>
+    {% if user.profile.admin %}
+    <a class="btn btn-outline-warning btn-sm ml-2 mt-1 mb-1" href="{{ object.get_update_url }}"><i class="bi bi-pencil-square"></i></a>
+    {% endif %}
 </div>
 
+<div>
 
-
-
-
-
-
-
-
-
-
-
-
+            {% include 'the_warroom/tournament_round_detail.html' %}
+        
+</div>
 
 {% endblock %}

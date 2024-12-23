@@ -1,19 +1,21 @@
 
+
 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
-<div class="media-body">
+<a href="{% url object.component|lower|add:'-detail' object.slug %}" class="media-body">
+   
     <div class="article-metadata">
-        <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
-        <small class="text-muted">{{ object.date_posted | date:"Y-m-d" }}</small>
+        {{ object.designer.name }}
+        <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
     </div>
         {% if not object.official %}Fan Made {% endif %}{{ object.component }}
-        <h2><a class="article-title" href="{% url object.component|lower|add:'-detail' object.slug %}">{{ object.title }}</a></h2>
+        <h2>{{ object.title }}</h2>
 
      {% if object.artist %}
     <div class="article-metadata">
-        Art by 
-        <a class="mr-2" href="{% url 'artist-posts' object.artist.slug %}">{{ object.artist.name }}</a>
+        Art by {{ object.artist.name }}
     </div>
     {% endif %}
+</a>
 
-</div>
-    <!-- Bookmarks Removed from list view-->
+
+
