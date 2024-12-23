@@ -115,7 +115,7 @@ def tester_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
-        if request.user.profile.tester:
+        if request.user.profile.player and request.user.profile.tester:
             if request.user.profile.tester_onboard == False:
                 return redirect('onboard-user', user_type = 'tester')
             else:
