@@ -27,12 +27,14 @@ class Profile(models.Model):
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
+    tester = models.BooleanField(default=False)
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=False)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
     player_onboard = models.BooleanField(default=False)
+    tester_onboard = models.BooleanField(default=False)
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)
 
@@ -118,15 +120,16 @@ class Profile(models.Model):
     @property
     def designer(self):
         group = self.group
-        if group == "D" or group == "A":
+        if group == "A" or group == "D":
             return True
         else:
             return False
 
+
     @property
     def player(self):
         group = self.group
-        if group == "D" or group == "A" or group == "P":
+        if group == "A" or group == "D" or group == "P":
             return True
         else:
             return False

@@ -29,7 +29,7 @@ class GameCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Game
-        fields = ['round', 'platform', 'type', 'league', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        fields = ['solo', 'coop', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -68,14 +68,7 @@ class GameCreateForm(forms.ModelForm):
 )
             
             self.fields['round'].queryset = active_rounds
-            # Removed this, the elimination property does nothing to prevent players from recording games. Admin can manage it manually.
-            # user_in_rounds = []
-            # for round in active_rounds:
-            #     # Call the 'get_active_player_queryset()' method and check if the user is in the returned queryset
-            #     if user.profile in round.tournament.get_active_player_queryset() or user.profile.admin: 
-            #         user_in_rounds.append(round)
-            # # Set the queryset to the filtered list of current rounds
-            # self.fields['round'].queryset = Round.objects.filter(id__in=[round.id for round in user_in_rounds])
+
 
         # This needs to be adapted to work. But if admin can record any tournament game it might not be a problem.
         # Except for concluded tournaments....
@@ -91,6 +84,7 @@ class GameCreateForm(forms.ModelForm):
     def clean(self):
         validation_errors_to_display = []  # List to store error messages
         cleaned_data = super().clean()
+
         round = cleaned_data.get('round')
         platform = cleaned_data.get('platform')
         link = cleaned_data.get('link')
@@ -120,16 +114,42 @@ class GameCreateForm(forms.ModelForm):
         if self.effort_formset.is_valid():
             faction_roster = set()
             vagabond_roster = set()
+            player_roster = set()
+            test_match = False
             vagabond_count = 1
+            win_count = 0
+            clockwork_count = 0
+            human_count = 0
+            coalition_count = 0
+
             for effort_form in self.effort_formset.forms:
                 faction = effort_form.cleaned_data.get('faction')
                 vagabond = effort_form.cleaned_data.get('vagabond')
+                win = effort_form.cleaned_data.get('win')
+                coalition = effort_form.cleaned_data.get('coalition_with')
+                player = effort_form.cleaned_data.get('player')
+                
+                if coalition:
+                    coalition_count += 1
+
+                if win and not coalition:
+                    win_count += 1
+
+                if player:
+                    if player in player_roster:
+                        test_match = True
+                    else:
+                        player_roster.add(player)
+
                 if faction:
+                    if faction.type == "C": # Count the Clockwork Factions
+                        clockwork_count += 1
+                    else:
+                        human_count += 1 #Count the regular Factions
                     if faction in faction_roster:
                         # Error for duplicate faction
                         if faction.title == 'Vagabond':
                             vagabond_count += 1
-                            print(vagabond_count)
                             if vagabond_count > 2:
                                 validation_errors_to_display.append(f"Extra {faction} selected") 
                         else:
@@ -143,10 +163,37 @@ class GameCreateForm(forms.ModelForm):
                     else:
                         vagabond_roster.add(vagabond)
 
+            # Winner Required
+            if win_count == 0:
+                validation_errors_to_display.append(f'Select at winner')
+
+            # Multiple Winners and Multiple Humans means Coop Match
+            elif win_count > 1 and human_count > 1:
+                cleaned_data['coop'] = True
+            else:
+                cleaned_data['coop'] = False
+
+            # One human and at least one clockwork means Solo
+            if human_count == 1 and clockwork_count > 0:
+                cleaned_data['solo'] = True
+            else:
+                cleaned_data['solo'] = False
+            
+            # One player playing multiple hands means Playtest
+            if test_match:
+                cleaned_data['test_match'] = True
+            else:
+                cleaned_data['test_match'] = False
+
             if len(faction_roster) + max(0, vagabond_count-1) < 2:
                 validation_errors_to_display.append(f'Select at least two factions') 
+
             # Validate Tournament Game Settings
             if round:
+                if win_count > 1 and not round.tournament.teams:
+                    validation_errors_to_display.append(f'Only one winner is allowed')
+                if coalition_count > round.tournament.coalitions:
+                    validation_errors_to_display.append(f'This type of coalition is not allowed')
                 # Error if platform does not match tournament platform
                 if round.tournament.platform and platform != round.tournament.platform:
                     # raise ValidationError(f"Please select {round.tournament.platform} for this {round.tournament} Game.")
@@ -242,6 +289,8 @@ class EffortCreateForm(forms.ModelForm):
             if captains.count() != 3 and captains.count() != 0:
                 # raise ValidationError({'captains': 'Please assign 3 Vagabonds as captains.'})
                 validation_errors_to_display.append('Please assign 3 Vagabonds as captains')
+        elif faction.type == "C" and player:
+            validation_errors_to_display.append('This is a Clockwork faction and cannot have a "player"')
 
         if not dominance and not score and not coalition:
             # raise ValidationError(f"Score or Dominance required")
@@ -338,7 +387,7 @@ class GameImportForm(forms.ModelForm):
 
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'league', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
+        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
 
 
 
@@ -397,14 +446,15 @@ class TournamentCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Tournament
-        fields = ['name', 'start_date', 'end_date', 'max_players', 'min_players', 'elimination', 'link_required', 'include_fan_content', 'platform', 'game_threshold']
+        fields = ['name', 'start_date', 'end_date', 'max_players', 'min_players', 'game_threshold', 'platform', 'include_fan_content', 'include_clockwork', 'link_required', 'coalitions', 'teams']
         labels = {
             'name': 'Tournament Name',
             'start_date': 'Start Date',
             'end_date': 'End Date (Optional)',
-            'elimination': 'Elimination Rounds',
             'game_threshold': 'Leaderboard Threshold',
-            'link_required': 'Require Link for Game Submission'
+            'link_required': 'Require Link with Game Submission',
+            'coalitions': 'Coalitions Allowed',
+            'teams': 'Allow for multiple non-Coalition Wins (Teams)',
         }
     def __init__(self, *args, **kwargs):
         super(TournamentCreateForm, self).__init__(*args, **kwargs)
@@ -429,15 +479,15 @@ class TournamentCreateForm(forms.ModelForm):
 
         if set_default_assets:
             if instance.platform == "Root Digital":
-                instance.factions.set(Faction.objects.filter(in_root_digital=True))
+                instance.factions.set(Faction.objects.filter(in_root_digital=True).exclude(type="C"))
                 instance.maps.set(Map.objects.filter(in_root_digital=True))
                 instance.decks.set(Deck.objects.filter(in_root_digital=True))
                 instance.vagabonds.set(Vagabond.objects.filter(in_root_digital=True))
             else:
-                instance.factions.set(Faction.objects.filter(official=True))
-                instance.maps.set(Map.objects.filter(official=True))
-                instance.decks.set(Deck.objects.filter(official=True))
-                instance.vagabonds.set(Vagabond.objects.filter(official=True))
+                instance.factions.set(Faction.objects.filter(official=True, stable=True).exclude(type="C"))
+                instance.maps.set(Map.objects.filter(official=True, stable=True))
+                instance.decks.set(Deck.objects.filter(official=True, stable=True))
+                instance.vagabonds.set(Vagabond.objects.filter(official=True, stable=True))
 
 
         return instance
@@ -462,6 +512,8 @@ class RoundCreateForm(forms.ModelForm):
         # Store the tournament instance
         self.tournament = tournament
         super().__init__(*args, **kwargs)
+
+        self.fields['game_threshold'].initial = tournament.game_threshold
 
         # Set the initial value for 'start_date' to the current time
         if not self.instance.pk:  # Only set this if the instance is new
@@ -847,7 +899,7 @@ class TournamentManagePlayersForm(forms.Form):
             # If players were removed from the tournament, remove them from all rounds
             if self.cleaned_data['current_players']:
                 # Get all rounds in the tournament where players need to be removed
-                rounds = self.tournament.round_set.all()
+                rounds = self.tournament.rounds.all()
 
                 # Create a set of players to remove
                 players_to_remove = set(self.cleaned_data['current_players']) | set(self.cleaned_data['eliminated_players'])

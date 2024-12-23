@@ -59,8 +59,8 @@ urlpatterns = [
     path('hx/add-player/', user_views.add_player,name='add-discord-player'),
     path("hx/profile/<int:id>/bookmark/", bookmark_player, name='bookmark-player'), 
 
-    path('onboard/', onboard_user, name='onboard-user'),
-    path('onboard/reject/', onboard_decline, name='onboard-decline'),
+    # path('onboard/', onboard_user, name='onboard-user'),
+    path('onboard/reject/<str:user_type>/', onboard_decline, name='onboard-decline'),
     path('onboard/<str:user_type>/', onboard_user, name='onboard-user'),
     path('', include('the_keep.urls')),
     path('profile/', include('the_gatehouse.urls')),

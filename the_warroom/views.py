@@ -28,7 +28,8 @@ from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark
 
 from the_gatehouse.models import Profile
 from the_gatehouse.views import (player_required, admin_required, designer_required, 
-                                 admin_required_class_based_view, player_required_class_based_view)
+                                 admin_required_class_based_view, player_required_class_based_view,
+                                 tester_required)
 from the_gatehouse.forms import PlayerCreateForm
 
 from the_tavern.forms import GameCommentCreateForm
@@ -321,7 +322,7 @@ def manage_game(request, id=None):
             parent.save()  # Save the new or updated Game instance
             form.save_m2m()
             seat = 0
-            roster = []
+            # roster = []
             for form in formset:
                 child = form.save(commit=False)
                 if child.faction_id is not None:  # Only save if faction_id is present
@@ -337,16 +338,16 @@ def manage_game(request, id=None):
                     child.seat = seat
                     child.save()
                     
-                    if child.player:
-                        # Add player.id to the roster
-                        roster.append(child.player.id)
+                    # if child.player:
+                    #     # Add player.id to the roster
+                    #     roster.append(child.player.id)
 
-            if len(roster) != len(set(roster)):
-                parent.test_match = True
-                parent.save()
-            elif id and parent.test_match == True:
-                parent.test_match = False
-                parent.save()
+            # if len(roster) != len(set(roster)):
+            #     parent.test_match = True
+            #     parent.save()
+            # elif id and parent.test_match == True:
+            #     parent.test_match = False
+            #     parent.save()
 
             context['message'] = "Game Saved"
             return redirect(parent.get_absolute_url())
@@ -377,7 +378,7 @@ def bookmark_game(request, object):
 # Scorecard Views
 # ============================
 
-@designer_required
+@tester_required
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
     faction = request.GET.get('faction', None)
@@ -505,7 +506,7 @@ def scorecard_detail_view(request, id=None):
     return render(request, "the_warroom/score_detail.html", context)
 
 
-@designer_required
+@tester_required
 def scorecard_assign_view(request, id):
     effort = get_object_or_404(Effort, id=id)
 
@@ -540,7 +541,7 @@ def scorecard_assign_view(request, id):
 
     return render(request, 'the_warroom/assign_scorecard.html', context)
 
-@designer_required
+@tester_required
 def scorecard_delete_view(request, id=None):
     try:
         obj = ScoreCard.objects.get(id=id, recorder=request.user.profile)
@@ -567,7 +568,7 @@ def scorecard_delete_view(request, id=None):
     }
     return render(request, "the_warroom/score_delete.html", context)
 
-@designer_required
+@tester_required
 def scorecard_list_view(request):
     unassigned_scorecards = ScoreCard.objects.filter(
             Q(recorder=request.user.profile) & 
@@ -641,53 +642,59 @@ def tournament_detail_view(request, tournament_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
 
     past_rounds = Round.objects.filter(tournament=tournament, end_date__lt=timezone.now())
+    past_rounds = past_rounds.annotate(
+    unique_players_count=Count('games__efforts__player', distinct=True)
+    )
+
+
     active_rounds = Round.objects.filter(
         Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
         tournament=tournament, 
         start_date__lt=timezone.now()
         )
-    future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
-
-    # players = tournament.players.all()
-    players = Profile.objects.filter(current_tournaments=tournament)
-
-
-
-    players = players.annotate(
-        total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
-        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
-        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament))
+    active_rounds = active_rounds.annotate(
+    unique_players_count=Count('games__efforts__player', distinct=True)
     )
-
-    # Annotate with win_rate after filtering
-    players = players.annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        ),
-        tourney_points=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
-    ).order_by('-tourney_points', '-win_rate', '-total_efforts', 'display_name')
+        
+    future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
+    future_rounds = future_rounds.annotate(
+    unique_players_count=Count('games__efforts__player', distinct=True)
+    )
+    
+    # # players = tournament.players.all()
+    # players = Profile.objects.filter(current_tournaments=tournament)
 
 
 
+    # players = players.annotate(
+    #     total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
+    #     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
+    #     coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament))
+    # )
+
+    # # Annotate with win_rate after filtering
+    # players = players.annotate(
+    #     win_rate=Case(
+    #         When(total_efforts=0, then=Value(0)),
+    #         default=ExpressionWrapper(
+    #             (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+    #             output_field=FloatField()
+    #         ),
+    #         output_field=FloatField()
+    #     ),
+    #     tourney_points=Case(
+    #         When(total_efforts=0, then=Value(0)),
+    #         default=ExpressionWrapper(
+    #             Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
+    #             output_field=FloatField()
+    #         ),
+    #         output_field=FloatField()
+    #     )
+    # ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
 
 
 
-
-
-
-    games = tournament.get_game_queryset()
+    # games = tournament.get_game_queryset()
 
     top_players = []
     most_players = []
@@ -707,13 +714,56 @@ def tournament_detail_view(request, tournament_slug):
         'most_players': most_players,
         'top_factions': top_factions,
         'most_factions': most_factions,
-        'players': players,
-        'games': games,
+        # 'players': players,
+        # 'games': games,
     }
     
     if request.htmx:
         return render(request, 'the_warroom/tournament_round_detail.html', context)
     return render(request, 'the_warroom/tournament_overview.html', context)
+
+@player_required
+def tournament_players_pagination(request, id):
+    if not request.htmx:
+        return HttpResponse(status=404)
+    tournament = get_object_or_404(Tournament, id=id)
+
+    players = Profile.objects.filter(current_tournaments=tournament)
+    players = players.annotate(
+        total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
+        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
+        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament))
+    )
+    # Annotate with win_rate after filtering
+    players = players.annotate(
+        win_rate=Case(
+            When(total_efforts=0, then=Value(0)),
+            default=ExpressionWrapper(
+                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                output_field=FloatField()
+            ),
+            output_field=FloatField()
+        ),
+        tourney_points=Case(
+            When(total_efforts=0, then=Value(0)),
+            default=ExpressionWrapper(
+                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
+                output_field=FloatField()
+            ),
+            output_field=FloatField()
+        )
+    ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
+
+    # Paginate players
+    paginator = Paginator(players, settings.PAGE_SIZE)  # Use the queryset directly
+    page_number = request.GET.get('page', 1)   # Get the page number from the request
+
+    try:
+        page_obj = paginator.get_page(page_number)  # Get the specific page of players
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+    return render(request, 'the_warroom/partials/player_list.html', {'players': page_obj, 'object': tournament})
 
 
 
@@ -808,14 +858,20 @@ def tournament_manage_assets(request, tournament_slug):
 
     # Initialize the querysets based on whether fan content is included
     if tournament.include_fan_content:
-        available_factions = Faction.objects.exclude(tournaments__id=tournament.id)
+        if tournament.include_clockwork:
+            available_factions = Faction.objects.exclude(tournaments__id=tournament.id)
+        else:
+            available_factions = Faction.objects.exclude(tournaments__id=tournament.id, type="C")
         available_decks = Deck.objects.exclude(tournaments__id=tournament.id)
         available_maps = Map.objects.exclude(tournaments__id=tournament.id)
         available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id)
         available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id)
         available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id)
     else:
-        available_factions = Faction.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        if tournament.include_clockwork:
+            available_factions = Faction.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        else:
+            available_factions = Faction.objects.exclude(tournaments__id=tournament.id, type="C").filter(official=True)
         available_decks = Deck.objects.exclude(tournaments__id=tournament.id).filter(official=True)
         available_maps = Map.objects.exclude(tournaments__id=tournament.id).filter(official=True)
         available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id).filter(official=True)
@@ -880,18 +936,31 @@ def tournament_manage_assets(request, tournament_slug):
 @player_required
 def tournaments_home(request):
     scheduled_tournaments = Tournament.objects.filter(start_date__gt=timezone.now())
+    scheduled_tournaments = scheduled_tournaments.annotate(
+    unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+    )
+
+
     concluded_tournaments = Tournament.objects.filter(end_date__lt=timezone.now())
+    concluded_tournaments = concluded_tournaments.annotate(
+    unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+    )
+    
     ongoing_tournaments = Tournament.objects.filter(
         Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), 
         start_date__lt=timezone.now()
     )
-    all_tournaments = Tournament.objects.all()
+    ongoing_tournaments = ongoing_tournaments.annotate(
+    unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+    )
+
+    # all_tournaments = Tournament.objects.all()
 
     context = {
         'scheduled': scheduled_tournaments,
         'concluded': concluded_tournaments,
         'ongoing': ongoing_tournaments,
-        'all': all_tournaments,
+        # 'all': all_tournaments,
     }
     return render(request, 'the_warroom/tournaments_home.html', context)
 
@@ -932,8 +1001,40 @@ def round_detail_view(request, tournament_slug, round_slug):
     most_factions = []
     top_factions = Faction.top_factions(limit=5, round=round, game_threshold=threshold)
     most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=threshold)
-    players = round.current_player_queryset()
-    games = round.games.all()
+    # players = round.current_player_queryset()
+
+
+
+
+    # players = players.annotate(
+    #     total_efforts=Count('efforts', filter=Q(efforts__game__round=round)),
+    #     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round)),
+    #     coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round))
+    # )
+
+    # # Annotate with win_rate after filtering
+    # players = players.annotate(
+    #     win_rate=Case(
+    #         When(total_efforts=0, then=Value(0)),
+    #         default=ExpressionWrapper(
+    #             (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+    #             output_field=FloatField()
+    #         ),
+    #         output_field=FloatField()
+    #     ),
+    #     tourney_points=Case(
+    #         When(total_efforts=0, then=Value(0)),
+    #         default=ExpressionWrapper(
+    #             Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
+    #             output_field=FloatField()
+    #         ),
+    #         output_field=FloatField()
+    #     )
+    # ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
+
+
+
+    # games = round.games.all()
 
     context = {
         'tournament': tournament,
@@ -942,18 +1043,95 @@ def round_detail_view(request, tournament_slug, round_slug):
         'most_players': most_players,
         'top_factions': top_factions,
         'most_factions': most_factions,
-        'players': players,
-        'games': games,
+        # 'players': players,
+        # 'games': games,
     }
     
-    return render(request, 'the_warroom/round_detail.html', context)
+    return render(request, 'the_warroom/tournament_overview.html', context)
+
+
+
+@player_required
+def round_players_pagination(request, id):
+    if not request.htmx:
+        return HttpResponse(status=404)
+    round = get_object_or_404(Round, id=id)
+
+    players = round.current_player_queryset()
+
+    print(players.count())
+    print("Players")
+    players = players.annotate(
+        total_efforts=Count('efforts', filter=Q(efforts__game__round=round)),
+        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round)),
+        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round))
+    )
+
+    # Annotate with win_rate after filtering
+    players = players.annotate(
+        win_rate=Case(
+            When(total_efforts=0, then=Value(0)),
+            default=ExpressionWrapper(
+                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                output_field=FloatField()
+            ),
+            output_field=FloatField()
+        ),
+        tourney_points=Case(
+            When(total_efforts=0, then=Value(0)),
+            default=ExpressionWrapper(
+                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
+                output_field=FloatField()
+            ),
+            output_field=FloatField()
+        )
+    ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
+
+
+
+    # Paginate players
+    paginator = Paginator(players, settings.PAGE_SIZE)  # Use the queryset directly
+    page_number = request.GET.get('page', 1)   # Get the page number from the request
+
+    try:
+        page_obj = paginator.get_page(page_number)  # Get the specific page of players
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+    return render(request, 'the_warroom/partials/player_list.html', {'players': page_obj, 'object': round})
+
+
+
+
+@player_required
+def round_games_pagination(request, id):
+    
+    if not request.htmx:
+        return HttpResponse(status=404)
+    round = get_object_or_404(Round, id=id)
+
+    games = round.games.all()
+
+    # Paginate games
+    paginator = Paginator(games, settings.PAGE_SIZE)  # Use the queryset directly
+    page_number = request.GET.get('page', 1)   # Get the page number from the request
+ 
+    try:
+        page_obj = paginator.get_page(page_number)  # Get the specific page of games
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+    
+
+
+    return render(request, 'the_warroom/partials/round_game_list.html', {'games': page_obj, 'object': round})
+
 
 
 @admin_required
 def round_manage_view(request, tournament_slug, round_slug=None):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     current_round = 1
-    for tournament_round in tournament.round_set.all():
+    for tournament_round in tournament.rounds.all():
         current_round = max(tournament_round.round_number, current_round)
     
     round_instance = None
@@ -1015,7 +1193,7 @@ def round_manage_players(request, round_slug, tournament_slug):
             # Save the changes made to players
             form.save()
             # Redirect or show a success message
-            return redirect(tournament.get_absolute_url())  # or any other success URL
+            return redirect(selected_round.get_absolute_url())  # or any other success URL
         else:
             # If form is invalid, print the errors for debugging
             print("Error")

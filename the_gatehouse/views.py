@@ -80,7 +80,10 @@ def designer_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.designer:
-            return view_func(request, *args, **kwargs)  # Continue to the view
+            if request.user.profile.designer_onboard == False:
+                return redirect('onboard-user', user_type = 'designer')
+            else:
+                return view_func(request, *args, **kwargs) 
         else:
             return HttpResponseForbidden()  # 403 Forbidden
     return wrapper
@@ -95,7 +98,10 @@ def player_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.player:
-            return view_func(request, *args, **kwargs)  # Continue to the view
+            if request.user.profile.player_onboard == False:
+                return redirect('onboard-user', user_type = 'player')
+            else:
+                return view_func(request, *args, **kwargs) 
         else:
             return HttpResponseForbidden()  # 403 Forbidden
     return wrapper
@@ -105,12 +111,35 @@ def player_required_class_based_view(view_class):
     view_class.dispatch = method_decorator(player_required)(view_class.dispatch)
     return view_class
 
+def tester_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        if request.user.profile.tester:
+            if request.user.profile.tester_onboard == False:
+                return redirect('onboard-user', user_type = 'tester')
+            else:
+                return view_func(request, *args, **kwargs) 
+        else:
+            return HttpResponseForbidden()  # 403 Forbidden
+    return wrapper
+
+def tester_required_class_based_view(view_class):
+    """Decorator to apply to class-based views."""
+    view_class.dispatch = method_decorator(tester_required)(view_class.dispatch)
+    return view_class
+
+
+
 def admin_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.admin:
-            return view_func(request, *args, **kwargs)  # Continue to the view
+            if request.user.profile.admin_onboard == False:
+                return redirect('onboard-user', user_type = 'admin')
+            else:
+                return view_func(request, *args, **kwargs)  # Continue to the view
         else:
             return HttpResponseForbidden()  # 403 Forbidden
     return wrapper
@@ -365,71 +394,103 @@ def onboard_user(request, user_type=None):
     This view handles the onboarding process for players, designers and admins.
     It updates the onboard fields depending on the user_type passed.
     """
+    
+    profile = request.user.profile
     if request.method == 'POST':
-        profile = request.user.profile
+        
         # Check the user_type and update the corresponding onboarding field
         if user_type == 'player' and not profile.player_onboard:
-            profile.player_onboard = True
-            profile.save()
-            messages.info(request, "Welcome!")
+            if profile.player:
+                profile.player_onboard = True
+                profile.save()
+                messages.info(request, "Welcome!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
+        elif user_type == 'tester' and not profile.tester_onboard:
+            if profile.tester:
+                profile.tester_onboard = True
+                profile.save()
+                messages.info(request, "Have fun!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'designer' and not profile.designer_onboard:
-            profile.designer_onboard = True
-            profile.save()
-            messages.info(request, "Have fun!")
+            if profile.designer:
+                profile.designer_onboard = True
+                profile.save()
+                messages.info(request, "Have fun!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'admin' and not profile.admin_onboard:
-            profile.admin_onboard = True
-            profile.save()
-            messages.info(request, "Thank you for helping out!")
+            if profile.admin:
+                profile.admin_onboard = True
+                profile.save()
+                messages.info(request, "Thank you for helping out!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
         else:
             # Handle cases where the user is already onboarded
-            if user_type == 'player':
-                messages.info(request, "You are already onboarded as a player.")
-            elif user_type == 'designer':
-                messages.info(request, "You are already onboarded as a designer.")
-            elif user_type == 'admin':
-                messages.info(request, "You are already onboarded as an admin.")
-        request.session.pop('onboard_data', None)
+            messages.info(request, f"You already have access to the {user_type} role")
+            
         # Redirect to a relevant page after onboarding
         return redirect('keep-home') 
-    onboard_data = request.session.get('onboard_data', {})
+
+    context = {
+        'user_type': user_type,
+        'active_user': profile,
+    }
+
     # Load onboard page with relevant onboard data
-    return render(request, 'the_gatehouse/onboard_user.html', onboard_data)
+    return render(request, 'the_gatehouse/onboard_user.html', context)
 
 
 @login_required
-def onboard_decline(request):
+def onboard_decline(request, user_type=None):
     """
-    This view handles the onboarding process for players, designers and admins.
+    This view handles the onboarding process for players, testers, designers and admins.
     It updates the onboard fields depending on the user_type passed.
     """
+    decline_choices = {
+    "admin": "D",
+    "designer": "P",
+    'tester': "T",
+    }
+    decline_type = decline_choices[user_type]
     # If a user refuses to accept website policies they will demote themselves
     if request.method == 'POST':
-        decline_type = request.GET.get('type')
         profile = request.user.profile
         # Refused admin become designers. Refused designers become players. Refused players become banned (deactivated)
-        if decline_type == "D" or decline_type == "P" or decline_type == "B":
-            profile.group = decline_type
+        print(decline_type)
+        if decline_type:
+            if decline_type == "T":
+                profile.tester = False
+            else:
+                profile.group = decline_type
         else:
-            profile.group = "B"
-        profile.admin_onboard = False
-        profile.designer_onboard = False
-        profile.player_onboard = False
-        profile.save()
+             profile.gourp = "B"
+        
+        
         match decline_type:
             case "D":
+                profile.admin_onboard = False
                 messages.error(request, "No problem. Contact an Administrator if you change your mind")
             case "P":
+                profile.designer_onboard = False
+                messages.error(request, "No problem. Contact an Administrator if you change your mind")
+            case "T":
+                profile.tester_onboard = False
                 messages.error(request, "No problem. Contact an Administrator if you change your mind")
             case _:
+                profile.player_onboard = False
                 messages.error(request, "We're sorry to see you go")
+        profile.save()
 
-        request.session.pop('onboard_data', None)
+        # request.session.pop('onboard_data', None)
         # Redirect to homepage
         return redirect('keep-home') 
     
-    onboard_data = request.session.get('onboard_data', {})
+    # onboard_data = request.session.get('onboard_data', {})
     # Load onboard page with relevant onboard data
-    return render(request, 'the_gatehouse/onboard_user.html', onboard_data)
+    return render(request, 'the_gatehouse/onboard_user.html')
 
 
 
@@ -463,7 +524,7 @@ def player_stats(request, slug):
         else:
             game_threshold = 1
 
-    print(f"{player.name} Game Threshold {game_threshold}")
+    # print(f"{player.name} Game Threshold {game_threshold}")
 
 
     win_games = 0

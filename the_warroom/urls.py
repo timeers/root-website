@@ -8,7 +8,8 @@ from .views import (GameListView, GameListViewHX,
                     tournament_detail_view, round_detail_view,
                     TournamentCreateView, TournamentUpdateView, TournamentDeleteView, tournaments_home,
                     round_manage_view, tournament_manage_players, tournament_manage_assets,
-                    round_manage_players, RoundDeleteView)
+                    round_manage_players, RoundDeleteView,
+                    tournament_players_pagination, round_players_pagination, round_games_pagination)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -32,6 +33,10 @@ urlpatterns = [
     path('tournament/<slug:slug>/delete/', TournamentDeleteView.as_view(), name='tournament-delete'),
     path('tournament/<slug:tournament_slug>/manage-players/', tournament_manage_players, name='tournament-players'),
     path('tournament/<slug:tournament_slug>/manage-assets/', tournament_manage_assets, name='tournament-assets'),
+
+    path('hx/tournament/<int:id>/player-list/', tournament_players_pagination, name='tournament-players-pagination'),
+    path('hx/round/<int:id>/player-list/', round_players_pagination, name='round-players-pagination'),
+    path('hx/round/<int:id>/game-list/', round_games_pagination, name='round-games-pagination'),
 
     path('tournament/<slug:tournament_slug>/new/round/', round_manage_view, name='round-create'),
     path('tournament/<slug:tournament_slug>/round/<slug:round_slug>/', round_detail_view, name='round-detail'),

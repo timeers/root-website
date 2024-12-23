@@ -1,9 +1,10 @@
 
 <tr>
+    {% if not main_line %}
     <td>
-        {{ tournament.name }}
+        {{ tournament }}
     </td>
-        
+        {% endif %}
     <td>
         {{ tournament.start_date|date:"F j, Y" }}
     </td>

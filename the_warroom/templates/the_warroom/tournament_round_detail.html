@@ -4,42 +4,125 @@
 {% block content %}
 
 
+{% with True as main_line %}
+{% with object.type as type %}
 {% include 'the_warroom/partials/tournament_list_header.html' %}
+{% endwith %}
 {% with object as tournament %}
     {% include 'the_warroom/partials/tournament_line.html' %}
 {% endwith %}
 {% include 'the_warroom/partials/tournament_list_footer.html' %}
-
+{% endwith %}
 <div class="container mt-4">
     <!-- Tab navigation -->
     <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
 
-        <li class="nav-item" role="presentation">
-            <a class="nav-link active" id="leaderboard-tab" data-bs-toggle="tab" href="#leaderboard" role="tab" aria-controls="leaderboard" aria-selected="false">Leaderboards</a>
-        </li>
 
+        {% if object.type == "Tournament" %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="roster-tab" data-bs-toggle="tab" href="#roster" role="tab" aria-controls="roster" aria-selected="false">Players</a>
+            <a class="nav-link" id="rounds-tab" data-bs-toggle="tab" href="#rounds" role="tab" aria-controls="rounds" aria-selected="false">Rounds</a>
         </li>
-
+        {% else %}
         <li class="nav-item" role="presentation">
             <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">Games</a>
         </li>
+        {% endif %}
 
-        {% if user.profile.admin %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="admin-tab" data-bs-toggle="tab" href="#admin" role="tab" aria-controls="admin" aria-selected="false">{{ object.type }} Admin</a>
+            <a class="nav-link" id="leaderboards-tab" data-bs-toggle="tab" href="#leaderboards" role="tab" aria-controls="leaderboards" aria-selected="false">Leaderboards</a>
+        </li>
+
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="players-tab" data-bs-toggle="tab" href="#players" role="tab" aria-controls="players" aria-selected="false">Players</a>
+        </li>
+
+
+        {% if object.type == "Tournament" %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false">{{ object.type }} Assets</a>
         </li>
         {% endif %}
     </ul>
 
     <!-- Tab content -->
     <div class="tab-content" id="tournamentTabsContent">
-        <!-- Leaderboard Tournaments -->
-        <div class="tab-pane fade show active" id="leaderboard" role="tabpanel" aria-labelledby="leaderboard-tab">
+
+
+
+        {% if object.type == "Tournament" %}
+        <!-- Rounds -->
+        <div class="tab-pane fade" id="rounds" role="tabpanel" aria-labelledby="rounds-tab">
+            <article class="media content-section">
+                <div class="media-body">
+            {% if user.profile.admin %}
+            <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round +</a>
+            {% endif %}
+            
+            {% with 'Round' as type %}
+            {% include 'the_warroom/partials/tournament_list_header.html' %}
+            {% endwith %}
+
+
+            {% if active.count > 0 %}
+            {% with 'Current' as title %}
+                {% include 'the_warroom/partials/tournament_line_divide.html' %}
+            {% endwith %}
+            {% for tournament in active %}
+                {% include 'the_warroom/partials/tournament_link.html' %}
+            {% endfor %}
+            {% endif %}
+
+
+            {% if future.count > 0 %}
+            {% if user.profile.admin %}
+            {% with 'Future' as title %}
+                {% include 'the_warroom/partials/tournament_line_divide.html' %}
+            {% endwith %}
+            {% for tournament in future %}
+                {% include 'the_warroom/partials/tournament_link.html' %}
+            {% endfor %}
+            {% endif %}
+            {% endif %}
+
+
+            {% if past.count > 0 %}
+            {% with 'Past' as title %}
+                {% include 'the_warroom/partials/tournament_line_divide.html' %}
+            {% endwith %}
+            {% for tournament in past %}
+                {% include 'the_warroom/partials/tournament_link.html' %}
+            {% endfor %}
+            {% endif %}
+
+
+            {% if past.count == 0 and active.count == 0 %}
+            {% with 'Current' as title %}
+                {% include 'the_warroom/partials/tournament_line_empty.html' %}
+            {% endwith %}
+            {% endif %}
+            {% include 'the_warroom/partials/tournament_list_footer.html' %}
+                </div>
+            </article>
+        </div>
+        {% else %}
+        <!-- Games -->
+        <div class="tab-pane fade" id="games" role="tabpanel" aria-labelledby="games-tab">
+            
+            
+                
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'round-games-pagination' object.id %}?page="
+            hx-swap="outerHTML"></div>
+                
            
+        </div>
+        {% endif %}
 
 
+
+        <!-- Leaderboards -->
+        <div class="tab-pane fade" id="leaderboards" role="tabpanel" aria-labelledby="leaderboards-tab">
+           
         {% if top_players or most_players %}
         <article class="media content-section">
             <div class="media-body">
@@ -51,13 +134,20 @@
                     {% include 'the_gatehouse/partials/leaderboard.html' %}
                 {% endwith %}
             {% endif %}
-            <h4>By Games Played</h4>
+            <h4>By Games Won</h4>
             {% with most_players as leaderboard_players %}
                 {% include 'the_gatehouse/partials/leaderboard.html' %}
             {% endwith %}
+            {% if object.game_threshold > 0 %}
+            <small class="mb-2">*Leaderboard Threshold of {{ object.game_threshold }}</small>
+            {% endif %}
             </div>
+
+  
+    
         </article>
         {% endif %}
+
 
         {% if top_factions or most_factions %}
         <article class="media content-section">
@@ -70,44 +160,182 @@
                     {% include 'the_keep/partials/leaderboard.html' %}
                 {% endwith %}
             {% endif %}
-            <h4>By Games Played</h4>
+            <h4>By Games Won</h4>
             {% with most_factions as leaderboard_factions %}
                 {% include 'the_keep/partials/leaderboard.html' %}
             {% endwith %}
+            {% if object.game_threshold > 0 %}
+            <small class="mb-2">*Leaderboard Threshold of {{ object.game_threshold }}</small>
+            {% endif %}
             </div>
+
+        </article>
+        {% else %}
+        <article class="media content-section">
+            <div class="media-body">
+            <div>No Stats</div>
+            {% if object.game_threshold > 0 %}
+            <small class="mb-2">*Leaderboard Threshold of {{ object.game_threshold }}</small>
+            {% endif %}
+        </div>
         </article>
         {% endif %}
 
 
-
-
-
-
         </div>
 
+        
         <!-- Active Players -->
-        <div class="tab-pane fade" id="roster" role="tabpanel" aria-labelledby="roster-tab">
-            {% include 'the_warroom/partials/roster_button.html' %}
-        </div>
-
-        <div class="tab-pane fade" id="games" role="tabpanel" aria-labelledby="games-tab">
-            <h3>Games</h3>
-            {% for game in games %}
-                
-                {% include 'the_warroom/partials/game_detail_button.html' %}
-            {% endfor %}
-        </div>
-
-        <div class="tab-pane fade" id="admin" role="tabpanel" aria-labelledby="admin-tab">
-            <div class="mt-2" style="display: flex; justify-content: space-evenly; align-items: center;">
-            {% if object.type == "Tournament" %}
-            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets</a>
+        <div class="tab-pane fade" id="players" role="tabpanel" aria-labelledby="players-tab">
+            <article class="media content-section">
+                <div class="media-body">
+            {% if user.profile.admin %}
+            <div>
+                <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
+            </div>
             {% endif %}
-            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
-            <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{{ object.get_update_url }}">Edit {{ object.type }}</a>
-        </div>
+          
+
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Games</th>
+                        <th>Points</th>
+                        <th>Winrate</th>
+                    </tr>
+                </thead>
+                <tbody class="effort-rows">
+
             
+                {% if object.type == "Tournament" %}
+                    <tr
+                    hx-trigger="revealed" 
+                    hx-get="{% url 'tournament-players-pagination' object.id %}?page={{ players.number|add:1 }}"
+                    hx-swap="outerHTML">
+                {% else %}
+                    <tr
+                    hx-trigger="revealed"
+                    hx-get="{% url 'round-players-pagination' object.id %}?page={{ players.number|add:1 }}"
+                    hx-swap="outerHTML">
+                {% endif %}
+                    <td>
+                        Player Name
+                    </td>
+                    <td>
+                        Games Played by Player
+                    </td>
+                    <td>
+                       Points Earned
+                    </td>
+                    <td>
+                        Total Win Rate
+                    </td>
+                </tr>
+
+
+                </tbody>
+
+            </table>
+
+
+                </div>
+            </article>
         </div>
+        
+        {% if object.type == "Tournament" %}
+        <!-- Tournament Specifications -->
+        <div class="tab-pane fade" id="assets" role="tabpanel" aria-labelledby="assets-tab">
+            <article class="media content-section">
+                <div class="media-body">
+            {% if user.profile.admin %}
+            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets/Specifications</a>
+            {% endif %}
+                
+            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseFactions" aria-expanded="false" aria-controls="collapseFactions">
+                <h2>Factions</h2>
+                <i class="bi bi-chevron-down ml-2"></i>
+            </div>
+            <div class="collapse" id="collapseFactions">
+                <div class="card card-body">
+                    {% for faction in object.factions.all %}
+                    <div>{{ faction.title }}</div>
+                    {% endfor %}             
+                </div>
+            </div>
+
+
+            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseDecks" aria-expanded="false" aria-controls="collapseDecks">
+                <h2>Decks</h2>
+                <i class="bi bi-chevron-down ml-2"></i>
+            </div>
+            <div class="collapse" id="collapseDecks">
+                <div class="card card-body">
+                    {% for deck in object.decks.all %}
+                    <div>{{ deck.title }}</div>
+                    {% endfor %}             
+                </div>
+            </div>
+
+
+            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseMaps" aria-expanded="false" aria-controls="collapseMaps">
+                <h2>Maps</h2>
+                <i class="bi bi-chevron-down ml-2"></i>
+            </div>
+            <div class="collapse" id="collapseMaps">
+                <div class="card card-body">
+                    {% for map in object.maps.all %}
+                    <div>{{ map.title }}</div>
+                    {% endfor %}             
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseVagabonds" aria-expanded="false" aria-controls="collapseVagabonds">
+                <h2>Vagabonds</h2>
+                <i class="bi bi-chevron-down ml-2"></i>
+            </div>
+            <div class="collapse" id="collapseVagabonds">
+                <div class="card card-body">
+                    {% for vagabond in object.vagabonds.all %}
+                    <div>{{ vagabond.title }}</div>
+                    {% endfor %}             
+                </div>
+            </div>
+
+            {% if object.landmarks.count %}
+            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseLandmarks" aria-expanded="false" aria-controls="collapseLandmarks">
+                <h2>Landmarks</h2>
+                <i class="bi bi-chevron-down ml-2"></i>
+            </div>
+            <div class="collapse" id="collapseLandmarks">
+                <div class="card card-body">
+                    {% for landmark in object.landmarks.all %}
+                    <div>{{ landmark.title }}</div>
+                    {% endfor %}             
+                </div>
+            </div>
+            {% endif %}
+
+            {% if object.hirelings.count %}
+            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseHirelings" aria-expanded="false" aria-controls="collapseHirelings">
+                <h2>Hirelings</h2>
+                <i class="bi bi-chevron-down ml-2"></i>
+            </div>
+            <div class="collapse" id="collapseHirelings">
+                <div class="card card-body">
+                    {% for hireling in object.hirelings.all %}
+                    <div>{{ hireling.title }}</div>
+                    {% endfor %}             
+                </div>
+            </div>
+            {% endif %}
+
+                </div>
+            </article>
+
+        </div>
+        {% endif %}
 
     </div>
 </div>
@@ -119,6 +347,51 @@
 
 
 
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    
+    // Wait until the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function () {
+        // Check if there's a fragment identifier in the URL (after #)
+        var currentTab = window.location.hash;
+
+
+
+        // If a hash exists in the URL, activate the corresponding tab
+        if (currentTab) {
+            // Find the tab link matching the hash
+            var tabTrigger = document.querySelector(`a[href="${currentTab}"]`);
+
+            // If a matching tab is found, show it and set it as active
+            if (tabTrigger) {
+                // Activate the tab
+                new bootstrap.Tab(tabTrigger).show();
+            }
+        } else {
+            // If no hash, set the first tab as active by default
+            var firstTab = document.querySelector('#tournamentTabs a');
+            if (firstTab) {
+                new bootstrap.Tab(firstTab).show();
+            }
+        }
+
+       // Update the URL hash when a tab is changed without causing a scroll jump
+        var tabList = document.querySelectorAll('#tournamentTabs a');
+        tabList.forEach(function (tab) {
+            tab.addEventListener('shown.bs.tab', function (event) {
+                // Update the browser's URL fragment to reflect the active tab
+                var newHash = event.target.getAttribute('href');
+                
+                // Use history.pushState to update the URL without jumping
+                history.pushState(null, null, newHash);
+            });
+        });
+    });
+</script>
 
 
 {% endblock %}

@@ -1,6 +1,13 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Tournaments</h1>
+    {% if user.profile.admin %}
+    <a class="btn btn-outline-success btn-sm ml-2 mt-1 mb-1" href="{% url 'tournament-create' %}">New Tournament +</a>
+    {% endif %}
+</div>
 
+{% if scheduled.count > 0 or future.count > 0 %}
 
     <div class="container mt-4">
         <!-- Tab navigation -->
@@ -45,31 +52,16 @@
             </div>
         </div>
     </div>
-
-
-
+{% else %}
+    
+    <article class="media content-section">
+        <div class="media-body">
+        <h3>Ongoing Tournaments</h3>
+        {% with ongoing as tournaments %}
+            {% include 'the_warroom/partials/tournament_list.html' %}
+        {% endwith %}
+        </div>
+    </article>
+{% endif %}
 
 {% endblock%}
-
-
-{% block scripts %}
-
-<script>
-
-    // document.addEventListener("DOMContentLoaded", () => {
-    //     const rows = document.querySelectorAll("tr[data-href]");
-
-    //     rows.forEach(row => {
-    //         row.addEventListener('click', () => {
-    //             window.location.href = row.dataset.href;
-    //         });
-    //     });
-    // });
-
-
-
-
-</script>
-
-
-{% endblock scripts %}

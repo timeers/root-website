@@ -1,16 +1,23 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
-{% if user.profile.player %}
-    <a href="{% url 'record-game' %}" class="btn btn-success mb-3" id="recordgame">
-        New Game
-    </a>
-{% endif %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Games</h1>
+    {% if user.profile.player %}
+        <a href="{% url 'record-game' %}" class="btn btn-success mb-3" id="recordgame">
+            New Game +
+        </a>
+    {% endif %}
+</div>
+
+
+
+
+
 
     <form hx-get="{% url 'games-home' %}" 
             hx-target="#games-container"
             hx-swap="outerHTML"
             id="gamefilterform">
-        <!-- {{ form }} -->
         Map:
         {{ form.map }}
         Deck:

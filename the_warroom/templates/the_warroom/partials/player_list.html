@@ -1,0 +1,59 @@
+
+
+
+
+        {% for player in players %}
+                    
+        {% if forloop.last and players.has_next %}
+
+            {% if object.type == "Tournament" %}
+                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.slug }}"
+                hx-trigger="revealed" 
+                hx-get="{% url 'tournament-players-pagination' object.id %}?page={{ players.number|add:1 }}"
+                hx-swap="afterend">
+            {% else %}
+                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}&round_slug={{ object.slug }}"
+                hx-trigger="revealed"
+                hx-get="{% url 'round-players-pagination' object.id %}?page={{ players.number|add:1 }}"
+                hx-swap="afterend">
+            {% endif %}
+
+        {% else %}
+            {% if object.type == "Tournament" %}
+                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.slug }}">
+            {% else %}
+                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}&round_slug={{ object.slug }}">
+            {% endif %}
+        {% endif %}
+
+
+
+                <td>
+                    {{ player.name }}
+                </td>
+                <td>
+                    {{ player.total_efforts }}
+                </td>
+                <td>
+                    {{ player.tourney_points }}
+                </td>
+                <td>
+                    {{ player.win_rate|floatformat:2 }}%
+                </td>
+            </tr>
+        {% empty %}
+        <tr>    
+            <td>
+                No Players
+            </td>
+            <td>
+                -
+            </td>
+            <td>
+                -
+            </td>
+            <td>
+                -
+            </td>
+    </tr>
+    {% endfor %}

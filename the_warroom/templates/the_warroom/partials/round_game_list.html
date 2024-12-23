@@ -1,0 +1,22 @@
+{% for game in games %}
+    {% if forloop.last and games.has_next %}
+        <div hx-trigger="revealed" 
+        hx-get="{% url 'round-games-pagination' object.id %}?page={{ games.number|add:1 }}"
+        hx-swap="afterend">
+    {% else %}
+        <div>
+    {% endif %}
+
+
+    
+    {% include 'the_warroom/partials/game_detail_button.html' %}
+    
+
+    </div>
+{% empty %}
+<article class="media content-section">
+    <div class="media-body">
+    No games recorded{% if object %} for {{ object }}{% endif %}.
+    </div>
+</article>
+{% endfor %}

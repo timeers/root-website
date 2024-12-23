@@ -4,7 +4,7 @@ from django.db.models import Q, Sum, F
 from django.db.models.signals import pre_save, post_save
 from django.utils import timezone 
 from django.urls import reverse
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 from the_gatehouse.models import Profile
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
 from django.core.exceptions import ValidationError
@@ -46,11 +46,14 @@ class Tournament(models.Model):
     max_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
     min_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
 
-    elimination = models.IntegerField(default=None, null=True, blank=True)
+    # elimination = models.IntegerField(default=None, null=True, blank=True)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
     link_required = models.BooleanField(default=False)
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
     include_fan_content = models.BooleanField(default=False)
+    include_clockwork = models.BooleanField(default=False)
+    teams = models.BooleanField(default=False)
+    coalitions = models.IntegerField(default=2,validators=[MinValueValidator(0), MaxValueValidator(2)])
 
     description = models.TextField(null=True, blank=True)
 
@@ -85,8 +88,9 @@ class Tournament(models.Model):
 
 
     def all_player_count(self):
-        all_players = self.players.count() + self.eliminated_players.count()
-        return all_players
+        return Effort.objects.filter(game__round__tournament=self).values('player').distinct().count()
+        # all_players = self.players.count() + self.eliminated_players.count()
+        # return all_players
 
 
     def all_player_queryset(self):
@@ -100,46 +104,10 @@ class Tournament(models.Model):
         return all_players
 
 
-    def get_active_player_queryset(self):
-        # Get all players in the tournament
-        players = self.players.all()
-        player_queryset = []
-
-        # If the tournament has an elimination rule
-        if self.elimination:
-            # Loop through each player
-            for player in players:
-                player_eliminated = False
-
-                # Loop through each round in the tournament
-                for round in self.round_set.all():  # Access the rounds related to this tournament
-                    # Count the number of losses for the current player in this round
-
-                    losses = Effort.objects.filter(
-                        game__round=round,  # Filter efforts by the round
-                        player=player,  # Filter efforts by the current player
-                        win=False  # Only count losses
-                    ).count()
-                    # print(f'Losses: {losses} out of {self.elimination}')
-
-                    # If the player has exceeded the elimination threshold, mark them as eliminated
-                    if losses >= self.elimination:
-                        player_eliminated = True
-                        break  # Exit the loop as the player is eliminated
-
-                # If the player has not been eliminated, add them to the queryset
-                if not player_eliminated:
-                    player_queryset.append(player)
-        else:
-            # If there's no elimination rule, return all players
-            player_queryset = players
-        return player_queryset
-
-
 
 class Round(models.Model):
     type = "Round"
-    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE)  # Link to the tournament
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds')  # Link to the tournament
     round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
     start_date = models.DateTimeField()
@@ -183,12 +151,15 @@ class Round(models.Model):
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
 
+    @property
     def all_player_count(self):
-        if self.players.count() > 0:
-            all_players = self.players.count()
-        else:
-            all_players = self.tournament.all_player_count()
-        return all_players   
+        return Effort.objects.filter(game__round=self).values('player').distinct().count()
+
+        # if self.players.count() > 0:
+        #     all_players = self.players.count()
+        # else:
+        #     all_players = self.tournament.all_player_count()
+        # return all_players   
      
     def game_count(self):
         return Game.objects.filter(round=self).count()
@@ -225,8 +196,12 @@ class Game(models.Model):
     # Automatic
     date_posted = models.DateTimeField(default=timezone.now)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
+
     test_match = models.BooleanField(default=False)
     coalition_win = models.BooleanField(default=False)
+    coop = models.BooleanField(default=False)
+    solo = models.BooleanField(default=False)
+
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
 
@@ -297,7 +272,6 @@ class Effort(models.Model):
     captains = models.ManyToManyField(Vagabond, blank=True, related_name='efforts_as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
     dominance = models.CharField(max_length=10, choices=DominanceChoices.choices, null=True, blank=True)
-    clockwork = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')

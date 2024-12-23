@@ -16,7 +16,7 @@
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
             <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Tournaments</a>
             {% endif %}
-            {% if user.profile.designer %}
+            {% if user.profile.tester %}
               <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>
             {% endif %}
             <a class="nav-item nav-link" href="{% url 'keep-about' %}">About</a>
@@ -24,7 +24,7 @@
           </div>
           <!-- Navbar Right Side -->
           <div class="navbar-nav"> 
-              {% if user.profile.player %}
+              {% if user.profile.designer %}
 
                   <!-- Dropdownn for new content -->
                     <li class="nav-item dropdown">
@@ -32,9 +32,6 @@
                         New
                       </a>
                       <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{% url 'record-game' %}">Game</a></li>
-                        {% if user.profile.designer %}
-                        <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{% url 'faction-create' %}">Faction</a></li>
                         <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
                         <li><hr class="dropdown-divider"></li>
@@ -45,13 +42,6 @@
                         <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{% url 'expansion-create' %}">Expansion</a></li>
-                        {% endif %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">Scorecard</a></li>
-                        {% if user.profile.admin %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'tournament-create' %}">Tournament</a></li>
-                        {% endif %}
                       </ul>
                     </li>
               {% endif %}

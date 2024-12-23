@@ -34,7 +34,7 @@ from .forms import (PostCreateForm, MapCreateForm,
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
-                    PieceForm
+                    PieceForm, ClockworkCreateForm
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -222,6 +222,12 @@ class FactionCreateView(PostCreateView):
     form_class = FactionCreateForm
     template_name = 'the_keep/post_form.html'
 
+@designer_required_class_based_view
+class ClockworkCreateView(PostCreateView):
+    model = Faction
+    form_class = ClockworkCreateForm
+    template_name = 'the_keep/post_form.html'
+
 # END CREATE VIEWS
 
 
@@ -294,6 +300,12 @@ class VagabondUpdateView(PostUpdateView):
 class FactionUpdateView(PostUpdateView):
     model = Faction
     form_class = FactionCreateForm
+    template_name = 'the_keep/post_form.html'
+
+@designer_required_class_based_view  
+class ClockworkUpdateView(PostUpdateView):
+    model = Faction
+    form_class = ClockworkCreateForm
     template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
@@ -378,6 +390,7 @@ class ComponentDetailListView(ListView):
             "Hireling": Hireling,
             "Vagabond": Vagabond,
             "Faction": Faction,
+            "Clockwork": Faction,
         }
         Klass = component_mapping.get(post.component)
         return get_object_or_404(Klass, slug=slug)
@@ -399,10 +412,9 @@ class ComponentDetailListView(ListView):
         top_players = []
         most_players = []
 
-
-        if not self.request.htmx:
-
-            
+        # If loading the initial page or filtering results run this calculation
+        # If just getting the next page we can skip this
+        if not self.request.GET.get('page'):
             if self.object.component == "Faction":
                 top_players = Profile.top_players(faction_id=self.object.id, limit=5)
                 most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
@@ -430,8 +442,6 @@ class ComponentDetailListView(ListView):
                 else:
                     win_rate = 0
                 tourney_points = win_count - (coalition_count / 2)
-  
- 
 
 
         # Paginate games
@@ -491,11 +501,6 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
-    onboard_data = request.session.get('onboard_data', {})
-    print(onboard_data)
-    if onboard_data:
-        print("Onboarding")
-        return redirect('onboard-user')
     posts, search, search_type, designer = _search_components(request, slug)
     designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {

@@ -240,6 +240,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Set up the event listener on the platform select element
     platformSelect.addEventListener('change', function() {
+        console.log('Platform Changed')
         const platformValue = platformSelect.value;
         const tournamentValue = tournamentSelect.value;
 
@@ -367,10 +368,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial call to populate options when the page loads
     if (tournamentSelect.value === ""){
-        updateOptions(platformSelect.value);
+//         updateOptions(platformSelect.value);
+           document.getElementById('id_platform').dispatchEvent(new Event('change'));
         }else{
-        updateTournamentOptions(tournamentSelect.value);
+//         updateTournamentOptions(tournamentSelect.value);
+           document.getElementById('id_round').dispatchEvent(new Event('change'));
         }
+           
     $('#id_undrafted_faction').trigger('change');
     $('#id_deck').trigger('change');
     

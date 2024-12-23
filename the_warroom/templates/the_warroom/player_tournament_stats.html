@@ -1,14 +1,26 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
 
-<h1>Stats for {{ player.name }}</h1>
-{% if selected_tournament %}
+
+
+<div style="display: flex; align-items: center;">
+    <a href="{% url 'tournaments-home' %}">Tournaments</a>
+    <i class="bi bi-chevron-right"></i>
+    <a href="{{ selected_tournament.get_absolute_url }}">{{ selected_tournament.name }}</a>
+    <i class="bi bi-chevron-right"></i>
     {% if tournament_round %}
-    <h2>{{ tournament_round }}</h2>
-    {% else %}
-    <h2>{{ selected_tournament }}</h2>
+    <a href="{{ tournament_round.get_absolute_url }}">{{ tournament_round.name }}</a>
+    <i class="bi bi-chevron-right"></i>
     {% endif %}
-{% endif %}
+
+    {{ player.name }}
+
+</div>
+
+
+
+<h1>Stats for {{ player.name }}</h1>
+
 
 {% include 'the_warroom/partials/player_stats.html' %}
 

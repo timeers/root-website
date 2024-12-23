@@ -2,8 +2,10 @@ from django.urls import path
 from .views import (
     ExpansionDetailView,
 
-    MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, LandmarkCreateView, FactionCreateView, ExpansionCreateView,
-    MapUpdateView, DeckUpdateView, HirelingUpdateView, VagabondUpdateView, LandmarkUpdateView, FactionUpdateView, ExpansionUpdateView,
+    MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, 
+    LandmarkCreateView, FactionCreateView, ExpansionCreateView, ClockworkCreateView,
+    MapUpdateView, DeckUpdateView, HirelingUpdateView, VagabondUpdateView, 
+    LandmarkUpdateView, FactionUpdateView, ExpansionUpdateView, ClockworkUpdateView,
     ExpansionDeleteView,
     PostDeleteView,
     UserPostListView,
@@ -27,6 +29,7 @@ urlpatterns = [
     path("search/", search_view, name='search'),
 
     path('new/faction/', FactionCreateView.as_view(), name='faction-create'),
+    path('new/clockwork/', ClockworkCreateView.as_view(), name='clockwork-create'),
     path('new/map/', MapCreateView.as_view(), name='map-create'),
     path('new/deck/', DeckCreateView.as_view(), name='deck-create'),
     path('new/hireling/', HirelingCreateView.as_view(), name='hireling-create'),
@@ -45,6 +48,7 @@ urlpatterns = [
     path('landmark/<slug:slug>/', ComponentDetailListView.as_view(), name='landmark-detail'),
     path('vagabond/<slug:slug>/', ComponentDetailListView.as_view(), name='vagabond-detail'),
     path('faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-detail'),
+    path('clockwork/<slug:slug>/', ComponentDetailListView.as_view(), name='clockwork-detail'),
 
     path('map/<slug:slug>/update/', MapUpdateView.as_view(), name='map-update'),
     path('deck/<slug:slug>/update/', DeckUpdateView.as_view(), name='deck-update'),
@@ -52,6 +56,7 @@ urlpatterns = [
     path('landmark/<slug:slug>/update/', LandmarkUpdateView.as_view(), name='landmark-update'),
     path('vagabond/<slug:slug>/update/', VagabondUpdateView.as_view(), name='vagabond-update'),
     path('faction/<slug:slug>/update/', FactionUpdateView.as_view(), name='faction-update'),
+    path('clockwork/<slug:slug>/update/', ClockworkUpdateView.as_view(), name='clockwork-update'),
 
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
 

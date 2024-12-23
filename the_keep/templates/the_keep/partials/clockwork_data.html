@@ -1,0 +1,18 @@
+<article class="media content-section">
+    <div class="media-body">
+
+    <h2>Clockwork Faction Data</h2>
+
+    {% if object.description %}
+        <h3>Description</h3>
+        <p class="article-content">{{ object.description }}</p>
+    {% endif %}
+
+        {% if object.board_image %}
+            <img class="board-img" src="{{ object.board_image.url }}">
+        {% endif %}
+        
+        {% include 'the_keep/partials/pieces.html' %}
+
+    </div>
+</article>

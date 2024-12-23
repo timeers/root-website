@@ -1,6 +1,7 @@
 
+    {% with 'Tournament' as type %}
         {% include 'the_warroom/partials/tournament_list_header.html' %}
-
+    {% endwith %}
 
     {% for tournament in tournaments %}
         {% include 'the_warroom/partials/tournament_link.html' %}

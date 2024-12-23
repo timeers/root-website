@@ -1,64 +1,48 @@
 {% extends 'the_keep/base.html' %}
-{% block title %} - Logout{% endblock %}
+{% block title %} - Onboard{% endblock %}
 {% block content %}
 
 <h1>Welcome</h1>
-
-
-<div>
-{% if admin_onboard %}
+<article class="media content-section">
+<div class="media-body">
+{% if user_type == 'admin' and active_user.admin %}
     <div>Thank you for your interest in helping moderate the site.</div>
     <div>By accepting you agree to not abuse Admin actions.</div>
     <div>You will be able to organize tournaments, edit and delete games and demote or promote users.</div>
     <div>If you are found to be abusing these responsibilities you may lose your Admin status.</div>
     <div>Thank you for your help!</div>
-{% elif designer_onboard %}
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+{% elif user_type == 'designer' and active_user.designer %}
     <div>Thank you for your interest in creating fan made Root content.</div>
     <div>By accepting you agree to post only content that you have playtested at least once.</div>
     <div>By accepting you agree to not over-post or post offensive material.</div>
     <div>If you do not accept or are found to be abusing the database your privledges will be revoked.</div>
     <div>You will still be able to view your content but you will no longer be able to make changes.</div>
     <div>Have fun creating and enjoy!</div>
-{% elif player_onboard %}
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+{% elif user_type == 'tester' and active_user.tester %}
+    <div>Thank you for your interest in recording detailed game data.</div> 
+    <div>These stats are optional but might help give insite into a faction's scoring mechanisms.</div>
+    <div>By accepting you agree to only submit accurate game data to the best of your knowledge.</div>
+    <div>By accepting you agree to post only data for games you participated in.</div>
+    <div>If you do not accept or are found to be recording falsified data this privledge will be revoked.</div>
+    <div>Have fun and enjoy!</div>
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+{% elif user_type == 'player' and active_user.player %}
     <div>Thank you for logging in.</div> 
     <div>By accepting you agree to treat other users with kidness and respect.</div>
     <div>By accepting you agree to post only games that are accurate to the best of your knoledge.</div>
-    <div>If you do not accept or are found to be abusing the database or mistreating other users your account will be deactivated</div>
+    <div>If you do not accept or are found to be abusing the database or mistreating other users your account will be deactivated.</div>
     <div>Please be respectful and enjoy!</div>
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
 {% else %}
     <div>You are all up to date. Enjoy the database.</div>
 {% endif %}
 </div>
+</article>
 
-<div style="display: flex; gap: 10px;">
-{% if admin_onboard %}
-<form action="{% url 'onboard-user' user_type='admin' %}" method="post">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-primary">Agree</button>
-</form>
-<form action="{% url 'onboard-decline' %}?type=D" method="post">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-danger">Decline</button>
-</form>
-{% elif designer_onboard %}
-<form action="{% url 'onboard-user' user_type='designer' %}" method="post">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-primary">Agree</button>
-</form>
-<form action="{% url 'onboard-decline' %}?type=P" method="post">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-danger">Decline</button>
-</form>
-{% elif player_onboard %}
-<form action="{% url 'onboard-user' user_type='player' %}" method="post">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-primary">Agree</button>
-</form>
-<form action="{% url 'onboard-decline' %}?type=B" method="post">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-danger">Decline</button>
-</form>
-{% endif %}
-
-</div>
 {% endblock %}

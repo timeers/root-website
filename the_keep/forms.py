@@ -434,6 +434,7 @@ class VagabondImportForm(PostImportForm):
 
 class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Faction'
+    STYLE_WIDGET = forms.RadioSelect()
     title = forms.CharField(
         label='Faction Name',
         required=True
@@ -443,37 +444,31 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         ('I', 'Insurgent'),
         ('M', 'Militant'),
     ]
-    STYLE_CHOICES = [
-        ('L', 'Low'),
-        ('M', 'Moderate'),
-        ('H', 'High'),
-    ]
+
+    def create_style_choice_field(field_name):
+        STYLE_CHOICES = [
+            ('L', 'Low'),
+            ('M', 'Moderate'),
+            ('H', 'High'),
+        ]
+        return forms.ChoiceField(
+            choices=STYLE_CHOICES, initial="M", 
+            widget=forms.RadioSelect(), required=True, label=field_name
+        )
     type = forms.ChoiceField(
         choices=TYPE_CHOICES, initial='I',
         widget=forms.RadioSelect(),
         required=True
     )
     reach = forms.IntegerField(min_value=1, max_value=10)
-    complexity = forms.ChoiceField(
-        choices=STYLE_CHOICES, initial="M",
-        widget=forms.RadioSelect(),
-        required=True
-    )
-    card_wealth = forms.ChoiceField(
-        choices=STYLE_CHOICES, initial="M",
-        widget=forms.RadioSelect(),
-        required=True
-    )
-    aggression = forms.ChoiceField(
-        choices=STYLE_CHOICES, initial="M",
-        widget=forms.RadioSelect(),
-        required=True
-    )
-    crafting_ability = forms.ChoiceField(
-        choices=STYLE_CHOICES, initial="M",
-        widget=forms.RadioSelect(),
-        required=True
-    )
+    complexity = create_style_choice_field('Complexity')
+    card_wealth = create_style_choice_field('Card Wealth')
+    aggression = create_style_choice_field('Aggression')
+    crafting_ability = create_style_choice_field('Crafting Ability')
+    # complexity = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
+    # card_wealth = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
+    # aggression = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
+    # crafting_ability = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Faction']),
         required=False
@@ -495,22 +490,27 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         fields = top_fields + ['small_icon', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'card_image', 'board_image'] + bottom_fields
 
-    def clean(self):
-            cleaned_data = super().clean()
-            reach = cleaned_data.get('reach')
-            type = cleaned_data.get('type')
-            title = cleaned_data.get('title')
+    def clean_reach_and_type(self, cleaned_data):
+        reach = cleaned_data.get('reach')
+        type = cleaned_data.get('type')
 
-            # Check that reach matches the type
-            if type == 'I' and reach > 6:
-                raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
-            elif type == 'M' and reach < 6:
-                raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
-            
-                # Check if a faction with the same name already exists
-            if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
-                raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
-            return cleaned_data
+        if type == 'I' and reach > 6:
+            raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
+        elif type == 'M' and reach < 6:
+            raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
+
+    def clean_title_uniqueness(self, cleaned_data):
+        title = cleaned_data.get('title')
+
+        if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        self.clean_reach_and_type(cleaned_data)
+        self.clean_title_uniqueness(cleaned_data)
+        return cleaned_data
+
     
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated
@@ -539,6 +539,60 @@ class FactionImportForm(PostImportForm):
             # Set the initial value for small_icon if the instance exists
             if faction_instance and faction_instance.small_icon:
                 self.fields['small_icon'].initial = faction_instance.small_icon
+
+
+class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
+    form_type = 'Clockwork Faction'
+    title = forms.CharField(
+        label='Clockwork Faction Name',
+        required=True
+    )
+    animal = forms.CharField(required=True)
+
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.filter(component__in=['Faction']),
+        required=False
+    )
+    picture = forms.ImageField(
+        label='Character Art',  # Set the label for the picture field
+        required=False
+    )
+    small_icon = forms.ImageField(
+        label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
+        required=False
+    )
+    class Meta(PostCreateForm.Meta): 
+        model = Faction 
+        fields = top_fields + ['small_icon', 'animal', 'based_on', 'board_image'] + bottom_fields
+
+    def clean_title_uniqueness(self, cleaned_data):
+        title = cleaned_data.get('title')
+
+        if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        self.clean_title_uniqueness(cleaned_data)
+        return cleaned_data
+
+    
+    def __init__(self, *args, **kwargs):
+        # Check if an instance is being created or updated
+        instance = kwargs.get('instance', None)
+        super().__init__(*args, **kwargs)
+
+        # Set the default value for the 'clockwork' field here
+        if not self.instance.pk:  # Only set it for new instances (not when updating)
+            self.instance.type = "C"
+
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Clockwork Faction...'
+            })
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+
 
 
 class PieceImportForm(forms.ModelForm):

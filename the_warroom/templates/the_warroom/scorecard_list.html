@@ -1,7 +1,10 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
 
-<a class="btn btn-success ml-1 ms-1 mb-1" href="{% url 'record-scorecard' %}">New Scorecard</a>
+
+
+
+
 {% if unassigned_scorecards %}
 <h1>Unassigned Scorecards ({{ unassigned_scorecards|length }})</h1>
 These scorecards have not been linked with a game:
@@ -104,11 +107,15 @@ These scorecards have not been linked with a game:
 {% endif %}
 
 
-
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>{% if complete_scorecards %}Your {% endif %}Scorecards</h1>
+    {% if user.profile.designer %}
+        <a class="btn btn-success ml-1 ms-1 mb-1" href="{% url 'record-scorecard' %}">New Scorecard +</a>
+    {% endif %}
+</div>
 
 
 {% if complete_scorecards %}
-<h1>Your Scorecards</h1>
 <table>
     <thead>
         <tr>
@@ -161,14 +168,14 @@ These scorecards have not been linked with a game:
 <!-- Hidden row that will be shown when the button is clicked -->
 <tr id="collapse-{{ object.id }}" class="collapse">
     <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
-        <div class="card card-body">
+        
             <!-- Hidden content -->
             {% with object.effort.game as game %}
             
             {% include 'the_warroom/partials/game_detail_button.html' %}
            
             {% endwith %}
-        </div>
+    
     </td>
 </tr>
 <tr id="collapse-{{ object.id }}" class="collapse">
@@ -192,6 +199,7 @@ These scorecards have not been linked with a game:
     hx-swap="outerHTML">
 
 </tr>
+
 {% endif %}
 
 
@@ -206,6 +214,8 @@ These scorecards have not been linked with a game:
 {% endfor %}
 </tbody>
 </table>
+{% else %}
+    You have not recorded any scorecards
 {% endif %}
 
 
