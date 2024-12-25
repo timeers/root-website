@@ -37,7 +37,7 @@ class PostImportForm(forms.ModelForm):
     )
     class Meta:
         model = Post
-        fields = ['picture', 'title', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link']
+        fields = ['picture', 'title','in_root_digital', 'expansion', 'lore', 'description', 'artist', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link']
     def clean(self):
             cleaned_data = super().clean()
             bgg_link = cleaned_data.get('bgg_link')
@@ -207,7 +207,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable', 'expansion'] + bottom_fields
+        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable', 'in_root_digital', 'expansion'] + bottom_fields
 
 
 
@@ -260,7 +260,12 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class DeckImportForm(PostImportForm):
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'stable'] + bottom_fields
+        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'stable'] + bottom_fields
+
+class LandmarkImportForm(PostImportForm):  # Inherit from PostCreateForm
+    class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
+        model = Landmark  # Specify the model to be Map
+        fields = top_fields + ['card_text', 'based_on', 'designer', 'official', 'stable', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -299,6 +304,13 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         if Landmark.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
             raise ValidationError(f'A landmark with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
+    
+class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
+    class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
+        model = Hireling  # Specify the model to be Map
+        fields = top_fields + ['animal', 'type', 'based_on', 'designer', 'official', 'stable', 'in_root_digital', 'date_posted',] + bottom_fields
+
+
 
 class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Hireling'
@@ -411,7 +423,7 @@ class VagabondCreateForm(PostCreateForm):
 class VagabondImportForm(PostImportForm): 
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'stable', 'official', 'designer', 'expansion',
+        fields = top_fields + ['animal', 'stable', 'official', 'designer', 'expansion', 'in_root_digital',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
@@ -529,7 +541,7 @@ class FactionImportForm(PostImportForm):
     reach = forms.IntegerField(min_value=0, max_value=10)
     class Meta(PostImportForm):
         model = Faction 
-        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 
+        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 'in_root_digital',
                                'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
 
     def __init__(self, *args, **kwargs):

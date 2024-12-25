@@ -32,7 +32,7 @@ SECRET_KEY = config['SECRET_KEY']
 DEBUG = (config['DEBUG_VALUE'] == 'True')
 
 if DEBUG:
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com']
 else:
     ALLOWED_HOSTS = ['97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com']
 
@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     'the_warroom.apps.TheWarroomConfig',
     'the_tavern.apps.TheTavernConfig',
 
-    # 'debug_toolbar',
+    'debug_toolbar',
     'crispy_forms',
     'crispy_bootstrap4',
     'django_htmx',
@@ -68,10 +68,11 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    # 'debug_toolbar.middleware.DebugToolbarMiddleware',
+    
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -137,14 +138,7 @@ SOCIALACCOUNT_PROVIDERS = {
         }
     }
 }
-##  Debug toolbar not working
-# DEBUG_TOOLBAR_CONFIG = {
-#     "ROOT_TAG_EXTRA_ATTRS": "hx-preserve"
-# }
-# INTERNAL_IPS = [
-#     "127.0.0.1",
-#     "localhost",
-# ]
+
 
 
 # Database
@@ -274,3 +268,14 @@ AWS_S3_SIGNATURE_VERSION = 's3v4'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 PAGE_SIZE = 25
+
+
+##  Debug toolbar not working
+# DEBUG_TOOLBAR_CONFIG = {
+#     "ROOT_TAG_EXTRA_ATTRS": "hx-preserve"
+# }
+INTERNAL_IPS = [
+    "*",
+    "127.0.0.1",
+    "localhost",
+]

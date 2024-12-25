@@ -23,7 +23,7 @@
                 
             </div>
             {% if player == user.profile %}
-                <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}">Edit Profile</a>
+                <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-pencil-square"></i></a>
             {% elif user.profile.player %}
                 <!-- Bookmarks -->
                 {% include 'the_gatehouse/partials/bookmarks.html' %}
@@ -32,76 +32,219 @@
     </div>
     
 {% if user.profile.player or user.profile == player %}
-    <div class="container mt-4">
 
-        <ul class="nav nav-tabs" id="profileTabs" role="tablist">
-            {% if player.efforts.count %}
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false" 
-                hx-get="{% url 'player-games' player.slug %}" 
-                hx-target="#tab-contents" 
-                hx-push-url="true">Games ({{ player.efforts.count }})</a>
-            </li>
-            {% endif %}
-            {% if player == user.profile and player.bookmarkedgames.count %}
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="game-bookmarks-tab" data-bs-toggle="tab" href="#game-bookmarks" role="tab" aria-controls="game-bookmarks" aria-selected="false" 
-                hx-get="{% url 'game-bookmarks' user.profile.slug %}" 
-                hx-target="#tab-contents" 
-                hx-push-url="true"><i class="bi bi-bookmark-check-fill"></i> Saved Games ({{ player.bookmarkedgames.count }})</i></a>
-            </li>
-            {% endif %}
-            {% if user.profile.weird and player.posts.count %}
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false" 
-                hx-get="{% url 'designer-components' player.slug %}" 
-                hx-target="#tab-contents" 
-                hx-push-url="true">Components ({{ player.posts.count }})</a>
-            </li>
-            {% endif %}
-            {% if player.artist_posts.count %}
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="art-tab" data-bs-toggle="tab" href="#art" role="tab" aria-controls="art" aria-selected="false" 
-                hx-get="{% url 'artist-components' player.slug %}" 
-                hx-target="#tab-contents" 
-                hx-push-url="true">Artwork ({{ player.artist_posts.count }})</a>
-            </li>
-            {% endif %}
-            {% if player == user.profile and player.bookmarkedposts.count %}
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="post-bookmarks-tab" data-bs-toggle="tab" href="#post-bookmarks" role="tab" aria-controls="post-bookmarks" aria-selected="false" 
-                hx-get="{% url 'post-bookmarks' user.profile.slug %}" 
-                hx-target="#tab-contents" 
-                hx-push-url="true"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
-            </li>
-            {% endif %}
-            {% if player.efforts.count %}
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="stats-tab" data-bs-toggle="tab" href="#stats" role="tab" aria-controls="stats" aria-selected="false" 
-                hx-get="{% url 'player-stats' player.slug %}" 
-                hx-target="#tab-contents" 
-                hx-push-url="true">Stats</a>
-            </li>
-            {% endif %}
-        </ul>
+
+<div class="container mt-4">
+    <!-- Tab navigation -->
+
+    <ul class="nav nav-tabs" id="profileTabs" role="tablist">
+        {% if player.efforts.count %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">Games ({{ player.efforts.count }})</a>
+        </li>
+        {% endif %}
+        {% if player == user.profile and player.bookmarkedgames.count %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="game-bookmarks-tab" data-bs-toggle="tab" href="#game-bookmarks" role="tab" aria-controls="game-bookmarks" aria-selected="false"><i class="bi bi-bookmark-check-fill"></i> Saved Games ({{ player.bookmarkedgames.count }})</a>
+        </li>
+        {% endif %}
+        {% if user.profile.weird and player.posts.count %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false">Components ({{ player.posts.count }})</a>
+        </li>
+        {% endif %}
+        {% if player.artist_posts.count %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="art-tab" data-bs-toggle="tab" href="#art" role="tab" aria-controls="art" aria-selected="false">Artwork ({{ player.artist_posts.count }})</a>
+        </li>
+        {% endif %}
+        {% if player == user.profile and player.bookmarkedposts.count %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="post-bookmarks-tab" data-bs-toggle="tab" href="#post-bookmarks" role="tab" aria-controls="post-bookmarks" aria-selected="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
+        </li>
+        {% endif %}
+        {% if player.efforts.count %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="stats-tab" data-bs-toggle="tab" href="#stats" role="tab" aria-controls="stats" aria-selected="false">Stats</a>
+        </li>
+        {% endif %}
+    </ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <!-- Tab content -->
+    <div class="tab-content" id="tab-contents">
+
+        {% if player.efforts.count %}
+        <!-- Games -->
+        <div class="tab-pane" id="games" role="tabpanel" aria-labelledby="games-tab">
+            
+            
+                <div>
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'player-games' player.slug %}" 
+            hx-swap="outerHTML"></div>
+        </div>
+           
+        </div>
+        {% endif %}
+        {% if player == user.profile and player.bookmarkedgames.count %}
+        <!-- game-bookmarks -->
+        <div class="tab-pane fade" id="game-bookmarks" role="tabpanel" aria-labelledby="game-bookmarks-tab">
+            
+            
+                
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'game-bookmarks' user.profile.slug %}" 
+            hx-swap="outerHTML"></div>
+                
+           
+        </div>
+        {% endif %}
+        {% if user.profile.weird and player.posts.count %}
+        <!-- designer -->
+        <div class="tab-pane fade" id="designer" role="tabpanel" aria-labelledby="designer-tab">
+    
+    
+        
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'designer-components' player.slug %}" 
+            hx-swap="outerHTML"></div>
+                
+            
+        </div>
+        {% endif %}
+        {% if player.artist_posts.count %}
+        <!-- art -->
+        <div class="tab-pane fade" id="art" role="tabpanel" aria-labelledby="art-tab">
+            
+            
+                
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'artist-components' player.slug %}" 
+            hx-swap="outerHTML"></div>
+                
+           
+        </div>
+        {% endif %}
+        {% if player == user.profile and player.bookmarkedposts.count %}
+        <!-- post-bookmarks -->
+        <div class="tab-pane fade" id="post-bookmarks" role="tabpanel" aria-labelledby="post-bookmarks-tab">
+    
+    
+        
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'post-bookmarks' user.profile.slug %}" 
+            hx-swap="outerHTML"></div>
+                
+            
+        </div>
+        {% endif %}
+        {% if player.efforts.count %}
+        <!-- stats -->
+        <div class="tab-pane fade" id="stats" role="tabpanel" aria-labelledby="stats-tab">
+            
+            
+                
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'player-stats' player.slug %}" 
+            hx-swap="outerHTML"></div>
+                
+           
+        </div>
+        {% endif %}
+
     </div>
-
-
-<div id="tab-contents">
-
 </div>
+
+
+
 {% endif %}
 {% endblock content %}
 
 
 {% block scripts %}
 <script>
+    let isDomReady = false;
+
+    // Function to update the hx-trigger of elements in all tabs
+    function updateHxTriggers() {
+        console.log("update triggers")
+        // Find all tab panes (both active and inactive)
+        var tabPanes = document.querySelectorAll('.tab-pane');
+
+        // Iterate through each tab pane
+        tabPanes.forEach(function (tabPane) {
+            // Find all elements with hx-trigger inside the current tab
+            var hxElements = tabPane.querySelectorAll('[hx-trigger]');
+            console.log("In Tab")
+            // Check if this tab is active
+            if (tabPane.classList.contains('active')) {
+                // If the tab is active, set 'hx-trigger' to 'revealed'
+                hxElements.forEach(function (el) {
+                    el.setAttribute('hx-trigger', 'revealed');
+                });
+            } else {
+                // If the tab is inactive, set 'hx-trigger' to 'click'
+                hxElements.forEach(function (el) {
+                    el.setAttribute('hx-trigger', 'click');
+                });
+            }
+        });
+    }
+
+    // Listen for Bootstrap's shown.bs.tab event
+    $('#profileTabs a').on('shown.bs.tab', function (e) {
+        // Call the function to update hx-trigger for elements in the active tab
+        updateHxTriggers();
+    });
+
+
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+    // Check if the event is being triggered on an inactive tab
+    if (!isDomReady) {
+        // updateHxTriggers();
+        // event.preventDefault();  // Prevent the request
+        console.log("HTMX IN WRONG TAB")
+    }else{console.log('In correct Tab')}
+});
+
+// document.body.addEventListener('htmx:beforeRequest', function(event) {
+//     if (!isDomReady) {
+//         event.preventDefault(); // Prevent the request initially
+//         setTimeout(() => {
+//             isRequestEnabled = true; // Enable after delay
+//             console.log('Requests enabled after delay');
+//             event.target.dispatchEvent(new Event('htmx:send')); // Manually trigger send
+//         }, 1000); // Delay of 1 second
+//     }
+// });
+
+
     
     // Wait until the DOM is fully loaded
     document.addEventListener('DOMContentLoaded', function () {
         // Check if there's a fragment identifier in the URL (after #)
+        // updateHxTriggers();
         var currentTab = window.location.hash;
-
+        isDomReady = true;
         console.log("Ready")
 
         // If a hash exists in the URL, activate the corresponding tab
@@ -123,17 +266,18 @@
             }
         }
 
-       // Update the URL hash when a tab is changed without causing a scroll jump
-        var tabList = document.querySelectorAll('#profileTabs a');
-        tabList.forEach(function (tab) {
-            tab.addEventListener('shown.bs.tab', function (event) {
-                // Update the browser's URL fragment to reflect the active tab
-                var newHash = event.target.getAttribute('href');
+    //    // Update the URL hash when a tab is changed without causing a scroll jump
+    //     var tabList = document.querySelectorAll('#profileTabs a');
+    //     tabList.forEach(function (tab) {
+    //         tab.addEventListener('shown.bs.tab', function (event) {
+    //             // Update the browser's URL fragment to reflect the active tab
+    //             var newHash = event.target.getAttribute('href');
                 
-                // Use history.pushState to update the URL without jumping
-                history.pushState(null, null, newHash);
-            });
-        });
+    //             // Use history.pushState to update the URL without jumping
+    //             history.pushState(null, null, newHash);
+    //         });
+    //     });
+        updateHxTriggers();
     });
 </script>
 

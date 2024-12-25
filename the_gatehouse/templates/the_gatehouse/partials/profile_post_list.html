@@ -7,6 +7,10 @@
             hx-get="{% url 'post-bookmarks' player.slug %}?page={{ posts.number|add:1 }}"
             hx-swap="afterend">
             <!-- hx-include="#gamefilterform"> -->
+        {% elif artist_page %}
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'artist-components' player.slug %}?page={{ posts.number|add:1 }}"
+            hx-swap="afterend">
         {% else %}
             <div hx-trigger="revealed" 
             hx-get="{% url 'designer-components' player.slug %}?page={{ posts.number|add:1 }}"

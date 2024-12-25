@@ -8,8 +8,8 @@
                 <legend class="border-bottom mb-4">{% if object.id %}Update {{ object.name }}{% else %}New Tournament{% endif %}</legend>
                 {% if not object.id %}
                 A Tournament can be an ongoing or limited series of games. Once created you can schedule and create new Rounds for the Tournament.
-                Root Digital League is an example of a Tournament and each Season is a Round of Root Digital League.
-                There is an overall leaderboard as well as season/round leaderboards.
+                Root Digital League is an example of a Tournament and each Season is considered a Round of Root Digital League.
+                Each Tournament has an overall Leaderboard as well as Season/Round Leaderboards.
                 {% endif %}
                 {{ form | crispy }}
             </fieldset>

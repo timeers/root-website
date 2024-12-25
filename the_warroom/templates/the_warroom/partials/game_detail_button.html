@@ -10,7 +10,12 @@
                     {% if game.round %}
                         {{ game.type }} {{ game.round.tournament.name }} Game |
                     {% else %}
-                        {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
+                        {{ game.type }} 
+                        {% if game.solo %}Solo {% endif %}
+                        {% if game.coop %}Co-op {% endif %}
+                        {{ game.platform }}
+                        {% if game.league %} League{% endif %}
+                         {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                     {% endif %}
                 {{ game.date_posted|date:"F j, Y" }} |
                 {{ game.deck }} Deck -

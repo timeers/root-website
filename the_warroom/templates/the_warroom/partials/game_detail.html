@@ -3,17 +3,21 @@
 
 <article class="media content-section" id="game-{{ game.id }}">
 <div class="media-body">
-    <div class="article-metadata">
+    <div class="article-metadata" style="display: flex; justify-content: space-between; align-items: center;">
         <small class="text-muted">
                 {% if game.round %}
                     {{ game.type }} {{ game.round.tournament.name }} Game |
                 {% else %}
-                    {{ game.type }} {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
+                    {{ game.type }} 
+                    {% if game.solo %}Solo {% endif %}
+                    {% if game.coop %}Co-op {% endif %}
+                    {{ game.platform }}{% if game.league %} League{% endif %} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                 {% endif %}
             {{ game.date_posted|date:"F j, Y" }} |
             <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
             <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
         </small>
+        {% include 'the_warroom/partials/bookmarks.html' %}
     </div>
 
     {% if game.landmarks.count > 0 or game.hirelings.count > 0 %}

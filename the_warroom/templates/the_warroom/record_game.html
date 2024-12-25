@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Update faction and vagabond fields with the same data
                         updateFactionFields(data.factions);
                         // updateCoalitionFields(data.factions);
-                        updateCoalitionList()
+                        updateFactionSpecificLists()
                         updateVagabondsFields(data.vagabonds);
                         updateCaptainsFields(data.vagabonds);
                         }
@@ -134,7 +134,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Update faction and vagabond fields with the same data
                 updateFactionFields(data.factions);
                 // updateCoalitionFields(data.factions);
-                updateCoalitionList()
+                updateFactionSpecificLists()
                 updateVagabondsFields(data.vagabonds);
                 updateCaptainsFields(data.vagabonds);
                 updatePlatformField(data.platform);
@@ -185,16 +185,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function updateCoalitionFields(factionsData) {
-        // Find all select elements with the format 'id_form-X-faction'
-        const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
+//     function updateCoalitionFields(factionsData) {
+//         // Find all select elements with the format 'id_form-X-faction'
+//         const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
 
-        coalitionFields.forEach(coalitionField => {
-            // For each faction field, update options
-            updateSelectOptions(coalitionField, factionsData, '----------');
-        });
+//         coalitionFields.forEach(coalitionField => {
+//             // For each faction field, update options
+//             updateSelectOptions(coalitionField, factionsData, '----------');
+//         });
         
-    }
+//     }
 
     // Function to update all vagabond select fields (with id_form-*vagabond)
     function updateVagabondsFields(vagabondsData) {
@@ -221,20 +221,16 @@ document.addEventListener('DOMContentLoaded', function() {
         // On deck change set special Dominance options
         $('#id_deck').on('change', function (e){
                 const deckValue = $(this).find('option:selected').text(); 
-                const dominanceFields = document.querySelectorAll('[id$="-dominance"]');
-                dominanceFields.forEach(dominanceField => {                      
-                        // Add or remove the 'Dark' option based on the deckValue
+      
                         if (deckValue === 'Dark') {
                                 // Check if 'Dark' option already exists
-                                if (!$(dominanceField).find('option[value="Dark"]').length) {
-                                        const darkOption = new Option('Dark', 'Dark');
-                                        $(dominanceField).append(darkOption);
-                                }
+                                updateDominance(dominanceName='Dark', addDominance=true)
                         } else {
                                 // Remove the 'Dark' option if it exists
-                                $(dominanceField).find('option[value="Dark"]').remove();
+                                updateDominance('Dark', addDominance=false)
+                               
                         }
-                });
+            
         });
 
     
@@ -365,7 +361,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-
     // Initial call to populate options when the page loads
     if (tournamentSelect.value === ""){
 //         updateOptions(platformSelect.value);
@@ -387,6 +382,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 });
+
+
+function updateDominance(dominanceName = '', addDominance = True){
+                const dominanceFields = document.querySelectorAll('[id$="-dominance"]');
+                dominanceFields.forEach(dominanceField => {                      
+                        // Add or remove the 'dominanceName' option based on addDominance
+                        if (addDominance){
+                                // Check if 'dominanceName' option already exists
+                                if (!$(dominanceField).find(`option[value="${dominanceName}"]`).length) {
+                                        const dominanceNameOption = new Option(dominanceName, dominanceName);
+                                        $(dominanceField).append(dominanceNameOption);
+                                }
+                        }else{
+                                // Remove the 'dominanceName' option if it exists
+                                $(dominanceField).find(`option[value="${dominanceName}"]`).remove();
+                        }
+                });
+
+
+        }
 
 
 
@@ -545,6 +560,7 @@ document.addEventListener('htmx:afterRequest', function(event) {
 });
 
 
+       
 
 
 
@@ -583,30 +599,45 @@ document.addEventListener('htmx:afterRequest', function(event) {
 
 
 
-        function updateCoalitionList() {
+        function updateFactionSpecificLists() {
                 let coalitionObjectList = [];
                 let vbFound = false
+                let frogFound = false
                 $('.effort-form').each((index, element) => {
                         var selector = "#id_form-" + index.toString() + "-faction";  // Dynamically generate the selector
                         var selectedOption = $(selector + ' option:selected');  // Get the selected option
                         
                         var selectedText = selectedOption.text();  // Get the text of the selected option
                         var selectedValue = selectedOption.val();  // Get the value of the selected option
+
+
+
                         if (selectedText != 'Vagabond' || vbFound){
                         // Add the selected faction to the coalitionObjectList if it's valid and unique
-                        if (selectedText != '----------' && selectedText != '') {
-                                // Check if the id is already in the list (to ensure uniqueness)
-                                if (!coalitionObjectList.some(option => option.id === selectedValue)) {
-                                // Store the id and name as a dictionary/object
-                                coalitionObjectList.push({
-                                        id: selectedValue,
-                                        name: selectedText
-                                });
+                                if (selectedText != '----------' && selectedText != '') {
+                                        // Check if the id is already in the list (to ensure uniqueness)
+                                        if (!coalitionObjectList.some(option => option.id === selectedValue)) {
+                                        // Store the id and name as a dictionary/object
+                                        coalitionObjectList.push({
+                                                id: selectedValue,
+                                                name: selectedText
+                                        });
+                                        }
                                 }
                         }
-                }
                         if (selectedText === 'Vagabond'){vbFound = true}
+
+                        if (selectedText === 'Lilypad Diaspora'){frogFound = true}
+
+
+
                         });
+                if (frogFound){
+                        updateDominance(dominanceName="Frog", addDominance=true)
+                }else{
+                        updateDominance(dominanceName="Frog", addDominance=false)
+                }
+                
                 const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
                 coalitionFields.forEach(coalitionField => {
                         updateSelectOptions(coalitionField, coalitionObjectList, '----------')
@@ -631,7 +662,7 @@ document.addEventListener('htmx:afterRequest', function(event) {
                         var captainsBlock = document.querySelector(captainsSelector)?.closest('.captains-field');
                         var dominanceBlock = document.querySelector(dominanceSelector)?.closest('.dominance-field');
                         var coalitionBlock = document.querySelector(coalitionSelector)?.closest('.coalition-field');
-                        updateCoalitionList()
+                        updateFactionSpecificLists()
                         if (selectedText == 'Vagabond') {
                                 vagabondBlock.style = "display:block;"
                                 coalitionBlock.style = "display:block;"

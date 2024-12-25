@@ -1,6 +1,7 @@
 <table>
     <thead>
         <tr>
+            <th></th>
             <th>Player</th>
             <th>Winrate</th>
             <th>Points</th>
@@ -10,6 +11,7 @@
     <tbody class="effort-rows">
         {% for player in leaderboard_players %}
         <tr>
+            <td>{{ forloop.counter }}</td>
             <td>
                 <a href="{% url 'player-detail' player.slug %}">{{ player.name }}</a>
             </td>

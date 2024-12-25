@@ -9,12 +9,14 @@ from django.http import HttpResponseRedirect
 from .forms import GameImportForm, EffortImportForm
 from django.core.exceptions import ObjectDoesNotExist
 import re
+from datetime import datetime
 
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField()
 
 class RoundInline(admin.StackedInline):
     model = Round
+    fk_name = 'tournament'
     extra = 0
 
 class TournamentAdmin(admin.ModelAdmin):
@@ -31,7 +33,7 @@ class TurnInline(admin.StackedInline):
     extra = 0
 
 class ScoreCardAdmin(admin.ModelAdmin):
-    list_display = ('id', 'turn_count', 'faction__title', 'total_score', 'recorder__discord', 'date_posted')
+    list_display = ('id', 'turn_count', 'faction__title', 'total_score', 'recorder', 'date_posted')
     inlines = [TurnInline]
 
     def turn_count(self, obj):
@@ -59,7 +61,7 @@ class EffortInline(admin.StackedInline):
     # fields = ['player', 'faction', 'score', 'win']
 
 class GameAdmin(admin.ModelAdmin):
-    list_display = ('id', 'recorder__discord', 'date_posted', 'deck', 'map', 'type', 'platform', 'round')
+    list_display = ('id', 'recorder', 'date_posted', 'deck', 'map', 'type', 'platform', 'round')
     search_fields = ['id', 'deck__title', 'map__title', 'type', 'platform', 'efforts__player__discord', 'efforts__faction__title']
     inlines = [EffortInline]
      
@@ -117,8 +119,32 @@ class GameAdmin(admin.ModelAdmin):
                 vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
                 faction_instance = Faction.objects.filter(title=faction).first()
 
+                season_name = fields[23].strip()
+                match = re.findall(r'\d+', fields[23])
+                
+
+                date_obj = datetime.strptime(fields[0], '%m/%d/%Y %H:%M:%S')
+
+
+                if match:
+                    # Join all found digits, then take the last two digits
+                    digits = ''.join(match)[-2:]
+                    season_number = int(digits)
+                else:
+                    # Handle the case where no digits are found (if necessary)
+                    season_number = 0 
+                season_instance = Round.objects.get(name=season_name)
+                # try:
+                #     season_instance = Round.objects.get(name=season_name)
+                # except:
+                #     digital_league = Tournament.objects.get(name="Root Digital League")
+                #     season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
+
+
+
+
                 game_data = {
-                    'date_posted': fields[0],
+                    'date_posted': date_obj,
                     'undrafted_faction': faction_instance, #Need reference
                     'undrafted_vagabond': vagabond_instance,
                     'map': map_instance,
@@ -127,6 +153,8 @@ class GameAdmin(admin.ModelAdmin):
                     'type': fields[21],
                     'link': fields[22],
                     'platform': 'Root Digital',
+                    'official': True,
+                    'round': season_instance,
                     # 'league': True,
                 }
                 # Use GameCreateForm for validation

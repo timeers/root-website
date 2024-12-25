@@ -31,7 +31,7 @@ class GameFilter(django_filters.FilterSet):
     )
     class Meta:
         model = Game
-        fields = ['map', 'deck', 'faction', 'player', 'vagabond']
+        fields = ['faction', 'vagabond', 'map', 'deck', 'player']
 
 
     def __init__(self, *args, user=None, **kwargs):
@@ -40,6 +40,7 @@ class GameFilter(django_filters.FilterSet):
         if user and user.is_authenticated:
             if user.profile.weird:
                 official_only = False
+        # print(f'Official Only: {official_only}')
         # Filter for only Official content if not a member of Weird Root
         if official_only:
             self.filters['deck'].queryset = Deck.objects.filter(official=True)
@@ -50,11 +51,31 @@ class GameFilter(django_filters.FilterSet):
             # self.filters['hirelings'].queryset = Hireling.objects.filter(official=True)
 
 
+
     def filter_queryset(self, queryset):
         # Get the selected factions
+        queryset = queryset.prefetch_related('efforts')
         selected_factions = self.data.getlist('faction')
         selected_players = self.data.getlist('player')
         selected_vagabonds = self.data.getlist('vagabond')
+        print(selected_factions)
+        print(selected_players)
+        print(selected_vagabonds)
+
+        # filter_conditions = Q()
+
+        # if selected_factions:
+        #     filter_conditions &= Q(efforts__faction__in=selected_factions)
+
+        # if selected_vagabonds:
+        #     filter_conditions &= Q(efforts__vagabond__in=selected_vagabonds)
+
+        # if selected_players:
+        #     filter_conditions &= Q(efforts__player__in=selected_players)
+
+        # # Apply the combined filter conditions
+        # queryset = queryset.filter(filter_conditions).distinct()
+
 
         if selected_factions:
             # Build the filter condition for all selected factions

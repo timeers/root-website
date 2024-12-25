@@ -9,7 +9,11 @@
             {{ effort.player.name }}
         {% endif %}
     {% else %}
+        {% if effort.faction.type == "C" %}
+        Clockwork
+        {% else %}
         Anonymous Player
+        {% endif %}
     {% endif %}
 </td>
 <td>

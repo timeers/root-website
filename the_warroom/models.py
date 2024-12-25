@@ -20,14 +20,15 @@ class PlatformChoices(models.TextChoices):
 
 class GameQuerySet(models.QuerySet):
     def only_official_components(self):
-        return self.exclude(
-            Q(efforts__faction__official=False) |
-            Q(efforts__vagabond__official=False) |
-            Q(deck__official=False) |
-            Q(map__official=False) |
-            Q(hirelings__official=False) |
-            Q(landmarks__official=False)
-        )
+        return self.filter(official=True)
+        # return self.exclude(
+        #     Q(efforts__faction__official=False) |
+        #     Q(efforts__vagabond__official=False) |
+        #     Q(deck__official=False) |
+        #     Q(map__official=False) |
+        #     Q(hirelings__official=False) |
+        #     Q(landmarks__official=False)
+        # )
 
 
 class Tournament(models.Model):
@@ -49,7 +50,10 @@ class Tournament(models.Model):
     # elimination = models.IntegerField(default=None, null=True, blank=True)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
     link_required = models.BooleanField(default=False)
+
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
+    leaderboard_positions = models.IntegerField(default=15, validators=[MinValueValidator(3), MaxValueValidator(30)])
+
     include_fan_content = models.BooleanField(default=False)
     include_clockwork = models.BooleanField(default=False)
     teams = models.BooleanField(default=False)
@@ -114,6 +118,7 @@ class Round(models.Model):
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
     end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
     players = models.ManyToManyField(Profile, blank=True, related_name='rounds')
+    description = models.TextField(null=True, blank=True)
     slug = models.SlugField(null=True, blank=True)
 
     def get_absolute_url(self):
@@ -201,6 +206,7 @@ class Game(models.Model):
     coalition_win = models.BooleanField(default=False)
     coop = models.BooleanField(default=False)
     solo = models.BooleanField(default=False)
+    official = models.BooleanField(default=True)
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
@@ -214,15 +220,15 @@ class Game(models.Model):
     def get_winners(self):
         return self.get_efforts().filter(win=True)
     
-    @property
-    def only_official_components(self):
-        return not (
-            self.get_efforts().filter(Q(faction__official=False) | Q(vagabond__official=False)).exists() or
-            (self.deck and not self.deck.official) or
-            (self.map and not self.map.official) or
-            self.hirelings.filter(official=False).exists() or
-            self.landmarks.filter(official=False).exists()
-        )
+    # @property
+    # def only_official_components(self):
+    #     return not (
+    #         self.get_efforts().filter(Q(faction__official=False) | Q(vagabond__official=False)).exists() or
+    #         (self.deck and not self.deck.official) or
+    #         (self.map and not self.map.official) or
+    #         self.hirelings.filter(official=False).exists() or
+    #         self.landmarks.filter(official=False).exists()
+    #     )
     
     def clean(self):
         # Check for duplicates among non-blank links
@@ -245,6 +251,68 @@ class Game(models.Model):
     class Meta:
         ordering = ['-date_posted']
 
+    # def save(self, *args, **kwargs):
+    #     # Store the old official status
+    #     old_status = self.official
+
+    #     # Start by assuming the new status is True
+    #     new_status = True
+    #     print("Checking statuses")
+    #     # Use a transaction to make the save operation atomic
+    #     with transaction.atomic():
+    #         # Check if the map or deck are not official
+    #         print(f'Deck: {self.map.official}, Map: {self.deck.official}')
+    #         if not self.map.official or not self.deck.official:
+    #             new_status = False
+    #         else:
+    #             # Check if any landmark is not official
+    #             if self.landmarks.filter(official=False).exists():
+    #                 new_status = False
+
+    #             # Check if any hireling is not official
+    #             elif self.hirelings.filter(official=False).exists():
+    #                 new_status = False
+
+    #             # Check if any effort's faction is not official or vagabond's official is False
+    #             elif self.efforts.filter(faction__official=False).exists():
+    #                 new_status = False
+    #             elif self.efforts.filter(vagabond__official=False).exists():
+    #                 new_status = False
+    #     print(f'Old Status: {old_status}, New Status: {new_status}')
+    #     # Only update if the official status has changed
+    #     if old_status != new_status:
+    #         print(f'Changing Official to {new_status}')
+    #         self.official = new_status
+    #         super().save(*args, **kwargs)  # Call the superclass save method once
+
+    # def save(self, *args, **kwargs):
+    #     super().save(*args, **kwargs)
+    #     old_status = self.official
+    #     new_status = True
+    #     if not self.map.official or not self.deck.official:
+    #         new_status = False
+    #     else:
+    #         for landmark in self.landmarks.all():
+    #             print(f'Landmark: {landmark.official}')
+    #             if not landmark.official:
+    #                 new_status = False
+    #                 break
+    #         for hireling in self.hirelings.all():
+    #             if not hireling.official:
+    #                 new_status = False
+    #                 break
+    #         for effort in self.efforts.all():
+    #             if not effort.faction.official: 
+    #                 new_status = False
+    #                 break
+    #             if effort.vagabond and not effort.vagabond.official:
+    #                 new_status = False
+    #                 break
+    #     if old_status != new_status:
+    #         self.official = new_status
+    #         self.save()
+        
+
 class GameBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)
     game = models.ForeignKey(Game, on_delete=models.CASCADE)
@@ -261,6 +329,7 @@ class Effort(models.Model):
         RABBIT = 'Rabbit'
         BIRD = 'Bird'
         DARK = 'Dark'
+        FROG = 'Frog'
     class StatusChoices(models.TextChoices):
         ACTIVE = 'Active'
         ELIMINATED = 'Eliminated'
@@ -286,8 +355,11 @@ class Effort(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()  # This ensures the clean() method is called before saving
         super().save(*args, **kwargs)
+        update_game = False
         if self.coalition_with and self.win:
             self.game.coalition_win = True
+            update_game = True
+        if update_game:
             self.game.save()
 
     def get_absolute_url(self):
@@ -339,6 +411,8 @@ class ScoreCard(models.Model):
     total_crafting_points = models.IntegerField(default=0)
     total_faction_points = models.IntegerField(default=0)
     total_other_points = models.IntegerField(default=0)
+
+    # dominance = models.BooleanField(default=False)
 
     @property
     def dominance(self):
