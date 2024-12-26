@@ -80,9 +80,9 @@ class Profile(models.Model):
                     # Resize image and save
                     img = img.resize(new_size, Image.LANCZOS)
                     img.save(self.image.path)
-                    print(f'Resized image saved at: {self.image.path}')
-                else:
-                    print(f'Original image saved at: {self.image.path}')
+                    # print(f'Resized image saved at: {self.image.path}')
+                # else:
+                    # print(f'Original image saved at: {self.image.path}')
         except Exception as e:
             print(f"Error resizing image: {e}")
 
@@ -318,7 +318,7 @@ class Profile(models.Model):
             from the_keep.models import Faction
             # Start with the base queryset for players
             queryset = Faction.objects.filter(efforts__player=self)
-            print("got qs", most_wins, tournament, round, limit, game_threshold)
+            # print("got qs", most_wins, tournament, round, limit, game_threshold)
             # Now, annotate with the total efforts and win counts for player
             if round:
                 queryset = queryset.annotate(
@@ -362,8 +362,8 @@ class Profile(models.Model):
                 )
             )
 
-            for faction in queryset:
-                print(f'Faction-{faction.title}, Wins-{faction.win_count}, Games-{faction.total_efforts}')
+            # for faction in queryset:
+            #     print(f'Faction-{faction.title}, Wins-{faction.win_count}, Games-{faction.total_efforts}')
 
             # Now we can order the queryset
             if most_wins:

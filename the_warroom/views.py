@@ -7,18 +7,18 @@ from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404, HttpResponseForbidden
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.paginator import Paginator, EmptyPage
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
 from django.conf import settings
 from django.contrib import messages
 from django.db import IntegrityError
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch
 from django.db.models.functions import Cast
 from django.utils import timezone 
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
 from .forms import (GameCreateForm, EffortCreateForm, 
-                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, 
+                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     TournamentCreateForm, RoundCreateForm, 
                     TournamentManagePlayersForm, TournamentManageAssetsForm,
                     RoundManagePlayersForm)
@@ -47,7 +47,7 @@ from the_tavern.views import bookmark_toggle
 #  A list of all the games. Most recent update first
 @player_required_class_based_view
 class GameListView(ListView):
-    queryset = Game.objects.all()
+    # queryset = Game.objects.all().prefetch_related('efforts')
     model = Game
     # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
     context_object_name = 'games'
@@ -60,22 +60,40 @@ class GameListView(ListView):
         return 'the_warroom/games_home.html'
     
     def get_queryset(self):
+        print('Getting Queryset')
         if not self.request.user.is_authenticated:
-            queryset = super().get_queryset().only_official_components()
+            queryset = Game.objects.filter(official=True).prefetch_related(
+                'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                )
+            # queryset = super().get_queryset().only_official_components()
         else:
             if self.request.user.profile.weird:
-                queryset = super().get_queryset()
+                queryset = Game.objects.all().prefetch_related(
+                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                    'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                    )
+                # queryset = super().get_queryset()
             else:
-                queryset = super().get_queryset().only_official_components()
+                queryset = Game.objects.filter(official=True).prefetch_related(
+                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                    'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                    )
+                # queryset = super().get_queryset().only_official_components()
         self.filterset = GameFilter(self.request.GET, queryset=queryset, user=self.request.user)
+
+        # # Store the filtered queryset in an instance variable to avoid re-evaluating it
+        self._cached_queryset = self.filterset.qs
+
         return self.filterset.qs
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        # Get the ordered queryset of games
-        games = self.get_queryset()
-
+    
+        # Reuse the cached queryset here instead of calling get_queryset again
+        games = self._cached_queryset  # Use the already-evaluated queryset
+        # print("got queryset")
         # Get the total count of games (total number of records in the queryset)
         games_count = games.count()
 
@@ -128,12 +146,12 @@ class GameListViewHX(ListView):
         if first_part != 'games':
             # Get the slug from the URL (assuming your URL pattern captures a slug)
             slug = self.kwargs.get('slug')
-            print(f'found slug {slug}')
+            # print(f'found slug {slug}')
             if slug:
-                print(f'found slug {slug}')
+                # print(f'found slug {slug}')
                 if first_part == 'profile':
                     player = get_object_or_404(Profile, slug=slug)
-                    print(f'found player {player}')
+                    # print(f'found player {player}')
                     queryset = queryset.filter(
                         Q(efforts__player=player)) # Filter by Profile Page
 
@@ -177,7 +195,7 @@ def game_detail_view(request, id=None):
         obj = None
 
     # Add efforts directly to context to get the available_scorecard field
-    efforts = obj.efforts.all()
+    efforts = obj.efforts.all().prefetch_related('faction', 'player', 'vagabond')
     for effort in efforts:
         effort.available_scorecard = effort.available_scorecard(request.user)
 
@@ -348,7 +366,7 @@ def manage_game(request, id=None):
             # elif id and parent.test_match == True:
             #     parent.test_match = False
             #     parent.save()
-
+            parent.save()
             context['message'] = "Game Saved"
             return redirect(parent.get_absolute_url())
 
@@ -378,11 +396,12 @@ def bookmark_game(request, object):
 # Scorecard Views
 # ============================
 
+# Create and edit a scorecard
 @tester_required
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
     faction = request.GET.get('faction', None)
-    print(faction)
+    # print(faction)
     effort_id = request.GET.get('effort', None)
     try:
         effort = Effort.objects.get(id=effort_id)
@@ -407,7 +426,7 @@ def scorecard_manage_view(request, id=None):
             return HttpResponseForbidden("You do not have permission to edit this scorecard.")
         if obj.faction != None:
             faction = obj.faction.id
-            print(faction)
+            # print(faction)
         if obj.effort != None:
             effort = obj.effort
         existing_scorecard = True
@@ -415,7 +434,7 @@ def scorecard_manage_view(request, id=None):
         obj = ScoreCard()  # Create a new ScoreCard instance but do not save it yet
     user = request.user
 
-    form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user, faction=faction)
+    
 
     if id:  # Only check for existing turns if updating an existing game score
         existing_turns = obj.turns.all()
@@ -428,7 +447,7 @@ def scorecard_manage_view(request, id=None):
     qs = obj.turns.all() if id else TurnScore.objects.none()  # Only fetch existing turns if updating
     formset = TurnFormset(request.POST or None, queryset=qs)
     form_count = extra_forms + existing_count        
-
+    form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user, faction=faction)
     if effort:
         score = effort.score
     else:
@@ -447,7 +466,7 @@ def scorecard_manage_view(request, id=None):
 
     # Handle form submission
     if form.is_valid() and formset.is_valid():
-        print(formset.cleaned_data)
+        # print(formset.cleaned_data)
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
         parent.effort = effort
@@ -494,6 +513,8 @@ def scorecard_manage_view(request, id=None):
     
     return render(request, 'the_warroom/record_scores.html', context)
 
+
+# Detail view of a scorecard
 @player_required
 def scorecard_detail_view(request, id=None):
     try:
@@ -506,13 +527,14 @@ def scorecard_detail_view(request, id=None):
     return render(request, "the_warroom/score_detail.html", context)
 
 
+# Choose from available scorecards to link to a game
 @tester_required
 def scorecard_assign_view(request, id):
-    effort = get_object_or_404(Effort, id=id)
+    effort_link = get_object_or_404(Effort, id=id)
 
     selected_scorecard = request.GET.get('scorecard')
-    print(selected_scorecard)
-    game = effort.game
+    # print(selected_scorecard)
+    game = effort_link.game
     participants = []
     for participant_effort in game.efforts.all():
         participants.append(participant_effort.player)
@@ -521,25 +543,79 @@ def scorecard_assign_view(request, id):
     if not request.user.profile in participants:
                 return HttpResponseForbidden("You do not have permission to edit this scorecard.")
     dominance = False
-    if effort.dominance:
+    if effort_link.dominance:
         dominance = True
     if request.method == 'POST':
-        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard, dominance=dominance)
+        form = AssignScorecardForm(request.POST, user=request.user, faction=effort_link.faction, total_points=effort_link.score, selected_scorecard=selected_scorecard, dominance=dominance)
         if form.is_valid():
             scorecard = form.cleaned_data['scorecard']
-            scorecard.effort = effort  # Assign the Effort to the selected Scorecard
+            scorecard.effort = effort_link  # Assign the Effort to the selected Scorecard
             scorecard.save()  # Save the updated Scorecard
-            return redirect('game-detail', id=effort.game.id)
+            return redirect('game-detail', id=effort_link.game.id)
     else:
-        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard, dominance=dominance)
+        form = AssignScorecardForm(user=request.user, faction=effort_link.faction, total_points=effort_link.score, selected_scorecard=selected_scorecard, dominance=dominance)
 
     context = {
         'form': form, 
-        'effort': effort,
+        'effort_link': effort_link,
         'game': game,
         }
 
     return render(request, 'the_warroom/assign_scorecard.html', context)
+
+# Choose from available games to link a scorecard
+@tester_required
+def effort_assign_view(request, id):
+
+    scorecard = get_object_or_404(ScoreCard, id=id)
+
+    if scorecard.effort:
+        return redirect('detail-scorecard', id=scorecard.id)
+
+    if not scorecard.dominance:
+        available_efforts = Effort.objects.filter(
+                Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
+                Q(game__recorder=request.user.profile),  # Recorder is the current user
+                scorecard=None, faction=scorecard.faction,
+                score=scorecard.total_points  # Effort has no associated scorecard
+            ).prefetch_related(
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__hirelings',
+                'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
+    else:
+        available_efforts = Effort.objects.filter(
+                Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
+                Q(game__recorder=request.user.profile),  # Recorder is the current user
+                scorecard=None, faction=scorecard.faction, 
+                dominance__isnull=False # Effort has no associated scorecard
+            ).prefetch_related(
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__hirelings',
+                'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
+        
+
+    if request.method == 'POST':
+        form = AssignEffortForm(request.POST, selected_efforts=available_efforts, user=request.user)
+        print('submitting form')
+        if form.is_valid():
+            print('valid form')
+            scorecard = scorecard
+            scorecard.effort = form.cleaned_data['effort']  # Assign the Effort to the selected Scorecard
+            scorecard.save()  # Save the updated Scorecard
+            return redirect('game-detail', id=scorecard.effort.game.id)
+        else:
+                print("Form errors:", form.errors)  # Print the errors for debugging
+                # You can also print individual field errors if you need to inspect them specifically
+                for field, errors in form.errors.items():
+                    print(f"Errors for {field}: {errors}")
+    else:
+        form = AssignEffortForm(selected_efforts=available_efforts, user=request.user)
+
+    context = {
+        'form': form, 
+        'scorecard': scorecard,
+        }
+
+    return render(request, 'the_warroom/assign_effort.html', context)
+
 
 @tester_required
 def scorecard_delete_view(request, id=None):
@@ -568,56 +644,41 @@ def scorecard_delete_view(request, id=None):
     }
     return render(request, "the_warroom/score_delete.html", context)
 
-@tester_required
+
+
 def scorecard_list_view(request):
-    unassigned_scorecards = ScoreCard.objects.filter(
-            Q(recorder=request.user.profile) & 
-            Q(effort=None)
-        )
-    complete_scorecards = ScoreCard.objects.filter(
-            recorder=request.user.profile).exclude(effort=None)
-    # Scorecards that need to be assigned
-    unassigned_efforts = Effort.objects.filter(
-        Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
-        Q(game__recorder=request.user.profile),  # Recorder is the current user
-        scorecard=None  # Effort has no associated scorecard
-    ).distinct()
-    for scorecard in unassigned_scorecards:
-        # # Find matching efforts based on faction and total_points
-        matching_efforts = unassigned_efforts.filter(
-            faction=scorecard.faction,
-            score=scorecard.total_points
-        )
-        dominance = False
-        for turn in scorecard.turns.all():
-            if turn.dominance:
-                dominance = True
-        if dominance:
-            dominance_efforts = unassigned_efforts.filter(
-                faction=scorecard.faction,
-                dominance__isnull=False
-            )
-            # print(dominance_efforts)
-            matching_efforts = matching_efforts | dominance_efforts
-        # Add the matching efforts as a property on the scorecard
-        scorecard.matching_efforts = matching_efforts.distinct()
+    active_profile = request.user.profile
 
-    # Pagination
-    paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)  # Show default number per page
+    all_scorecards = ScoreCard.objects.filter(recorder=request.user.profile).prefetch_related('turns', 'faction', 'effort')
 
-    # Get the current page number from the request (default to 1)
-    page_number = request.GET.get('page')  # e.g., ?page=2
-    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+    # QuerySets
+    unassigned_scorecards = all_scorecards.filter(effort=None)
+    unassigned_count = unassigned_scorecards.count()
+    if unassigned_count > 10:
+        unassigned_scorecards = unassigned_scorecards[:10]
+    complete_scorecards = all_scorecards.exclude(effort=None).prefetch_related(
+        'effort__game')
 
+    
+    # Pagination (the rest of your pagination logic stays the same)
+    paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)
+    page_number = request.GET.get('page')
+    try:
+        page_obj = paginator.get_page(page_number)
+    except PageNotAnInteger:
+        page_obj = paginator.get_page(1)
+    except EmptyPage:
+        page_obj = paginator.get_page(paginator.num_pages)
 
     context = {
         'unassigned_scorecards': unassigned_scorecards,
-        # 'complete_scorecards': complete_scorecards,
         'complete_scorecards': page_obj,
+        'active_profile': active_profile,
+        'unassigned_count': unassigned_count,
     }
 
     if request.htmx:
-        return render(request, "the_warroom/partials/scorecard_list_partial.html", context)   
+        return render(request, "the_warroom/partials/scorecard_list_partial.html", context)
 
     return render(request, 'the_warroom/scorecard_list.html', context)
 
@@ -640,75 +701,33 @@ def scorecard_list_view(request):
 def tournament_detail_view(request, tournament_slug):
     # Get the tournament from slug
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+    all_rounds = Round.objects.filter(tournament=tournament).annotate(
+        unique_players_count=Count('games__efforts__player', distinct=True)
+        ).order_by('-round_number')
 
-    past_rounds = Round.objects.filter(tournament=tournament, end_date__lt=timezone.now())
-    past_rounds = past_rounds.annotate(
-    unique_players_count=Count('games__efforts__player', distinct=True)
-    )
+    past_rounds = all_rounds.filter(end_date__lt=timezone.now())
 
 
-    active_rounds = Round.objects.filter(
+    active_rounds = all_rounds.filter(
         Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-        tournament=tournament, 
         start_date__lt=timezone.now()
         )
-    active_rounds = active_rounds.annotate(
-    unique_players_count=Count('games__efforts__player', distinct=True)
-    )
-        
-    future_rounds = Round.objects.filter(tournament=tournament, start_date__gt=timezone.now())
-    future_rounds = future_rounds.annotate(
-    unique_players_count=Count('games__efforts__player', distinct=True)
-    )
-    
-    # # players = tournament.players.all()
-    # players = Profile.objects.filter(current_tournaments=tournament)
-
-
-
-    # players = players.annotate(
-    #     total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
-    #     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
-    #     coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament))
-    # )
-
-    # # Annotate with win_rate after filtering
-    # players = players.annotate(
-    #     win_rate=Case(
-    #         When(total_efforts=0, then=Value(0)),
-    #         default=ExpressionWrapper(
-    #             (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-    #             output_field=FloatField()
-    #         ),
-    #         output_field=FloatField()
-    #     ),
-    #     tourney_points=Case(
-    #         When(total_efforts=0, then=Value(0)),
-    #         default=ExpressionWrapper(
-    #             Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
-    #             output_field=FloatField()
-    #         ),
-    #         output_field=FloatField()
-    #     )
-    # ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
-
-
-
-    # games = tournament.get_game_queryset()
+    future_rounds = all_rounds.filter(start_date__gt=timezone.now())
+   
 
     top_players = []
     most_players = []
-    top_players = Profile.top_players(limit=5, tournament=tournament, game_threshold=tournament.game_threshold)
-    most_players = Profile.top_players(limit=5, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
     top_factions = []
     most_factions = []
-    top_factions = Faction.top_factions(limit=5, tournament=tournament, game_threshold=tournament.game_threshold)
-    most_factions = Faction.top_factions(limit=5, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
-
+    # 4 queries
+    top_players = Profile.top_players(limit=tournament.leaderboard_positions, tournament=tournament, game_threshold=tournament.game_threshold)
+    most_players = Profile.top_players(limit=tournament.leaderboard_positions, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
+    top_factions = Faction.top_factions(limit=20, tournament=tournament, game_threshold=tournament.game_threshold)
+    most_factions = Faction.top_factions(limit=20, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
     context = {
         'object': tournament,
         'active': active_rounds,
-        'scheduled': future_rounds,
+        'future': future_rounds,
         'past': past_rounds,
         'top_players': top_players,
         'most_players': most_players,
@@ -785,7 +804,7 @@ class TournamentDeleteView(DeleteView):
     def post(self, request, *args, **kwargs):
         # print('Trying to delete')
         tournament = self.get_object()
-        print(tournament)
+        # print(tournament)
         name = tournament.name
         try:
             # Attempt to delete the tournament
@@ -995,12 +1014,12 @@ def round_detail_view(request, tournament_slug, round_slug):
 
     top_players = []
     most_players = []
-    top_players = Profile.top_players(limit=5, round=round, game_threshold=threshold)
-    most_players = Profile.top_players(limit=5, round=round, top_quantity=True, game_threshold=threshold)
+    top_players = Profile.top_players(limit=tournament.leaderboard_positions, round=round, game_threshold=threshold)
+    most_players = Profile.top_players(limit=tournament.leaderboard_positions, round=round, top_quantity=True, game_threshold=threshold)
     top_factions = []
     most_factions = []
-    top_factions = Faction.top_factions(limit=5, round=round, game_threshold=threshold)
-    most_factions = Faction.top_factions(limit=5, round=round, top_quantity=True, game_threshold=threshold)
+    top_factions = Faction.top_factions(limit=20, round=round, game_threshold=threshold)
+    most_factions = Faction.top_factions(limit=20, round=round, top_quantity=True, game_threshold=threshold)
     # players = round.current_player_queryset()
 
 
@@ -1059,8 +1078,8 @@ def round_players_pagination(request, id):
 
     players = round.current_player_queryset()
 
-    print(players.count())
-    print("Players")
+    # print(players.count())
+    # print("Players")
     players = players.annotate(
         total_efforts=Count('efforts', filter=Q(efforts__game__round=round)),
         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round)),
@@ -1227,7 +1246,7 @@ class RoundDeleteView(DeleteView):
     def post(self, request, *args, **kwargs):
         # print('Trying to delete')
         round = self.get_object()
-        print(round)
+        # print(round)
         name = round.name
         try:
             # Attempt to delete the round

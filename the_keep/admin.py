@@ -7,7 +7,7 @@ from io import StringIO
 from .models import (Post, Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
                      PostBookmark, Piece)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
-                   PieceImportForm)
+                   PieceImportForm, LandmarkImportForm, HirelingImportForm)
 from .models import Profile
 from the_warroom.admin import CsvImportForm
 from datetime import datetime
@@ -59,12 +59,24 @@ class MapAdmin(admin.ModelAdmin):
                         'display_name': fields[3]
                         }
                     )
+                
                 if fields[4] == '':
                     expansion_instance = None
                 else:
                     expansion_instance, _ = Expansion.objects.get_or_create(title=fields[4])
+
+                if fields[15].strip() != "":
+                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[15].strip().lower())
+                else:
+                    artist_instance = None
+                lore = None if fields[14] == '' else fields[14]
+                in_root_digital = True if fields[16] == 'TRUE' else False
+                print("In Digital", in_root_digital)
+                print(fields[16])
+
                 stable = True if fields[6] == "Stable" else False
                 official = True if fields[5] == "Y" else False
+                
                 description = None if fields[8] == '' else fields[8]
                 bgg_link = None if fields[9] == '' else fields[9]
                 tts_link = None if fields[10] == '' else fields[10]
@@ -94,6 +106,9 @@ class MapAdmin(admin.ModelAdmin):
                     'stable': stable,
                     'official': official,
                     'date_posted': date_posted,
+                    'artist': artist_instance,
+                    'in_root_digital': in_root_digital,
+                    'lore': lore,
                 }
 
                
@@ -162,6 +177,15 @@ class DeckAdmin(admin.ModelAdmin):
                 pnp_link = None if fields[12] == '' else fields[12]
                 card_total = int(fields[7])
 
+                if fields[15].strip() != "":
+                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[15].strip().lower())
+                else:
+                    artist_instance = None
+                lore = None if fields[13] == '' else fields[13]
+                in_root_digital = True if fields[14] == 'TRUE' else False
+
+
+
                 if fields[2] != "":
                     year_string = fields[2]
                 # Convert the string to a datetime object
@@ -182,6 +206,9 @@ class DeckAdmin(admin.ModelAdmin):
                     'stable': stable,
                     'official': official,
                     'date_posted': date_posted,
+                    'artist': artist_instance,
+                    'in_root_digital': in_root_digital,
+                    'lore': lore,
                 }
 
                
@@ -209,27 +236,251 @@ class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
+
+    def get_urls(self):
+        urls = super().get_urls()
+        new_urls = [path('upload-landmark-csv/', self.upload_landmark_csv)]
+        return new_urls + urls
+
+    def upload_landmark_csv(self, request):
+
+        if request.method == 'POST':
+            print("action is posted")
+
+
+            print("action is posted")
+            csv_file = request.FILES['csv_upload']
+
+            if not csv_file.name.endswith('.csv'):
+                messages.warning(request, 'Wrong file type was uploaded')
+                return HttpResponseRedirect(request.path_info)
+
+            file_data = csv_file.read().decode('utf-8')
+            
+            # Use StringIO to treat the string as a file
+            csv_reader = csv.reader(StringIO(file_data))
+            
+            for fields in csv_reader:
+                print(len(fields))
+
+                if len(fields) < 13:  # Check to ensure there are enough fields
+                    print("Not enough fields in this row.")
+                    continue  # Skip to the next iteration if not enough fields
+
+                # profile_instance, _ = Profile.objects.get_or_create(discord=fields[3].lower())
+                profile_instance, _ = Profile.objects.update_or_create(
+                    discord=fields[3].lower(),
+                    defaults={
+                        'display_name': fields[3]
+                        }
+                    )
+                
+                if fields[4] == '':
+                    expansion_instance = None
+                else:
+                    expansion_instance, _ = Expansion.objects.get_or_create(title=fields[4])
+
+                # if fields[15].strip() != "":
+                #     artist_instance, _ = Profile.objects.get_or_create(discord=fields[15].strip().lower())
+                # else:
+                #     artist_instance = None
+                lore = None if fields[13] == '' else fields[13]
+                in_root_digital = True if fields[14] == 'TRUE' else False
+              
+
+                stable = True if fields[6] == "Stable" else False
+                official = True if fields[5] == "Y" else False
+                
+                # description = None if fields[8] == '' else fields[8]
+                bgg_link = None if fields[8] == '' else fields[8]
+                tts_link = None if fields[9] == '' else fields[10]
+                ww_link = None if fields[10] == '' else fields[10]
+                wr_link = None if fields[11] == '' else fields[11]
+                pnp_link = None if fields[12] == '' else fields[12]
+                card_text = None if fields[7] == '' else fields[7]
+
+                if fields[2] != "":
+                    year_string = fields[2]
+                # Convert the string to a datetime object
+                # Assuming you want to set it to January 1st, 2020 at midnight
+                    date_posted = datetime.strptime(year_string, "%Y")
+                else:
+                    date_posted = timezone.now() 
+                landmark_data = {
+                    'title': fields[1],
+                    'card_text': card_text,
+                    'designer': profile_instance,
+                    'expansion': expansion_instance,
+                    # 'description': description,
+                    'bgg_link': bgg_link,
+                    'tts_link': tts_link,
+                    'ww_link': ww_link,
+                    'wr_link': wr_link,
+                    'pnp_link': pnp_link,
+                    'stable': stable,
+                    'official': official,
+                    'date_posted': date_posted,
+                    # 'artist': artist_instance,
+                    'in_root_digital': in_root_digital,
+                    'lore': lore,
+                }
+
+               
+                form = LandmarkImportForm(landmark_data)
+
+                if form.is_valid():
+                    # form.save()
+                    form.save()
+
+                else:
+                    # Handle the invalid form case (e.g., log errors or notify the user)
+                    messages.error(request, f"Error with row: {fields}. Errors: {form.errors}")
+
+
+            url = reverse('admin:index')
+            return HttpResponseRedirect(url)
+
+        form = CsvImportForm()
+        data = {'form': form}
+        return render(request, 'admin/csv_upload.html', data)
+
+
+
+
+
 class HirelingAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        new_urls = [path('upload-hireling-csv/', self.upload_hireling_csv)]
+        return new_urls + urls
+
+    def upload_hireling_csv(self, request):
+
+        if request.method == 'POST':
+            print("action is posted")
+
+
+            print("action is posted")
+            csv_file = request.FILES['csv_upload']
+
+            if not csv_file.name.endswith('.csv'):
+                messages.warning(request, 'Wrong file type was uploaded')
+                return HttpResponseRedirect(request.path_info)
+
+            file_data = csv_file.read().decode('utf-8')
+            
+            # Use StringIO to treat the string as a file
+            csv_reader = csv.reader(StringIO(file_data))
+            
+            for fields in csv_reader:
+                print(len(fields))
+
+                if len(fields) < 17:  # Check to ensure there are enough fields
+                    print("Not enough fields in this row.")
+                    continue  # Skip to the next iteration if not enough fields
+
+                # profile_instance, _ = Profile.objects.get_or_create(discord=fields[3].lower())
+                profile_instance, _ = Profile.objects.update_or_create(
+                    discord=fields[3].lower(),
+                    defaults={
+                        'display_name': fields[3]
+                        }
+                    )
+                
+                if fields[4] == '':
+                    expansion_instance = None
+                else:
+                    expansion_instance, _ = Expansion.objects.get_or_create(title=fields[4])
+
+                if fields[16].strip() != "":
+                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[16].strip().lower())
+                else:
+                    artist_instance = None
+                lore = None if fields[15] == '' else fields[15]
+                in_root_digital = True if fields[17] == 'TRUE' else False
+
+                stable = True if fields[6] == "Stable" else False
+                official = True if fields[5] == "Y" else False
+                
+                if fields[16].strip() != "":
+                    try:
+                        based_instance = Faction.objects.get(title=fields[9])
+                    except:
+                        based_instance = None
+                else:
+                    based_instance = None
+
+                # description = None if fields[8] == '' else fields[8]
+                bgg_link = None if fields[10] == '' else fields[10]
+                tts_link = None if fields[11] == '' else fields[11]
+                ww_link = None if fields[12] == '' else fields[12]
+                wr_link = None if fields[13] == '' else fields[12]
+                pnp_link = None if fields[14] == '' else fields[14]
+                hireling_type = fields[7]
+                animal = fields[8]
+
+                if fields[2] != "":
+                    year_string = fields[2]
+                # Convert the string to a datetime object
+                # Assuming you want to set it to January 1st, 2020 at midnight
+                    date_posted = datetime.strptime(year_string, "%Y")
+                else:
+                    date_posted = timezone.now() 
+                hireling_data = {
+                    'title': fields[1],
+                    'type': hireling_type,
+                    'animal': animal,
+                    'based_on': based_instance,
+                    'designer': profile_instance,
+                    'expansion': expansion_instance,
+                    'bgg_link': bgg_link,
+                    'tts_link': tts_link,
+                    'ww_link': ww_link,
+                    'wr_link': wr_link,
+                    'pnp_link': pnp_link,
+                    'stable': stable,
+                    'official': official,
+                    'date_posted': date_posted,
+                    'artist': artist_instance,
+                    'in_root_digital': in_root_digital,
+                    'lore': lore,
+                }
+
+               
+                form = HirelingImportForm(hireling_data)
+
+                if form.is_valid():
+                    # form.save()
+                    form.save()
+
+                else:
+                    # Handle the invalid form case (e.g., log errors or notify the user)
+                    messages.error(request, f"Error with row: {fields}. Errors: {form.errors}")
+
+
+            url = reverse('admin:index')
+            return HttpResponseRedirect(url)
+
+        form = CsvImportForm()
+        data = {'form': form}
+        return render(request, 'admin/csv_upload.html', data)
+
+
+
+
+
 class PostAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
     search_fields = ['title']
     raw_id_fields = ['designer']
 class ExpansionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer')
-# class WarriorAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-# class BuildingAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-# class TokenAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-# class CardAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'faction', 'hireling', 'quantity', 'suited')
-# class OtherPieceAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'faction', 'hireling', 'vagabond', 'quantity', 'suited')
+
 class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
     search_fields = ['title']
@@ -275,7 +526,7 @@ class FactionAdmin(admin.ModelAdmin):
                 profile_instance.save()
                 stable = True if fields[7] == "Stable" else False
                 official = True if fields[6] == "Y" else False
-                print(fields[1], fields[7], stable)
+                # print(fields[1], fields[7], stable)
                 bgg_link = None if fields[54] == '' else fields[54]
                 tts_link = None if fields[55] == '' else fields[55]
                 ww_link = None if fields[56] == '' else fields[56]
@@ -283,8 +534,8 @@ class FactionAdmin(admin.ModelAdmin):
                 pnp_link = None if fields[58] == '' else fields[58]
                 reach = int(fields[9])
 
-                if fields[3] != "":
-                    year_string = fields[3]
+                if fields[2] != "":
+                    year_string = fields[2]
                 # Convert the string to a datetime object
                 # Assuming you want to set it to January 1st, 2020 at midnight
                     date_posted = datetime.strptime(year_string, "%Y")
@@ -296,6 +547,9 @@ class FactionAdmin(admin.ModelAdmin):
                     artist_instance, _ = Profile.objects.get_or_create(discord=fields[60].strip().lower())
                 else:
                     artist_instance = None
+                in_root_digital = True if fields[3] == 'TRUE' else False
+
+
 
                 faction_data = {
                     'title': fields[1],
@@ -318,6 +572,7 @@ class FactionAdmin(admin.ModelAdmin):
                     'date_posted': date_posted,
                     'lore': lore,
                     'artist': artist_instance,
+                    'in_root_digital': in_root_digital,
                 }
 
                 # Use FactionImportForm for validation
@@ -676,6 +931,13 @@ class VagabondAdmin(admin.ModelAdmin):
                     )
 
 
+                lore = None if fields[25] == '' else fields[25]
+                if fields[26].strip() != "":
+                    artist_instance, _ = Profile.objects.get_or_create(discord=fields[26].strip().lower())
+                else:
+                    artist_instance = None
+                in_root_digital = True if fields[27] == 'TRUE' else False
+
 
                 if fields[3] == '':
                     expansion_instance = None
@@ -707,16 +969,16 @@ class VagabondAdmin(admin.ModelAdmin):
                 sword = 0 if fields[12] == '' else int(fields[12])
                 tea = 0 if fields[13] == '' else int(fields[13])
                 coins = 0 if fields[14] == '' else int(fields[14])
-                print(fields[0])
-                print(isinstance(torch, int))
-                print(isinstance(bag, int))
-                print(isinstance(boot, int))
-                print(isinstance(bow, int))
-                print(isinstance(hammer, int))
-                print(isinstance(sword, int))
-                print(isinstance(tea, int))
-                print(isinstance(coins, int))
-                print(f'torch:{torch} bag:{bag} boot:{boot} bow:{bow} hammer:{hammer} sword:{sword} tea:{tea} coins:{coins}')
+                # print(fields[0])
+                # print(isinstance(torch, int))
+                # print(isinstance(bag, int))
+                # print(isinstance(boot, int))
+                # print(isinstance(bow, int))
+                # print(isinstance(hammer, int))
+                # print(isinstance(sword, int))
+                # print(isinstance(tea, int))
+                # print(isinstance(coins, int))
+                # print(f'torch:{torch} bag:{bag} boot:{boot} bow:{bow} hammer:{hammer} sword:{sword} tea:{tea} coins:{coins}')
 
 
                 vagabond_data = {
@@ -743,6 +1005,9 @@ class VagabondAdmin(admin.ModelAdmin):
                     'stable': stable,
                     'official': official,
                     'date_posted': date_posted,
+                    'artist': artist_instance,
+                    'in_root_digital': in_root_digital,
+                    'lore': lore,
                 }
 
                 # Use FactionImportForm for validation
@@ -766,7 +1031,7 @@ class VagabondAdmin(admin.ModelAdmin):
                             'type': 'O',
                         }
 
-                        other_piece_form = PieceInline(other_piece_data)
+                        other_piece_form = PieceImportForm(other_piece_data)
                         if other_piece_form.is_valid():
                             other_piece_form.save()
                         else:

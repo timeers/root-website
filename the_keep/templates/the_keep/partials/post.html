@@ -1,7 +1,7 @@
 
 
 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
-<a href="{% url object.component|lower|add:'-detail' object.slug %}" class="media-body">
+<a href="{{ object.get_absolute_url }}" class="media-body">
    
     <div class="article-metadata">
         {{ object.designer.name }}

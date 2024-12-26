@@ -5,26 +5,22 @@
 
         
         {% if object.component == 'Faction' or object.component == 'Vagabond' %}
-            {% if object.title == "Vagabond" %}
-                {% if total_efforts == object.plays %}
-                    <h2>Recorded Plays ({{ total_efforts }})</h2>
+            
+        
+                {% if filtered_games == games_total %}
+                    <h2>Recorded Games ({{ filtered_games }})</h2>
                 {% else %}
-                    <h2>Filtered Plays ({{ total_efforts }}/{{ object.plays }})</h2>
+                    <h2>Filtered Games ({{ filtered_games }}/{{ games_total }})</h2>
                 {% endif %}
-            <p class="article-content">in {{ games_total }} Games</p>
-            {% else %}
-                {% if total_efforts == object.plays %}
-                    <h2>Recorded Games ({{ total_efforts }})</h2>
-                {% else %}
-                    <h2>Filtered Games ({{ total_efforts }}/{{ object.plays }})</h2>
+                {% if object.title == "Vagabond" %}
+                    <p class="article-content">with {{ total_efforts }} Plays</p>
                 {% endif %}
-            {% endif %}
 
             <p class="article-content">{{ win_count }} Recorded Wins</p>
             <p class="article-content">{{ win_rate|floatformat:2 }}% Winrate</p>
             <p class="article-content">{{ tourney_points }} Points (1/2 for Coalition Wins)</p>
         {% else %}
-            <h2>Recorded Games ({{ games_total }})</h2>
+            <h2>Recorded Games ({{ filtered_total }})</h2>
             <p class="article-content">{{ object.plays }} Total Games</p>
         {% endif %}
     </div>

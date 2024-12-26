@@ -8,23 +8,23 @@ from .views import (
     LandmarkUpdateView, FactionUpdateView, ExpansionUpdateView, ClockworkUpdateView,
     ExpansionDeleteView,
     PostDeleteView,
-    UserPostListView,
-    ArtistPostListView, 
+ 
 
-    ComponentDetailListView,
+    # ComponentDetailListView,
     bookmark_post,
     list_view, activity_list,
     search_view,
     add_piece, delete_piece,
+    ultimate_component_view,
 )
 from . import views
 
 urlpatterns = [
     # path('', PostListView.as_view(), name='keep-home'),
     path("", list_view, name='keep-home'),
-    path("new/", activity_list, name='activity-list'),
-    path('user/<slug:slug>/art/', ArtistPostListView.as_view(), name='artist-posts'),
-    # path('user/<slug:slug>/', UserPostListView.as_view(), name='user-posts'),
+    # path("new/", activity_list, name='activity-list'),
+ 
+ 
 
     path("search/", search_view, name='search'),
 
@@ -42,13 +42,15 @@ urlpatterns = [
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
 
-    path('map/<slug:slug>/', ComponentDetailListView.as_view(), name='map-detail'),
-    path('deck/<slug:slug>/', ComponentDetailListView.as_view(), name='deck-detail'),
-    path('hireling/<slug:slug>/', ComponentDetailListView.as_view(), name='hireling-detail'),
-    path('landmark/<slug:slug>/', ComponentDetailListView.as_view(), name='landmark-detail'),
-    path('vagabond/<slug:slug>/', ComponentDetailListView.as_view(), name='vagabond-detail'),
-    path('faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-detail'),
-    path('clockwork/<slug:slug>/', ComponentDetailListView.as_view(), name='clockwork-detail'),
+    # path('old/faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-old'),
+    
+    path('map/<slug:slug>/', ultimate_component_view, name='map-detail'),
+    path('deck/<slug:slug>/', ultimate_component_view, name='deck-detail'),
+    path('hireling/<slug:slug>/', ultimate_component_view, name='hireling-detail'),
+    path('landmark/<slug:slug>/', ultimate_component_view, name='landmark-detail'),
+    path('vagabond/<slug:slug>/', ultimate_component_view, name='vagabond-detail'),
+    path('faction/<slug:slug>/', ultimate_component_view, name='faction-detail'),
+    path('clockwork/<slug:slug>/', ultimate_component_view, name='clockwork-detail'),
 
     path('map/<slug:slug>/update/', MapUpdateView.as_view(), name='map-update'),
     path('deck/<slug:slug>/update/', DeckUpdateView.as_view(), name='deck-update'),

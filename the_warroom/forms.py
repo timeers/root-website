@@ -29,7 +29,7 @@ class GameCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Game
-        fields = ['solo', 'coop', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        fields = ['solo', 'coop', 'official', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -112,6 +112,8 @@ class GameCreateForm(forms.ModelForm):
                 validation_errors_to_display.append(f'{deck} Deck is not playable in {round.tournament}')
    
         if self.effort_formset.is_valid():
+           
+
             faction_roster = set()
             vagabond_roster = set()
             player_roster = set()
@@ -121,6 +123,22 @@ class GameCreateForm(forms.ModelForm):
             clockwork_count = 0
             human_count = 0
             coalition_count = 0
+
+            # Check that all game components are official
+            official_only = True
+            if not map.official or not deck.official:
+                official_only = False
+            elif landmarks:
+                for landmark in landmarks:
+                    if not landmark.official:
+                        official_only = False
+                        break
+            elif hirelings:
+                for hireling in hirelings:
+                    if not hireling.official:
+                        official_only = False
+                        break
+
 
             for effort_form in self.effort_formset.forms:
                 faction = effort_form.cleaned_data.get('faction')
@@ -155,12 +173,16 @@ class GameCreateForm(forms.ModelForm):
                         else:
                             validation_errors_to_display.append(f'{faction} selected twice') 
                     else:
+                        if not faction.official:
+                            official_only = False
                         faction_roster.add(faction)
                 if vagabond:
                     if vagabond in vagabond_roster:
                         # Error for duplicate vagabond
                         validation_errors_to_display.append(f'{vagabond} {faction} selected twice') 
                     else:
+                        if not vagabond.official:
+                            official_only = False
                         vagabond_roster.add(vagabond)
 
             # Winner Required
@@ -184,6 +206,12 @@ class GameCreateForm(forms.ModelForm):
                 cleaned_data['test_match'] = True
             else:
                 cleaned_data['test_match'] = False
+
+            if official_only:
+                cleaned_data['official'] = True
+            else:
+                cleaned_data['official'] = False
+
 
             if len(faction_roster) + max(0, vagabond_count-1) < 2:
                 validation_errors_to_display.append(f'Select at least two factions') 
@@ -354,6 +382,7 @@ class ScoreCardCreateForm(forms.ModelForm):
         # Call the parent constructor
         super(ScoreCardCreateForm, self).__init__(*args, **kwargs)
         # Check if faction is passed to the form
+
         if faction:
             self.fields['faction'].queryset = Faction.objects.filter(id=faction)
             self.fields['faction'].initial = faction  # Set the initial value of the faction
@@ -366,6 +395,16 @@ class ScoreCardCreateForm(forms.ModelForm):
         faction = cleaned_data.get('faction')
         if faction is None:
             raise forms.ValidationError("Faction cannot be empty.")
+        # if self.turn_formset.is_valid():
+        #     dominance = False
+        #     for turn_form in self.turn_formset:
+        #         print(turn_form)
+        #         # if turn_form.dominance:
+        #         #     dominance = True
+        #         #     break
+        #     self.dominance = dominance
+            
+
         return cleaned_data
 
 class EffortImportForm(forms.ModelForm):
@@ -387,7 +426,7 @@ class GameImportForm(forms.ModelForm):
 
     class Meta:
         model = Game
-        fields = ['deck', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
+        fields = ['deck', 'round', 'official', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
 
 
 
@@ -404,7 +443,7 @@ class AssignScorecardForm(forms.ModelForm):
     def __init__(self, *args, user=None, total_points=None, faction=None, selected_scorecard=None, dominance=False, **kwargs):
         # Call the parent constructor
         super(AssignScorecardForm, self).__init__(*args, **kwargs)
-        print(f'Selected Scorecard: {selected_scorecard}')
+        # print(f'Selected Scorecard: {selected_scorecard}')
         queryset = ScoreCard.objects.filter(
             Q(recorder=user.profile) & 
             Q(effort=None) & 
@@ -430,6 +469,32 @@ class AssignScorecardForm(forms.ModelForm):
         self.fields['scorecard'].queryset = queryset.distinct()
         self.fields['scorecard'].empty_label = None
 
+class AssignEffortForm(forms.ModelForm):  
+    effort = forms.ModelChoiceField(queryset=Effort.objects.all(), required=True)
+
+    class Meta:
+        model = ScoreCard
+        fields = ['effort']
+        widgets = {
+            'effort': forms.ModelChoiceField(queryset=ScoreCard.objects.all(), required=True),
+        }
+
+    def __init__(self, *args, selected_efforts, user=None, **kwargs):
+        # Call the parent constructor
+        super(AssignEffortForm, self).__init__(*args, **kwargs)
+        # print(f'Selected Scorecard: {selected_scorecard}')
+        self.fields['effort'].queryset = selected_efforts
+    #     self.fields['effort'].empty_label = None
+    #     # Customizing the display label for each effort choice
+    #     self.fields['effort'].label_from_instance = self.get_label_for_effort
+
+    # def get_label_for_effort(self, effort):
+    #     # You can customize the label here, for example combining multiple fields from the Effort model
+    #     formatted_date = effort.game.date_posted.strftime('%B %d, %Y')  # 'Month DD, YYYY'
+    #     return f"Player: {effort.player} - {formatted_date}"
+       
+
+
 
 class TournamentCreateForm(forms.ModelForm):
     PLATFORM_CHOICES = [
@@ -446,18 +511,24 @@ class TournamentCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Tournament
-        fields = ['name', 'start_date', 'end_date', 'max_players', 'min_players', 'game_threshold', 'platform', 'include_fan_content', 'include_clockwork', 'link_required', 'coalitions', 'teams']
+        fields = ['name', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'leaderboard_positions', 'game_threshold', 'platform', 'include_fan_content', 'include_clockwork', 'link_required', 'coalitions', 'teams']
         labels = {
             'name': 'Tournament Name',
             'start_date': 'Start Date',
             'end_date': 'End Date (Optional)',
-            'game_threshold': 'Leaderboard Threshold',
+            'leaderboard_positions': 'Leaderboard Positions',
+            'game_threshold': 'Leaderboard Game Threshold',
             'link_required': 'Require Link with Game Submission',
             'coalitions': 'Coalitions Allowed',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
+            'description': 'Description (Optional)',
         }
     def __init__(self, *args, **kwargs):
         super(TournamentCreateForm, self).__init__(*args, **kwargs)
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief description of the tournament.',
+            'rows': '2'
+            })
         # Set the initial value for 'start_date' to the current time
         if not self.instance.pk:  # Only set this if the instance is new
             self.fields['start_date'].initial = timezone.now()
@@ -497,11 +568,13 @@ class TournamentCreateForm(forms.ModelForm):
 class RoundCreateForm(forms.ModelForm):
     class Meta:
         model = Round
-        fields = ['name', 'round_number', 'start_date', 'end_date', 'game_threshold']
+        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'game_threshold']
         labels = {
             'name': 'Tournament Round Name',
             'round_number': 'Round #',
+            'end_date': 'End Date (Optional)',
             'game_threshold': 'Leaderboard Threshold',
+            'description': 'Description (Optional)',
         }
 
     def __init__(self, *args, tournament=None, current_round=None, **kwargs):
@@ -512,7 +585,10 @@ class RoundCreateForm(forms.ModelForm):
         # Store the tournament instance
         self.tournament = tournament
         super().__init__(*args, **kwargs)
-
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief description of the round.',
+            'rows': '2'
+            })
         self.fields['game_threshold'].initial = tournament.game_threshold
 
         # Set the initial value for 'start_date' to the current time

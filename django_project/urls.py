@@ -25,7 +25,7 @@ from the_keep.views import list_view, search_view
 from the_keep.api_views import get_options_for_platform
 from the_warroom.api_views import get_options_for_tournament
 from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline
-# from debug_toolbar.toolbar import debug_toolbar_urls
+from debug_toolbar.toolbar import debug_toolbar_urls
 
 
 urlpatterns = [
@@ -67,8 +67,9 @@ urlpatterns = [
     path('', include('the_warroom.urls')),
     path('accounts/', include('allauth.urls')),
 
+    path('__debug__/', include("debug_toolbar.urls")),
 
-] #+ debug_toolbar_urls()
+]# + debug_toolbar_urls()
 # Debug toolbar was not working
 
 if settings.DEBUG:

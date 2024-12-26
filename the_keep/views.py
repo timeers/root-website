@@ -60,27 +60,7 @@ from the_tavern.views import bookmark_toggle
 
 #         return qs
 
-# A list of one specific user's posts
-class UserPostListView(ListView):
-    model = Post
-    template_name = 'the_keep/user_posts.html'
-    context_object_name = 'posts'
-    paginate_by = 20
 
-    def get_queryset(self):
-        user = get_object_or_404(Profile, slug=self.kwargs.get('slug'))
-        return Post.objects.filter(designer=user).order_by('-date_updated')
-    
-# A list of one specific user's posts
-class ArtistPostListView(ListView):
-    model = Post
-    template_name = 'the_keep/user_posts.html'
-    context_object_name = 'posts'
-    paginate_by = 20
-
-    def get_queryset(self):
-        user = get_object_or_404(Profile, slug=self.kwargs.get('slug'))
-        return Post.objects.filter(artist=user).order_by('-date_updated')
 
 
 class ExpansionDetailView(DetailView):
@@ -138,30 +118,6 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")
             return redirect('expansion-detail', expansion.slug) 
-
-
-# @designer_required_class_based_view
-# def manage_expansion(request, slug=None):
-#     if slug:
-#         obj = get_object_or_404(Expansion, slug=slug)
-#     else:
-#         obj = Expansion()  # Create a new Game instance but do not save it yet
-#     user = request.user
-#     form = ExpansionCreateForm(request.POST or None, instance=obj, user=user)
-
-#     context = {
-#         'form': form,
-#         'object': obj,
-#     }
-#     # Handle form submission
-#     if form.is_valid():
-#         parent = form.save(commit=False)
-#         parent.designer = request.user.profile  # Set the recorder
-#         parent.save()  # Save the new or updated Game instance
-#         context['message'] = "Game Saved"
-#         return redirect(parent.get_absolute_url())
-    
-#     return render(request, 'the_keep/expansion_form.html', context)
 
 
 
@@ -347,43 +303,151 @@ def about(request, *args, **kwargs):
 
 
 
-class ComponentDetailListView(ListView):
-    detail_context_object_name = 'object'
-    # template_name = 'the_keep/component_detail_list.html'
-    paginate_by = settings.PAGE_SIZE
+# class ComponentDetailListView(ListView):
+#     detail_context_object_name = 'object'
+#     # template_name = 'the_keep/component_detail_list.html'
+#     paginate_by = settings.PAGE_SIZE
     
-    def get(self, request, *args, **kwargs):
-        self.object = self.get_object()  # Set the object here
-        return super(ComponentDetailListView, self).get(request, *args, **kwargs)
+#     def get(self, request, *args, **kwargs):
+#         self.object = self.get_object()  # Set the object here
+#         return super(ComponentDetailListView, self).get(request, *args, **kwargs)
 
-    def get_template_names(self):
-        if self.request.htmx:
-            return 'the_keep/partials/game_list.html'
-        return 'the_keep/component_detail_list.html'
+#     def get_template_names(self):
+#         if self.request.htmx:
+#             return 'the_keep/partials/game_list.html'
+#         return 'the_keep/component_detail_list.html'
 
-    def get_queryset(self):
-        if not hasattr(self, 'object'):
-            self.object = self.get_object()  # Ensure the object is set
-        if not self.request.user.is_authenticated:
-            queryset = self.object.get_games_queryset().only_official_components()
-        else:
-            # If show official only if user is not a member of Weird Root
-            if self.request.user.profile.weird:
-                queryset = self.object.get_games_queryset()
-            else:
-                queryset = self.object.get_games_queryset().only_official_components()
+#     # def get_queryset(self):
+#     #     if not hasattr(self, 'object'):
+#     #         self.object = self.get_object()  # Ensure the object is set
+#     #     if not self.request.user.is_authenticated:
+#     #         queryset = self.object.get_games_queryset().filter(official=True)
+#     #         # queryset = self.object.get_games_queryset().only_official_components()
+#     #     else:
+#     #         # If show official only if user is not a member of Weird Root
+#     #         if self.request.user.profile.weird:
+#     #             queryset = self.object.get_games_queryset()
+#     #         else:
+#     #             queryset = self.object.get_games_queryset().filter(official=True)
+#     #             # queryset = self.object.get_games_queryset().only_official_components()
 
-        self.filterset = GameFilter(self.request.GET, queryset=queryset)
-        return self.filterset.qs
+#         # self.filterset = GameFilter(self.request.GET, queryset=queryset)
+#         # return self.filterset.qs
+#     def get_queryset(self):
+#         queryset = self.object.get_games_queryset()  # Use self.object, no need for re-fetching
+#         if not self.request.user.is_authenticated:
+#             queryset = queryset.filter(official=True)
+#         else:
+#             if self.request.user.profile.weird:
+#                 queryset = queryset
+#             else:
+#                 queryset = queryset.filter(official=True)
+
+#         self.filterset = GameFilter(self.request.GET, queryset=queryset)
+#         return self.filterset.qs
+
+#     def get_object(self):
+#         # Retrieve the faction based on the primary key
+#         slug = self.kwargs.get('slug')
+#         if slug is None:
+#             raise Http404('Slug is required in the URL.')
+#         post = get_object_or_404(Post, slug=self.kwargs.get('slug'))
+#         component_mapping = {
+#             "Map": Map,
+#             "Deck": Deck,
+#             "Landmark": Landmark,
+#             "Hireling": Hireling,
+#             "Vagabond": Vagabond,
+#             "Faction": Faction,
+#             "Clockwork": Faction,
+#         }
+#         Klass = component_mapping.get(post.component)
+#         return get_object_or_404(Klass, slug=slug)
+
+#     def get_context_data(self, **kwargs):
+#         context = super(ComponentDetailListView, self).get_context_data(**kwargs)
+#         context[self.detail_context_object_name] = self.object
+#         commentform = PostCommentCreateForm()
+#         # Get the ordered queryset of games
+#         games = self.get_queryset().prefetch_related('efforts')
+#         # Initialize variables for aggregate data
+#         win_count = 0
+#         coalition_count = 0
+#         win_rate = 0
+#         tourney_points = 0
+#         total_efforts = 0
+
+#         # Get top players for factions
+#         top_players = []
+#         most_players = []
+
+#         # If loading the initial page or filtering results run this calculation
+#         # If just getting the next page we can skip this
+#         if not self.request.GET.get('page'):
+#             if self.object.component == "Faction":
+#                 top_players = Profile.top_players(faction_id=self.object.id, limit=5)
+#                 most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
 
 
-    def get_object(self):
-        # Retrieve the faction based on the primary key
-        slug = self.kwargs.get('slug')
-        if slug is None:
-            raise Http404('Slug is required in the URL.')
-        post = get_object_or_404(Post, slug=self.kwargs.get('slug'))
-        component_mapping = {
+#                 game_values = games.aggregate(
+#                     total_efforts=Count('efforts', filter=Q(efforts__faction=self.object)),
+#                     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=self.object)),
+#                     coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=self.object))
+#                 )
+            
+#                 # Access the aggregated values from the dictionary returned by .aggregate()
+#                 total_efforts = game_values['total_efforts']
+#                 win_count = game_values['win_count']
+#                 coalition_count = game_values['coalition_count']
+#                 if total_efforts > 0:
+#                     win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
+#                 else:
+#                     win_rate = 0
+#                 tourney_points = win_count - (coalition_count / 2)
+
+
+#         # Paginate games
+#         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
+#         page_number = self.request.GET.get('page')  # Get the page number from the request
+
+#         try:
+#             page_obj = paginator.get_page(page_number)  # Get the specific page of games
+#         except EmptyPage:
+#             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+#         # Prepare the context dictionary
+#         context_data = {
+#             'games_total': games.count(),
+#             'games': page_obj,  # Pagination applied here
+#             'is_paginated': len(games) > self.paginate_by,
+#             'page_obj': page_obj,  # Pass the paginated page object to the context
+#             'commentform': commentform,
+#             'form': self.filterset.form,
+#             'filterset': self.filterset,
+#             'top_players': top_players,
+#             'most_players': most_players,
+#             'win_count': win_count,
+#             'coalition_count': coalition_count,
+#             'win_rate': win_rate,
+#             'tourney_points': tourney_points,
+#             'total_efforts': total_efforts
+#         }
+
+#         # Update the context with the context_data
+#         context.update(context_data)                        
+
+        
+#         return context
+
+
+
+
+
+
+
+def ultimate_component_view(request, slug):
+    post = get_object_or_404(Post, slug=slug)
+    component_mapping = {
             "Map": Map,
             "Deck": Deck,
             "Landmark": Landmark,
@@ -392,104 +456,100 @@ class ComponentDetailListView(ListView):
             "Faction": Faction,
             "Clockwork": Faction,
         }
-        Klass = component_mapping.get(post.component)
-        return get_object_or_404(Klass, slug=slug)
-
-    def get_context_data(self, **kwargs):
-        context = super(ComponentDetailListView, self).get_context_data(**kwargs)
-        context[self.detail_context_object_name] = self.object
-        commentform = PostCommentCreateForm()
-        # Get the ordered queryset of games
-        games = self.get_queryset()
-        # Initialize variables for aggregate data
-        win_count = 0
-        coalition_count = 0
-        win_rate = 0
-        tourney_points = 0
-        total_efforts = 0
-
-        # Get top players for factions
-        top_players = []
-        most_players = []
-
-        # If loading the initial page or filtering results run this calculation
-        # If just getting the next page we can skip this
-        if not self.request.GET.get('page'):
-            if self.object.component == "Faction":
-                top_players = Profile.top_players(faction_id=self.object.id, limit=5)
-                most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
-
-            if self.object.component == "Faction" or self.object.component == "Vagabond":
-                for game in games:
-                    for effort in game.efforts.all():
-                        if self.object.component == "Faction":
-                            if effort.faction == self.object:
-                                total_efforts += 1
-                                if effort.win:
-                                    win_count += 1
-                                    if game.coalition_win:
-                                        coalition_count += 1
-                        else:
-                            if effort.faction.title == "Vagabond" and effort.vagabond == self.object:
-                                total_efforts += 1
-                                if effort.win:
-                                    win_count += 1
-                                    if game.coalition_win:
-                                        coalition_count += 1
-
-                if total_efforts > 0:
-                    win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
-                else:
-                    win_rate = 0
-                tourney_points = win_count - (coalition_count / 2)
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=slug)
 
 
-        # Paginate games
-        paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
-        page_number = self.request.GET.get('page')  # Get the page number from the request
 
-        try:
-            page_obj = paginator.get_page(page_number)  # Get the specific page of games
-        except EmptyPage:
-            page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-        # context['games_total'] = games.count()
-        # context['games'] = page_obj  # Pass the paginated page object to the context
-        # context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
-        # context['page_obj'] = page_obj  # Pass the page_obj to the context
-        # context['commentform'] = commentform
-        # context['form'] = self.filterset.form
-        # context['filterset'] = self.filterset    
-        # context['top_players'] = top_players 
-        # context['most_players'] = most_players 
-        # context['win_count'] = win_count
-        # context['coalition_count'] = coalition_count
-        # context['win_rate'] = win_rate
-        # context['tourney_points'] = tourney_points
-        # context['total_efforts'] = total_efforts
+    # Start with the base queryset
+    games = object.get_games_queryset()
 
-        # Prepare the context dictionary
-        context_data = {
-            'games_total': games.count(),
-            'games': page_obj,  # Pagination applied here
-            'is_paginated': len(games) > self.paginate_by,
-            'page_obj': page_obj,  # Pass the paginated page object to the context
-            'commentform': commentform,
-            'form': self.filterset.form,
-            'filterset': self.filterset,
-            'top_players': top_players,
-            'most_players': most_players,
-            'win_count': win_count,
-            'coalition_count': coalition_count,
-            'win_rate': win_rate,
-            'tourney_points': tourney_points,
-            'total_efforts': total_efforts
-        }
+    # Apply the conditional filter if needed
+    if not request.user.profile.weird:
+        games = games.filter(official=True)
 
-        # Update the context with the context_data
-        context.update(context_data)                        
+    # Apply distinct and prefetch_related to all cases  
+    prefetch_values = [
+        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+        'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    ]
+    games = games.distinct().prefetch_related(*prefetch_values)
 
-        
-        return context
+
+    commentform = PostCommentCreateForm()
+    game_filter = GameFilter(request.GET, user=request.user, queryset=games)
+
+    # Get the filtered queryset
+    filtered_games = game_filter.qs.distinct()
+    # Get top players for factions
+    top_players = []
+    most_players = []
+    win_count = 0
+    coalition_count = 0
+    win_rate = 0
+    tourney_points = 0
+    total_efforts = 0
+
+    # On first load get faction and VB Stats
+    page_number = request.GET.get('page')  # Get the page number from the request
+    if not page_number:
+        if object.component == "Faction":
+            top_players = Profile.top_players(faction_id=object.id, limit=5)
+            most_players = Profile.top_players(faction_id=object.id, limit=5, top_quantity=True, game_threshold=1)
+            game_values = filtered_games.aggregate(
+                        total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
+                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
+                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
+                    )
+        if object.component == "Vagabond":
+            game_values = filtered_games.aggregate(
+                        total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
+                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__vagabond=object)),
+                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__vagabond=object))
+                    )
+        if object.component == "Faction" or object.component == "Vagabond":
+            # Access the aggregated values from the dictionary returned by .aggregate()
+            total_efforts = game_values['total_efforts']
+            win_count = game_values['win_count']
+            coalition_count = game_values['coalition_count']
+        if total_efforts > 0:
+            win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
+        else:
+            win_rate = 0
+        tourney_points = win_count - (coalition_count / 2)
+
+
+
+    # Paginate games
+    paginate_by = settings.PAGE_SIZE
+    paginator = Paginator(filtered_games, paginate_by)  # Use the queryset directly
+    try:
+        page_obj = paginator.get_page(page_number)  # Get the specific page of games
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+    context = {
+        'object': object,
+        'games_total': games.count(),
+        'filtered_games': filtered_games.count(),
+        'games': page_obj,  # Pagination applied here
+        'is_paginated': len(filtered_games) > paginate_by,
+        'page_obj': page_obj,  # Pass the paginated page object to the context
+        'commentform': commentform,
+        'form': game_filter.form,
+        'filterset': game_filter,
+        'top_players': top_players,
+        'most_players': most_players,
+        'win_count': win_count,
+        'coalition_count': coalition_count,
+        'win_rate': win_rate,
+        'tourney_points': tourney_points,
+        'total_efforts': total_efforts,
+    }
+    if request.htmx:
+            return render(request, 'the_keep/partials/game_list.html', context)
+    return render(request, 'the_keep/component_detail_list.html', context)
+
 
 
 @login_required
@@ -540,12 +600,12 @@ def _search_components(request, slug=None):
     designer = request.GET.get('designer') 
     page = request.GET.get('page')
     if not request.user.is_authenticated:
-        posts = Post.objects.filter(official=True)
+        posts = Post.objects.filter(official=True).prefetch_related('designer')
     else:
         if request.user.profile.weird:
-            posts = Post.objects.all()
+            posts = Post.objects.all().prefetch_related('designer')
         else:
-            posts = Post.objects.filter(official=True)
+            posts = Post.objects.filter(official=True).prefetch_related('designer')
     if slug:
         player = get_object_or_404(Profile, slug=slug)
         posts = posts.filter(designer=player)

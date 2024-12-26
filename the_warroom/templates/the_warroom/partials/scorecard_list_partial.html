@@ -33,49 +33,19 @@
 
         <td>
 
-            <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
+            <a class="btn btn-outline-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
                 <i class="bi bi-pencil-square"></i>
             </a>
 
         </td>
         <td>
-            <button class="btn btn-outline-info btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ object.id }}" aria-expanded="false" aria-controls="collapse-{{ object.id }}">
+
+            <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">
                 <i class="bi bi-info-circle"></i>
-            </button>
+            </a>
         </td>
 </tr>
 
-<!-- Hidden row that will be shown when the button is clicked -->
-<tr id="collapse-{{ object.id }}" class="collapse">
-    <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
-        <div class="card card-body">
-            <!-- Hidden content -->
-            {% with object.effort.game as game %}
-            
-            {% include 'the_warroom/partials/game_detail_button.html' %}
-            
-            {% endwith %}
-        </div>
-    </td>
-</tr>
-<tr id="collapse-{{ object.id }}" class="collapse">
-    <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
-        <div class="card card-body">
-            <!-- Hidden content -->
-            {% include 'the_warroom/partials/scorecard.html' %}
-        </div>
-    </td>
-
-
-
-
-
-
-
-
-
-
-        </tr>
 {% empty %}
     No Scorecards.
 {% endfor %}

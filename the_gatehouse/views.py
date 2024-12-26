@@ -79,8 +79,9 @@ def designer_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
-        if request.user.profile.designer:
-            if request.user.profile.designer_onboard == False:
+        profile = request.user.profile
+        if profile.designer:
+            if profile.designer_onboard == False:
                 return redirect('onboard-user', user_type = 'designer')
             else:
                 return view_func(request, *args, **kwargs) 
@@ -200,7 +201,7 @@ def designer_component_view(request, slug):
         components = designer.posts.filter(component__icontains=component)
     else:
         components = designer.posts.all()
-    print(f'Components: {components.count()}')
+    # print(f'Components: {components.count()}')
     # Get the total count of components (total posts matching the filter)
     total_count = components.count()
  
@@ -211,7 +212,7 @@ def designer_component_view(request, slug):
     page_number = request.GET.get('page')  # e.g., ?page=2
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
 
-    print(f'Page: {page_number}')
+    # print(f'Page: {page_number}')
     context = {
         'posts': page_obj,
         'total_count': total_count,  # Pass the total count to the template
@@ -222,7 +223,7 @@ def designer_component_view(request, slug):
 
     if request.htmx:
         return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
- 
+    return render(request, "the_gatehouse/partials/profile_post_list.html", context)  
     return redirect('player-detail', slug=slug)
 
 
@@ -241,7 +242,7 @@ def artist_component_view(request, slug):
         components = artist.artist_posts.filter(component__icontains=component)
     else:
         components = artist.artist_posts.all()
-    print(f'Components: {components.count()}')
+    # print(f'Components: {components.count()}')
     # Get the total count of components (total posts matching the filter)
     total_count = components.count()
  
@@ -250,20 +251,21 @@ def artist_component_view(request, slug):
  
     # Get the current page number from the request (default to 1)
     page_number = request.GET.get('page')  # e.g., ?page=2
+    # print("Page", page_number)
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
 
-    print(f'Page: {page_number}')
+    # print(f'Page: {page_number}')
     context = {
         'posts': page_obj,
         'total_count': total_count,  # Pass the total count to the template
-        'bookmark_page': False,
+        'artist_page': True,
         'player': artist,
     }
 
 
     if request.htmx:
         return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
- 
+    return render(request, "the_gatehouse/partials/profile_post_list.html", context) 
     return redirect('player-detail', slug=slug)
 
 
@@ -287,7 +289,7 @@ def post_bookmarks(request, slug):
     Post = apps.get_model('the_keep', 'Post')
     components = Post.objects.filter(postbookmark__player=request.user.profile)
     
-    print(f'Components: {components.count()}')
+    # print(f'Components: {components.count()}')
     # Get the total count of components (total posts matching the filter)
     total_count = components.count()
  
@@ -297,7 +299,7 @@ def post_bookmarks(request, slug):
     # Get the current page number from the request (default to 1)
     page_number = request.GET.get('page')  # e.g., ?page=2
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
-    print(f'Page: {page_number}')
+    # print(f'Page: {page_number}')
     context = {
         'posts': page_obj,
         'total_count': total_count,  # Pass the total count to the template
@@ -306,7 +308,7 @@ def post_bookmarks(request, slug):
     }
     if request.htmx:
         return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
- 
+    return render(request, "the_gatehouse/partials/profile_post_list.html", context)
     return redirect('player-detail', slug=slug)
 
 @login_required
@@ -335,6 +337,7 @@ def game_bookmarks(request, slug):
     }
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
+    return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
     return redirect('player-detail', slug=slug)
 
 
@@ -344,7 +347,8 @@ def game_list(request, slug):
     if request.user.profile.weird :
         games = player.get_games_queryset()
     else:
-        games = player.get_games_queryset().only_official_components()
+        games = player.get_games_queryset().filter(official=True)
+        # games = player.get_games_queryset().only_official_components()
     
     # print(f'games: {games.count()}')
     # Get the total count of games (total posts matching the filter)
@@ -386,6 +390,7 @@ def game_list(request, slug):
     }
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
+    return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
     return redirect('player-detail', slug=slug)
 
 @login_required
@@ -459,7 +464,7 @@ def onboard_decline(request, user_type=None):
     if request.method == 'POST':
         profile = request.user.profile
         # Refused admin become designers. Refused designers become players. Refused players become banned (deactivated)
-        print(decline_type)
+        # print(decline_type)
         if decline_type:
             if decline_type == "T":
                 profile.tester = False
@@ -513,16 +518,16 @@ def player_stats(request, slug):
     else:
         efforts = Effort.objects.filter(player=player, game__test_match=False)
 
-    game_threshold = 1
-    if not tournament and not round:
-        if efforts.count() > 200:
-            game_threshold = 10
-        elif efforts.count() > 100:
-            game_threshold = 5
-        elif efforts.count() > 10:
-            game_threshold = 2
-        else:
-            game_threshold = 1
+    game_threshold = 2
+    # if not tournament and not round:
+    #     if efforts.count() > 200:
+    #         game_threshold = 10
+    #     elif efforts.count() > 100:
+    #         game_threshold = 5
+    #     elif efforts.count() > 10:
+    #         game_threshold = 2
+    #     else:
+    #         game_threshold = 1
 
     # print(f"{player.name} Game Threshold {game_threshold}")
 

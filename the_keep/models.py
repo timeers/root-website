@@ -172,6 +172,24 @@ class Post(models.Model):
         except Exception as e:
             print(f"Error resizing image: {e}")
 
+    def get_absolute_url(self):
+        match self.component:
+            case "Map":
+                return reverse('map-detail', kwargs={'slug': self.slug})
+            case "Deck":
+                return reverse('deck-detail', kwargs={'slug': self.slug})
+            case "Landmark":
+                return reverse('landmark-detail', kwargs={'slug': self.slug})
+            case "Hireling":
+                return reverse('hireling-detail', kwargs={'slug': self.slug})        
+            case "Vagabond":
+                return reverse('vagabond-detail', kwargs={'slug': self.slug})
+            case "Clockwork":
+                return reverse('clockwork-detail', kwargs={'slug': self.slug})
+            case _:
+                return reverse('faction-detail', kwargs={'slug': self.slug})
+
+
 
     def add_change(self, note):
         changes = json.loads(self.change_log)
@@ -204,11 +222,11 @@ class Post(models.Model):
         match self.component:
             case "Map" | "Deck" | "Landmark" | "Hireling":
                 return self.games.order_by('-date_posted')  # Return a queryset directly
-            case "Faction" | "Vagabond":
-                # Use a queryset with an annotation to ensure ordering
-                efforts = self.efforts.all()
-                games = Game.objects.filter(id__in=[effort.game.id for effort in efforts]).order_by('-date_posted')
-                return games  # This ensures it's a sorted queryset
+            case "Vagabond":
+                return Game.objects.filter(efforts__vagabond=self)
+            case "Faction":
+                return Game.objects.filter(efforts__faction=self)
+
             case _:
                 return Game.objects.none()  # No games if no component matches
             
@@ -263,18 +281,18 @@ class Deck(Post):
         self.component = 'Deck'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
 
-    def get_absolute_url(self):
-        return reverse('deck-detail', kwargs={'slug': self.slug})
+    # def get_absolute_url(self):
+    #     return reverse('deck-detail', kwargs={'slug': self.slug})
 
 
 
 class Landmark(Post):
-    card_text = models.TextField()
+    card_text = models.TextField(blank=True, null=True)
     def save(self, *args, **kwargs):
         self.component = 'Landmark'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
-    def get_absolute_url(self):
-        return reverse('landmark-detail', kwargs={'slug': self.slug})
+    # def get_absolute_url(self):
+    #     return reverse('landmark-detail', kwargs={'slug': self.slug})
 
 class Map(Post):
     clearings = models.IntegerField(default=12)
@@ -286,9 +304,9 @@ class Map(Post):
             self.picture = 'default_images/default_map.png'
         super().save(*args, **kwargs)  # Call the parent save method
 
-# This might need to be moved to each type of component? map-detail, deck-detail etc.
-    def get_absolute_url(self):
-        return reverse('map-detail', kwargs={'slug': self.slug})
+# # This might need to be moved to each type of component? map-detail, deck-detail etc.
+#     def get_absolute_url(self):
+#         return reverse('map-detail', kwargs={'slug': self.slug})
 
 
 
@@ -333,8 +351,8 @@ class Vagabond(Post):
 
 
 
-    def get_absolute_url(self):
-        return reverse('vagabond-detail', kwargs={'slug': self.slug})
+    # def get_absolute_url(self):
+    #     return reverse('vagabond-detail', kwargs={'slug': self.slug})
     
     def wins(self):
         plays = self.get_plays_queryset()
@@ -398,8 +416,11 @@ class Faction(Post):
             self.component = 'Faction'  # Set the component type
         super().save(*args, **kwargs)  # Call the parent save method
 
-    def get_absolute_url(self):
-        return reverse('faction-detail', kwargs={'slug': self.slug})
+    # def get_absolute_url(self):
+    #     if self.component == 'Clockwork':
+    #         return reverse('clockwork-detail', kwargs={'slug': self.slug})
+    #     else:
+    #         return reverse('faction-detail', kwargs={'slug': self.slug})
     
     def wins(self):
         plays = self.get_plays_queryset()
@@ -482,7 +503,8 @@ class Faction(Post):
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]
 
-
+    class Meta:
+        ordering = ['-component', '-official', '-stable', '-date_posted']
 
 
 class Hireling(Post):
@@ -499,8 +521,8 @@ class Hireling(Post):
             self.picture = animal_default_picture(self)
 
         super().save(*args, **kwargs)  # Call the parent save method
-    def get_absolute_url(self):
-        return reverse('hireling-detail', kwargs={'slug': self.slug})
+    # def get_absolute_url(self):
+    #     return reverse('hireling-detail', kwargs={'slug': self.slug})
     
 # Game Pieces for Factions and Hirelings
 class Piece(models.Model):

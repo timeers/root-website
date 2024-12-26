@@ -55,7 +55,54 @@
     
     
         {% for effort in game.get_efforts %}
-                {% include 'the_warroom/partials/effort_detail_button.html' %}
+        <tr {% if effort == effort_link %} class="alert alert-success" style="font-weight: bold;" {% endif %}>
+            <td>
+        
+                {% if effort.player %}
+                    {% if user.profile.player %}
+                        {{ effort.player.name }}
+                    {% else %}
+                        {{ effort.player.name }}
+                    {% endif %}
+                {% else %}
+                    {% if effort.faction.type == "C" %}
+                    Clockwork
+                    {% else %}
+                    Anonymous Player
+                    {% endif %}
+                {% endif %}
+            </td>
+            <td>
+                {% if effort.faction %}
+                        <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
+                    {{ effort.faction }}
+                    {% if effort.vagabond %}
+                        ({{ effort.vagabond }})
+                    {% endif %}
+                {% else %}
+                    Faction N/A
+                {% endif %}
+            </td>
+            <td>
+                {% if effort.dominance %}
+                    <img class="faction-icon"  
+                        src="/media/default_images/{{ effort.dominance }}_Icon.png" 
+                        alt="{{ effort.dominance }} Dominance">
+                {% elif effort.coalition_with %}
+                    <img class="faction-icon" 
+                        src="{{ effort.coalition_with.small_icon.url }}"
+                        alt="{{ effort.coalition_with.title }} Icon">
+                {% else %}
+                    {% if effort.score %}
+                        {{ effort.score }}
+                    {% endif %}
+                {% endif %}
+                {% if effort.win %}
+                    <img class="faction-icon"  src="/media/winner.png" alt="Win">
+                {% endif %}
+        
+            </td>
+        </tr>
         {% endfor %}
     
     

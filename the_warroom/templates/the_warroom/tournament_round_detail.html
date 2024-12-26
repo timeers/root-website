@@ -61,52 +61,58 @@
             {% endif %}
             
             {% with 'Round' as type %}
-            {% include 'the_warroom/partials/tournament_list_header.html' %}
+                {% include 'the_warroom/partials/tournament_list_header.html' %}
             {% endwith %}
-
-
-            {% if active.count > 0 %}
-            {% with 'Current' as title %}
-                {% include 'the_warroom/partials/tournament_line_divide.html' %}
-            {% endwith %}
-            {% for tournament in active %}
-                {% include 'the_warroom/partials/tournament_link.html' %}
-            {% endfor %}
-            {% endif %}
 
 
             {% if future.count > 0 %}
-            {% if user.profile.admin %}
-            {% with 'Future' as title %}
-                {% include 'the_warroom/partials/tournament_line_divide.html' %}
-            {% endwith %}
-            {% for tournament in future %}
-                {% include 'the_warroom/partials/tournament_link.html' %}
-            {% endfor %}
+                {% if user.profile.admin %}
+                    {% with 'Future' as title %}
+                        {% include 'the_warroom/partials/tournament_line_divide.html' %}
+                    {% endwith %}
+                    {% for tournament in future %}
+                        {% include 'the_warroom/partials/tournament_link.html' %}
+                    {% endfor %}
+                {% endif %}
             {% endif %}
+
+
+            {% if active.count > 0 %}
+                {% with 'Current' as title %}
+                    {% include 'the_warroom/partials/tournament_line_divide.html' %}
+                {% endwith %}
+                {% for tournament in active %}
+                    {% include 'the_warroom/partials/tournament_link.html' %}
+                {% endfor %}
             {% endif %}
+
+
+
 
 
             {% if past.count > 0 %}
-            {% with 'Past' as title %}
-                {% include 'the_warroom/partials/tournament_line_divide.html' %}
-            {% endwith %}
-            {% for tournament in past %}
-                {% include 'the_warroom/partials/tournament_link.html' %}
-            {% endfor %}
+                {% with 'Past' as title %}
+                    {% include 'the_warroom/partials/tournament_line_divide.html' %}
+                {% endwith %}
+                {% for tournament in past %}
+                    {% include 'the_warroom/partials/tournament_link.html' %}
+                {% endfor %}
             {% endif %}
 
 
             {% if past.count == 0 and active.count == 0 %}
-            {% with 'Current' as title %}
-                {% include 'the_warroom/partials/tournament_line_empty.html' %}
-            {% endwith %}
+                {% with 'Current' as title %}
+                    {% include 'the_warroom/partials/tournament_line_empty.html' %}
+                {% endwith %}
             {% endif %}
+
             {% include 'the_warroom/partials/tournament_list_footer.html' %}
                 </div>
             </article>
         </div>
+
         {% else %}
+
         <!-- Games -->
         <div class="tab-pane fade" id="games" role="tabpanel" aria-labelledby="games-tab">
             
@@ -175,7 +181,7 @@
         {% else %}
         <article class="media content-section">
             <div class="media-body">
-            <div>No Stats</div>
+            <div>No Players above Game Threshold</div>
             {% if object.game_threshold > 0 %}
             <small class="mb-2">*Leaderboard Threshold of {{ object.game_threshold }}</small>
             {% endif %}
@@ -358,12 +364,58 @@
 {% block scripts %}
 <script>
     
+
+
+    // Function to update the hx-trigger of elements in all tabs
+    function updateHxTriggers() {
+        // Find all tab panes (both active and inactive)
+        var tabPanes = document.querySelectorAll('.tab-pane');
+
+        // Iterate through each tab pane
+        tabPanes.forEach(function (tabPane) {
+            // Find all elements with hx-trigger inside the current tab
+            var hxElements = tabPane.querySelectorAll('[hx-trigger]');
+
+            // Check if this tab is active
+            if (tabPane.classList.contains('active')) {
+                // If the tab is active, set 'hx-trigger' to 'revealed'
+                hxElements.forEach(function (el) {
+                    el.setAttribute('hx-trigger', 'revealed');
+                });
+            } else {
+                // If the tab is inactive, set 'hx-trigger' to 'click'
+                hxElements.forEach(function (el) {
+                    el.setAttribute('hx-trigger', 'click');
+                });
+            }
+        });
+    }
+    
+    // // Listen for Bootstrap's shown.bs.tab event
+    // $('#tournamentTabs a').on('shown.bs.tab', function (e) {
+    //     // Call the function to update hx-trigger for elements in the active tab
+    //     updateHxTriggers();
+    // });
+
+
+    var tabLinks = document.querySelectorAll('#tournamentTabs a');
+    tabLinks.forEach(function (link) {
+        link.addEventListener('shown.bs.tab', function (e) {
+            console.log("Tab is shown!");
+            updateHxTriggers();
+        });
+    });
+
+
+
+
     // Wait until the DOM is fully loaded
     document.addEventListener('DOMContentLoaded', function () {
         // Check if there's a fragment identifier in the URL (after #)
         var currentTab = window.location.hash;
 
-
+        updateHxTriggers();
+        console.log("Update Triggers")
 
         // If a hash exists in the URL, activate the corresponding tab
         if (currentTab) {
@@ -383,17 +435,17 @@
             }
         }
 
-       // Update the URL hash when a tab is changed without causing a scroll jump
-        var tabList = document.querySelectorAll('#tournamentTabs a');
-        tabList.forEach(function (tab) {
-            tab.addEventListener('shown.bs.tab', function (event) {
-                // Update the browser's URL fragment to reflect the active tab
-                var newHash = event.target.getAttribute('href');
+    //    // Update the URL hash when a tab is changed without causing a scroll jump
+    //     var tabList = document.querySelectorAll('#tournamentTabs a');
+    //     tabList.forEach(function (tab) {
+    //         tab.addEventListener('shown.bs.tab', function (event) {
+    //             // Update the browser's URL fragment to reflect the active tab
+    //             var newHash = event.target.getAttribute('href');
                 
-                // Use history.pushState to update the URL without jumping
-                history.pushState(null, null, newHash);
-            });
-        });
+    //             // Use history.pushState to update the URL without jumping
+    //             history.pushState(null, null, newHash);
+    //         });
+    //     });
     });
 </script>
 
