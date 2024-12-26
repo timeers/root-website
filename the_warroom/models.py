@@ -411,13 +411,42 @@ class ScoreCard(models.Model):
     total_crafting_points = models.IntegerField(default=0)
     total_faction_points = models.IntegerField(default=0)
     total_other_points = models.IntegerField(default=0)
+    dominance = models.BooleanField(default=False)
 
     # dominance = models.BooleanField(default=False)
 
-    @property
-    def dominance(self):
-        return self.turns.filter(dominance=True).exists()
+    # @property
+    # def dominance(self):
+    #     return self.turns.filter(dominance=True).exists()
 
+    def efforts_available(self):
+        
+        if self.dominance:
+            # If self.dominance is True, filter for efforts where dominance is not null
+            available_efforts = Effort.objects.filter(
+                Q(game__efforts__player=self.recorder) |  # Player is linked to the game
+                Q(game__recorder=self.recorder),  # Recorder is the current user
+                scorecard=None, faction=self.faction,  # Effort has no associated scorecard
+                dominance__isnull=False
+            ).exists()
+            print(f'Faction: {self.faction} - Dominance')
+        else:
+            # If self.dominance is False, filter for efforts with no dominance and score matching
+            available_efforts = Effort.objects.filter(
+                Q(game__efforts__player=self.recorder) |  # Player is linked to the game
+                Q(game__recorder=self.recorder),  # Recorder is the current user
+                scorecard=None, faction=self.faction,
+                score=self.total_points  # Effort has no associated scorecard
+            ).exists()
+            print(f'Faction: {self.faction} - No Dominance')
+
+
+
+        print(f'Faction: {self.faction} - Match: {available_efforts}')
+        
+        return available_efforts
+
+    
     def __str__(self):
         if self.description:
             if len(self.description) > 10:
@@ -455,11 +484,22 @@ class TurnScore(models.Model):
             super().save(*args, **kwargs)
             if self.scorecard:
                 scorecard = self.scorecard
-                scorecard.total_points = scorecard.turns.aggregate(Sum('total_points'))['total_points__sum'] or 0
-                scorecard.total_battle_points = scorecard.turns.aggregate(Sum('battle_points'))['battle_points__sum'] or 0
-                scorecard.total_crafting_points = scorecard.turns.aggregate(Sum('crafting_points'))['crafting_points__sum'] or 0
-                scorecard.total_faction_points = scorecard.turns.aggregate(Sum('faction_points'))['faction_points__sum'] or 0
-                scorecard.total_other_points = scorecard.turns.aggregate(Sum('other_points'))['other_points__sum'] or 0
+                aggregate_values = scorecard.turns.aggregate(
+                total_points=Sum('total_points'),
+                total_battle_points=Sum('battle_points'),
+                total_crafting_points=Sum('crafting_points'),
+                total_faction_points=Sum('faction_points'),
+                total_other_points=Sum('other_points'),
+            )
+
+                scorecard.total_points = aggregate_values['total_points'] or 0
+                scorecard.total_battle_points = aggregate_values['total_battle_points'] or 0
+                scorecard.total_crafting_points = aggregate_values['total_crafting_points'] or 0
+                scorecard.total_faction_points = aggregate_values['total_faction_points'] or 0
+                scorecard.total_other_points = aggregate_values['total_other_points'] or 0
+                any_dominance_true = scorecard.turns.filter(dominance=True).exists()
+                scorecard.dominance = any_dominance_true
+                print(any_dominance_true)
                 scorecard.save()
 
 

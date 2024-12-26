@@ -503,7 +503,8 @@ class Faction(Post):
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]
 
-
+    class Meta:
+        ordering = ['-component', '-official', '-stable', '-date_posted']
 
 
 class Hireling(Post):

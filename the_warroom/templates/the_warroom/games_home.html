@@ -1,4 +1,4 @@
-<!-- {% extends 'the_keep/base.html' %} -->
+{% extends 'the_keep/base.html' %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>Games</h1>
@@ -14,20 +14,28 @@
 
 
 
-    <form hx-get="{% url 'games-home' %}" 
+    <form class="card" hx-get="{% url 'games-home' %}" 
             hx-target="#games-container"
             hx-swap="outerHTML"
             id="gamefilterform">
-        Map:
-        {{ form.map }}
+        <div class="mb-1">
+            Map:
+            {{ form.map }}
+        </div>    
+        <div class="mb-1">
         Deck:
-        {{ form.deck }}<br>
+        {{ form.deck }}
+        </div>
+        <div class="mb-1">
         Factions:
         {{ form.faction }}
         Vagabonds:
-        {{ form.vagabond }}<br>
+        {{ form.vagabond }}
+        </div>
+        <div class="mb-1">
         Players:
         {{ form.player }}
+        </div>
 
         <button class="btn btn-primary mb-3">Filter</button>
     </form>

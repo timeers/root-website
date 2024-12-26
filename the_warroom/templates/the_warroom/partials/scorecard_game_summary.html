@@ -1,0 +1,115 @@
+
+
+
+<article class="media content-section" id="game-{{ game.id }}">
+    
+    <div class="media-body">
+        <a href="{{ game.get_absolute_url }}">
+        <div class="article-metadata">
+            <small class="text-muted">
+                    {% if game.round %}
+                        {{ game.type }} {{ game.round.tournament.name }} Game |
+                    {% else %}
+                        {{ game.type }} 
+                        {% if game.solo %}Solo {% endif %}
+                        {% if game.coop %}Co-op {% endif %}
+                        {{ game.platform }}
+                        {% if game.league %} League{% endif %}
+                         {% if game.test_match %}Playtest{% else %}Game{% endif %} |
+                    {% endif %}
+                {{ game.date_posted|date:"F j, Y" }} |
+                {{ game.deck }} Deck -
+                {{ game.map }} Map
+            </small>
+        </div>
+    
+        {% if game.landmarks.count > 0 or game.hirelings.count > 0 %}
+            <div class="article-metadata">
+                <small class="text-muted">
+                    {% if game.landmarks.count > 0 %}
+                        Landmarks:
+                        {% for landmark in game.landmarks.all %}
+                            {{ landmark.title }}{% if not forloop.last %} | {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    {% if game.hirelings.count > 0 %}
+                        Hirelings:
+                        {% for hireling in game.hirelings.all %}
+                            {{ hireling.title }}{% if not forloop.last %} | {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </small>
+            </div>
+        {% endif %}
+    
+    
+        <table>
+            <thead>
+                <tr>
+                    <th>Player</th>
+                    <th>Faction</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody class="effort-rows">
+    
+    
+        {% for effort in game.get_efforts %}
+        <tr {% if effort == effort_link %} class="alert alert-success" style="font-weight: bold;" {% endif %}>
+            <td>
+        
+                {% if effort.player %}
+                    {% if user.profile.player %}
+                        {{ effort.player.name }}
+                    {% else %}
+                        {{ effort.player.name }}
+                    {% endif %}
+                {% else %}
+                    {% if effort.faction.type == "C" %}
+                    Clockwork
+                    {% else %}
+                    Anonymous Player
+                    {% endif %}
+                {% endif %}
+            </td>
+            <td>
+                {% if effort.faction %}
+                        <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
+                    {{ effort.faction }}
+                    {% if effort.vagabond %}
+                        ({{ effort.vagabond }})
+                    {% endif %}
+                {% else %}
+                    Faction N/A
+                {% endif %}
+            </td>
+            <td>
+                {% if effort.dominance %}
+                    <img class="faction-icon"  
+                        src="/media/default_images/{{ effort.dominance }}_Icon.png" 
+                        alt="{{ effort.dominance }} Dominance">
+                {% elif effort.coalition_with %}
+                    <img class="faction-icon" 
+                        src="{{ effort.coalition_with.small_icon.url }}"
+                        alt="{{ effort.coalition_with.title }} Icon">
+                {% else %}
+                    {% if effort.score %}
+                        {{ effort.score }}
+                    {% endif %}
+                {% endif %}
+                {% if effort.win %}
+                    <img class="faction-icon"  src="/media/winner.png" alt="Win">
+                {% endif %}
+        
+            </td>
+        </tr>
+        {% endfor %}
+    
+    
+        </tbody>
+    </table>
+</a>
+    </div>
+   
+    </article>
+    

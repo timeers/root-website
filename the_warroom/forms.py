@@ -443,7 +443,7 @@ class AssignScorecardForm(forms.ModelForm):
     def __init__(self, *args, user=None, total_points=None, faction=None, selected_scorecard=None, dominance=False, **kwargs):
         # Call the parent constructor
         super(AssignScorecardForm, self).__init__(*args, **kwargs)
-        print(f'Selected Scorecard: {selected_scorecard}')
+        # print(f'Selected Scorecard: {selected_scorecard}')
         queryset = ScoreCard.objects.filter(
             Q(recorder=user.profile) & 
             Q(effort=None) & 
@@ -468,6 +468,32 @@ class AssignScorecardForm(forms.ModelForm):
         # Set the queryset for the scorecard field and ensure it has a non-empty label
         self.fields['scorecard'].queryset = queryset.distinct()
         self.fields['scorecard'].empty_label = None
+
+class AssignEffortForm(forms.ModelForm):  
+    effort = forms.ModelChoiceField(queryset=Effort.objects.all(), required=True)
+
+    class Meta:
+        model = ScoreCard
+        fields = ['effort']
+        widgets = {
+            'effort': forms.ModelChoiceField(queryset=ScoreCard.objects.all(), required=True),
+        }
+
+    def __init__(self, *args, selected_efforts, user=None, **kwargs):
+        # Call the parent constructor
+        super(AssignEffortForm, self).__init__(*args, **kwargs)
+        # print(f'Selected Scorecard: {selected_scorecard}')
+        self.fields['effort'].queryset = selected_efforts
+    #     self.fields['effort'].empty_label = None
+    #     # Customizing the display label for each effort choice
+    #     self.fields['effort'].label_from_instance = self.get_label_for_effort
+
+    # def get_label_for_effort(self, effort):
+    #     # You can customize the label here, for example combining multiple fields from the Effort model
+    #     formatted_date = effort.game.date_posted.strftime('%B %d, %Y')  # 'Month DD, YYYY'
+    #     return f"Player: {effort.player} - {formatted_date}"
+       
+
 
 
 class TournamentCreateForm(forms.ModelForm):

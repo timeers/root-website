@@ -60,27 +60,7 @@ from the_tavern.views import bookmark_toggle
 
 #         return qs
 
-# A list of one specific user's posts
-class UserPostListView(ListView):
-    model = Post
-    template_name = 'the_keep/user_posts.html'
-    context_object_name = 'posts'
-    paginate_by = 20
 
-    def get_queryset(self):
-        user = get_object_or_404(Profile, slug=self.kwargs.get('slug'))
-        return Post.objects.filter(designer=user).order_by('-date_updated')
-    
-# A list of one specific user's posts
-class ArtistPostListView(ListView):
-    model = Post
-    template_name = 'the_keep/user_posts.html'
-    context_object_name = 'posts'
-    paginate_by = 20
-
-    def get_queryset(self):
-        user = get_object_or_404(Profile, slug=self.kwargs.get('slug'))
-        return Post.objects.filter(artist=user).order_by('-date_updated')
 
 
 class ExpansionDetailView(DetailView):
@@ -138,30 +118,6 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")
             return redirect('expansion-detail', expansion.slug) 
-
-
-# @designer_required_class_based_view
-# def manage_expansion(request, slug=None):
-#     if slug:
-#         obj = get_object_or_404(Expansion, slug=slug)
-#     else:
-#         obj = Expansion()  # Create a new Game instance but do not save it yet
-#     user = request.user
-#     form = ExpansionCreateForm(request.POST or None, instance=obj, user=user)
-
-#     context = {
-#         'form': form,
-#         'object': obj,
-#     }
-#     # Handle form submission
-#     if form.is_valid():
-#         parent = form.save(commit=False)
-#         parent.designer = request.user.profile  # Set the recorder
-#         parent.save()  # Save the new or updated Game instance
-#         context['message'] = "Game Saved"
-#         return redirect(parent.get_absolute_url())
-    
-#     return render(request, 'the_keep/expansion_form.html', context)
 
 
 
@@ -503,16 +459,21 @@ def ultimate_component_view(request, slug):
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
 
-    if request.user.profile.weird :
-        games = object.get_games_queryset().distinct().prefetch_related(
-                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                    'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                    )
-    else:
-        games = object.get_games_queryset().distinct().filter(official=True).prefetch_related(
-                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                    'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                    )
+
+
+    # Start with the base queryset
+    games = object.get_games_queryset()
+
+    # Apply the conditional filter if needed
+    if not request.user.profile.weird:
+        games = games.filter(official=True)
+
+    # Apply distinct and prefetch_related to all cases  
+    prefetch_values = [
+        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+        'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    ]
+    games = games.distinct().prefetch_related(*prefetch_values)
 
 
     commentform = PostCommentCreateForm()
@@ -583,7 +544,7 @@ def ultimate_component_view(request, slug):
         'coalition_count': coalition_count,
         'win_rate': win_rate,
         'tourney_points': tourney_points,
-        'total_efforts': total_efforts
+        'total_efforts': total_efforts,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)

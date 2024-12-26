@@ -7,18 +7,18 @@ from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
 from django.http import HttpResponse, Http404, HttpResponseForbidden
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.paginator import Paginator, EmptyPage
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
 from django.conf import settings
 from django.contrib import messages
 from django.db import IntegrityError
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch
 from django.db.models.functions import Cast
 from django.utils import timezone 
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
 from .forms import (GameCreateForm, EffortCreateForm, 
-                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, 
+                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     TournamentCreateForm, RoundCreateForm, 
                     TournamentManagePlayersForm, TournamentManageAssetsForm,
                     RoundManagePlayersForm)
@@ -195,7 +195,7 @@ def game_detail_view(request, id=None):
         obj = None
 
     # Add efforts directly to context to get the available_scorecard field
-    efforts = obj.efforts.all()
+    efforts = obj.efforts.all().prefetch_related('faction', 'player', 'vagabond')
     for effort in efforts:
         effort.available_scorecard = effort.available_scorecard(request.user)
 
@@ -396,6 +396,7 @@ def bookmark_game(request, object):
 # Scorecard Views
 # ============================
 
+# Create and edit a scorecard
 @tester_required
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
@@ -512,6 +513,8 @@ def scorecard_manage_view(request, id=None):
     
     return render(request, 'the_warroom/record_scores.html', context)
 
+
+# Detail view of a scorecard
 @player_required
 def scorecard_detail_view(request, id=None):
     try:
@@ -524,13 +527,14 @@ def scorecard_detail_view(request, id=None):
     return render(request, "the_warroom/score_detail.html", context)
 
 
+# Choose from available scorecards to link to a game
 @tester_required
 def scorecard_assign_view(request, id):
-    effort = get_object_or_404(Effort, id=id)
+    effort_link = get_object_or_404(Effort, id=id)
 
     selected_scorecard = request.GET.get('scorecard')
     # print(selected_scorecard)
-    game = effort.game
+    game = effort_link.game
     participants = []
     for participant_effort in game.efforts.all():
         participants.append(participant_effort.player)
@@ -539,25 +543,79 @@ def scorecard_assign_view(request, id):
     if not request.user.profile in participants:
                 return HttpResponseForbidden("You do not have permission to edit this scorecard.")
     dominance = False
-    if effort.dominance:
+    if effort_link.dominance:
         dominance = True
     if request.method == 'POST':
-        form = AssignScorecardForm(request.POST, user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard, dominance=dominance)
+        form = AssignScorecardForm(request.POST, user=request.user, faction=effort_link.faction, total_points=effort_link.score, selected_scorecard=selected_scorecard, dominance=dominance)
         if form.is_valid():
             scorecard = form.cleaned_data['scorecard']
-            scorecard.effort = effort  # Assign the Effort to the selected Scorecard
+            scorecard.effort = effort_link  # Assign the Effort to the selected Scorecard
             scorecard.save()  # Save the updated Scorecard
-            return redirect('game-detail', id=effort.game.id)
+            return redirect('game-detail', id=effort_link.game.id)
     else:
-        form = AssignScorecardForm(user=request.user, faction=effort.faction, total_points=effort.score, selected_scorecard=selected_scorecard, dominance=dominance)
+        form = AssignScorecardForm(user=request.user, faction=effort_link.faction, total_points=effort_link.score, selected_scorecard=selected_scorecard, dominance=dominance)
 
     context = {
         'form': form, 
-        'effort': effort,
+        'effort_link': effort_link,
         'game': game,
         }
 
     return render(request, 'the_warroom/assign_scorecard.html', context)
+
+# Choose from available games to link a scorecard
+@tester_required
+def effort_assign_view(request, id):
+
+    scorecard = get_object_or_404(ScoreCard, id=id)
+
+    if scorecard.effort:
+        return redirect('detail-scorecard', id=scorecard.id)
+
+    if not scorecard.dominance:
+        available_efforts = Effort.objects.filter(
+                Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
+                Q(game__recorder=request.user.profile),  # Recorder is the current user
+                scorecard=None, faction=scorecard.faction,
+                score=scorecard.total_points  # Effort has no associated scorecard
+            ).prefetch_related(
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__hirelings',
+                'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
+    else:
+        available_efforts = Effort.objects.filter(
+                Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
+                Q(game__recorder=request.user.profile),  # Recorder is the current user
+                scorecard=None, faction=scorecard.faction, 
+                dominance__isnull=False # Effort has no associated scorecard
+            ).prefetch_related(
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__hirelings',
+                'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
+        
+
+    if request.method == 'POST':
+        form = AssignEffortForm(request.POST, selected_efforts=available_efforts, user=request.user)
+        print('submitting form')
+        if form.is_valid():
+            print('valid form')
+            scorecard = scorecard
+            scorecard.effort = form.cleaned_data['effort']  # Assign the Effort to the selected Scorecard
+            scorecard.save()  # Save the updated Scorecard
+            return redirect('game-detail', id=scorecard.effort.game.id)
+        else:
+                print("Form errors:", form.errors)  # Print the errors for debugging
+                # You can also print individual field errors if you need to inspect them specifically
+                for field, errors in form.errors.items():
+                    print(f"Errors for {field}: {errors}")
+    else:
+        form = AssignEffortForm(selected_efforts=available_efforts, user=request.user)
+
+    context = {
+        'form': form, 
+        'scorecard': scorecard,
+        }
+
+    return render(request, 'the_warroom/assign_effort.html', context)
+
 
 @tester_required
 def scorecard_delete_view(request, id=None):
@@ -586,59 +644,41 @@ def scorecard_delete_view(request, id=None):
     }
     return render(request, "the_warroom/score_delete.html", context)
 
-@tester_required
+
+
 def scorecard_list_view(request):
-
     active_profile = request.user.profile
-    unassigned_scorecards = ScoreCard.objects.filter(
-            Q(recorder=request.user.profile) & 
-            Q(effort=None)
-        )
-    complete_scorecards = ScoreCard.objects.filter(
-            recorder=request.user.profile).exclude(effort=None)
-    # Scorecards that need to be assigned
-    unassigned_efforts = Effort.objects.filter(
-        Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
-        Q(game__recorder=request.user.profile),  # Recorder is the current user
-        scorecard=None  # Effort has no associated scorecard
-    ).distinct()
-    for scorecard in unassigned_scorecards:
-        # # Find matching efforts based on faction and total_points
-        matching_efforts = unassigned_efforts.filter(
-            faction=scorecard.faction,
-            score=scorecard.total_points
-        )
-        dominance = False
-        for turn in scorecard.turns.all():
-            if turn.dominance:
-                dominance = True
-        if dominance:
-            dominance_efforts = unassigned_efforts.filter(
-                faction=scorecard.faction,
-                dominance__isnull=False
-            )
-            # print(dominance_efforts)
-            matching_efforts = matching_efforts | dominance_efforts
-        # Add the matching efforts as a property on the scorecard
-        scorecard.matching_efforts = matching_efforts.distinct()
 
-    # Pagination
-    paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)  # Show default number per page
+    all_scorecards = ScoreCard.objects.filter(recorder=request.user.profile).prefetch_related('turns', 'faction', 'effort')
 
-    # Get the current page number from the request (default to 1)
-    page_number = request.GET.get('page')  # e.g., ?page=2
-    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+    # QuerySets
+    unassigned_scorecards = all_scorecards.filter(effort=None)
+    unassigned_count = unassigned_scorecards.count()
+    if unassigned_count > 10:
+        unassigned_scorecards = unassigned_scorecards[:10]
+    complete_scorecards = all_scorecards.exclude(effort=None).prefetch_related(
+        'effort__game')
 
+    
+    # Pagination (the rest of your pagination logic stays the same)
+    paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)
+    page_number = request.GET.get('page')
+    try:
+        page_obj = paginator.get_page(page_number)
+    except PageNotAnInteger:
+        page_obj = paginator.get_page(1)
+    except EmptyPage:
+        page_obj = paginator.get_page(paginator.num_pages)
 
     context = {
         'unassigned_scorecards': unassigned_scorecards,
-        # 'complete_scorecards': complete_scorecards,
         'complete_scorecards': page_obj,
         'active_profile': active_profile,
+        'unassigned_count': unassigned_count,
     }
 
     if request.htmx:
-        return render(request, "the_warroom/partials/scorecard_list_partial.html", context)   
+        return render(request, "the_warroom/partials/scorecard_list_partial.html", context)
 
     return render(request, 'the_warroom/scorecard_list.html', context)
 

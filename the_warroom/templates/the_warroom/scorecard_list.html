@@ -6,7 +6,7 @@
 
 
 {% if unassigned_scorecards %}
-<h1>Unassigned Scorecards ({{ unassigned_scorecards|length }})</h1>
+<h1>Unassigned Scorecards ({{ unassigned_count }})</h1>
 These scorecards have not been linked with a game:
 
 
@@ -49,13 +49,14 @@ These scorecards have not been linked with a game:
                 <a class="btn btn-outline-danger btn-sm ml-1 ms-1 mb-1" href="{% url 'delete-scorecard' object.id %}">
                     <i class="bi bi-trash3"></i>
                 </a>
-                <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
+                <a class="btn btn-outline-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
                     <i class="bi bi-pencil-square"></i>
                 </a>
-                {% if object.matching_efforts %}
-                    <button class="btn btn-outline-warning btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-game-{{ object.id }}" aria-expanded="false" aria-controls="collapse-game-{{ object.id }}">
+             
+                {% if object.efforts_available %}
+                    <a class="btn btn-outline-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
                         <i class="bi bi-link"></i>
-                    </button>
+                    </a>
                 {% endif %}
             </td>
             <td>
@@ -74,33 +75,16 @@ These scorecards have not been linked with a game:
                 </div>
             </td>
         </tr>
-        {% if object.matching_efforts %}
-        <tr id="collapse-game-{{ object.id }}" class="collapse">
-            <td colspan="6"><strong>Matching Games</strong></td>
-        </tr>
-        {% for effort in object.matching_efforts %}
-        <tr id="collapse-game-{{ object.id }}" class="collapse">
-            <td colspan="5">
-                {% if effort.game %}
-                    {% with effort.game as game %}
-                   
-                    {% include 'the_warroom/partials/game_detail_button.html' %}
-                   
-                    {% endwith %}
-                {% else %}
-                    <p>No game associated with this effort.</p>
-                {% endif %}
-            </td>
-            <td>
-                <a class="btn btn-outline-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-scorecard' id=effort.id %}?scorecard={{ object.id }}">
-                    <i class="bi bi-link"></i>
-                </a>
-            </td>
-        </tr>
-        {% endfor %}
-        {% endif %}
 
         {% endfor %}
+
+        {% if unassigned_count > 10 %}
+        <tr>
+            <td colspan="6">
+                + Assign or Delete Unassigned Scorecards for more
+            </td>
+        </tr>
+        {% endif %}
     </tbody>
 </table>
 
@@ -131,87 +115,8 @@ These scorecards have not been linked with a game:
     <tbody class="scorecard-rows">
 
 
-{% for object in complete_scorecards %}
-<tr>
-        <td>
-            <a href="{% url 'faction-detail' object.faction.slug %}">{{  object.faction }}</a>
-        </td>
-        <td>
-            {{ object.total_points }}
-        </td>
-        <td>
-            {{ object.turns.count }}
-        </td>
+        {% include 'the_warroom/partials/scorecard_list_partial.html' %}
 
-        <td>
-            {% if object.effort.player %}
-                <a href="{% url 'player-detail' object.effort.player.slug %}">{{  object.effort.player.name }}</a>
-            {% else %}
-                No Player
-            {% endif %}
-        </td>
-
-        <td>
-
-            <a class="btn btn-outline-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
-                <i class="bi bi-pencil-square"></i>
-            </a>
-
-        </td>
-        <td>
-            <button class="btn btn-outline-info btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ object.id }}" aria-expanded="false" aria-controls="collapse-{{ object.id }}">
-                <i class="bi bi-info-circle"></i>
-            </button>
-        </td>
-</tr>
-
-<!-- Hidden row that will be shown when the button is clicked -->
-<tr id="collapse-{{ object.id }}" class="collapse">
-    <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
-        
-            <!-- Hidden content -->
-            {% with object.effort.game as game %}
-            
-            {% include 'the_warroom/partials/game_detail_button.html' %}
-           
-            {% endwith %}
-    
-    </td>
-</tr>
-<tr id="collapse-{{ object.id }}" class="collapse">
-    <td colspan="6"> <!-- Make sure the hidden row spans across all columns -->
-        <div class="card card-body">
-            <!-- Hidden content -->
-            {% include 'the_warroom/partials/scorecard.html' %}
-        </div>
-    </td>
-</tr>
-
-
-
-
-
-{% if forloop.last %}
-<!-- The last row will have the revealed trigger -->
-<tr id="load-more-row" hx-get="{% url 'list-scorecard' %}?page={{ complete_scorecards.number|add:1 }}"
-    hx-trigger="revealed" 
-    hx-target="this" 
-    hx-swap="outerHTML">
-
-</tr>
-
-{% endif %}
-
-
-
-
-
-
-
-
-
-
-{% endfor %}
 </tbody>
 </table>
 {% else %}

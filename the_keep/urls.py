@@ -8,8 +8,7 @@ from .views import (
     LandmarkUpdateView, FactionUpdateView, ExpansionUpdateView, ClockworkUpdateView,
     ExpansionDeleteView,
     PostDeleteView,
-    UserPostListView,
-    ArtistPostListView, 
+ 
 
     # ComponentDetailListView,
     bookmark_post,
@@ -24,8 +23,8 @@ urlpatterns = [
     # path('', PostListView.as_view(), name='keep-home'),
     path("", list_view, name='keep-home'),
     # path("new/", activity_list, name='activity-list'),
-    path('user/<slug:slug>/art/', ArtistPostListView.as_view(), name='artist-posts'),
-    # path('user/<slug:slug>/', UserPostListView.as_view(), name='user-posts'),
+ 
+ 
 
     path("search/", search_view, name='search'),
 

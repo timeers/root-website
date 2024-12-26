@@ -251,7 +251,7 @@ def artist_component_view(request, slug):
  
     # Get the current page number from the request (default to 1)
     page_number = request.GET.get('page')  # e.g., ?page=2
-    print("Page", page_number)
+    # print("Page", page_number)
     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
 
     # print(f'Page: {page_number}')

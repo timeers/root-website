@@ -1,0 +1,60 @@
+{% extends 'the_keep/base.html' %}
+{% block content %}
+
+<h1>Link a Game</h1>
+
+<h2>{{ form.effort.field.queryset.count }} Available Game{% if form.effort.field.queryset.count != 1 %}s{% endif %}</h2>
+{% if scorecard.dominance %}
+<h3>for {{ scorecard.faction.title }} Dominance Scorecard</h3>
+{% else %}
+<h3>for {{ scorecard.total_points }} point {{ scorecard.faction.title }} Scorecard</h3>
+{% endif %}
+
+{% with scorecard as object %}
+{% include 'the_warroom/partials/scorecard.html' %}
+{% endwith %}
+
+<form class="hidden" method="POST" id="link-game-form">
+    {% csrf_token %}
+    {{ form }}
+    <!-- <button type="submit" class="btn btn-primary mb-2">Link</button> -->
+</form>
+
+
+    {% for effort_link in form.effort.field.queryset %}
+        <div class="game-option my-4" data-effort-id="{{ effort_link.id }}">
+            {% with effort_link.game as game %}
+                {% include 'the_warroom/partials/scorecard_game_summary.html' %}
+            {% endwith %}
+            <button class="btn btn-outline-warning link-button" id="link-scorecard" onclick="link(this)" data-effort-id="{{ effort_link.id }}">
+                <i class="bi bi-link"></i> Link
+            </button>
+        </div>
+    {% endfor %}
+
+
+
+
+
+{% endblock content %}
+
+
+{% block scripts %}
+
+<script>
+    // Add event listeners to each game option
+    
+        function link(element) {
+
+            var effortId = element.getAttribute('data-effort-id');
+            var effortField = document.querySelector('[name="effort"]');
+            // console.log('ID', effortId)
+            
+            // Set the value of the effort field to the clicked effort's id
+            effortField.value = effortId;
+
+            // Submit the form
+            document.getElementById('link-game-form').submit();
+        };
+</script>
+{% endblock %}
