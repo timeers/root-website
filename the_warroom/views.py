@@ -471,7 +471,7 @@ def scorecard_manage_view(request, id=None):
         parent.recorder = request.user.profile  # Set the recorder
         parent.effort = effort
         parent.save()  # Save the new or updated Game Score instance
-
+        dominance = False
 
         # Calculate the total points from the formset
         total_points = 0
@@ -482,6 +482,9 @@ def scorecard_manage_view(request, id=None):
                 deleted_instance = child_form.instance
                 deleted_instance.delete()
             else:
+                turn_dominance = child_form.cleaned_data.get('dominance')
+                if turn_dominance:
+                    dominance = True
                 total_points += (
                     child_form.cleaned_data.get('faction_points', 0) +
                     child_form.cleaned_data.get('crafting_points', 0) +
@@ -498,6 +501,15 @@ def scorecard_manage_view(request, id=None):
         elif total_points < 0:
             # If points are negative
             context['message'] = f"Error: The recorded points ({total_points}) are negative."
+            if existing_scorecard == False:
+                parent.delete()
+            return render(request, 'the_warroom/record_scores.html', context)
+
+        if (effort and dominance and not effort.dominance) or (effort and not dominance and effort.dominance):
+            if dominance:
+                context['message'] = f"Dominance Error: The original effort does not have a Dominance Played."
+            else:
+                context['message'] = f"Dominance Error: The original effort has an active Dominance Played."
             if existing_scorecard == False:
                 parent.delete()
             return render(request, 'the_warroom/record_scores.html', context)
@@ -657,7 +669,7 @@ def scorecard_list_view(request):
     if unassigned_count > 10:
         unassigned_scorecards = unassigned_scorecards[:10]
     complete_scorecards = all_scorecards.exclude(effort=None).prefetch_related(
-        'effort__game')
+        'effort__game', 'effort__player', 'effort__faction')
 
     
     # Pagination (the rest of your pagination logic stays the same)

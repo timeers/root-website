@@ -2,7 +2,7 @@
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
 <legend>{% if object.id %}Update{% else %}Record{% endif %} Detailed Game Scores</legend>
-    <button class="btn btn-outline-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+    <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
         <i class="bi bi-info-circle"></i>
     </button>
 </div>   
@@ -95,19 +95,19 @@
         <div class="turn-column total-points" id="total-points-__prefix__">0</div>
         <div class="turn-column dom-column hidden">{{ formset.empty_form.dominance }}</div>
     </div>
-    <button class="btn btn-outline-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
-    <button class="btn btn-outline-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
-    <button class="btn btn-outline-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">Play Dominance</button>
+    <button class="btn btn-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
+    <button class="btn btn-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
+    <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">Play Dominance</button>
     <div id="game-description-field">
         <h4>Notes:</h4>{{ form.description }}
     </div>
 
-    <button class="btn btn-outline-success mb-2 mt-2" type="submit">Save</button>
+    <button class="btn btn-success mb-2 mt-2" type="submit">Save</button>
     {% if object.id %}
-        <a class="btn btn-outline-secondary mb-2 mt-2" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
-        <a class="btn btn-outline-danger mb-2 mt-2" href="{% url 'delete-scorecard' object.id %}">Delete</a>
+        <a class="btn btn-secondary mb-2 mt-2" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
+        <a class="btn btn-danger mb-2 mt-2" href="{% url 'delete-scorecard' object.id %}">Delete</a>
     {% else %}
-        <a class="btn btn-outline-info mb-2 mt-2" href="{% url 'games-home' %}">Cancel</a>
+        <a class="btn btn-secondary mb-2 mt-2" href="{% url 'games-home' %}">Cancel</a>
     {% endif %}
 
     </form>

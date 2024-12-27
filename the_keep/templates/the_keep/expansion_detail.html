@@ -4,8 +4,8 @@
         <h1>{{ expansion.title }}</h1>
         {% if expansion.designer == user.profile and user.profile.designer %}
                 <div>
-                    <a class="btn btn-outline-info btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}">Update</a>
-                    <a class="btn btn-outline-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}">Delete</a>
+                    <a class="btn btn-info btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}">Update</a>
+                    <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}">Delete</a>
                 </div>
         {% endif %}
 </div>

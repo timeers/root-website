@@ -117,6 +117,8 @@ class GameCreateForm(forms.ModelForm):
             faction_roster = set()
             vagabond_roster = set()
             player_roster = set()
+            coalition_roster = set()
+            coalition_receiver = set()
             test_match = False
             vagabond_count = 1
             win_count = 0
@@ -148,6 +150,8 @@ class GameCreateForm(forms.ModelForm):
                 player = effort_form.cleaned_data.get('player')
                 
                 if coalition:
+                    coalition_roster.add(faction)
+                    coalition_receiver.add(coalition)
                     coalition_count += 1
 
                 if win and not coalition:
@@ -216,12 +220,20 @@ class GameCreateForm(forms.ModelForm):
             if len(faction_roster) + max(0, vagabond_count-1) < 2:
                 validation_errors_to_display.append(f'Select at least two factions') 
 
+            if len(coalition_receiver) != coalition_count:
+                        validation_errors_to_display.append('One faction cannot have two Coalitions')
+
             # Validate Tournament Game Settings
             if round:
                 if win_count > 1 and not round.tournament.teams:
                     validation_errors_to_display.append(f'Only one winner is allowed')
-                if coalition_count > round.tournament.coalitions:
-                    validation_errors_to_display.append(f'This type of coalition is not allowed')
+                if coalition_count:
+                    if round.tournament.coalition_type == 'None':
+                        validation_errors_to_display.append(f'Coalitions are not allowed in {round.tournament}')
+                    elif round.tournament.coalition_type == 'One' and coalition_count > 1:
+                        if coalition_roster & coalition_receiver:
+                            validation_errors_to_display.append(f'Double Coalitions are not allowed in {round.tournament}')
+
                 # Error if platform does not match tournament platform
                 if round.tournament.platform and platform != round.tournament.platform:
                     # raise ValidationError(f"Please select {round.tournament.platform} for this {round.tournament} Game.")
@@ -503,15 +515,26 @@ class TournamentCreateForm(forms.ModelForm):
         ('Root Digital', 'Root Digital'),
         ('In Person', 'In Person'),
     ]
+    COALITION_CHOICES = [
+        ('None', 'No Coalitions'),
+        ('One', 'Single Coalitions Only'),
+        ('All', 'Double Coalitions Allowed'),
+    ]
     platform = forms.ChoiceField(
         choices=PLATFORM_CHOICES,
         initial=None,  # Set the default choice to None
         required=False,
         label='Required Platform'
     )
+    coalition_type = forms.ChoiceField(
+        choices=COALITION_CHOICES,
+        initial='One',  # Set the default choice to One
+        required=False,
+        label='Allowed Coalitions'
+    )
     class Meta:
         model = Tournament
-        fields = ['name', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'leaderboard_positions', 'game_threshold', 'platform', 'include_fan_content', 'include_clockwork', 'link_required', 'coalitions', 'teams']
+        fields = ['name', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'leaderboard_positions', 'game_threshold', 'platform', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams']
         labels = {
             'name': 'Tournament Name',
             'start_date': 'Start Date',
@@ -519,7 +542,6 @@ class TournamentCreateForm(forms.ModelForm):
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
             'link_required': 'Require Link with Game Submission',
-            'coalitions': 'Coalitions Allowed',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
         }

@@ -8,8 +8,8 @@
                 <p>Are you sure you want to delete the {{ object.component }}: "{{ object.title }}"? This cannot be undone.</p>
             </fieldset>
             <div class="form-group">
-                <button class="btn btn-outline-danger" type="submit">Yes, Delete</button>
-                <a class="btn btn-outline-secondary" href="{% url post.component|lower|add:'-detail' object.slug %}">Cancel</a>
+                <button class="btn btn-danger" type="submit">Yes, Delete</button>
+                <a class="btn btn-secondary" href="{% url post.component|lower|add:'-detail' object.slug %}">Cancel</a>
             </div>
         </form>
     </div>

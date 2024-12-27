@@ -13,8 +13,7 @@
                         {{ game.type }} 
                         {% if game.solo %}Solo {% endif %}
                         {% if game.coop %}Co-op {% endif %}
-                        {{ game.platform }}
-                        {% if game.league %} League{% endif %}
+                        {{ game.platform }} 
                          {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                     {% endif %}
                 {{ game.date_posted|date:"F j, Y" }} |

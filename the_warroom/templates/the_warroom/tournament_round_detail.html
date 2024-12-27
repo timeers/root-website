@@ -56,7 +56,7 @@
                 <div class="media-body">
             {% if user.profile.admin %}
             <div style="display: flex; justify-content: flex-end;">
-            <a class="btn btn-outline-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round +</a>
+            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round +</a>
             </div>
             {% endif %}
             
@@ -199,7 +199,7 @@
                 <div class="media-body">
             {% if user.profile.admin %}
             <div style="display: flex; justify-content: flex-end;">
-                <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
+                <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
             </div>
             {% endif %}
           
@@ -259,7 +259,7 @@
                 <div class="media-body">
             {% if user.profile.admin %}
             <div style="display: flex; justify-content: flex-end;">
-            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets/Specifications</a>
+            <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets</a>
             </div>
             {% endif %}
                 

@@ -3,7 +3,7 @@
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>Tournaments</h1>
     {% if user.profile.admin %}
-    <a class="btn btn-outline-success btn-sm ml-2 mt-1 mb-1" href="{% url 'tournament-create' %}">New Tournament +</a>
+    <a class="btn btn-success btn-sm ml-2 mt-1 mb-1" href="{% url 'tournament-create' %}">New Tournament +</a>
     {% endif %}
 </div>
 

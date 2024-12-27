@@ -73,7 +73,7 @@
 {% if user.profile.admin and game.efforts.count > 1 %}
 <td>   
     {% if game.efforts.count > 1 %}
-        <a class="btn btn-outline-danger btn-sm"
+        <a class="btn btn-danger btn-sm"
         hx-delete="{% url 'effort-hx-delete' effort.id %}"
         hx-confirm="Are you sure you want to delete this player data? This cannot be undone. If you need to edit the player data use the Edit button below instead."
         hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
@@ -82,7 +82,7 @@
         Delete
     </a>
     {% else %}
-        <a class="btn btn-outline-danger btn-sm" href="{{ game.get_delete_url }}">Delete Game</a>
+        <a class="btn btn-danger btn-sm" href="{{ game.get_delete_url }}">Delete Game</a>
     {% endif %}
 </td>
 {% endif %}

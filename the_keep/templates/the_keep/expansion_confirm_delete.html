@@ -12,8 +12,8 @@
                 <ul>{{ post.title }}</ul>
             {% endfor %}
             <div class="form-group">
-                <button class="btn btn-outline-danger" type="submit">Yes, Delete</button>
-                <a class="btn btn-outline-secondary" href="{% url 'expansion-detail' expansion.slug %}">Cancel</a>
+                <button class="btn btn-danger" type="submit">Yes, Delete</button>
+                <a class="btn btn-secondary" href="{% url 'expansion-detail' expansion.slug %}">Cancel</a>
             </div>
         </form>
     </div>

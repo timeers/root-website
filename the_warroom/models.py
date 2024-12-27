@@ -32,6 +32,10 @@ class GameQuerySet(models.QuerySet):
 
 
 class Tournament(models.Model):
+    class CoalitionTypes(models.TextChoices):
+        NONE = "None"
+        ONE = "One"
+        ALL = "All"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
 
@@ -57,7 +61,11 @@ class Tournament(models.Model):
     include_fan_content = models.BooleanField(default=False)
     include_clockwork = models.BooleanField(default=False)
     teams = models.BooleanField(default=False)
-    coalitions = models.IntegerField(default=2,validators=[MinValueValidator(0), MaxValueValidator(2)])
+    coalition_type = models.CharField(
+        max_length=50,
+        choices=CoalitionTypes.choices,
+        default=CoalitionTypes.ONE
+    )
 
     description = models.TextField(null=True, blank=True)
 
@@ -184,7 +192,7 @@ class Game(models.Model):
     deck = models.ForeignKey(Deck, on_delete=models.PROTECT, null=True, related_name='games')
     map = models.ForeignKey(Map, on_delete=models.PROTECT, null=True, related_name='games')
 
-    league = models.BooleanField(default=False)
+    # league = models.BooleanField(default=False)
     # tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
     round = models.ForeignKey(Round, on_delete=models.PROTECT, null=True, blank=True, related_name='games')
     

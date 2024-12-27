@@ -10,7 +10,7 @@
     {% endif %}
     <p>Are you sure you want to delete the selected scorecard{% if object.faction %} for {{ object.faction.title }}{% endif %}? This cannot be undone.</p>
     <button class="btn btn-danger" type="submit">Yes, delete</button>
-    <a class="btn btn-outline-secondary" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
+    <a class="btn btn-secondary" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
 </form>
 {% include 'the_warroom/partials/scorecard.html' %}
 {% endif %}

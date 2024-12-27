@@ -133,12 +133,12 @@ class GameAdmin(admin.ModelAdmin):
                 else:
                     # Handle the case where no digits are found (if necessary)
                     season_number = 0 
-                season_instance = Round.objects.get(name=season_name)
-                # try:
-                #     season_instance = Round.objects.get(name=season_name)
-                # except:
-                #     digital_league = Tournament.objects.get(name="Root Digital League")
-                #     season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
+                # season_instance = Round.objects.get(name=season_name)
+                try:
+                    season_instance = Round.objects.get(name=season_name)
+                except:
+                    digital_league = Tournament.objects.get(name="Root Digital League")
+                    season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
 
 
 

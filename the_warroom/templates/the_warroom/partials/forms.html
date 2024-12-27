@@ -20,23 +20,19 @@
         <div id="game-map-field">
                 {{ form.map.label_tag }} {{ form.map }}
         </div>
-        <div id="game-undrafted_faction-field">
-                {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
-        </div>
-        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
-                {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
-        </div>
+
         <div id="game-landmarks-field">
                 {{ form.landmarks.label_tag }} {{ form.landmarks }}
         </div>
         <div class="hireling-field" id="hireling-field">
                 {{ form.hirelings.label_tag }} {{ form.hirelings }}
         </div>
-
-        <div id="game-link-field">
-                {{ form.link.label_tag }} {{ form.link }}
+        <div id="game-undrafted_faction-field">
+                {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
         </div>
-
+        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
+                {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
+        </div>
 
 
         <h2>Players</h2>
@@ -57,7 +53,7 @@
                         <div class="dominance-field">Dominance: {{ form.dominance }}</div>
 
                         {% if not form.instance.id %}
-                                <button class="btn btn-outline-warning btn-sm" type="button"
+                                <button class="btn btn-warning btn-sm" type="button"
                                         onclick="clearForm(this)">
                                         Remove
                                 </button>
@@ -83,21 +79,23 @@
                 {% for field in formset.empty_form  %}
                         {% include 'the_warroom/partials/effort_field_form.html' %}
                 {% endfor %}
-                <button class="btn btn-outline-warning btn-sm" type="button"
+                <button class="btn btn-warning btn-sm" type="button"
                         onclick="clearForm(this)">
                         Remove
                 </button>
         </div>
 
+        <div class="mt-2" id="game-link-field">
+                {{ form.link.label_tag }} {{ form.link }}
+        </div>
 
-
-    <button class="btn btn-outline-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
+    <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
     <div class="htmx-indicator mb-2 mt-2">Loading...</div>
-    <button class="btn btn-outline-success htmx-inverted-indicator mb-2 mt-2" type="submit">Save</button>
+    <button class="btn btn-success htmx-inverted-indicator mb-2 mt-2" type="submit">Save</button>
     {% if object.id %}
-        <a class="btn btn-outline-danger mb-2 mt-2" href="{{ object.get_delete_url }}">Delete</a>
+        <a class="btn btn-danger mb-2 mt-2" href="{{ object.get_delete_url }}">Delete</a>
     {% else %}
-        <a class="btn btn-outline-info mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>
+        <a class="btn btn-secondary mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>
     {% endif %}
     {% if message %}
         <p>{{ message }}</p>

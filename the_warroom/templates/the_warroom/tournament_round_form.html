@@ -21,12 +21,12 @@
                 {{ form | crispy }}
             </fieldset>
             <div class="form-group">
-                <button class="btn btn-outline-info" type="submit">Save</button>
+                <button class="btn btn-info" type="submit">Save</button>
                 {% if not round.id %}
-                <a class="btn btn-outline-secondary" href="{{ tournament.get_absolute_url }}">Cancel</a>
+                <a class="btn btn-secondary" href="{{ tournament.get_absolute_url }}">Cancel</a>
                 {% else %}
-                <a class="btn btn-outline-secondary" href="{{ round.get_absolute_url }}">Cancel</a>
-                <a class="btn btn-outline-danger" href="{{ round.get_delete_url }}">Delete</a>
+                <a class="btn btn-secondary" href="{{ round.get_absolute_url }}">Cancel</a>
+                <a class="btn btn-danger" href="{{ round.get_delete_url }}">Delete</a>
                 {% endif %}
             </div>
         </form>

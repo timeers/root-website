@@ -17,7 +17,7 @@
                                 {% if object.round %}
                                         {{ object.type }} {{ object.round.tournament.name }} Game
                                 {% else %}
-                                        {{ object.type }} {{ object.platform }}{% if object.league %} League{% endif %} {% if object.test_match %}Playtest{% else %}Game{% endif %}
+                                        {{ object.type }} {{ object.platform }} {% if object.test_match %}Playtest{% else %}Game{% endif %}
                                 {% endif %}
                                 with {{ effort.faction.title }}
                         {% endif %}

@@ -12,7 +12,7 @@
 {% if object.effort %}
 
     <div>
-    <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game.type }} {{ object.effort.game.platform }}{% if object.effort.game.league %} League{% endif %} Game</a> 
+    <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game.type }} {{ object.effort.game.platform }} Game</a> 
     </div>
     {% if object.effort.player %}
     <div>
