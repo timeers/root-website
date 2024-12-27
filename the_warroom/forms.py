@@ -400,6 +400,8 @@ class ScoreCardCreateForm(forms.ModelForm):
             self.fields['faction'].initial = faction  # Set the initial value of the faction
             self.fields['faction'].empty_label = None
             # self.fields['faction'].disabled = True
+        elif not user.profile.weird:
+            self.fields['faction'].queryset = Faction.objects.filter(official=True)
         self.user = user  # Save the user parameter for later use
 
     def clean(self):
