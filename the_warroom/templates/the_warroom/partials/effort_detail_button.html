@@ -1,4 +1,4 @@
-
+{% load static %}
 <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
     <td>
 
@@ -30,7 +30,7 @@
     <td>
         {% if effort.dominance %}
             <img class="faction-icon"  
-                src="/media/default_images/{{ effort.dominance }}_Icon.png" 
+                src="{% static 'images/dominance/' %}{{ effort.dominance }}_Icon.png" 
                 alt="{{ effort.dominance }} Dominance">
         {% elif effort.coalition_with %}
             <img class="faction-icon" 
@@ -42,7 +42,7 @@
             {% endif %}
         {% endif %}
         {% if effort.win %}
-            <img class="faction-icon"  src="/media/winner.png" alt="Win">
+            <img class="faction-icon"  src="{% static 'images/winner.png' %}" alt="Win">
         {% endif %}
 
     </td>

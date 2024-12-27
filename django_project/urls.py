@@ -21,11 +21,9 @@ from django.conf import settings
 from django.conf.urls.static import static
 from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
-from the_keep.views import list_view, search_view
 from the_keep.api_views import get_options_for_platform
 from the_warroom.api_views import get_options_for_tournament
 from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline
-from debug_toolbar.toolbar import debug_toolbar_urls
 
 
 urlpatterns = [
@@ -33,7 +31,6 @@ urlpatterns = [
     path('api/platform/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
     path('api/tournament/<pk>/', get_options_for_tournament, name='get_options_for_tournament'),
     # path('register/', user_views.register, name='register'),
-    # path('player/<slug:slug>/', user_views.PlayerDetailView.as_view(), name='player-detail'),
 
     # path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),
     # path('logout/', auth_views.LogoutView.as_view(template_name='the_gatehouse/logout.html'), name='logout'),
@@ -59,7 +56,6 @@ urlpatterns = [
     path('hx/add-player/', user_views.add_player,name='add-discord-player'),
     path("hx/profile/<int:id>/bookmark/", bookmark_player, name='bookmark-player'), 
 
-    # path('onboard/', onboard_user, name='onboard-user'),
     path('onboard/reject/<str:user_type>/', onboard_decline, name='onboard-decline'),
     path('onboard/<str:user_type>/', onboard_user, name='onboard-user'),
     path('', include('the_keep.urls')),
@@ -69,8 +65,7 @@ urlpatterns = [
 
     path('__debug__/', include("debug_toolbar.urls")),
 
-]# + debug_toolbar_urls()
-# Debug toolbar was not working
+]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

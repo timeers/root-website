@@ -1,8 +1,9 @@
 {% extends 'the_keep/base.html' %}
+{% load static %}
 {% block content %}
      <h1>Ambush!</h1>
      You are not allowed to view this page. You have been dealt 2 immediate hits.
-     <img src="/media/ambush.jpg" alt="403">
+     <img src="{% static 'images/ambush.jpg' %}" alt="403">
 {% endblock content %}
 {% block title %}
 - Ambush!

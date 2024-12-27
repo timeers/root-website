@@ -1,4 +1,5 @@
 {% load custom_filters %}
+{% load static %}
 
 <article class="media content-section">
     <div class="media-body">
@@ -13,42 +14,42 @@
         
     {% if object.starting_torch %}
         {% for i in object.starting_torch|times %}
-            <img src="/media/items/torch.png" alt="Torch">
+            <img src="{% static 'items/' %}torch.png" alt="Torch">
         {% endfor %}
     {% endif %}
     {% if object.starting_tea %}
         {% for i in object.starting_tea|times %}
-            <img src="/media/items/tea.png" alt="Tea">
+            <img src="{% static 'items/' %}tea.png" alt="Tea">
         {% endfor %}
     {% endif %}
     {% if object.starting_bag %}
         {% for i in object.starting_bag|times %}
-            <img src="/media/items/Bag.png" alt="Bag">
+            <img src="{% static 'items/' %}Bag.png" alt="Bag">
         {% endfor %}
     {% endif %}
     {% if object.starting_boots %}
         {% for i in object.starting_boots|times %}
-            <img src="/media/items/boots.png" alt="Boots">
+            <img src="{% static 'items/' %}boots.png" alt="Boots">
         {% endfor %}
     {% endif %}
     {% if object.starting_coins %}
         {% for i in object.starting_coins|times %}
-            <img src="/media/items/coins.png" alt="Coins">
+            <img src="{% static 'items/' %}coins.png" alt="Coins">
         {% endfor %}
     {% endif %}
     {% if object.starting_hammer %}
         {% for i in object.starting_hammer|times %}
-            <img src="/media/items/hammer.png" alt="Hammer">
+            <img src="{% static 'items/' %}hammer.png" alt="Hammer">
         {% endfor %}
     {% endif %}
     {% if object.starting_sword %}
         {% for i in object.starting_sword|times %}
-            <img src="/media/items/sword.png" alt="Sword">
+            <img src="{% static 'items/' %}sword.png" alt="Sword">
         {% endfor %}
     {% endif %}
     {% if object.starting_crossbow %}
         {% for i in object.starting_crossbow|times %}
-            <img src="/media/items/crossbow.png" alt="Crossbow">
+            <img src="{% static 'items/' %}crossbow.png" alt="Crossbow">
         {% endfor %}
     {% endif %}
 
@@ -59,7 +60,7 @@
     <h2>Ability</h2>
     <h4>{{ object.ability }}</h4>
     {% if object.ability_item != 'None' %}
-    <div><img src="/media/items/{{ object.ability_item }}_flip.png" alt="{{ object.ability_item }}"></div>
+    <div><img src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}"></div>
     {% endif %}
     <div>{{ object.ability_description }}</div>
 

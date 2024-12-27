@@ -1,7 +1,8 @@
 {% extends 'the_keep/base.html' %}
+{% load static %}
 {% block content %}
      <h1>404</h1>
-     <img src="/media/scouting_party.jpg" alt="404">
+     <img src="{% static 'images/scouting_party.jpg'  %}" alt="404">
 {% endblock content %}
 {% block title %}
 - 404

@@ -1,3 +1,4 @@
+{% load static %}
 
 <table>
     <thead>
@@ -45,7 +46,7 @@
 
                 {% if object.effort %}
                     <img class="faction-icon"  
-                    src="/media/default_images/{{ object.effort.dominance }}_Icon.png" 
+                    src="{% static 'images/dominance/' %}{{ object.effort.dominance }}_Icon.png" 
                     alt="{{ object.effort.dominance }} Dominance">
                 {% else %}
                     Dom
