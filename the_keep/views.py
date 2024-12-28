@@ -465,7 +465,10 @@ def ultimate_component_view(request, slug):
     games = object.get_games_queryset()
 
     # Apply the conditional filter if needed
-    if not request.user.profile.weird:
+    if request.user.is_authenticated:
+        if not request.user.profile.weird:
+            games = games.filter(official=True)
+    else:
         games = games.filter(official=True)
 
     # Apply distinct and prefetch_related to all cases  
@@ -591,13 +594,16 @@ def list_view(request, slug=None):
 def search_view(request, slug=None):
     posts, search, search_type, designer = _search_components(request, slug)
     # Get all designers (Profiles) who have at least one post
-    if request.user.profile.weird:
-        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    if request.user.is_authenticated:
+        if request.user.profile.weird:
+            designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+        else:
+            # Filter designers who have at least one post with 'official' property set to True
+            designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
+                                .filter(official_posts_count__gt=0)
     else:
-        # Filter designers who have at least one post with 'official' property set to True
-        print("Official Only")
         designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
-                               .filter(official_posts_count__gt=0)
+                                .filter(official_posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
