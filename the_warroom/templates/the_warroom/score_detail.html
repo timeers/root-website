@@ -3,7 +3,7 @@
 {% block content %}
 
 <div class="chart-container">
-    <div class="chart" id="lineChartContainer">
+    <div class="chart">
 
     <h1>Points per Turn</h1>
 
@@ -42,8 +42,8 @@
 
 </div>
 
-<div class="chart-container">
-    <div class="chart" id="lineChartContainer">
+<div class="chart-container" id="lineChartContainer">
+    <div class="chart">
         <canvas id="scorecardChart"></canvas>  <!-- Line Chart -->
     </div>
 </div>
@@ -76,6 +76,21 @@ Promise.all([
         // Line Chart Data Processing for the Scorecard Data
         let color = scorecardData.color ? scorecardData.color : '#000000';  // Default color if not provided
 
+
+        // Check if the response contains the "No scorecards found" message
+        if (factionData.message && factionData.message === "No scorecards found.") {
+        const factionChartsElement = document.getElementById('lineChartContainer');
+        if (factionChartsElement) {
+            factionChartsElement.remove();  // This will remove the entire element
+        }
+        const pieChartsElement = document.getElementById('pieChartContainer');
+        if (pieChartsElement) {
+            pieChartsElement.remove();  // This will remove the entire element
+        }
+        return;  // Exit the function if no scorecards are found
+        }
+
+
         // Get the turn numbers and game points from scorecard data
         const scorecardTurns = scorecardData.turns.map(turn => turn.turn_number);
         const gamePoints = scorecardData.turns.map(turn => turn.game_points);
@@ -84,6 +99,8 @@ Promise.all([
         const factionTurns = factionData.averages.map(avg => avg.turn_number);
         const factionGamePoints = factionData.averages.map(avg => avg.average_game_points);
 
+
+        
         // Combine turn numbers from both datasets and get the full range of turns
         const allTurnNumbers = [...new Set([
             ...scorecardTurns,  // Turn numbers from scorecard
