@@ -2,7 +2,11 @@
 <div id="games-container">
 
     {% if page_obj.number == 1 %}
+    <article class="media content-section">
+        <div class="media-body">
     <h2>Total games: {{ games_count }}</h2> 
+        </div>
+    </article>
     {% endif %}
 {% for game in games %}
 

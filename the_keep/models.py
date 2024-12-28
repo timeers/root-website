@@ -412,8 +412,10 @@ class Faction(Post):
     
 
     def save(self, *args, **kwargs):
+        
         if not self.card_image:  # Only set if it's not already defined
-            self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
+            if self.reach != 0:
+                self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_images/default_faction_icon.png'
         if not self.picture:

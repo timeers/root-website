@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% block title %} - Scorecard{% endblock %}
 {% block content %}
 
 <div class="chart-container">
@@ -6,7 +7,8 @@
 
     <h1>Points per Turn</h1>
 
-
+    <article class="media content-section">
+        <div class="media-body">
 
 {% if object.effort %}
 
@@ -25,6 +27,8 @@
 <small>
     Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
 </small>
+        </div>
+    </article>
 </div>  
 <div class="chart" id="pieChartContainer">
     <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
@@ -43,9 +47,12 @@
         <canvas id="scorecardChart"></canvas>  <!-- Line Chart -->
     </div>
 </div>
+<article class="media content-section">
+    <div class="media-body">
 
 {% include 'the_warroom/partials/scorecard.html' %}
-
+    </div>
+</article>
 
 
 

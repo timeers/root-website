@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% block title %} - {{ object.name }}{% endblock %}
 
 {% block content %}
 <div style="display: flex; align-items: center;">
@@ -21,7 +22,7 @@
 
 <div>
 
-            {% include 'the_warroom/tournament_round_detail.html' %}
+            {% include 'the_warroom/partials/tournament_round_detail.html' %}
         
 </div>
 
