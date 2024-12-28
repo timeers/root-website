@@ -8,6 +8,12 @@ from django.http import HttpResponseForbidden
 
 from allauth.socialaccount.models import SocialAccount
 
+import json
+
+with open('/etc/config.json') as config_file:
+    config = json.load(config_file)
+
+
 def get_discord_display_name(user):
     try:
         # Get the Discord social account
@@ -58,25 +64,6 @@ def is_user_in_guild(user, guild_id):
     print("User is not in guild")
     return False
 
-# def is_user_in_ww(user):
-#     guilds = get_user_guilds(user)
-#     if guilds:
-#         for guild in guilds:
-#             if guild['id'] == os.environ.get('WW_GUILD_ID'):
-#                 print('User is in WW')
-#                 return True
-#     print("User is not in WW")
-#     return False
-
-# def is_user_in_wr(user):
-#     guilds = get_user_guilds(user)
-#     if guilds:
-#         for guild in guilds:
-#             if guild['id'] == os.environ.get('WR_GUILD_ID'):
-#                 print('User is in WR')
-#                 return True
-#     print("User is not in WR")
-#     return False
 
 def check_user_guilds(user):
     guilds = get_user_guilds(user)
@@ -85,9 +72,9 @@ def check_user_guilds(user):
 
     if guilds:
         for guild in guilds:
-            if guild['id'] == os.environ.get('WW_GUILD_ID'):
+            if guild['id'] == config['WW_GUILD_ID']:
                 in_ww = True
-            if guild['id'] == os.environ.get('WR_GUILD_ID'):
+            if guild['id'] == config['WR_GUILD_ID']:
                 in_wr = True
 
     return in_ww, in_wr
@@ -95,7 +82,7 @@ def check_user_guilds(user):
 
 # Decorator
 def woodland_warriors_required():
-    guild_id = os.environ.get('WW_GUILD_ID')
+    guild_id = config['WW_GUILD_ID']
     def decorator(view_func):
         @login_required  # Ensure the user is authenticated
         def wrapper(request, *args, **kwargs):

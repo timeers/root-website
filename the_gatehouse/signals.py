@@ -8,6 +8,7 @@ from .discordservice import get_discord_display_name, check_user_guilds
 from django.contrib.auth.models import Group
 
 
+
 @receiver(post_save, sender=User)
 def manage_profile(sender, instance, created, **kwargs):
     if created:
