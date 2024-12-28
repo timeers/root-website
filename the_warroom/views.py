@@ -750,7 +750,7 @@ def tournament_detail_view(request, tournament_slug):
     }
     
     if request.htmx:
-        return render(request, 'the_warroom/tournament_round_detail.html', context)
+        return render(request, 'the_warroom/partials/tournament_round_detail.html', context)
     return render(request, 'the_warroom/tournament_overview.html', context)
 
 @player_required

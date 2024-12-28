@@ -421,12 +421,6 @@ class ScoreCard(models.Model):
     total_other_points = models.IntegerField(default=0)
     dominance = models.BooleanField(default=False)
 
-    # dominance = models.BooleanField(default=False)
-
-    # @property
-    # def dominance(self):
-    #     return self.turns.filter(dominance=True).exists()
-
     def efforts_available(self):
         
         if self.dominance:
@@ -478,12 +472,24 @@ class TurnScore(models.Model):
     other_points = models.IntegerField(default=0)
     total_points = models.IntegerField(default=0)
     dominance = models.BooleanField(default=False)
+    # game_points = models.IntegerField(default=0)
+
 
     def __str__(self):
             return f"Turn {self.turn_number} - Total Points: {self.total_points}"
     class Meta:
         unique_together = ('scorecard', 'turn_number')  # Ensure each game has only one entry per turn_number
         ordering = ['scorecard', 'turn_number']   
+
+    # # Calculate the cumulative game points up to the current turn
+    # def game_points(self):
+    #     # Filter turns in the same scorecard with turn_number <= current turn's turn_number
+    #     total_turns = self.scorecard.turns.filter(turn_number__lte=self.turn_number)
+        
+    #     # Sum up the total_points for those turns
+    #     total_game_points = total_turns.aggregate(Sum('total_points'))['total_points__sum'] or 0
+        
+    #     return total_game_points
 
 
     def save(self, *args, **kwargs):
@@ -505,11 +511,12 @@ class TurnScore(models.Model):
                 scorecard.total_crafting_points = aggregate_values['total_crafting_points'] or 0
                 scorecard.total_faction_points = aggregate_values['total_faction_points'] or 0
                 scorecard.total_other_points = aggregate_values['total_other_points'] or 0
+
                 any_dominance_true = scorecard.turns.filter(dominance=True).exists()
                 scorecard.dominance = any_dominance_true
-                print(any_dominance_true)
+                # print(any_dominance_true)
                 scorecard.save()
-
+  
 
 
 def tournament_pre_save(sender, instance, *args, **kwargs):

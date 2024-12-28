@@ -1,6 +1,10 @@
 {% extends 'the_keep/base.html' %}
+{% block title %} - Games{% endblock %}
 
 {% block content %}
+<article class="media content-section">
+    <div class="media-body">
+
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>Games</h1>
     {% if user.profile.player %}
@@ -15,7 +19,7 @@
 
 
 
-    <form class="card" hx-get="{% url 'games-home' %}" 
+    <form hx-get="{% url 'games-home' %}" 
             hx-target="#games-container"
             hx-swap="outerHTML"
             id="gamefilterform">
@@ -42,7 +46,8 @@
     </form>
 
 
-    
+    </div>
+</article>
     
         {% include 'the_warroom/partials/game_list_home.html' %}
     

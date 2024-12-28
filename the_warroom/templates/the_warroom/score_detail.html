@@ -1,13 +1,14 @@
 {% extends 'the_keep/base.html' %}
+{% block title %} - Scorecard{% endblock %}
 {% block content %}
 
-<div style="display: flex; justify-content: space-between; align-items: center;">
-<h1>Points per Turn</h1>
+<div class="chart-container">
+    <div class="chart" id="lineChartContainer">
 
-{% if user.profile == object.recorder %}
-    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
-{% endif %}
-</div>
+    <h1>Points per Turn</h1>
+
+    <article class="media content-section">
+        <div class="media-body">
 
 {% if object.effort %}
 
@@ -26,8 +27,201 @@
 <small>
     Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
 </small>
+        </div>
+    </article>
+</div>  
+<div class="chart" id="pieChartContainer">
+    <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
+</div>
+
+{% if user.profile == object.recorder %}
+<div>
+    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
+</div>
+    {% endif %}
+
+</div>
+
+<div class="chart-container">
+    <div class="chart" id="lineChartContainer">
+        <canvas id="scorecardChart"></canvas>  <!-- Line Chart -->
+    </div>
+</div>
+<article class="media content-section">
+    <div class="media-body">
 
 {% include 'the_warroom/partials/scorecard.html' %}
+    </div>
+</article>
+
 
 
 {% endblock content %}
+
+
+{% block scripts %}
+<script>
+ // Get the scorecard ID and faction slug dynamically from the template
+const scorecardId = "{{ object.id }}";  // Replace with actual scorecard ID
+const factionSlug = "{{ object.faction.slug }}";  // Replace with actual faction slug
+const scorecardEndpoint = `/api/scorecard/detail/${scorecardId}/`;  // API endpoint for the scorecard data
+const factionEndpoint = `/api/scorecard/faction/${factionSlug}/`;  // API endpoint for the faction average data
+
+// Fetch both data endpoints in parallel using Promise.all
+Promise.all([
+    fetch(scorecardEndpoint).then(res => res.json()),  // Fetch scorecard data
+    fetch(factionEndpoint).then(res => res.json())     // Fetch faction average data
+])
+    .then(([scorecardData, factionData]) => {
+        // Line Chart Data Processing for the Scorecard Data
+        let color = scorecardData.color ? scorecardData.color : '#000000';  // Default color if not provided
+
+        // Get the turn numbers and game points from scorecard data
+        const scorecardTurns = scorecardData.turns.map(turn => turn.turn_number);
+        const gamePoints = scorecardData.turns.map(turn => turn.game_points);
+
+        // Line Chart Data Processing for the Faction Average Data
+        const factionTurns = factionData.averages.map(avg => avg.turn_number);
+        const factionGamePoints = factionData.averages.map(avg => avg.average_game_points);
+
+        // Combine turn numbers from both datasets and get the full range of turns
+        const allTurnNumbers = [...new Set([
+            ...scorecardTurns,  // Turn numbers from scorecard
+            ...factionTurns     // Turn numbers from faction average
+        ])];
+
+        // Determine the min and max turn numbers
+        const minTurnNumber = Math.min(...allTurnNumbers);  // Minimum turn number (usually 1)
+        const maxTurnNumber = Math.max(...allTurnNumbers);  // Maximum turn number
+
+        // Ensure that both datasets (scorecard and faction average) have data for all turns
+        const completeScorecardGamePoints = allTurnNumbers.map(turnNumber => {
+            const turn = scorecardData.turns.find(turn => turn.turn_number === turnNumber);
+            return turn ? turn.game_points : null;  // Use null if the turn is missing (line will break here)
+        });
+
+        const completeFactionGamePoints = allTurnNumbers.map(turnNumber => {
+            const avg = factionData.averages.find(avg => avg.turn_number === turnNumber);
+            return avg ? avg.average_game_points : null;  // Use null if the turn is missing (line will break here)
+        });
+
+        // Initialize the Combined Line Chart (for both Scorecard and Faction Average Data)
+        const lineCtx = document.getElementById('scorecardChart').getContext('2d');
+        const gamePointsChart = new Chart(lineCtx, {
+            type: 'line',  // Line chart type
+            data: {
+                labels: allTurnNumbers,  // Turn numbers for x-axis from combined dataset
+                datasets: [
+                    {
+                        label: 'This Game',  // Label for the scorecard line chart
+                        data: completeScorecardGamePoints,  // Game points for y-axis (scorecard)
+                        borderColor: color,  // Line color for scorecard
+                        backgroundColor: color,  // Fill color under the line for scorecard
+                        fill: false,  // Do not fill under the line
+                        tension: 0.2  // Smooth curve for scorecard line
+                    },
+                    {
+                        label: 'Faction Average',  // Label for the faction average line chart
+                        data: completeFactionGamePoints,  // Average game points for y-axis (faction)
+                        borderColor: '#FF5733',  // Line color for faction average (different color)
+                        backgroundColor: '#FF5733',  // Fill color under the line for faction
+                        fill: false,  // Do not fill under the line
+                        tension: 0.2,  // Smooth curve for faction line
+                        borderDash: [5, 5]  // Make the line dashed with 5px dashes and 5px gaps
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: {
+                            display: false,
+                            text: 'Turn Number'  // Label for x-axis
+                        },
+                        min: minTurnNumber,  // Set the min value for the x-axis
+                        max: maxTurnNumber,  // Set the max value for the x-axis
+                        ticks: {
+                            stepSize: 1  // Ensures each turn number is displayed as a tick
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: false,
+                            text: 'Game Points'  // Label for y-axis
+                        },
+                        beginAtZero: true  // Start y-axis from 0
+                    }
+                }
+            }
+        });
+
+        // Pie Chart Data Processing (same as before)
+        const totalFactionPoints = scorecardData.total_faction_points;
+        const totalCraftingPoints = scorecardData.total_crafting_points;
+        const totalBattlePoints = scorecardData.total_battle_points;
+        const totalOtherPoints = scorecardData.total_other_points;
+        const totalGamePoints = totalFactionPoints + totalCraftingPoints + totalBattlePoints + totalOtherPoints;
+
+        // Prepare data for Pie Chart
+        const pieData = {
+            labels: [
+                'Faction Points',
+                'Crafting Points',
+                'Battle Points',
+                'Other Points'
+            ],
+            datasets: [{
+                data: [
+                    totalFactionPoints,
+                    totalCraftingPoints,
+                    totalBattlePoints,
+                    totalOtherPoints
+                ],
+                backgroundColor: [
+                    '#FFCE56',  // Faction Points color
+                    '#36A2EB',  // Crafting Points color
+                    '#FF6384',  // Battle Points color
+                    '#4BC0C0'   // Other Points color
+                ],
+                hoverBackgroundColor: [
+                    '#FFCE56',  // Hover color for Faction Points
+                    '#36A2EB',  // Hover color for Crafting Points
+                    '#FF6384',  // Hover color for Battle Points
+                    '#4BC0C0'   // Hover color for Other Points
+                ]
+            }]
+        };
+
+        // Initialize Pie Chart
+        const pieCtx = document.getElementById('pieChart').getContext('2d');
+        const pieChart = new Chart(pieCtx, {
+            type: 'doughnut',  // Pie chart type
+            data: pieData,  // Pie chart data
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(tooltipItem) {
+                                // Display percentage in tooltip
+                                let percentage = ((tooltipItem.raw / totalGamePoints) * 100).toFixed(2);
+                                return `${tooltipItem.label}: ${percentage}%`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+    })
+    .catch(error => {
+        console.error('Error fetching data:', error);
+    });
+
+
+</script>
+{% endblock scripts %}

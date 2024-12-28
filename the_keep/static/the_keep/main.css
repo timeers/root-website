@@ -302,3 +302,45 @@ font-weight: bold;
   display: flex;
   align-items: center;
 }
+
+
+
+
+/* Container that holds both charts side by side */
+.chart-container {
+  display: flex;            /* Use flexbox to lay them out in a row */
+  justify-content: space-between;  /* Space out the charts */
+  width: 100%;  /* Take up full width of the parent container */
+}
+
+/* Each individual chart */
+.chart {
+  flex: 1;  /* Default behavior: the chart takes up equal space */
+}
+
+/* Make the line chart 3/4 of the container width */
+#lineChartContainer {
+  flex: 3;  /* 3/4 of the width */
+}
+
+/* Make the pie chart 1/4 of the container width */
+#pieChartContainer {
+  flex: 1;  /* 1/4 of the width */
+}
+
+/* Optional: Set a maximum width for the chart containers */
+.chart-container {
+  max-width: 1200px;  /* You can set a max width for large screens */
+  margin: 0 auto;  /* Center align the container */
+}
+
+@media (max-width: 768px) {
+  .chart-container {
+      flex-direction: column;  /* Stack charts vertically on small screens */
+  }
+
+  #lineChartContainer, #pieChartContainer {
+      flex: none;  /* Remove flex scaling */
+      width: 100%; /* Make both charts take up 100% of the width */
+  }
+}

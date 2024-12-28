@@ -12,9 +12,13 @@ from PIL import Image
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
+from .utils import validate_hex_color
 import boto3
 import random
 from django.conf import settings
+
+
+
 
 
 class PostQuerySet(models.QuerySet):
@@ -393,6 +397,13 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
 
     def __add__(self, other):
         if isinstance(other, Faction):
@@ -401,8 +412,10 @@ class Faction(Post):
     
 
     def save(self, *args, **kwargs):
+        
         if not self.card_image:  # Only set if it's not already defined
-            self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
+            if self.reach != 0:
+                self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_images/default_faction_icon.png'
         if not self.picture:

@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% block title %} - Game{% endblock %}
 
 {% block content %}
 
@@ -38,6 +39,8 @@
         </div>
         {% endif %}
 
+
+
         {% if game.notes %}
         <div>
             Notes: {{ game.notes }}
@@ -54,6 +57,11 @@
             Recorded by: {{ game.recorder.name }}
         </div>
         {% endif %}
+        <div>
+            <canvas id="scorecardChart"></canvas>
+          </div>
+
+
 
         {% if user.is_authenticated %}
             {% if user.profile in participants or user.profile == game.recorder %}
@@ -92,4 +100,123 @@
 </article>
 {% endif %}
 
+
+
+
+
 {% endblock content %}
+
+
+
+  {% block scripts %}
+
+  
+  <script>
+        
+        // Get the game ID dynamically from the template
+        const gameId = "{{ game.id }}";  // Replace with actual game ID (from Django template)
+
+        // Define the endpoint to fetch data from
+        const endpoint = `/api/scorecard/game/${gameId}/`;
+
+      
+
+        // Fetch the data from the API
+        fetch(endpoint)
+            .then(response => response.json())  // Parse the JSON response
+            .then(data => {
+                
+            // Check if the response contains the "No scorecards found" message
+            if (data.message && data.message === "No scorecards found for this game.") {
+                // document.getElementById('scorecardChart').innerHTML = "<p>No scorecards available for this game.</p>";
+                const factionChartsElement = document.getElementById('scorecardChart');
+                if (factionChartsElement) {
+                    factionChartsElement.remove();  // This will remove the entire element
+                }
+                return;  // Exit the function if no scorecards are found
+            }
+
+                // Data processing
+                const labels = [];  // Turn numbers (x-axis)
+                const datasets = [];  // One dataset per faction
+
+
+                    // Determine the max turn number
+                    let maxTurnNumber = 0;
+                    data.forEach(scorecard => {
+                        scorecard.turns.forEach(turn => {
+                            if (turn.turn_number > maxTurnNumber) {
+                                maxTurnNumber = turn.turn_number;
+                            }
+                        });
+                    });
+
+                    // Create labels for the x-axis (from 1 to the max turn number)
+                    for (let i = 1; i <= maxTurnNumber; i++) {
+                        labels.push(`Turn ${i}`);
+                    }
+
+
+
+                // Iterate over the scorecards in the API response
+                data.forEach(scorecard => {
+                    let color = scorecard.color ? scorecard.color : '#000000'; // Default color if not provided
+                    const faction = scorecard.faction;  // Faction name for the label
+                    const gamePoints = scorecard.turns.map(turn => turn.game_points);  // Game points for each turn
+                    const turnNumbers = scorecard.turns.map(turn => `Turn ${turn.turn_number}`);  // Turn numbers for x-axis
+
+                    // Create the dataset for this faction
+                    datasets.push({
+                        label: faction,  // Name of the faction
+                        data: gamePoints,  // y-axis data (game_points)
+                        fill: false,  // Don't fill the area under the line
+                        borderColor: color,
+                        tension: 0.1 // Line smoothing
+                    });
+                });
+
+                // Create the chart using Chart.js
+                const ctx = document.getElementById('scorecardChart').getContext('2d');
+                const scorecardChart = new Chart(ctx, {
+                    type: 'line',  // Line chart type
+                    data: {
+                        labels: labels,  // x-axis labels (turn numbers)
+                        datasets: datasets  // One dataset per faction
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: {
+                                title: {
+                                    display: false,
+                                    text: 'Turn Number'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: false,
+                                    text: 'Game Points'
+                                },
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error("Error fetching the data:", error);
+            });
+
+        // Function to generate random colors for each faction's line
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+  </script>
+
+  {% endblock scripts %}
+

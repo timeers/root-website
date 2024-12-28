@@ -409,17 +409,15 @@ class ScoreCardCreateForm(forms.ModelForm):
         faction = cleaned_data.get('faction')
         if faction is None:
             raise forms.ValidationError("Faction cannot be empty.")
-        # if self.turn_formset.is_valid():
-        #     dominance = False
-        #     for turn_form in self.turn_formset:
-        #         print(turn_form)
-        #         # if turn_form.dominance:
-        #         #     dominance = True
-        #         #     break
-        #     self.dominance = dominance
-            
-
+    
         return cleaned_data
+
+
+
+
+
+
+
 
 class EffortImportForm(forms.ModelForm):
     # required_css_class = 'required-field'

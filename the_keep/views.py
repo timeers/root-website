@@ -591,7 +591,7 @@ def search_view(request, slug=None):
         'is_search_view': True,
         'slug': slug,
         }
-    return render(request, "the_keep/search_results.html", context)
+    return render(request, "the_keep/partials/search_results.html", context)
 
 
 def _search_components(request, slug=None):
@@ -692,7 +692,7 @@ def delete_piece(request, id):
 
 
 
-
+# Not used. Might reuse for bookmarks
 def activity_list(request):
     from itertools import chain
     from operator import attrgetter

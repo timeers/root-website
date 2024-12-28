@@ -28,8 +28,7 @@ from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline
 
 urlpatterns = [
     path('woodland-admin/', admin.site.urls),
-    path('api/platform/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
-    path('api/tournament/<pk>/', get_options_for_tournament, name='get_options_for_tournament'),
+
     # path('register/', user_views.register, name='register'),
 
     # path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),
@@ -58,6 +57,11 @@ urlpatterns = [
 
     path('onboard/reject/<str:user_type>/', onboard_decline, name='onboard-decline'),
     path('onboard/<str:user_type>/', onboard_user, name='onboard-user'),
+
+    path('api/platform/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
+    path('api/tournament/<pk>/', get_options_for_tournament, name='get_options_for_tournament'),
+    path('api/', include('the_warroom.api.urls')),
+
     path('', include('the_keep.urls')),
     path('profile/', include('the_gatehouse.urls')),
     path('', include('the_warroom.urls')),
