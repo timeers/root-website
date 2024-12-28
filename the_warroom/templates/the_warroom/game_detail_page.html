@@ -38,9 +38,7 @@
         </div>
         {% endif %}
 
-        <div>
-            <canvas id="scorecardChart"></canvas>
-          </div>
+
 
         {% if game.notes %}
         <div>
@@ -58,6 +56,11 @@
             Recorded by: {{ game.recorder.name }}
         </div>
         {% endif %}
+        <div>
+            <canvas id="scorecardChart"></canvas>
+          </div>
+
+
 
         {% if user.is_authenticated %}
             {% if user.profile in participants or user.profile == game.recorder %}
@@ -124,7 +127,11 @@
                 
             // Check if the response contains the "No scorecards found" message
             if (data.message && data.message === "No scorecards found for this game.") {
-                document.getElementById('scorecardChart').innerHTML = "<p>No scorecards available for this game.</p>";
+                // document.getElementById('scorecardChart').innerHTML = "<p>No scorecards available for this game.</p>";
+                const factionChartsElement = document.getElementById('scorecardChart');
+                if (factionChartsElement) {
+                    factionChartsElement.remove();  // This will remove the entire element
+                }
                 return;  // Exit the function if no scorecards are found
             }
 

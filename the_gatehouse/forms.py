@@ -19,12 +19,11 @@ class UserUpdateForm(forms.ModelForm):
         model = User
         fields = ['email']
 
-
+# Removed League checkbox
 class ProfileUpdateForm(forms.ModelForm):
     class Meta:
-        model = Profile
-        # fields = ['display_name','image', 'dwd', 'league']       
-        fields = ['image', 'dwd', 'league', 'weird']
+        model = Profile     
+        fields = ['image', 'dwd', 'weird'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root Digital League',
@@ -34,9 +33,9 @@ class ProfileUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Only show the 'dwd' field if 'in_weird_root' is True
+        # Only show the 'weird' field if 'in_weird_root' is True
         if self.instance and not self.instance.in_weird_root:
-            self.fields.pop('weird')  # Remove the dwd field from the form if the profile's in_weird_root is False
+            self.fields.pop('weird')  # Remove the weird field from the form if the profile's in_weird_root is False
 
         # Check if the instance has a value for dwd
         if self.instance and self.instance.dwd:
@@ -44,21 +43,24 @@ class ProfileUpdateForm(forms.ModelForm):
             self.fields.pop('dwd')  # This removes the dwd field
         else:
             self.fields['dwd'].label = "Direwolf Digital Username (cannot be changed once saved)"
-        if self.instance and self.instance.league == True:
-            self.fields.pop('league')
+        # Save to repurpose #########################
+        # if self.instance and self.instance.league == True:
+        #     self.fields.pop('league')
 
     def clean(self):
         cleaned_data = super().clean()
         dwd = cleaned_data.get('dwd')
-        league = cleaned_data.get('league')
+        # Save to repurpose #########################
+        # league = cleaned_data.get('league')
 
         # Check if dwd matches the pattern of any alphanumeric characters followed by a '+' and exactly 4 digits
         if dwd and not re.match(r'^[a-zA-Z0-9]+(\+\d{4})$', dwd):
             cleaned_data['dwd'] = None
             raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
 
-        if league and dwd == None and not self.instance.dwd:
-            raise ValidationError(f"Must have a DWD username to be registered for Leauge.")
+        # Save to repurpose #########################
+        # if league and dwd == None and not self.instance.dwd:
+        #     raise ValidationError(f"Must have a DWD username to be registered for Leauge.")
 
         return cleaned_data
 

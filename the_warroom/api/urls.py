@@ -4,7 +4,7 @@ from .views import ScoreCardDetailView, FactionAverageTurnScoreView, AverageTurn
 urlpatterns = [
     path('scorecard/detail/<int:pk>/', ScoreCardDetailView.as_view(), name='scorecard-detail'),
     path('scorecard/game/<int:pk>/', GameScorecardView.as_view(), name='scorecard-game'),
-    path('scorecard/average/faction/<slug:slug>/', FactionAverageTurnScoreView.as_view(), name='faction-average-turn-scores'),
+    path('scorecard/faction/<slug:slug>/', FactionAverageTurnScoreView.as_view(), name='faction-average-turn-scores'),
     path('scorecard/average/', AverageTurnScoreView.as_view(), name='average-turn-scores'),
 
 ]
