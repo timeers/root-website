@@ -1,6 +1,14 @@
 import random
 from django.utils.text import slugify
 from django.apps import apps
+from django.core.exceptions import ValidationError
+import re
+
+def validate_hex_color(value):
+    # Regular expression to check for valid hex color codes (e.g., #RRGGBB)
+    if not re.match(r'^#([0-9A-Fa-f]{6})$', value):
+        raise ValidationError(f"{value} is not a valid hex color code.")
+
 
 def slugify_post_title(instance, save=False, new_slug=None):
     if new_slug is not None:

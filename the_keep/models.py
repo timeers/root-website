@@ -12,9 +12,13 @@ from PIL import Image
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
+from .utils import validate_hex_color
 import boto3
 import random
 from django.conf import settings
+
+
+
 
 
 class PostQuerySet(models.QuerySet):
@@ -393,6 +397,13 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
 
     def __add__(self, other):
         if isinstance(other, Faction):

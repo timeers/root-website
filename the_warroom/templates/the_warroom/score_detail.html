@@ -1,13 +1,12 @@
 {% extends 'the_keep/base.html' %}
 {% block content %}
 
-<div style="display: flex; justify-content: space-between; align-items: center;">
-<h1>Points per Turn</h1>
+<div class="chart-container">
+    <div class="chart" id="lineChartContainer">
 
-{% if user.profile == object.recorder %}
-    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
-{% endif %}
-</div>
+    <h1>Points per Turn</h1>
+
+
 
 {% if object.effort %}
 
@@ -26,8 +25,145 @@
 <small>
     Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
 </small>
+</div>  
+<div class="chart" id="pieChartContainer">
+    <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
+</div>
+
+{% if user.profile == object.recorder %}
+<div>
+    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
+</div>
+    {% endif %}
+
+</div>
 
 {% include 'the_warroom/partials/scorecard.html' %}
 
 
+
+<div class="chart-container">
+    <div class="chart" id="lineChartContainer">
+        <canvas id="scorecardChart"></canvas>  <!-- Line Chart -->
+    </div>
+</div>
 {% endblock content %}
+
+
+{% block scripts %}
+<script>
+    // Get the scorecard ID dynamically from the template
+    const scorecardId = "{{ object.id }}";  // Replace with actual scorecard ID
+    const endpoint = `/api/scorecard/detail/${scorecardId}/`;  // API endpoint for the scorecard data
+
+    // Fetch the data from the API
+    fetch(endpoint)
+        .then(response => response.json())  // Parse the JSON response
+        .then(data => {
+            // Line Chart Data Processing
+            let color = data.color ? data.color : '#000000';  // Default color if not provided
+            const labels = data.turns.map(turn => turn.turn_number);  // Extract turn numbers for x-axis
+            const gamePoints = data.turns.map(turn => turn.game_points);  // Extract game points for y-axis
+
+            // Initialize Line Chart
+            const lineCtx = document.getElementById('scorecardChart').getContext('2d');
+            const gamePointsChart = new Chart(lineCtx, {
+                type: 'line',  // Line chart type
+                data: {
+                    labels: labels,  // Turn numbers on the x-axis
+                    datasets: [{
+                        label: 'Game Points',
+                        data: gamePoints,  // Game points on the y-axis
+                        borderColor: color,  // Line color
+                        backgroundColor: color,  // Fill color under the line
+                        fill: false,  // Do not fill under the line
+                        tension: 0.4  // Smooth curve
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: false,
+                                text: 'Turn Number'  // Label for x-axis
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: false,
+                                text: 'Game Points'  // Label for y-axis
+                            },
+                            beginAtZero: true  // Start y-axis from 0
+                        }
+                    }
+                }
+            });
+
+            // Pie Chart Data Processing
+            const totalFactionPoints = data.total_faction_points;
+            const totalCraftingPoints = data.total_crafting_points;
+            const totalBattlePoints = data.total_battle_points;
+            const totalOtherPoints = data.total_other_points;
+            const totalGamePoints = totalFactionPoints + totalCraftingPoints + totalBattlePoints + totalOtherPoints
+
+            // Prepare data for Pie Chart
+            const pieData = {
+                labels: [
+                    'Faction Points', 
+                    'Crafting Points', 
+                    'Battle Points', 
+                    'Other Points'
+                ],
+                datasets: [{
+                    data: [
+                        totalFactionPoints,
+                        totalCraftingPoints,
+                        totalBattlePoints,
+                        totalOtherPoints
+                    ],
+                    backgroundColor: [
+                        '#FFCE56',  // Faction Points color
+                        '#36A2EB',  // Crafting Points color
+                        '#FF6384',  // Battle Points color
+                        '#4BC0C0'   // Other Points color
+                    ],
+                    hoverBackgroundColor: [
+                        '#FFCE56',  // Hover color for Faction Points
+                        '#36A2EB',  // Hover color for Crafting Points
+                        '#FF6384',  // Hover color for Battle Points
+                        '#4BC0C0'   // Hover color for Other Points
+                    ]
+                }]
+            };
+
+            // Initialize Pie Chart
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            const pieChart = new Chart(pieCtx, {
+                type: 'doughnut',  // Pie chart type
+                data: pieData,  // Pie chart data
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    // Display percentage in tooltip
+                                    let percentage = ((tooltipItem.raw / totalGamePoints) * 100).toFixed(2);
+                                    return `${tooltipItem.label}: ${percentage}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+        })
+        .catch(error => {
+            console.error('Error fetching data:', error);
+        });
+</script>
+{% endblock scripts %}
