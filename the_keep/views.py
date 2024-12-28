@@ -562,7 +562,14 @@ def bookmark_post(request, object):
 # Search Page
 def list_view(request, slug=None):
     posts, search, search_type, designer = _search_components(request, slug)
-    designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    if request.user.profile.weird:
+        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    else:
+        # Filter designers who have at least one post with 'official' property set to True
+        print("Official Only")
+        designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
+                               .filter(official_posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
@@ -581,7 +588,13 @@ def list_view(request, slug=None):
 def search_view(request, slug=None):
     posts, search, search_type, designer = _search_components(request, slug)
     # Get all designers (Profiles) who have at least one post
-    designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    if request.user.profile.weird:
+        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    else:
+        # Filter designers who have at least one post with 'official' property set to True
+        print("Official Only")
+        designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
+                               .filter(official_posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 

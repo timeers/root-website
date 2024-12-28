@@ -96,6 +96,7 @@ class Post(models.Model):
     stl_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
+    sorting = models.IntegerField(default=10)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
@@ -266,7 +267,7 @@ class Post(models.Model):
         return False
         
     class Meta:
-        ordering = ['-official', '-stable', '-date_posted']
+        ordering = ['sorting', '-official', '-stable', '-date_posted']
 
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)
@@ -283,6 +284,7 @@ class Deck(Post):
     card_total = models.IntegerField()
     def save(self, *args, **kwargs):
         self.component = 'Deck'  # Set the component type
+        self.sorting = 3
         super().save(*args, **kwargs)  # Call the parent save method
 
     # def get_absolute_url(self):
@@ -294,6 +296,7 @@ class Landmark(Post):
     card_text = models.TextField(blank=True, null=True)
     def save(self, *args, **kwargs):
         self.component = 'Landmark'  # Set the component type
+        self.sorting = 5
         super().save(*args, **kwargs)  # Call the parent save method
     # def get_absolute_url(self):
     #     return reverse('landmark-detail', kwargs={'slug': self.slug})
@@ -304,6 +307,7 @@ class Map(Post):
     default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
+        self.sorting = 2
         if not self.picture:
             self.picture = 'default_images/default_map.png'
         super().save(*args, **kwargs)  # Call the parent save method
@@ -344,6 +348,7 @@ class Vagabond(Post):
     starting_torch = models.IntegerField(default=1, validators=[MinValueValidator(0),MaxValueValidator(2)])
     def save(self, *args, **kwargs):
         self.component = 'Vagabond'  # Set the component type
+        self.sorting = 4
         if not self.picture:
             self.picture = animal_default_picture(self)
         elif self.picture == 'default_images/animals/default_animal.png':
@@ -425,8 +430,10 @@ class Faction(Post):
 
         if self.type == "C":
             self.component = 'Clockwork'
+            self.sorting = 7
         else:
             self.component = 'Faction'  # Set the component type
+            self.sorting = 1
         super().save(*args, **kwargs)  # Call the parent save method
 
     # def get_absolute_url(self):
@@ -528,6 +535,7 @@ class Hireling(Post):
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
+        self.sorting = 6
         if not self.picture:
             self.picture = animal_default_picture(self)
         elif self.picture == 'default_images/animals/default_animal.png':

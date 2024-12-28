@@ -1,5 +1,5 @@
 import django_filters
-from django.db.models import Q
+from django.db.models import Q, Count
 from .models import Game
 from the_keep.models import Faction, Deck, Map, Vagabond
 from the_gatehouse.models import Profile
@@ -7,25 +7,26 @@ from the_gatehouse.models import Profile
 class GameFilter(django_filters.FilterSet):
 
     map = django_filters.ModelChoiceFilter(
-        queryset=Map.objects.all(),  # Set the queryset for the filter
+        # queryset=Map.objects.all(),  # Set the queryset for the filter
+        queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0),
         empty_label='All',
     )
     deck = django_filters.ModelChoiceFilter(
-        queryset=Deck.objects.all(),  # Set the queryset for the filter
+        queryset=Deck.objects.annotate(games_count=Count('games')).filter(games_count__gt=0),  # Set the queryset for the filter
         empty_label='All',
     )
     faction = django_filters.ModelMultipleChoiceFilter(
-        queryset=Faction.objects.all(),  # Set the queryset for the filter
+        queryset=Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
         field_name='efforts__faction',
         label = 'Factions',
     )
     vagabond = django_filters.ModelMultipleChoiceFilter(
-        queryset=Vagabond.objects.all(),  # Set the queryset for the filter
+        queryset=Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
         field_name='efforts__vagabond',
         label = 'Vagabonds',
     )
     player = django_filters.ModelMultipleChoiceFilter(
-        queryset=Profile.objects.all(),  # Set the queryset for the filter
+        queryset=Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
         field_name='efforts__player',
         label = 'Players',
     )
@@ -43,10 +44,19 @@ class GameFilter(django_filters.FilterSet):
         # print(f'Official Only: {official_only}')
         # Filter for only Official content if not a member of Weird Root
         if official_only:
-            self.filters['deck'].queryset = Deck.objects.filter(official=True)
-            self.filters['map'].queryset = Map.objects.filter(official=True)
-            self.filters['faction'].queryset = Faction.objects.filter(official=True)
-            self.filters['vagabond'].queryset = Vagabond.objects.filter(official=True)
+            # self.filters['deck'].queryset = Deck.objects.filter(official=True)
+            # self.filters['map'].queryset = Map.objects.filter(official=True)
+            # self.filters['faction'].queryset = Faction.objects.filter(official=True)
+            # self.filters['vagabond'].queryset = Vagabond.objects.filter(official=True)
+
+            self.filters['deck'].queryset = Deck.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, official=True)
+            self.filters['map'].queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, official=True)
+            self.filters['faction'].queryset = Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
+            self.filters['vagabond'].queryset = Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
+            self.filters['player'].queryset = Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0)
+
+
+
             # self.filters['landmarks'].queryset = Landmark.objects.filter(official=True)
             # self.filters['hirelings'].queryset = Hireling.objects.filter(official=True)
 
@@ -58,9 +68,9 @@ class GameFilter(django_filters.FilterSet):
         selected_factions = self.data.getlist('faction')
         selected_players = self.data.getlist('player')
         selected_vagabonds = self.data.getlist('vagabond')
-        print(selected_factions)
-        print(selected_players)
-        print(selected_vagabonds)
+        # print(selected_factions)
+        # print(selected_players)
+        # print(selected_vagabonds)
 
         # filter_conditions = Q()
 

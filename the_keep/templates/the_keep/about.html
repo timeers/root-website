@@ -5,71 +5,32 @@
 {% block content %}
 <h1>About the Database</h1>
 <div>This is a collection of components for Root, the board game by Leder Games.</div>
-
-<br>
-<h3>How to Log In</h3>
-<div>Log in using Discord's authentication service. This will use your Discord Display Name to create your profile and check that you are a member of the Root Discord community.</div>
-<div>Once you are logged in you can record games and check player stats.</div><br>
-{% if user.profile.weird %}
-<h3>What This Isn't</h3>
-This is not meant to be a social platform or a popularity contest. You can bookmark things that you like to find them quickly in the future, but this does not influence search results. 
-Components are sorted as follows: by Official/Unofficial then by Development Status then by date posted.<br>
-If a Faction is marked as 'stable' it means that it has been playtested and the designer does not plan to make any major changes.<br>
-If you like the looks of something marked as 'stable' you should be able to find it at one of the provided links and use it in your game.<br>
-<br>
-{% endif %}
-<h3>Something Missing?</h3>
-If you see something that is missing or incorrect please reach out through Discord to let us know.<br><br>
-{% if user.profile.weird %}
-<h3>Want to Add Something You Made?</h3>
-1. Have a unique name<br>
-2. If it is based on something else, have the name of the original<br>
-3. Have specific details:<br>
-<details>
-     <summary>Faction</summary>
-     <ul>Militant/Insurgent</ul>
-     <ul>Reach</ul>
-     <ul>Primary Animal</ul>
-     <ul>Complexity/Card Wealth/Aggression/Crafting Ability</ul>
-</details>
-<details>
-     <summary>Vagabond</summary>
-     <ul>Starting Items</ul>
-     <ul>Ability</ul>
-     <ul>Animal</ul>
-</details>
-<details>
-     <summary>Map</summary>
-     <ul>Clearing Count</ul>
-     <ul>Map Specific Rules</ul>
-</details>
-<details>
-     <summary>Deck</summary>
-     <ul>Card Count</ul>
-</details>
-<details>
-     <summary>Landmark</summary>
-     <ul>Landmark Effects</ul>
-</details>
-<details>
-     <summary>Hireling</summary>
-     <ul>Promoted/Demoted</ul>
-     <ul>Animal</ul>
-     <ul>Faction it is based on (if applicable)</ul>
-</details>
-<div>This can all be changed later but it provides a good starting point.
+<div>This site is currently in development and any feedback or bugs should be reported in the RDB Discord.</div>
+<div>Thank you for your interest in the Database!</div>
+{% if user.profile.in_weird_root %}
+<h2>Fan Content</h2>
+This site is not affiliated with Weird Root but if you are seeing this it is because you are a member of the Weird Root discord. 
+We are using Weird Root membership as a way to authenticate users as we believe anyone in the Discord should also have access to this site.<br>
+Slugfacekillah said it perfectly in the Discord so we're going to adopt the same code of conduct.<br>
+<div>
+<em>
+CODE OF CONDUCT.....<br>
+By being here, you agree that all fan-made Root content is made for fun and for FREE.<br>
+You are owed nothing for your ideas, even if something similar, identical, or derivative is later published.<br>
+Ideas come to people from many places, and design (in general) is often unintentionally convergent.<br>
+You understand and agree to this.<br>
 </div>
-4. Have a link to at least one of the following:
-<ul>BoardGameGeek Post</ul>
-<ul>Thread in Woodland Warriors</ul>
-<ul>Thread in Weird Root</ul>
-<ul>Tabetop Simulator Mod</ul>
-<ul>Print and Play files</ul>
-<div>This will help people find what you've made</div>
-<div>5. Have tested it at least once (solo or with others)</div>
-<div>6. Have a plan and desire to continue developing your idea until it is stable</div>
-<div>7. Contact an Admin</div>
+<div>
+Besides!! ALL fan-made creations are based on and inspired by the game of Root by Leder Games.<br>
+Their materials cannot be made for sale or profit, and Leder Games is the sole holder of all intellectual properties on which those creations are based. We love them (and Cole and Kyle and Patrick) and are here by their grace only.<br>
+Please respect that and act accordingly.<br>
+</div>
+<div>
+Don't represent creations as being official.<br>
+Don't expect them to be made official.<br>
+Don't expect official feedback. <br>
+Just don't.<br>
+</div>
+</em>
 {% endif %}
-
-
 {% endblock content %}
