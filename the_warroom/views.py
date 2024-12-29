@@ -477,20 +477,16 @@ def scorecard_manage_view(request, id=None):
         total_points = 0
         for child_form in formset:
             # print(child_form.cleaned_data)
-            if child_form.cleaned_data.get('DELETE'):
-                # If the DELETE checkbox is checked, delete the object
-                deleted_instance = child_form.instance
-                deleted_instance.delete()
-            else:
-                turn_dominance = child_form.cleaned_data.get('dominance')
-                if turn_dominance:
-                    dominance = True
-                total_points += (
-                    child_form.cleaned_data.get('faction_points', 0) +
-                    child_form.cleaned_data.get('crafting_points', 0) +
-                    child_form.cleaned_data.get('battle_points', 0) +
-                    child_form.cleaned_data.get('other_points', 0)
-                )
+
+            turn_dominance = child_form.cleaned_data.get('dominance')
+            if turn_dominance:
+                dominance = True
+            total_points += (
+                child_form.cleaned_data.get('faction_points', 0) +
+                child_form.cleaned_data.get('crafting_points', 0) +
+                child_form.cleaned_data.get('battle_points', 0) +
+                child_form.cleaned_data.get('other_points', 0)
+            )
         if effort and total_points != effort.score and effort.score:
             # If points don't match effort.score
             context['message'] = f"Error: The recorded points ({total_points}) do not match the total game points ({effort.score})."

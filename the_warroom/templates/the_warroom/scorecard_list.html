@@ -19,7 +19,7 @@ These scorecards have not been linked with a game:
             <th>Turns</th>
             <th>Note</th>
             <th>Actions</th> <!-- Added an Actions column for the buttons -->
-            <th>Info</th>
+       
         </tr>
     </thead>
     <tbody class="scorecard-rows">
@@ -47,33 +47,20 @@ These scorecards have not been linked with a game:
                 {% endif %}
             </td>
             <td>
-                <a class="btn btn-danger btn-sm ml-1 ms-1 mb-1" href="{% url 'delete-scorecard' object.id %}">
-                    <i class="bi bi-trash3"></i>
-                </a>
                 <a class="btn btn-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
                     <i class="bi bi-pencil-square"></i>
                 </a>
              
-                {% if object.efforts_available %}
-                    <a class="btn btn-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
-                        <i class="bi bi-link"></i>
-                    </a>
-                {% endif %}
-            </td>
-            <td>
-                <!-- Button to toggle the visibility of the hidden row -->
-                <button class="btn btn-info btn-sm ml-1 ms-1 mb-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ object.id }}" aria-expanded="false" aria-controls="collapse-{{ object.id }}">
+
+
+                <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'detail-scorecard' object.id %}">
                     <i class="bi bi-info-circle"></i>
-                </button>
-            </td>
-        </tr>
-        <!-- Hidden row that will be shown when the button is clicked -->
-        <tr id="collapse-{{ object.id }}" class="collapse">
-            <td colspan="5"> <!-- Make sure the hidden row spans across all columns -->
-                <div class="card card-body">
-                    <!-- Hidden content -->
-                    {% include 'the_warroom/partials/scorecard.html' %}
-                </div>
+                </a>
+                {% if object.efforts_available %}
+                <a class="btn btn-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
+                    <i class="bi bi-link"></i>
+                </a>
+            {% endif %}
             </td>
         </tr>
 
@@ -101,6 +88,14 @@ These scorecards have not been linked with a game:
 
 
 {% if complete_scorecards %}
+<div class="content-section" id="scorecardContainer">
+    <h2>Your Recorded Average by Faction</h2>
+<div>
+    <canvas id="scorecardChart" width="400" height="400"></canvas>
+</div>
+<small>*Based on the data you've recorded. Data for your plays can be found in the profile stats tab.</small>
+</div>
+
 <table>
     <thead>
         <tr>
@@ -110,7 +105,6 @@ These scorecards have not been linked with a game:
 
             <th>Player</th>
             <th>Actions</th> <!-- Added an Actions column for the buttons -->
-            <th>Info</th>
         </tr>
     </thead>
     <tbody class="scorecard-rows">
@@ -120,6 +114,7 @@ These scorecards have not been linked with a game:
 
 </tbody>
 </table>
+
 {% else %}
     You have not recorded any scorecards
 {% endif %}
@@ -131,3 +126,120 @@ These scorecards have not been linked with a game:
 
 
 {% endblock content %}
+
+
+{% block scripts %}
+<script>
+
+    // Check if the element with the ID 'scorecardChart' exists
+    const factionChartsElement = document.getElementById('scorecardChart');
+    console.log('Starting')
+    if (factionChartsElement) { 
+        console.log("Creating Scorecard Chart")
+    // Get the game ID dynamically from the template
+    const recorderSlug = "{{ user.profile.slug }}";  // Replace with actual game ID (from Django template)
+
+    // Define the endpoint to fetch data from
+    const endpoint = `/api/scorecard/player/${recorderSlug}/?recorder=True`;
+
+    // Fetch the data from the API
+    fetch(endpoint)
+        .then(response => response.json())  // Parse the JSON response
+        .then(data => {
+
+            // Check if the response contains the "No scorecards found" message
+            if (data.message && data.message === "No scorecards found.") {
+                const factionChartsElement = document.getElementById('scorecardContainer');
+                if (factionChartsElement) {
+                    factionChartsElement.remove();  // This will remove the entire element
+                }
+                return;  // Exit the function if no scorecards are found
+            }
+
+            // Data processing
+            const labels = [];  // Turn numbers (x-axis)
+            const datasets = [];  // One dataset per faction
+
+            // Extract all turn numbers from the data
+            const turnNumbers = [];
+            for (const faction in data) {
+                data[faction].averages.forEach(turnData => {
+                    if (!turnNumbers.includes(turnData.turn_number)) {
+                        turnNumbers.push(turnData.turn_number);  // Collect unique turn numbers
+                    }
+                });
+            }
+
+            // Sort turn numbers in ascending order
+            turnNumbers.sort((a, b) => a - b);
+            labels.push(...turnNumbers.map(turn => `Turn ${turn}`));  // Prepare x-axis labels
+
+            // Iterate over the factions to create datasets for each
+            for (const faction in data) {
+                const factionData = data[faction];
+                let color = factionData.color ? factionData.color : getRandomColor();  // Faction color or random color
+
+                // Map the average game points for each turn in the current faction
+                const gamePoints = turnNumbers.map(turn => {
+                    const turnData = factionData.averages.find(t => t.turn_number === turn);
+                    return turnData ? turnData.average_game_points : null;  // Default to null if no data for this turn
+                });
+
+                // Create the dataset for this faction
+                datasets.push({
+                    label: `${factionData.faction} (${factionData.count})`,  // Name of the faction
+                    data: gamePoints,  // y-axis data (average game points)
+                    fill: false,  // Don't fill the area under the line
+                    borderColor: color,
+                    tension: 0.1 // Line smoothing
+                });
+            }
+
+            // Create the chart using Chart.js
+            const ctx = document.getElementById('scorecardChart').getContext('2d');
+            const scorecardChart = new Chart(ctx, {
+                type: 'line',  // Line chart type
+                data: {
+                    labels: labels,  // x-axis labels (turn numbers)
+                    datasets: datasets  // One dataset per faction
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: false,
+                                text: 'Turn Number'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: false,
+                                text: 'Average Game Points'
+                            },
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 5,  // Set the y-axis step size to 10 points per block
+                            },
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Error fetching the data:", error);
+        });
+
+    // Function to generate random colors for each faction's line
+    function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+}
+</script>
+{% endblock scripts %}

@@ -69,7 +69,7 @@ class Tournament(models.Model):
 
     description = models.TextField(null=True, blank=True)
 
-    start_date = models.DateTimeField()
+    start_date = models.DateTimeField(default=timezone.now)
     end_date = models.DateTimeField(null=True, blank=True)
     
     slug = models.SlugField(unique=True, null=True, blank=True)

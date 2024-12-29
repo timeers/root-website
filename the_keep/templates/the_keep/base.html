@@ -59,6 +59,11 @@
                     </div>
                 {% endfor %}
             {% endif %}
+            {% if user.is_authenticated == False %}
+            <div class="alert alert-info">
+                Welcome! There's more thank what you see here. Log in using Discord to see fan content, game details and more!
+            </div>
+            {% endif %}
             {% block content %}{% endblock %}
         </div>
         

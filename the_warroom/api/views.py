@@ -291,9 +291,16 @@ class AverageTurnScoreView(APIView):
 
 class PlayerScorecardView(APIView):
     def get(self, request, slug, format=None):
-        # Get all scorecards related to the specified player (via player slug)
-        
-        scorecards = ScoreCard.objects.filter(effort__player__slug=slug)
+
+        # Get the 'recorder' query parameter from the URL (if provided)
+        recorder = request.query_params.get('recorder', None)
+
+        if recorder:
+            # Get all scorecards recorded by a player (via player slug)        
+            scorecards = ScoreCard.objects.filter(recorder__slug=slug, effort__isnull=False)
+        else:
+            # Get all scorecards related to the specified player (via player slug)        
+            scorecards = ScoreCard.objects.filter(effort__player__slug=slug)
 
         # Check if there are no scorecards
         if not scorecards.exists():
