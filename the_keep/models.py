@@ -19,7 +19,9 @@ from django.conf import settings
 
 
 
-
+stable_game_count = 5
+stable_player_count = 3
+stable_faction_count = 4
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
@@ -251,20 +253,8 @@ class Post(models.Model):
     def plays(self):
         plays = self.get_plays_queryset()
         return plays.count() if plays else 0
-
-    def plays_since_update(self):
-        plays = self.get_plays_queryset()
-        if plays:
-            new_plays = plays.filter(date_posted__gt=self.date_updated)
-            return new_plays.count()
-        return 0
     
-    def stable_ready(self):
-        plays = self.plays_since_update()
-        stable = self.stable
-        if plays > 9 and stable == False:
-            return True
-        return False
+
         
     class Meta:
         ordering = ['sorting', '-official', '-stable', '-date_posted']
@@ -287,8 +277,27 @@ class Deck(Post):
         self.sorting = 3
         super().save(*args, **kwargs)  # Call the parent save method
 
-    # def get_absolute_url(self):
-    #     return reverse('deck-detail', kwargs={'slug': self.slug})
+
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__deck=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('efforts__player', distinct=True)
+                )['total_players']
+        
+
+        play_count = plays.count()
+        stable = self.stable
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
+
+
+
 
 
 
@@ -298,8 +307,25 @@ class Landmark(Post):
         self.component = 'Landmark'  # Set the component type
         self.sorting = 5
         super().save(*args, **kwargs)  # Call the parent save method
-    # def get_absolute_url(self):
-    #     return reverse('landmark-detail', kwargs={'slug': self.slug})
+
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__landmarks=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('efforts__player', distinct=True)
+                )['total_players']
+        
+
+        play_count = plays.count()
+        stable = self.stable
+
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
 
 class Map(Post):
     clearings = models.IntegerField(default=12)
@@ -312,9 +338,24 @@ class Map(Post):
             self.picture = 'default_images/default_map.png'
         super().save(*args, **kwargs)  # Call the parent save method
 
-# # This might need to be moved to each type of component? map-detail, deck-detail etc.
-#     def get_absolute_url(self):
-#         return reverse('map-detail', kwargs={'slug': self.slug})
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__map=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('efforts__player', distinct=True)
+                )['total_players']
+        
+        play_count = plays.count()
+        stable = self.stable
+
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+
+        return (stable_ready, play_count, unique_players, official_faction_count)
 
 
 
@@ -355,18 +396,12 @@ class Vagabond(Post):
             self.picture = animal_default_picture(self)
         super().save(*args, **kwargs)  # Call the parent save method
 
-
-
-
-
-
-    # def get_absolute_url(self):
-    #     return reverse('vagabond-detail', kwargs={'slug': self.slug})
     
     def wins(self):
-        plays = self.get_plays_queryset()
-        wins = plays.filter(win=True, game__test_match=False)
-        return wins.count() if plays else 0
+        # plays = self.get_plays_queryset()
+        # wins = plays.filter(win=True, game__test_match=False)
+        wins = self.efforts.filter(win=True, game__test_match=False)
+        return wins.count() if wins else 0
 
     def get_wins_queryset(self):
         return self.efforts.all().filter(win=True, game__test_match=False)
@@ -383,7 +418,25 @@ class Vagabond(Post):
 
         total_plays = self.get_plays_queryset().filter(game__test_match=False).count()
         return points / total_plays * 100 if total_plays > 0 else 0
+    
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__efforts__vagabond=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('player', distinct=True)
+                )['total_players']
+        
 
+        play_count = plays.count()
+        stable = self.stable
+
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
 
 class Faction(Post):
     class TypeChoices(models.TextChoices):
@@ -454,7 +507,7 @@ class Faction(Post):
     def winrate(self):
         points = 0
         wins = self.get_wins_queryset()
-        print(len(wins))
+        # print(len(wins))
         for effort in wins:
             winners_count = effort.game.get_winners().count()
             if winners_count > 0:
@@ -523,6 +576,25 @@ class Faction(Post):
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]
 
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__efforts__faction=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('player', distinct=True)
+                )['total_players']
+        
+
+        play_count = plays.count()
+        stable = self.stable
+
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
+
     class Meta:
         ordering = ['-component', '-official', '-stable', '-date_posted']
 
@@ -562,6 +634,25 @@ class Piece(models.Model):
 
     def __str__(self):
         return f"{self.name} (x{self.quantity})"
+
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__hirelings=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('efforts__player', distinct=True)
+                )['total_players']
+        
+
+        play_count = plays.count()
+        stable = self.stable
+
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
 
 
 def animal_default_picture(instance):

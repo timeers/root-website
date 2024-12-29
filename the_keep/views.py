@@ -459,7 +459,11 @@ def ultimate_component_view(request, slug):
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
 
-
+    if object.stable or object.designer != request.user.profile:
+        stable_ready = None
+    else:
+        stable_ready = object.stable_check()
+    print(f'Stable Ready: {stable_ready}')
 
     # Start with the base queryset
     games = object.get_games_queryset()
@@ -548,6 +552,7 @@ def ultimate_component_view(request, slug):
         'win_rate': win_rate,
         'tourney_points': tourney_points,
         'total_efforts': total_efforts,
+        'stable_ready': stable_ready,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)

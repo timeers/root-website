@@ -206,7 +206,7 @@ class AverageTurnScoreView(APIView):
         # Get all scorecards related to the given faction type (if provided)
         if faction_type:
             # Filter by the provided faction type
-            print('Faction Type', faction_type)
+            # print('Faction Type', faction_type)
             scorecards = ScoreCard.objects.filter(effort__isnull=False, dominance=False, faction__type=faction_type)
         else:
             faction_type = "A"
