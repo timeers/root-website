@@ -1,0 +1,26 @@
+{% extends 'the_keep/base.html' %}
+{% block title %} - Stable{% endblock %}
+{% block content %}
+<article class="content-section">
+<h1>Mark {{ post.title }} as Stable?</h1>
+<div>
+It looks like {{ post.title }} might be in a stable state. 
+</div>
+<div>
+If you think you will make any large changes to this {{ post.component }} you can always do this later.
+</div>
+<div>
+By marking {{ post.title }} as "Stable" you convey to other users that they can confidently use it without any large rule gaps or balance issues.
+Of course =this does not mean that this {{ post.component }} will be completely balanced. Much of the balance in Root comes from the player interaction.
+</div>
+<div>
+    If you are ready to confirm, click "Yes!"
+</div>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn btn-success" type="submit">Yes!</button>
+    <a href="{{ post.get_absolute_url }}" class="btn btn-secondary">Not yet...</a href="{{ post.get_absolute_url }}">
+</form>
+</article>
+{% endblock content %}

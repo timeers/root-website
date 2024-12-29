@@ -626,3 +626,7 @@ class PieceForm(forms.ModelForm):
             raise ValidationError('Quantity cannot be greater than 36.')
         
         return quantity
+
+class StableConfirmForm(forms.Form):
+    # This form doesn't need any fields, just the submit button
+    pass

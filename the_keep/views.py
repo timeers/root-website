@@ -22,7 +22,7 @@ from django.views.generic import (
 )
 from the_warroom.models import Game
 from the_gatehouse.models import Profile
-from the_gatehouse.views import designer_required_class_based_view, designer_required
+from the_gatehouse.views import designer_required_class_based_view, designer_required, player_required
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -34,7 +34,8 @@ from .forms import (PostCreateForm, MapCreateForm,
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
-                    PieceForm, ClockworkCreateForm
+                    PieceForm, ClockworkCreateForm,
+                    StableConfirmForm,
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -303,148 +304,6 @@ def about(request, *args, **kwargs):
 
 
 
-# class ComponentDetailListView(ListView):
-#     detail_context_object_name = 'object'
-#     # template_name = 'the_keep/component_detail_list.html'
-#     paginate_by = settings.PAGE_SIZE
-    
-#     def get(self, request, *args, **kwargs):
-#         self.object = self.get_object()  # Set the object here
-#         return super(ComponentDetailListView, self).get(request, *args, **kwargs)
-
-#     def get_template_names(self):
-#         if self.request.htmx:
-#             return 'the_keep/partials/game_list.html'
-#         return 'the_keep/component_detail_list.html'
-
-#     # def get_queryset(self):
-#     #     if not hasattr(self, 'object'):
-#     #         self.object = self.get_object()  # Ensure the object is set
-#     #     if not self.request.user.is_authenticated:
-#     #         queryset = self.object.get_games_queryset().filter(official=True)
-#     #         # queryset = self.object.get_games_queryset().only_official_components()
-#     #     else:
-#     #         # If show official only if user is not a member of Weird Root
-#     #         if self.request.user.profile.weird:
-#     #             queryset = self.object.get_games_queryset()
-#     #         else:
-#     #             queryset = self.object.get_games_queryset().filter(official=True)
-#     #             # queryset = self.object.get_games_queryset().only_official_components()
-
-#         # self.filterset = GameFilter(self.request.GET, queryset=queryset)
-#         # return self.filterset.qs
-#     def get_queryset(self):
-#         queryset = self.object.get_games_queryset()  # Use self.object, no need for re-fetching
-#         if not self.request.user.is_authenticated:
-#             queryset = queryset.filter(official=True)
-#         else:
-#             if self.request.user.profile.weird:
-#                 queryset = queryset
-#             else:
-#                 queryset = queryset.filter(official=True)
-
-#         self.filterset = GameFilter(self.request.GET, queryset=queryset)
-#         return self.filterset.qs
-
-#     def get_object(self):
-#         # Retrieve the faction based on the primary key
-#         slug = self.kwargs.get('slug')
-#         if slug is None:
-#             raise Http404('Slug is required in the URL.')
-#         post = get_object_or_404(Post, slug=self.kwargs.get('slug'))
-#         component_mapping = {
-#             "Map": Map,
-#             "Deck": Deck,
-#             "Landmark": Landmark,
-#             "Hireling": Hireling,
-#             "Vagabond": Vagabond,
-#             "Faction": Faction,
-#             "Clockwork": Faction,
-#         }
-#         Klass = component_mapping.get(post.component)
-#         return get_object_or_404(Klass, slug=slug)
-
-#     def get_context_data(self, **kwargs):
-#         context = super(ComponentDetailListView, self).get_context_data(**kwargs)
-#         context[self.detail_context_object_name] = self.object
-#         commentform = PostCommentCreateForm()
-#         # Get the ordered queryset of games
-#         games = self.get_queryset().prefetch_related('efforts')
-#         # Initialize variables for aggregate data
-#         win_count = 0
-#         coalition_count = 0
-#         win_rate = 0
-#         tourney_points = 0
-#         total_efforts = 0
-
-#         # Get top players for factions
-#         top_players = []
-#         most_players = []
-
-#         # If loading the initial page or filtering results run this calculation
-#         # If just getting the next page we can skip this
-#         if not self.request.GET.get('page'):
-#             if self.object.component == "Faction":
-#                 top_players = Profile.top_players(faction_id=self.object.id, limit=5)
-#                 most_players = Profile.top_players(faction_id=self.object.id, limit=5, top_quantity=True, game_threshold=1)
-
-
-#                 game_values = games.aggregate(
-#                     total_efforts=Count('efforts', filter=Q(efforts__faction=self.object)),
-#                     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=self.object)),
-#                     coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=self.object))
-#                 )
-            
-#                 # Access the aggregated values from the dictionary returned by .aggregate()
-#                 total_efforts = game_values['total_efforts']
-#                 win_count = game_values['win_count']
-#                 coalition_count = game_values['coalition_count']
-#                 if total_efforts > 0:
-#                     win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
-#                 else:
-#                     win_rate = 0
-#                 tourney_points = win_count - (coalition_count / 2)
-
-
-#         # Paginate games
-#         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
-#         page_number = self.request.GET.get('page')  # Get the page number from the request
-
-#         try:
-#             page_obj = paginator.get_page(page_number)  # Get the specific page of games
-#         except EmptyPage:
-#             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
-#         # Prepare the context dictionary
-#         context_data = {
-#             'games_total': games.count(),
-#             'games': page_obj,  # Pagination applied here
-#             'is_paginated': len(games) > self.paginate_by,
-#             'page_obj': page_obj,  # Pass the paginated page object to the context
-#             'commentform': commentform,
-#             'form': self.filterset.form,
-#             'filterset': self.filterset,
-#             'top_players': top_players,
-#             'most_players': most_players,
-#             'win_count': win_count,
-#             'coalition_count': coalition_count,
-#             'win_rate': win_rate,
-#             'tourney_points': tourney_points,
-#             'total_efforts': total_efforts
-#         }
-
-#         # Update the context with the context_data
-#         context.update(context_data)                        
-
-        
-#         return context
-
-
-
-
-
-
-
 def ultimate_component_view(request, slug):
     post = get_object_or_404(Post, slug=slug)
     component_mapping = {
@@ -569,7 +428,7 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
-    posts, search, search_type, designer = _search_components(request, slug)
+    posts, search, search_type, designer, faction_type, reach_value = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     if request.user.is_authenticated:
         if request.user.profile.weird:
@@ -585,6 +444,8 @@ def list_view(request, slug=None):
         "posts": posts, 
         'search': search or "", 
         'search_type': search_type or "",
+        'faction_type': faction_type or "",
+        'reach_value': reach_value or "",
         "designers": designers,
         'designer': designer,
         'is_search_view': False,
@@ -597,7 +458,7 @@ def list_view(request, slug=None):
 
 
 def search_view(request, slug=None):
-    posts, search, search_type, designer = _search_components(request, slug)
+    posts, search, search_type, designer, faction_type, reach_value = _search_components(request, slug)
     # Get all designers (Profiles) who have at least one post
     if request.user.is_authenticated:
         if request.user.profile.weird:
@@ -613,6 +474,8 @@ def search_view(request, slug=None):
         "posts": posts, 
         'search': search or "", 
         'search_type': search_type or "",
+        'faction_type': faction_type or "",
+        'reach_value': reach_value or "",
         "designers": designers,
         'designer': designer,
         'is_search_view': True,
@@ -624,15 +487,33 @@ def search_view(request, slug=None):
 def _search_components(request, slug=None):
     search = request.GET.get('search')
     search_type = request.GET.get('search_type', '')
+    faction_type = request.GET.get('faction_type', '')
+    reach_value = request.GET.get('reach_value', '')
     designer = request.GET.get('designer') 
     page = request.GET.get('page')
-    if not request.user.is_authenticated:
-        posts = Post.objects.filter(official=True).prefetch_related('designer')
-    else:
-        if request.user.profile.weird:
-            posts = Post.objects.all().prefetch_related('designer')
+
+    if faction_type or reach_value:
+        if not request.user.is_authenticated:
+            posts = Faction.objects.filter(official=True).prefetch_related('designer')
         else:
+            if request.user.profile.weird:
+                posts = Faction.objects.all().prefetch_related('designer')
+            else:
+                posts = Faction.objects.filter(official=True).prefetch_related('designer')
+        if faction_type:
+            posts = posts.filter(type=faction_type)
+        if reach_value:
+            posts = posts.filter(reach=reach_value)
+
+    else:
+        if not request.user.is_authenticated:
             posts = Post.objects.filter(official=True).prefetch_related('designer')
+        else:
+            if request.user.profile.weird:
+                posts = Post.objects.all().prefetch_related('designer')
+            else:
+                posts = Post.objects.filter(official=True).prefetch_related('designer')
+
     if slug:
         player = get_object_or_404(Profile, slug=slug)
         posts = posts.filter(designer=player)
@@ -653,7 +534,7 @@ def _search_components(request, slug=None):
         posts = paginator.page(1)
     except EmptyPage:
         posts = paginator.page(paginator.num_pages)
-    return posts, search or "", search_type or "", designer or ""
+    return posts, search or "", search_type or "", designer or "", faction_type or "", reach_value or ""
 
 
 
@@ -738,3 +619,27 @@ def activity_list(request):
     }
     
     return render(request, 'the_keep/activity_list.html', context)
+
+@player_required
+def confirm_stable(request, slug):
+    # Get the Post object based on the slug from the URL
+    post = get_object_or_404(Post, slug=slug)
+
+    # Check if the current user is the designer
+    if post.designer != request.user.profile:
+        messages.error(request, "You are not authorized to make this change.")
+        return redirect('keep-home')
+
+    # If form is submitted (POST request)
+    if request.method == 'POST':
+        # Update the `stable` property to True
+        post.stable = True
+        post.save()
+
+        # Redirect to a success page or back to the post detail page
+        messages.success(request, "The post has been marked as stable.")
+        return redirect(post.get_absolute_url())
+
+    # If GET request, render the confirmation form
+    form = StableConfirmForm()
+    return render(request, 'the_keep/confirm_stable.html', {'form': form, 'post': post})

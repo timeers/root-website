@@ -19,9 +19,9 @@ from django.conf import settings
 
 
 
-stable_game_count = 5
-stable_player_count = 3
-stable_faction_count = 4
+stable_game_count = 10
+stable_player_count = 5
+stable_faction_count = 6
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):

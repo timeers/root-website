@@ -16,6 +16,8 @@ from .views import (
     search_view,
     add_piece, delete_piece,
     ultimate_component_view,
+
+    confirm_stable,
 )
 from . import views
 
@@ -61,6 +63,7 @@ urlpatterns = [
     path('clockwork/<slug:slug>/update/', ClockworkUpdateView.as_view(), name='clockwork-update'),
 
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
+    path("post/<slug:slug>/stable/", confirm_stable, name='confirm-stable'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),

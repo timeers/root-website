@@ -131,7 +131,7 @@ SOCIALACCOUNT_PROVIDERS = {
         'SCOPE': [
             'identify',              # Basic user info
             'guilds',               # List of guilds the user is a member of
-            'guilds.members.read',
+            # 'guilds.members.read', # This permission is not needed
         ],
 
         'AUTH_PARAMS': {
