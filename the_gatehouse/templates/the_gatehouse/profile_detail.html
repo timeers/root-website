@@ -161,7 +161,14 @@
         <!-- stats -->
         <div class="tab-pane fade" id="stats" role="tabpanel" aria-labelledby="stats-tab">
             
-            
+
+            <div class="content-section" id="scorecardContainer">
+                <h2>Average Game by Faction</h2>
+            <div>
+                <canvas id="scorecardChart"></canvas>
+            </div>
+                
+            </div>
                 
             <div hx-trigger="revealed" 
             hx-get="{% url 'player-stats' player.slug %}" 
@@ -186,7 +193,7 @@
 
     // Function to update the hx-trigger of elements in all tabs
     function updateHxTriggers() {
-        console.log("update triggers")
+        // console.log("update triggers")
         // Find all tab panes (both active and inactive)
         var tabPanes = document.querySelectorAll('.tab-pane');
 
@@ -194,7 +201,7 @@
         tabPanes.forEach(function (tabPane) {
             // Find all elements with hx-trigger inside the current tab
             var hxElements = tabPane.querySelectorAll('[hx-trigger]');
-            console.log("In Tab")
+            // console.log("In Tab")
             // Check if this tab is active
             if (tabPane.classList.contains('active')) {
                 // If the tab is active, set 'hx-trigger' to 'revealed'
@@ -217,25 +224,7 @@
     });
 
 
-    document.body.addEventListener('htmx:beforeRequest', function(event) {
-    // Check if the event is being triggered on an inactive tab
-    if (!isDomReady) {
-        // updateHxTriggers();
-        // event.preventDefault();  // Prevent the request
-        console.log("HTMX IN WRONG TAB")
-    }else{console.log('In correct Tab')}
-});
 
-// document.body.addEventListener('htmx:beforeRequest', function(event) {
-//     if (!isDomReady) {
-//         event.preventDefault(); // Prevent the request initially
-//         setTimeout(() => {
-//             isRequestEnabled = true; // Enable after delay
-//             console.log('Requests enabled after delay');
-//             event.target.dispatchEvent(new Event('htmx:send')); // Manually trigger send
-//         }, 1000); // Delay of 1 second
-//     }
-// });
 
 
     
@@ -245,7 +234,7 @@
         // updateHxTriggers();
         var currentTab = window.location.hash;
         isDomReady = true;
-        console.log("Ready")
+        // console.log("Ready")
 
         // If a hash exists in the URL, activate the corresponding tab
         if (currentTab) {
@@ -260,7 +249,7 @@
         } else {
             // If no hash, set the first tab as active by default
             var firstTab = document.querySelector('#profileTabs a');
-            console.log(firstTab)
+            // console.log(firstTab)
             if (firstTab) {
                 new bootstrap.Tab(firstTab).show();
             }
@@ -280,6 +269,121 @@
         updateHxTriggers();
     });
 </script>
+
+
+<script>
+
+    // Check if the element with the ID 'scorecardChart' exists
+    const factionChartsElement = document.getElementById('scorecardChart');
+    console.log('Starting')
+    if (factionChartsElement) { 
+        console.log("Creating Scorecard Chart")
+    // Get the game ID dynamically from the template
+    const playerSlug = "{{ player.slug }}";  // Replace with actual game ID (from Django template)
+
+    // Define the endpoint to fetch data from
+    const endpoint = `/api/scorecard/player/${playerSlug}/`;
+
+    // Fetch the data from the API
+    fetch(endpoint)
+        .then(response => response.json())  // Parse the JSON response
+        .then(data => {
+
+            // Check if the response contains the "No scorecards found" message
+            if (data.message && data.message === "No scorecards found.") {
+                const factionChartsElement = document.getElementById('scorecardContainer');
+                if (factionChartsElement) {
+                    factionChartsElement.remove();  // This will remove the entire element
+                }
+                return;  // Exit the function if no scorecards are found
+            }
+
+            // Data processing
+            const labels = [];  // Turn numbers (x-axis)
+            const datasets = [];  // One dataset per faction
+
+            // Extract all turn numbers from the data
+            const turnNumbers = [];
+            for (const faction in data) {
+                data[faction].averages.forEach(turnData => {
+                    if (!turnNumbers.includes(turnData.turn_number)) {
+                        turnNumbers.push(turnData.turn_number);  // Collect unique turn numbers
+                    }
+                });
+            }
+
+            // Sort turn numbers in ascending order
+            turnNumbers.sort((a, b) => a - b);
+            labels.push(...turnNumbers.map(turn => `Turn ${turn}`));  // Prepare x-axis labels
+
+            // Iterate over the factions to create datasets for each
+            for (const faction in data) {
+                const factionData = data[faction];
+                let color = factionData.color ? factionData.color : getRandomColor();  // Faction color or random color
+
+                // Map the average game points for each turn in the current faction
+                const gamePoints = turnNumbers.map(turn => {
+                    const turnData = factionData.averages.find(t => t.turn_number === turn);
+                    return turnData ? turnData.average_game_points : null;  // Default to null if no data for this turn
+                });
+
+                // Create the dataset for this faction
+                datasets.push({
+                    label: factionData.faction,  // Name of the faction
+                    data: gamePoints,  // y-axis data (average game points)
+                    fill: false,  // Don't fill the area under the line
+                    borderColor: color,
+                    tension: 0.1 // Line smoothing
+                });
+            }
+
+            // Create the chart using Chart.js
+            const ctx = document.getElementById('scorecardChart').getContext('2d');
+            const scorecardChart = new Chart(ctx, {
+                type: 'line',  // Line chart type
+                data: {
+                    labels: labels,  // x-axis labels (turn numbers)
+                    datasets: datasets  // One dataset per faction
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: false,
+                                text: 'Turn Number'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: false,
+                                text: 'Average Game Points'
+                            },
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 10,  // Set the y-axis step size to 10 points per block
+                            },
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Error fetching the data:", error);
+        });
+
+    // Function to generate random colors for each faction's line
+    function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+}
+</script>
+
 
 
 {% endblock %}

@@ -4,6 +4,8 @@
     {% trans "Sign Out" %}
 {% endblock head_title %}
 {% block content %}
+<article class="media content-section">
+    <div class="media-body">
     {% element h1 %}
         {% trans "Sign Out" %}
     {% endelement %}
@@ -17,9 +19,11 @@
             {{ redirect_field }}
         {% endslot %}
         {% slot actions %}
-            {% element button type="submit" %}
-                {% trans 'Sign Out' %}
-            {% endelement %}
+        <button type="submit" class="btn btn-danger">
+            <i class="fa fa-sign-out-alt"></i> {% trans 'Sign Out' %}
+        </button>
         {% endslot %}
     {% endelement %}
+    </div>
+</article>
 {% endblock content %}

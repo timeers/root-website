@@ -5,6 +5,8 @@
     {% trans "Sign In" %}
 {% endblock head_title %}
 {% block content %}
+<article class="media content-section">
+    <div class="media-body">
     {% if process == "connect" %}
         {% element h1 %}
             {% blocktrans with provider.name as provider %}Connect {{ provider }}{% endblocktrans %}
@@ -23,9 +25,12 @@
     {% element form method="post" no_visible_fields=True %}
         {% slot actions %}
             {% csrf_token %}
-            {% element button type="submit" %}
-                {% trans "Continue" %}
-            {% endelement %}
+        <!-- If you want to add custom text or icons, here's an example: -->
+        <button type="submit" class="btn btn-primary">
+            <i class="fa fa-external-link"></i> Continue with {{ provider.name }}
+        </button>
         {% endslot %}
     {% endelement %}
+    </div>
+</article>
 {% endblock content %}
