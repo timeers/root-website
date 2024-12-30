@@ -29,7 +29,7 @@ class Profile(models.Model):
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
     tester = models.BooleanField(default=False)
     in_weird_root = models.BooleanField(default=False)
-    weird = models.BooleanField(default=False)
+    weird = models.BooleanField(default=True)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')

@@ -1,38 +1,22 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - About{% endblock %}
-
+{% load static %}
 
 {% block content %}
 <h1>About the Database</h1>
 <div>This is a collection of components for Root, the board game by Leder Games.</div>
 <div>This site is currently in development and any feedback or bugs should be reported in the RDB Discord.</div>
 <div>Thank you for your interest in the Database!</div>
-{% if user.profile.in_weird_root %}
-<h2>Fan Content</h2>
-This site is not affiliated with Weird Root but if you are seeing this it is because you are a member of the Weird Root discord. 
-We are using Weird Root membership as a way to authenticate users as we believe anyone in the Discord should also have access to this site.<br>
-Slugfacekillah said it perfectly in the Discord so we're going to adopt the same code of conduct.<br>
-<div>
-<em>
-CODE OF CONDUCT.....<br>
-By being here, you agree that all fan-made Root content is made for fun and for FREE.<br>
-You are owed nothing for your ideas, even if something similar, identical, or derivative is later published.<br>
-Ideas come to people from many places, and design (in general) is often unintentionally convergent.<br>
-You understand and agree to this.<br>
-</div>
-<div>
-Besides!! ALL fan-made creations are based on and inspired by the game of Root by Leder Games.<br>
-Their materials cannot be made for sale or profit, and Leder Games is the sole holder of all intellectual properties on which those creations are based. We love them (and Cole and Kyle and Patrick) and are here by their grace only.<br>
-Please respect that and act accordingly.<br>
-</div>
-<div>
-Don't represent creations as being official.<br>
-Don't expect them to be made official.<br>
-Don't expect official feedback. <br>
-Just don't.<br>
-</div>
-</em>
-{% else %}
-    Join the Weird Root Discord to enable fan content!
-{% endif %}
+<h2 class="mt-2">Weird Root</h2>
+Much of the content here comes from the Weird Root Discord.
+<div>Join the Discord community to see many more fan made creations.</div>
+
+<h2 class="mt-2">Woodland Warriors</h2>
+<div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
+
+<a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
+
+
+<h2 class="mt-2">Feedback</h2>
+<div>If you have any questions about the site please feel free to ask in the <a href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.</div>
 {% endblock content %}

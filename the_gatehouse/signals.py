@@ -96,10 +96,10 @@ def user_logged_in_handler(request, user, **kwargs):
         profile.weird = True
         profile_updated = True
 
-    if profile.designer and not profile.in_weird_root:
-        profile.in_weird_root = True
-        profile.weird = True
-        profile_updated = True
+    # if profile.designer and not profile.in_weird_root:
+    #     profile.in_weird_root = True
+    #     profile.weird = True
+    #     profile_updated = True
 
     if profile_updated:
         profile.save()

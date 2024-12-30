@@ -33,11 +33,11 @@ class ProfileUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Only show the 'weird' field if 'in_weird_root' is True
-        if self.instance and not self.instance.in_weird_root:
-            self.fields['weird'].label = "Join the Weird Root Discord to view Fan Content!"
-            self.fields['weird'].widget.attrs['disabled'] = 'disabled'
-            # self.fields.disable('weird')  # Remove the weird field from the form if the profile's in_weird_root is False
+        # # Only show the 'weird' field if 'in_weird_root' is True
+        # if self.instance and not self.instance.in_weird_root:
+        #     self.fields['weird'].label = "Join the Weird Root Discord to view Fan Content!"
+        #     self.fields['weird'].widget.attrs['disabled'] = 'disabled'
+        #     # self.fields.disable('weird')  # Remove the weird field from the form if the profile's in_weird_root is False
 
         # Check if the instance has a value for dwd
         if self.instance and self.instance.dwd:

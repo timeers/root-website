@@ -19,9 +19,11 @@
                     </div>
             {% endif %}
             {% if stable_ready %}
+            {% if stable_ready|first %}
             <div>
                 <a class="btn btn-success btn-sm mt-1 mb-1 ml-2" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> Stable</a>
             </div>
+            {% endif %}
             {% endif %}
         </div>
 </div>

@@ -4,6 +4,11 @@
     <div class="media-body">
     <h2>Links</h2>
     <div class="d-flex flex-wrap justify-content-between">
+    {% if object.leder_games_link %}
+        <p class="article-content">
+            <a class="mr-2" href="{{ object.leder_games_link }}" target="blank">Find at Leder Games</a>
+        </p>
+    {% endif %}
     {% if object.bgg_link %}
         <p class="article-content">
             <a class="mr-2" href="{{ object.bgg_link }}" target="blank">Board Game Geek Post</a>
@@ -14,15 +19,21 @@
             <a class="mr-2" href="{{ object.tts_link }}" target="blank">Tabletop Simulator</a>
         </p>
     {% endif %}
-    {% if object.ww_link and user.profile.player %}
+    {% if object.ww_link %}
         <p class="article-content">
-            <a class="mr-2" href="{{ object.ww_link }}" target="blank">{% if object.official %}Find at Leder Games{% else %}Woodland Warriors Thread{% endif %}</a>
+            <a class="mr-2" href="{{ object.ww_link }}" target="blank">Woodland Warriors Thread</a>
         </p>
     {% endif %}
-    {% if object.wr_link and user.profile.weird %}
+    {% if object.wr_link %}
+        {% if user.profile.in_weird_root %}
         <p class="article-content">
             <a class="mr-2" href="{{ object.wr_link }}" target="blank">Weird Root Thread</a>
         </p>
+        {% else %}
+            <p class="article-content">
+                <span class="mr-2">More Information in Weird Root Discord</span>
+            </p>
+        {% endif %}
     {% endif %}
     {% if object.pnp_link  %}
         <p class="article-content">

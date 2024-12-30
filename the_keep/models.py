@@ -96,6 +96,7 @@ class Post(models.Model):
     wr_link = models.CharField(max_length=200, null=True, blank=True)
     pnp_link = models.CharField(max_length=200, null=True, blank=True)
     stl_link = models.CharField(max_length=200, null=True, blank=True)
+    leder_games_link = models.CharField(max_length=200, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
     sorting = models.IntegerField(default=10)
