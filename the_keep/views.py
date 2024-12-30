@@ -317,12 +317,11 @@ def ultimate_component_view(request, slug):
         }
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
-
-    if object.stable or object.designer != request.user.profile:
-        stable_ready = None
-    else:
-        stable_ready = object.stable_check()
-    print(f'Stable Ready: {stable_ready}')
+    stable_ready = None
+    if request.user.is_authenticated:
+        if object.designer == request.user.profile:
+            stable_ready = object.stable_check()
+    # print(f'Stable Ready: {stable_ready}')
 
     # Start with the base queryset
     games = object.get_games_queryset()
