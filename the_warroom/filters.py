@@ -37,12 +37,12 @@ class GameFilter(django_filters.FilterSet):
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        official_only = True
+        official_only = False
         if user and user.is_authenticated:
-            if user.profile.weird:
-                official_only = False
+            if not user.profile.weird:
+                official_only = True
         # print(f'Official Only: {official_only}')
-        # Filter for only Official content if not a member of Weird Root
+        # Filter for only Official content if fan content is deselected
         if official_only:
             # self.filters['deck'].queryset = Deck.objects.filter(official=True)
             # self.filters['map'].queryset = Map.objects.filter(official=True)

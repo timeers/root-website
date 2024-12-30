@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from the_gatehouse.models import Profile
-from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond
+from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
 from .utils import slugify_tournament_name, slugify_round_name
@@ -46,6 +46,7 @@ class Tournament(models.Model):
     decks = models.ManyToManyField(Deck, blank=True, related_name='tournaments')
     hirelings = models.ManyToManyField(Hireling, blank=True, related_name='tournaments')
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='tournaments')
+    tweaks = models.ManyToManyField(Tweak, blank=True, related_name='tournaments')
     vagabonds = models.ManyToManyField(Vagabond, blank=True, related_name='tournaments')
 
     max_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
@@ -198,6 +199,7 @@ class Game(models.Model):
     
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')
+    tweaks = models.ManyToManyField(Tweak, blank=True, related_name='games')
     hirelings = models.ManyToManyField(Hireling, blank=True, related_name='games')
     undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')

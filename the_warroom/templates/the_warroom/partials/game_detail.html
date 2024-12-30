@@ -20,7 +20,7 @@
         {% include 'the_warroom/partials/bookmarks.html' %}
     </div>
 
-    {% if game.landmarks.count > 0 or game.hirelings.count > 0 %}
+    {% if game.landmarks.count > 0 or game.hirelings.count > 0 or game.tweaks.count > 0 %}
         <div class="article-metadata">
             <small class="text-muted">
                 {% if game.landmarks.count > 0 %}
@@ -33,6 +33,12 @@
                     Hirelings:
                     {% for hireling in game.hirelings.all %}
                     <a href="{% url 'hireling-detail' hireling.slug %}">{{ hireling.title }}</a>{% if not forloop.last %} | {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% if game.tweaks.count > 0 %}
+                    Tweaks:
+                    {% for tweak in game.tweaks.all %}
+                    <a href="{% url 'tweak-detail' tweak.slug %}">{{ tweak.title }}</a>{% if not forloop.last %} | {% endif %}
                     {% endfor %}
                 {% endif %}
             </small>

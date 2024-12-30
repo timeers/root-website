@@ -76,15 +76,24 @@
         </div>
 
         <div id="empty-form" class="hidden effort-form form-control">
-                {% for field in formset.empty_form  %}
-                        {% include 'the_warroom/partials/effort_field_form.html' %}
-                {% endfor %}
+                
+                        <div class="player-field">Player: {{ formset.empty_form.player }}</div>    
+                        <div class="faction-field">Faction: {{ formset.empty_form.faction }}</div>
+                        <div class="vagabond-field" style="display:none;">Vagabond: {{ formset.empty_form.vagabond }}</div>
+                        <div class="captains-field" style="display:none;">Captains: {{ formset.empty_form.captains }}</div>
+                        <div class="score-field">Score: {{ formset.empty_form.score }}</div>
+                        <div class="win-field">Win: {{ formset.empty_form.win }}</div>
+                        <div class="coalition-field" style="display:none;">Coalition: {{ formset.empty_form.coalition_with }}</div>
+                        <div class="dominance-field">Dominance: {{ formset.empty_form.dominance }}</div>
+                        
                 <button class="btn btn-warning btn-sm" type="button"
                         onclick="clearForm(this)">
                         Remove
                 </button>
         </div>
-
+        <div class="mt-2" id="game-tweaks-field">
+                {{ form.tweaks.label_tag }} {{ form.tweaks }}
+        </div>
         <div class="mt-2" id="game-link-field">
                 {{ form.link.label_tag }} {{ form.link }}
         </div>

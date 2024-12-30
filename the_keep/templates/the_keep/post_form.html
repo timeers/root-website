@@ -1,10 +1,13 @@
 {% extends 'the_keep/base.html' %}
 {% load crispy_forms_tags %}
+
+{% block title %}
 {% if not object.id %}
-{% block title %} - New{% endblock %}
+     - New
 {% else %}
-{% block title %} - Edit{% endblock %}
+     - Edit
 {% endif %}
+{% endblock %}
 {% block content %}
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">

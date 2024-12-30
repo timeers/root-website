@@ -28,14 +28,14 @@ from .models import (
     Faction, Vagabond,
       Map, Deck,
       Hireling, Landmark,
-      Piece,
+      Piece, Tweak
     )
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
                     PieceForm, ClockworkCreateForm,
-                    StableConfirmForm,
+                    StableConfirmForm, TweakCreateForm,
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -162,6 +162,12 @@ class LandmarkCreateView(PostCreateView):
     template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
+class TweakCreateView(PostCreateView):
+    model = Tweak
+    form_class = TweakCreateForm
+    template_name = 'the_keep/post_form.html'
+
+@designer_required_class_based_view
 class HirelingCreateView(PostCreateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -242,6 +248,12 @@ class LandmarkUpdateView(PostUpdateView):
     template_name = 'the_keep/post_form.html'
 
 @designer_required_class_based_view
+class TweakUpdateView(PostUpdateView):
+    model = Tweak
+    form_class = TweakCreateForm
+    template_name = 'the_keep/post_form.html'
+
+@designer_required_class_based_view
 class HirelingUpdateView(PostUpdateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -310,6 +322,7 @@ def ultimate_component_view(request, slug):
             "Map": Map,
             "Deck": Deck,
             "Landmark": Landmark,
+            "Tweak": Tweak,
             "Hireling": Hireling,
             "Vagabond": Vagabond,
             "Faction": Faction,
@@ -330,13 +343,13 @@ def ultimate_component_view(request, slug):
     if request.user.is_authenticated:
         if not request.user.profile.weird:
             games = games.filter(official=True)
-    else:
-        games = games.filter(official=True)
+    # else:
+    #     games = games.filter(official=True)
 
     # Apply distinct and prefetch_related to all cases  
     prefetch_values = [
         'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-        'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+        'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
     ]
     games = games.distinct().prefetch_related(*prefetch_values)
 
@@ -437,8 +450,7 @@ def list_view(request, slug=None):
             designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
                                 .filter(official_posts_count__gt=0)
     else:
-        designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
-                                .filter(official_posts_count__gt=0)
+        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
@@ -467,8 +479,7 @@ def search_view(request, slug=None):
             designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
                                 .filter(official_posts_count__gt=0)
     else:
-        designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
-                                .filter(official_posts_count__gt=0)
+        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
@@ -492,26 +503,27 @@ def _search_components(request, slug=None):
     page = request.GET.get('page')
 
     if faction_type or reach_value:
-        if not request.user.is_authenticated:
-            posts = Faction.objects.filter(official=True).prefetch_related('designer')
-        else:
+        if request.user.is_authenticated:
             if request.user.profile.weird:
                 posts = Faction.objects.all().prefetch_related('designer')
             else:
                 posts = Faction.objects.filter(official=True).prefetch_related('designer')
+        else:
+            posts = Faction.objects.all().prefetch_related('designer')
+
         if faction_type:
             posts = posts.filter(type=faction_type)
         if reach_value:
             posts = posts.filter(reach=reach_value)
 
     else:
-        if not request.user.is_authenticated:
-            posts = Post.objects.filter(official=True).prefetch_related('designer')
-        else:
+        if request.user.is_authenticated:
             if request.user.profile.weird:
                 posts = Post.objects.all().prefetch_related('designer')
             else:
                 posts = Post.objects.filter(official=True).prefetch_related('designer')
+        else:
+            posts = Post.objects.all().prefetch_related('designer')
 
     if slug:
         player = get_object_or_404(Profile, slug=slug)

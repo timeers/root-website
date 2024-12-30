@@ -22,7 +22,7 @@
             </small>
         </div>
     
-        {% if game.landmarks.count > 0 or game.hirelings.count > 0 %}
+        {% if game.landmarks.count > 0 or game.hirelings.count > 0 or game.tweaks.count > 0 %}
             <div class="article-metadata">
                 <small class="text-muted">
                     {% if game.landmarks.count > 0 %}
@@ -35,6 +35,12 @@
                         Hirelings:
                         {% for hireling in game.hirelings.all %}
                             {{ hireling.title }}{% if not forloop.last %} | {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    {% if game.tweaks.count > 0 %}
+                        Tweaks:
+                        {% for tweak in game.tweaks.all %}
+                            {{ tweak.title }}{% if not forloop.last %} | {% endif %}
                         {% endfor %}
                     {% endif %}
                 </small>

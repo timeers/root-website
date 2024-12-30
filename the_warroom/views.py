@@ -24,7 +24,7 @@ from .forms import (GameCreateForm, EffortCreateForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter
 
-from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark
+from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak
 
 from the_gatehouse.models import Profile
 from the_gatehouse.views import (player_required, admin_required, designer_required, 
@@ -45,7 +45,7 @@ from the_tavern.views import bookmark_toggle
 # ============================
 
 #  A list of all the games. Most recent update first
-@player_required_class_based_view
+
 class GameListView(ListView):
     # queryset = Game.objects.all().prefetch_related('efforts')
     model = Game
@@ -60,26 +60,26 @@ class GameListView(ListView):
         return 'the_warroom/games_home.html'
     
     def get_queryset(self):
-        print('Getting Queryset')
-        if not self.request.user.is_authenticated:
-            queryset = Game.objects.filter(official=True).prefetch_related(
-                'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                )
-            # queryset = super().get_queryset().only_official_components()
-        else:
+        
+        if self.request.user.is_authenticated:
             if self.request.user.profile.weird:
                 queryset = Game.objects.all().prefetch_related(
                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                    'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                    'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
                     )
                 # queryset = super().get_queryset()
             else:
                 queryset = Game.objects.filter(official=True).prefetch_related(
                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                    'hirelings', 'landmarks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                    'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
                     )
                 # queryset = super().get_queryset().only_official_components()
+        else:
+            queryset = Game.objects.all().prefetch_related(
+                'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                )
+            # queryset = super().get_queryset()
         self.filterset = GameFilter(self.request.GET, queryset=queryset, user=self.request.user)
 
         # # Store the filtered queryset in an instance variable to avoid re-evaluating it
@@ -587,7 +587,7 @@ def effort_assign_view(request, id):
                 scorecard=None, faction=scorecard.faction,
                 score=scorecard.total_points  # Effort has no associated scorecard
             ).prefetch_related(
-                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__hirelings',
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
                 'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
     else:
         available_efforts = Effort.objects.filter(
@@ -596,7 +596,7 @@ def effort_assign_view(request, id):
                 scorecard=None, faction=scorecard.faction, 
                 dominance__isnull=False # Effort has no associated scorecard
             ).prefetch_related(
-                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__hirelings',
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
                 'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
         
 
@@ -892,6 +892,7 @@ def tournament_manage_assets(request, tournament_slug):
         available_decks = Deck.objects.exclude(tournaments__id=tournament.id)
         available_maps = Map.objects.exclude(tournaments__id=tournament.id)
         available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id)
+        available_tweaks = Tweak.objects.exclude(tournaments__id=tournament.id)
         available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id)
         available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id)
     else:
@@ -902,6 +903,7 @@ def tournament_manage_assets(request, tournament_slug):
         available_decks = Deck.objects.exclude(tournaments__id=tournament.id).filter(official=True)
         available_maps = Map.objects.exclude(tournaments__id=tournament.id).filter(official=True)
         available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        available_tweaks = Tweak.objects.exclude(tournaments__id=tournament.id).filter(official=True)
         available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id).filter(official=True)
         available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id).filter(official=True)
 
@@ -910,6 +912,7 @@ def tournament_manage_assets(request, tournament_slug):
     tournament_decks = Deck.objects.filter(tournaments__id=tournament.id)
     tournament_maps = Map.objects.filter(tournaments__id=tournament.id)
     tournament_landmarks = Landmark.objects.filter(tournaments__id=tournament.id)
+    tournament_tweaks = Tweak.objects.filter(tournaments__id=tournament.id)
     tournament_hirelings = Hireling.objects.filter(tournaments__id=tournament.id)
     tournament_vagabonds = Vagabond.objects.filter(tournaments__id=tournament.id)
 
@@ -924,6 +927,8 @@ def tournament_manage_assets(request, tournament_slug):
         tournament_maps_query=tournament_maps,
         available_landmarks_query=available_landmarks,
         tournament_landmarks_query=tournament_landmarks,
+        available_tweaks_query=available_tweaks,
+        tournament_tweaks_query=tournament_tweaks,
         available_hirelings_query=available_hirelings,
         tournament_hirelings_query=tournament_hirelings,
         available_vagabonds_query=available_vagabonds,
@@ -956,6 +961,7 @@ def tournament_manage_assets(request, tournament_slug):
         'available_vagabonds_count': available_vagabonds.count(),
         'available_hirelings_count': available_hirelings.count(),
         'available_landmarks_count': available_landmarks.count(),
+        'available_tweaks_count': available_tweaks.count(),
     }
 
     return render(request, 'the_warroom/tournament_manage_assets.html', context)

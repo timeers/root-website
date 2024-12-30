@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 from .models import Effort, Game, TurnScore, ScoreCard, Round, Tournament
-from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond
+from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
 from django.db.models import Q
@@ -18,6 +18,10 @@ class GameCreateForm(forms.ModelForm):
                 queryset=Landmark.objects.all(),
                 widget=forms.SelectMultiple
                 )
+    tweaks = forms.ModelMultipleChoiceField(required=False, 
+                queryset=Tweak.objects.all(),
+                widget=forms.SelectMultiple
+                )
     PLATFORM_CHOICES = [
         ('Tabletop Simulator', 'Tabletop Simulator'),
         ('Root Digital', 'Root Digital'),
@@ -29,7 +33,7 @@ class GameCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Game
-        fields = ['solo', 'coop', 'official', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link']
+        fields = ['solo', 'coop', 'official', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'tweaks']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -50,6 +54,7 @@ class GameCreateForm(forms.ModelForm):
             self.fields['undrafted_faction'].queryset = Faction.objects.filter(official=True)
             self.fields['undrafted_vagabond'].queryset = Vagabond.objects.filter(official=True)
             self.fields['landmarks'].queryset = Landmark.objects.filter(official=True)
+            self.fields['tweaks'].queryset = Tweak.objects.filter(official=True)
             self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
 
         if user:
@@ -91,6 +96,7 @@ class GameCreateForm(forms.ModelForm):
         map = cleaned_data.get('map')
         deck = cleaned_data.get('deck')
         landmarks = cleaned_data.get('landmarks')
+        tweaks = cleaned_data.get('tweaks')
         hirelings = cleaned_data.get('hirelings')
         if round:
             # Check that the deck, landmarks, hirelings and map are registered for the tournament
@@ -101,6 +107,11 @@ class GameCreateForm(forms.ModelForm):
                 for landmark in landmarks:
                     if landmark not in tournament_landmarks:
                         validation_errors_to_display.append(f'{landmark} Landmark is not playable in {round.tournament}')
+            if tweaks:
+                tournament_tweaks = round.tournament.tweaks.all()
+                for tweak in tweaks:
+                    if tweak not in tournament_tweaks:
+                        validation_errors_to_display.append(f'{tweak} Tweak is not playable in {round.tournament}')
             if hirelings:
                 tournament_hirelings = round.tournament.hirelings.all()
                 for hireling in hirelings:
@@ -130,6 +141,11 @@ class GameCreateForm(forms.ModelForm):
             official_only = True
             if not map.official or not deck.official:
                 official_only = False
+            elif tweaks:
+                for tweak in tweaks:
+                    if not tweak.official:
+                        official_only = False
+                        break
             elif landmarks:
                 for landmark in landmarks:
                     if not landmark.official:
@@ -723,6 +739,22 @@ class TournamentManageAssetsForm(forms.Form):
         label='Remove Landmarks'
     )
 
+    # Multiple select field for Tweaks not yet in the tournament
+    available_tweaks = forms.ModelMultipleChoiceField(
+        queryset=Tweak.objects.none(),
+        widget=forms.SelectMultiple(attrs={'size': '10'}),
+        required=False,
+        label='Add Tweaks'
+    )
+
+    # Multiple select field for Tweaks already in the tournament
+    tournament_tweaks = forms.ModelMultipleChoiceField(
+        queryset=Tweak.objects.none(),
+        widget=forms.SelectMultiple(attrs={'size': '10'}),
+        required=False,
+        label='Remove Tweaks'
+    )
+
     # Multiple select field for Hirelings not yet in the tournament
     available_hirelings = forms.ModelMultipleChoiceField(
         queryset=Hireling.objects.none(),
@@ -767,6 +799,8 @@ class TournamentManageAssetsForm(forms.Form):
         tournament_maps_query = kwargs.pop('tournament_maps_query', None)
         available_landmarks_query = kwargs.pop('available_landmarks_query', None)
         tournament_landmarks_query = kwargs.pop('tournament_landmarks_query', None)
+        available_tweaks_query = kwargs.pop('available_tweaks_query', None)
+        tournament_tweaks_query = kwargs.pop('tournament_tweaks_query', None)
         available_hirelings_query = kwargs.pop('available_hirelings_query', None)
         tournament_hirelings_query = kwargs.pop('tournament_hirelings_query', None)
         available_vagabonds_query = kwargs.pop('available_vagabonds_query', None)
@@ -783,6 +817,8 @@ class TournamentManageAssetsForm(forms.Form):
         self.fields['tournament_maps'].queryset = tournament_maps_query
         self.fields['available_landmarks'].queryset = available_landmarks_query
         self.fields['tournament_landmarks'].queryset = tournament_landmarks_query
+        self.fields['available_tweaks'].queryset = available_tweaks_query
+        self.fields['tournament_tweaks'].queryset = tournament_tweaks_query
         self.fields['available_hirelings'].queryset = available_hirelings_query
         self.fields['tournament_hirelings'].queryset = tournament_hirelings_query
         self.fields['available_vagabonds'].queryset = available_vagabonds_query
@@ -819,6 +855,12 @@ class TournamentManageAssetsForm(forms.Form):
 
             for landmark in self.cleaned_data['tournament_landmarks']:
                 self.tournament.landmarks.remove(landmark)
+
+            for tweak in self.cleaned_data['available_tweaks']:
+                self.tournament.tweaks.add(tweak)
+
+            for tweak in self.cleaned_data['tournament_tweaks']:
+                self.tournament.tweaks.remove(tweak)
 
             for hireling in self.cleaned_data['available_hirelings']:
                 self.tournament.hirelings.add(hireling)

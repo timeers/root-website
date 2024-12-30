@@ -344,11 +344,13 @@ def game_bookmarks(request, slug):
 @login_required
 def game_list(request, slug):
     player = get_object_or_404(Profile, slug=slug.lower())
-    if request.user.profile.weird :
-        games = player.get_games_queryset()
+    if request.user.is_authenticated():
+        if request.user.profile.weird :
+            games = player.get_games_queryset()
+        else:
+            games = player.get_games_queryset().filter(official=True)
     else:
-        games = player.get_games_queryset().filter(official=True)
-        # games = player.get_games_queryset().only_official_components()
+        games = player.get_games_queryset()
     
     # print(f'games: {games.count()}')
     # Get the total count of games (total posts matching the filter)

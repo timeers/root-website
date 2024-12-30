@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const deckSelect = document.getElementById('id_deck');
     const mapSelect = document.getElementById('id_map');
     const landmarksSelect = document.getElementById('id_landmarks');
+    const tweaksSelect = document.getElementById('id_tweaks');
     const hirelingsSelect = document.getElementById('id_hirelings');
     const undraftedFactionSelect = document.getElementById('id_undrafted_faction');
     const undraftedVagabondSelect = document.getElementById('id_undrafted_vagabond');
@@ -85,6 +86,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         updateSelectOptions(deckSelect, data.decks, 'Choose a deck');
                         updateSelectOptions(mapSelect, data.maps, 'Choose a map');
                         updateSelectOptions(landmarksSelect, data.landmarks);
+                        updateSelectOptions(tweaksSelect, data.tweaks);
                         updateSelectOptions(hirelingsSelect, data.hirelings);
                         updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
                         updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
@@ -127,6 +129,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectOptions(deckSelect, data.decks, 'Choose a deck');
                 updateSelectOptions(mapSelect, data.maps, 'Choose a map');
                 updateSelectOptions(landmarksSelect, data.landmarks);
+                updateSelectOptions(tweaksSelect, data.tweaks);
                 updateSelectOptions(hirelingsSelect, data.hirelings);
                 updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
                 updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
@@ -245,11 +248,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateOptions(platformValue).then(() => {
                         // Now, the options are updated. Check the number of options
                         let hirelingsCount = hirelingsSelect.options.length;
+                        let tweaksCount = tweaksSelect.options.length;
                         let landmarksCount = landmarksSelect.options.length;
                         
 
                         var timingBlock = document.getElementById("timing-field");
                         var hirelingsBlock = document.getElementById("hireling-field");
+                        var tweaksBlock = document.getElementById("game-tweaks-field");
                         var landmarksBlock = document.getElementById("game-landmarks-field");
 
                         if (platformValue == "Root Digital") {
@@ -271,6 +276,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         }else{
                                 hirelingsBlock.style = "display:block;";
                                 $('#id_hirelings').select2();
+                        }
+                        if (tweaksCount < 1) {
+                                tweaksBlock.style.display = "none";
+                                $('#id_tweaks').val(null).trigger('change');
+                        }else{
+                                tweaksBlock.style = "display:block;";
+                                $('#id_tweaks').select2();
                         }
                         if (landmarksCount < 1) {
                                 landmarksBlock.style.display = "none";
@@ -308,10 +320,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateTournamentOptions(tournamentValue).then(() => {
                         // Now, the options are updated. Check the number of options
                         let hirelingsCount = hirelingsSelect.options.length;
+                        let tweaksCount = tweaksSelect.options.length;
                         let landmarksCount = landmarksSelect.options.length;
                         
 
                         var hirelingsBlock = document.getElementById("hireling-field");
+                        var tweaksBlock = document.getElementById("game-tweaks-field");
                         var landmarksBlock = document.getElementById("game-landmarks-field");
 
                         if (hirelingsCount < 1) {
@@ -320,6 +334,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         }else{
                                 hirelingsBlock.style = "display:block;";
                                 $('#id_hirelings').select2();
+                        }
+                        if (tweaksCount < 1) {
+                                tweaksBlock.style.display = "none";
+                                $('#id_tweaks').val(null).trigger('change');
+                        }else{
+                                tweaksBlock.style = "display:block;";
+                                $('#id_tweaks').select2();
                         }
                         if (landmarksCount < 1) {
                                 landmarksBlock.style.display = "none";
@@ -406,8 +427,44 @@ function updateDominance(dominanceName = '', addDominance = True){
 
 
 
+// function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
+//     const currentSelection = String(selectElement.value || '');  // Convert value to string to handle type mismatch
+
+//     selectElement.innerHTML = '';  // Clear current options
+
+//     // Add placeholder if provided
+//     if (placeholderText) {
+//         const placeholderOption = document.createElement('option');
+//         placeholderOption.value = '';
+//         placeholderOption.text = placeholderText;
+//         selectElement.appendChild(placeholderOption);
+//     }
+
+//     let found = false;
+
+//     // Add new options
+//     optionsData.forEach(item => {
+//         const option = document.createElement('option');
+//         option.value = item.id;  // Set option value
+//         option.text = item.name;  // Set option text
+//         selectElement.appendChild(option);
+
+//         // Check if the previously selected value is available
+//         if (String(item.id) === currentSelection) {
+//             found = true;
+//         }
+//     });
+
+//     // If the previously selected value exists, reselect it
+//     if (found) {
+//         selectElement.value = currentSelection;  // Set value directly
+//     } else {
+//         selectElement.value = '';  // Reset if not found
+//     }
+// }
+// New code handles multiple select options for Landmarks, Hirelings etc.
 function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
-    const currentSelection = String(selectElement.value || '');  // Convert value to string to handle type mismatch
+    const currentSelections = selectElement.value ? Array.from(selectElement.selectedOptions).map(option => option.value) : [];  // Handle multiple selections
 
     selectElement.innerHTML = '';  // Clear current options
 
@@ -416,6 +473,7 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
         const placeholderOption = document.createElement('option');
         placeholderOption.value = '';
         placeholderOption.text = placeholderText;
+        placeholderOption.disabled = true;  // Optionally disable placeholder
         selectElement.appendChild(placeholderOption);
     }
 
@@ -428,17 +486,17 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
         option.text = item.name;  // Set option text
         selectElement.appendChild(option);
 
-        // Check if the previously selected value is available
-        if (String(item.id) === currentSelection) {
+        // Check if the current value exists in the available options
+        if (currentSelections.includes(String(item.id))) {
             found = true;
         }
     });
 
-    // If the previously selected value exists, reselect it
+    // Set multiple selected values if available
     if (found) {
-        selectElement.value = currentSelection;  // Set value directly
+        $(selectElement).val(currentSelections).trigger('change');  // For select2, trigger 'change' after setting value
     } else {
-        selectElement.value = '';  // Reset if not found
+        $(selectElement).val([]).trigger('change');  // Clear selection
     }
 }
 
@@ -446,6 +504,7 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
 
 
         $('#id_hirelings').select2();
+        $('#id_tweaks').select2();
         $('#id_landmarks').select2();
         $('#id_undrafted_faction').select2();
         $('#id_undrafted_vagabond').select2();
@@ -642,7 +701,9 @@ document.addEventListener('htmx:afterRequest', function(event) {
                 const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
                 coalitionFields.forEach(coalitionField => {
                         updateSelectOptions(coalitionField, coalitionObjectList, '----------')
+                        if ($(coalitionField).is(":visible")) {
                         $(coalitionField).select2();
+                        }
                         });
                         
         }

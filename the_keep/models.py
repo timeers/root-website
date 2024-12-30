@@ -76,6 +76,7 @@ class Post(models.Model):
         LANDMARK = 'Landmark'
         FACTION = 'Faction'
         CLOCKWORK = 'Clockwork'
+        TWEAK = 'Tweak'
 
     title = models.CharField(max_length=35)
     animal = models.CharField(max_length=15, null=True, blank=True)
@@ -188,6 +189,8 @@ class Post(models.Model):
                 return reverse('deck-detail', kwargs={'slug': self.slug})
             case "Landmark":
                 return reverse('landmark-detail', kwargs={'slug': self.slug})
+            case "Tweak":
+                return reverse('tweak-detail', kwargs={'slug': self.slug})
             case "Hireling":
                 return reverse('hireling-detail', kwargs={'slug': self.slug})        
             case "Vagabond":
@@ -218,7 +221,7 @@ class Post(models.Model):
     
     def get_plays_queryset(self):
         match self.component:
-            case "Map" | "Deck" | "Landmark" | "Hireling":
+            case "Map" | "Deck" | "Landmark" | "Tweak" | "Hireling":
                 return self.games.order_by('-date_posted') 
             case "Faction" | "Vagabond":
                 return self.efforts.order_by('-date_posted') 
@@ -228,7 +231,7 @@ class Post(models.Model):
     def get_games_queryset(self):
         Game = apps.get_model('the_warroom', 'Game')
         match self.component:
-            case "Map" | "Deck" | "Landmark" | "Hireling":
+            case "Map" | "Deck" | "Landmark" | "Tweak" | "Hireling":
                 return self.games.order_by('-date_posted')  # Return a queryset directly
             case "Vagabond":
                 return Game.objects.filter(efforts__vagabond=self)
@@ -312,6 +315,31 @@ class Landmark(Post):
     def stable_check(self):
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__landmarks=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('efforts__player', distinct=True)
+                )['total_players']
+        
+
+        play_count = plays.count()
+        stable = self.stable
+
+
+        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
+
+class Tweak(Post):
+    def save(self, *args, **kwargs):
+        self.component = 'Tweak'  # Set the component type
+        self.sorting = 8
+        super().save(*args, **kwargs)  # Call the parent save method
+
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__tweaks=self, official=True).distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
                 )['total_players']
@@ -750,6 +778,7 @@ pre_save.connect(component_pre_save, sender=Faction)
 pre_save.connect(component_pre_save, sender=Vagabond)
 pre_save.connect(component_pre_save, sender=Hireling)
 pre_save.connect(component_pre_save, sender=Landmark)
+pre_save.connect(component_pre_save, sender=Tweak)
 pre_save.connect(expansion_pre_save, sender=Expansion)
 
 
@@ -769,5 +798,6 @@ post_save.connect(component_post_save, sender=Faction)
 post_save.connect(component_post_save, sender=Vagabond)
 post_save.connect(component_post_save, sender=Hireling)
 post_save.connect(component_post_save, sender=Landmark)
+post_save.connect(component_post_save, sender=Tweak)
 post_save.connect(expansion_post_save, sender=Expansion)
 

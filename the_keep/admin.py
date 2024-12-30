@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 import csv
 from io import StringIO
 from .models import (Post, Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     PostBookmark, Piece)
+                     PostBookmark, Piece, Tweak)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
 from .models import Profile
@@ -231,6 +231,10 @@ class DeckAdmin(admin.ModelAdmin):
         print(data)
         return render(request, 'admin/csv_upload.html', data)
 
+class TweakAdmin(admin.ModelAdmin):
+    list_display = ('title', 'designer', 'based_on', 'official', 'stable')
+    search_fields = ['title']
+    raw_id_fields = ['designer', 'artist']
 
 class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'stable')
@@ -1068,6 +1072,7 @@ admin.site.register(PostBookmark, PostBookmarkAdmin)
 # admin.site.register(Post, PostAdmin)
 admin.site.register(Map, MapAdmin)
 admin.site.register(Deck, DeckAdmin)
+admin.site.register(Tweak, TweakAdmin)
 admin.site.register(Landmark, LandmarkAdmin)
 admin.site.register(Vagabond, VagabondAdmin)
 admin.site.register(Hireling, HirelingAdmin)

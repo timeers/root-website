@@ -1,6 +1,6 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark
+from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak
 from the_gatehouse.models import Profile
 
 
@@ -12,6 +12,7 @@ def get_options_for_platform(request, platform):
             decks = Deck.objects.filter(in_root_digital=True)
             vagabonds = Vagabond.objects.filter(in_root_digital=True)
             landmarks = Landmark.objects.filter(in_root_digital=True)
+            tweaks = Tweak.objects.filter(in_root_digital=True)
             hirelings = Hireling.objects.filter(in_root_digital=True)
         elif platform == 'in_person' or platform == 'tabletop_simulator':
             if request.user.profile.weird:
@@ -20,6 +21,7 @@ def get_options_for_platform(request, platform):
                 decks = Deck.objects.all()
                 vagabonds = Vagabond.objects.all()
                 landmarks = Landmark.objects.all()
+                tweaks = Tweak.objects.all()
                 hirelings = Hireling.objects.all()
             else:
                 maps = Map.objects.filter(official=True)
@@ -27,6 +29,7 @@ def get_options_for_platform(request, platform):
                 decks = Deck.objects.filter(official=True)
                 vagabonds = Vagabond.objects.filter(official=True)
                 landmarks = Landmark.objects.filter(official=True)
+                tweaks = Tweak.objects.filter(official=True)
                 hirelings = Hireling.objects.filter(official=True)
         else:
             maps = Map.objects.none()  # No maps for invalid platform
@@ -34,6 +37,7 @@ def get_options_for_platform(request, platform):
             decks = Deck.objects.none()
             vagabonds = Vagabond.objects.none()
             landmarks = Landmark.objects.none()
+            tweaks = Tweak.objects.none()
             hirelings = Hireling.objects.none()
     else:
         maps = Map.objects.none()
@@ -41,6 +45,7 @@ def get_options_for_platform(request, platform):
         decks = Deck.objects.none()
         vagabonds = Vagabond.objects.none()
         landmarks = Landmark.objects.none()
+        tweaks = Tweak.objects.none()
         hirelings = Hireling.objects.none()
     
     players = Profile.objects.all()
@@ -51,6 +56,7 @@ def get_options_for_platform(request, platform):
     factions_data = [{'id': faction.id, 'name': faction.title} for faction in factions]
     vagabonds_data = [{'id': vagabond.id, 'name': vagabond.title} for vagabond in vagabonds]
     landmarks_data = [{'id': landmark.id, 'name': landmark.title} for landmark in landmarks]
+    tweaks_data = [{'id': tweak.id, 'name': tweak.title} for tweak in tweaks]
     hirelings_data = [{'id': hireling.id, 'name': hireling.title} for hireling in hirelings]
     players_data = [{'id': player.id, 'name': f'{player.name} ({player.discord})'} for player in players.all()]
 
@@ -61,6 +67,7 @@ def get_options_for_platform(request, platform):
         'factions': factions_data,
         'vagabonds': vagabonds_data,
         'landmarks': landmarks_data,
+        'tweaks': tweaks_data,
         'hirelings': hirelings_data,
         'players': players_data,
     })

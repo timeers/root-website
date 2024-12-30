@@ -150,6 +150,28 @@
     {% endif %}
 
 
+    {% if available_tweaks_count > 0 %}
+    <div>
+        <h4>Add Tweaks</h4>
+        {{ form.available_tweaks }}
+    </div>
+    <div class="alert alert-success mt-1" role="alert">
+        <ul>
+            Tweaks will be added to {{ tournament.name }}
+        </ul>
+    </div>
+    {% endif %}
+    {% if tournament.tweaks.count > 0 %}
+    <div>
+        <h4>Remove Tweaks</h4>
+        {{ form.tournament_tweaks }}
+    </div>
+    <div class="alert alert-danger mt-1" role="alert">
+        <ul>
+            Tweaks will be removed and unable to be selected
+        </ul>
+    </div>
+    {% endif %}
 
 
     <button class="btn btn-primary mb-1" type="submit">Save Changes</button>
@@ -168,6 +190,8 @@
     $('#id_tournament_vagabonds').select2();
     $('#id_available_landmarks').select2();
     $('#id_tournament_landmarks').select2();
+    $('#id_available_tweaks').select2();
+    $('#id_tournament_tweaks').select2();
     $('#id_available_hirelings').select2();
     $('#id_tournament_hirelings').select2();
  </script>

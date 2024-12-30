@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags static %}
 {% block title %} - Profile{% endblock %}
 {% block content %}
     <div class="content-section">
@@ -29,21 +29,20 @@
             {% csrf_token %}
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">Profile Info</legend>
-                <a class="text-muted" href="{% url 'account_change_password' %}">Change Password</a>
                 {% if user.profile.player %}
                     {{ p_form | crispy }}
                 {% else %}
                     {% if user.profile.banned %}
                     <div class="alert alert-warning">Your account has been deactivated. Please contact an Administrator to reinstate your account.</div>
                     {% else %}
-                    <div class="alert alert-secondary">Your account has not yet been verified. Join the Root Discord to enable additional features.</div>
+                    <a href="https://discord.gg/4VTuyQuPf7">
+                        <img class="responsive-img mb-4" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
+                    </a>
+                    <div class="alert alert-secondary">
+                        Your account has not yet been verified. Join the WW Discord to enable additional features.
+                    </div>
                     {% endif %}
-                    {% for field in p_form %}
-                        <div class="form-group">
-                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                            <input type="{{ field.field.widget.type }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.label != 'Display name' or user.profile.banned %}readonly{% endif %} class="form-control">
-                        </div>
-                    {% endfor %}
+
                 {% endif %}
                 
             </fieldset>

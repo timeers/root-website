@@ -1,7 +1,7 @@
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion
+    Piece, Expansion, Tweak
 )
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
@@ -304,7 +304,43 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         if Landmark.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
             raise ValidationError(f'A landmark with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
-    
+
+class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
+    form_type = 'Tweak'
+    title = forms.CharField(
+        label='Tweak Name',
+        required=True
+    )
+    based_on = forms.ModelChoiceField(
+        queryset=Post.objects.all(),
+        required=True
+    )
+    picture = forms.ImageField(
+        label='Tweak Art',  # Set the label for the picture field
+        required=False
+    )
+    def __init__(self, *args, **kwargs):
+        instance = kwargs.get('instance', None)
+        super().__init__(*args, **kwargs)
+
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief explanation on how to use this Tweak...'
+            })
+        if instance:
+            # Exclude the current instance from the queryset
+            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+
+    class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
+        model = Tweak  # Specify the model to be Tweak
+        fields = top_fields + ['based_on', 'card_image', 'board_image'] + bottom_fields
+    def clean(self):
+        cleaned_data = super().clean()
+        title = cleaned_data.get('title')
+            # Check if the same name already exists
+        if Tweak.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            raise ValidationError(f'A tweak with the name "{title}" already exists. Please choose a different name.')
+        return cleaned_data
+
 class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Hireling  # Specify the model to be Map

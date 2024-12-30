@@ -1,3 +1,5 @@
+<!-- No longer used -->
+
 {% if field.label == 'Vagabond' %}
         <div class="vagabond-field" style="display:none;">
         {{ field.errors }}
@@ -33,3 +35,38 @@
         {% endif %}
 {% endif %}
 </div>
+
+
+<div id="form-{{ forloop.counter0 }}" class="effort-form form-control">
+
+
+                        
+        <div class="player-field">Player: {{ form.player }}</div>    
+        <div class="faction-field">Faction: {{ form.faction }}</div>
+        <div class="vagabond-field" style="display:none;">Vagabond: {{ form.vagabond }}</div>
+        <div class="captains-field" style="display:none;">Captains: {{ form.captains }}</div>
+        <div class="score-field">Score: {{ form.score }}</div>
+        <div class="win-field">Win: {{ form.win }}</div>
+        <div class="coalition-field" style="display:none;">Coalition: {{ form.coalition_with }}</div>
+        <div class="dominance-field">Dominance: {{ form.dominance }}</div>
+
+        {% if not form.instance.id %}
+                <button class="btn btn-warning btn-sm" type="button"
+                        onclick="clearForm(this)">
+                        Remove
+                </button>
+        {% else %}
+                <div class="id-field" style="display:none;">{{ form.id }}</div>
+        {% endif %}
+
+        </div>
+
+        {% if form.errors %}
+        <div class="alert alert-warning mt-1" role="alert">
+                <ul>
+                {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                {% endfor %}
+        </ul>
+        </div>
+        {% endif %}

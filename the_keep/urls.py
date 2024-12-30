@@ -8,7 +8,7 @@ from .views import (
     LandmarkUpdateView, FactionUpdateView, ExpansionUpdateView, ClockworkUpdateView,
     ExpansionDeleteView,
     PostDeleteView,
- 
+    TweakCreateView, TweakUpdateView,
 
     # ComponentDetailListView,
     bookmark_post,
@@ -36,6 +36,7 @@ urlpatterns = [
     path('new/deck/', DeckCreateView.as_view(), name='deck-create'),
     path('new/hireling/', HirelingCreateView.as_view(), name='hireling-create'),
     path('new/landmark/', LandmarkCreateView.as_view(), name='landmark-create'),
+    path('new/tweak/', TweakCreateView.as_view(), name='tweak-create'),
     path('new/vagabond/', VagabondCreateView.as_view(), name='vagabond-create'),
     path('new/expansion/', ExpansionCreateView.as_view(), name='expansion-create'),
     
@@ -50,6 +51,7 @@ urlpatterns = [
     path('deck/<slug:slug>/', ultimate_component_view, name='deck-detail'),
     path('hireling/<slug:slug>/', ultimate_component_view, name='hireling-detail'),
     path('landmark/<slug:slug>/', ultimate_component_view, name='landmark-detail'),
+    path('tweak/<slug:slug>/', ultimate_component_view, name='tweak-detail'),
     path('vagabond/<slug:slug>/', ultimate_component_view, name='vagabond-detail'),
     path('faction/<slug:slug>/', ultimate_component_view, name='faction-detail'),
     path('clockwork/<slug:slug>/', ultimate_component_view, name='clockwork-detail'),
@@ -58,6 +60,7 @@ urlpatterns = [
     path('deck/<slug:slug>/update/', DeckUpdateView.as_view(), name='deck-update'),
     path('hireling/<slug:slug>/update/', HirelingUpdateView.as_view(), name='hireling-update'),
     path('landmark/<slug:slug>/update/', LandmarkUpdateView.as_view(), name='landmark-update'),
+    path('tweak/<slug:slug>/update/', TweakUpdateView.as_view(), name='tweak-update'),
     path('vagabond/<slug:slug>/update/', VagabondUpdateView.as_view(), name='vagabond-update'),
     path('faction/<slug:slug>/update/', FactionUpdateView.as_view(), name='faction-update'),
     path('clockwork/<slug:slug>/update/', ClockworkUpdateView.as_view(), name='clockwork-update'),
