@@ -1,12 +1,12 @@
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion, Tweak
+    Piece, Expansion, Tweak, PNPAsset
 )
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
-
+from django.utils import timezone
 
 top_fields = ['designer', 'title', 'expansion', 'status']
 bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'picture', 'artist']
@@ -679,3 +679,35 @@ class PieceForm(forms.ModelForm):
 class StableConfirmForm(forms.Form):
     # This form doesn't need any fields, just the submit button
     pass
+
+
+class PNPAssetCreateForm(forms.ModelForm):
+    class Meta:
+        model = PNPAsset
+        fields = ['title', 'category', 'link', 'shared_by']
+        help_texts = {
+            'shared_by': 'Selected user will be able to edit and delete this link.',
+            'link': 'Enter the direct link to this asset (Google Drive, Dropbox, etc). The more specific the better.'
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.profile = kwargs.pop('profile', None)
+        super().__init__(*args, **kwargs)
+        
+        # Check if an instance is being updated (i.e., it's an existing object)
+        if self.instance and self.instance.pk or self.profile.admin == False:
+            # If the object exists (it's being updated), remove 'shared_by' field
+            self.fields.pop('shared_by')
+        
+
+    def save(self, commit=True):
+        # Get the instance and update date_updated to current time
+        instance = super().save(commit=False)
+        
+        # Set the date_updated field to the current time
+        instance.date_updated = timezone.now()
+
+        if commit:
+            instance.save()
+        
+        return instance

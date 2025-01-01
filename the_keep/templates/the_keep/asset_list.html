@@ -1,0 +1,109 @@
+{% extends "the_keep/base.html" %}
+
+{% block content %}
+<article class="media content-section">
+    <div class="media-body" style="overflow: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>Assets</h1>
+            {% if profile.designer %}
+            <a class="btn btn-success btn-sm ml-2 mt-1 mb-1" href="{% url 'asset-new' %}">New Asset +</a>
+            {% endif %}
+        </div>
+
+        <!-- Search bar with htmx attributes -->
+        <div class="mb-3">
+            <input 
+                type="text" 
+                class="form-control" 
+                id="search-bar" 
+                name="search" 
+                placeholder="Search..." 
+                hx-get="{% url 'asset-list' %}" 
+                hx-target="#asset-table" 
+                hx-trigger="keyup changed delay:500ms"
+                hx-swap="outerHTML"
+            />
+        </div>
+        <div style="overflow-x: auto;">
+        <table id="sortable-table">
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="sortTable(0)">Name</th>
+                    <th class="sortable" onclick="sortTable(1)">Category</th>
+                    <th class="sortable" onclick="sortTable(2)">Date</th>
+                    <th class="sortable" onclick="sortTable(3)">Shared By</th>
+                    <th class="sortable" onclick="sortTable(4)"></th>
+                </tr>
+            </thead>
+            <tbody id="asset-table" class="effort-rows">
+                {% for obj in objects %}
+                <tr>
+                    <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
+                    <td>{{ obj.category }}</td>
+                    <td>{{ obj.date_updated |date:"F j, Y" }}</td>
+                    <td>
+                        {% if obj.shared_by %}
+                        {{ obj.shared_by }}
+                        {% else %}
+                        ---
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if obj.shared_by == profile or profile.admin %}
+                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</article>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    function sortTable(n) {
+        var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        table = document.getElementById("sortable-table");
+        switching = true;
+        dir = "asc"; // Set the sorting direction to ascending
+
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+
+            for (i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                x = rows[i].getElementsByTagName("TD")[n];
+                y = rows[i + 1].getElementsByTagName("TD")[n];
+
+                if (dir == "asc") {
+                    if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                } else if (dir == "desc") {
+                    if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                }
+            }
+
+            if (shouldSwitch) {
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                switchcount++;
+            } else {
+                if (switchcount == 0 && dir == "asc") {
+                    dir = "desc";
+                    switching = true;
+                }
+            }
+        }
+    }
+</script>
+{% endblock scripts %}

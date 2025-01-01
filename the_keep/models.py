@@ -764,6 +764,28 @@ def check_for_image(folder, image_png_name):
 
 
 
+class PNPAsset(models.Model):
+    class CategoryChoices(models.TextChoices):
+        FACTION = 'Faction'
+        MAP = 'Map'
+        DECK = 'Deck'
+        VAGABOND = 'Vagabond'
+        LANDMARK = 'Landmark'
+        HIRELING = 'Hireling'
+        OTHER = 'Other'
+    date_updated = models.DateTimeField(default=timezone.now)
+    title = models.CharField(max_length=50)
+    link = models.URLField(max_length=300)
+    category = models.CharField(choices=CategoryChoices)
+    description = models.CharField(max_length=300)
+    shared_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, related_name='assets', null=True, blank=True)
+
+    class Meta:
+        ordering = ['category', 'date_updated']
+
+
+
+
 
 
 def component_pre_save(sender, instance, *args, **kwargs):

@@ -4,11 +4,11 @@ from django.shortcuts import render
 from django.http import HttpResponseRedirect 
 import csv
 from io import StringIO
-from .models import (Post, Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     PostBookmark, Piece, Tweak)
+from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
+                     PostBookmark, Piece, Tweak, PNPAsset)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
-from .models import Profile
+from the_gatehouse.models import Profile
 from the_warroom.admin import CsvImportForm
 from datetime import datetime
 from django.utils import timezone
@@ -16,6 +16,10 @@ from django.utils import timezone
 class PieceInline(admin.StackedInline):
     model = Piece
     extra = 0
+
+class PNPAssetAdmin(admin.ModelAdmin):
+    list_display = ('title', 'category', 'date_updated', 'shared_by__display_name')
+    search_fields = ('title', 'description')
 
 class MapAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'clearings')
@@ -1067,7 +1071,7 @@ class PostBookmarkAdmin(admin.ModelAdmin):
 admin.site.register(PostBookmark, PostBookmarkAdmin)
 
 
-
+admin.site.register(PNPAsset, PNPAssetAdmin)
 
 
 # Registering the models with the GroupedModelAdmin

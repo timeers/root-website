@@ -6,11 +6,13 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
 from django.db.models.functions import Cast
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.core.exceptions import PermissionDenied
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import ProtectedError, Count
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.contrib import messages
+
 
 from the_warroom.filters import GameFilter
 from django.views.generic import (
@@ -22,13 +24,14 @@ from django.views.generic import (
 )
 from the_warroom.models import Game
 from the_gatehouse.models import Profile
-from the_gatehouse.views import designer_required_class_based_view, designer_required, player_required
+from the_gatehouse.views import designer_required_class_based_view, designer_required, player_required, player_required_class_based_view
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
-      Map, Deck,
-      Hireling, Landmark,
-      Piece, Tweak
+    Map, Deck,
+    Hireling, Landmark,
+    Piece, Tweak,
+    PNPAsset,
     )
 from .forms import (PostCreateForm, MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -36,6 +39,7 @@ from .forms import (PostCreateForm, MapCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
                     PieceForm, ClockworkCreateForm,
                     StableConfirmForm, TweakCreateForm,
+                    PNPAssetCreateForm,
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -674,3 +678,135 @@ def confirm_stable(request, slug):
     # If GET request, render the confirmation form
     form = StableConfirmForm()
     return render(request, 'the_keep/confirm_stable.html', {'form': form, 'post': object})
+
+
+
+#### PNP Assets
+
+@player_required_class_based_view
+class PNPAssetCreateView(CreateView):
+    model = PNPAsset
+    form_class = PNPAssetCreateForm
+    template_name = 'the_keep/asset_form.html'
+    success_url = reverse_lazy('asset-list') 
+
+    def form_valid(self, form):
+        # Set the shared_by field to the current user's profile
+        form.instance.shared_by = self.request.user.profile 
+        
+        return super().form_valid(form)
+
+    def get_form_kwargs(self):
+        # Add the current user to the form kwargs
+        kwargs = super().get_form_kwargs()
+        kwargs['profile'] = self.request.user.profile
+        return kwargs    
+
+
+@player_required_class_based_view
+class PNPAssetUpdateView(UpdateView):
+    model = PNPAsset
+    form_class = PNPAssetCreateForm  # Reusing the form
+    template_name = 'the_keep/asset_form.html'
+    success_url = reverse_lazy('asset-list')  # Redirect after successful update
+
+    # Optionally, override `get_object` to ensure permissions or ownership checks
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset=queryset)
+                # Ensure the current user can update the object
+        if obj.shared_by != self.request.user.profile and not self.request.user.profile.admin:
+            raise PermissionDenied("You are not authorized to edit this object.")
+        return obj
+
+    def get_form_kwargs(self):
+        # Add the current user to the form kwargs
+        kwargs = super().get_form_kwargs()
+        kwargs['profile'] = self.request.user.profile
+        return kwargs 
+
+
+class PNPAssetListView(ListView):
+    model = PNPAsset
+    template_name = 'the_keep/asset_list.html'
+    context_object_name = 'objects'
+
+    # def get_queryset(self):
+    #     queryset = super().get_queryset()
+    #     sort_by = self.request.GET.get('sort', 'category')  # Default sort by category
+
+    #     # Handle sorting by
+    #     if sort_by in ['title', 'date_updated', 'category']:
+    #         queryset = queryset.order_by(sort_by)
+
+    #     return queryset
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Get the search query from the GET parameters
+        search_query = self.request.GET.get('search', '')
+        
+        # Filter the queryset if there is a search query
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Get the search query from the GET parameters
+        search_query = self.request.GET.get('search', '')
+        
+        # If a search query is provided, filter the queryset based on title, category, and shared_by
+        if search_query:
+            queryset = queryset.filter(
+                Q(title__icontains=search_query) |
+                Q(category__icontains=search_query) |
+                Q(shared_by__discord__icontains=search_query)
+            )
+
+        return queryset
+
+
+    def get_context_data(self, **kwargs):
+        # Add current user to the context data
+        context = super().get_context_data(**kwargs)
+        if self.request.user.is_authenticated:
+            context['profile'] = self.request.user.profile  # Adding the user to the context
+        else:
+            context['profile'] = None
+        return context
+    
+    def render_to_response(self, context, **response_kwargs):
+        # Check if it's an HTMX request
+        if self.request.headers.get('HX-Request') == 'true':
+            # Only return the part of the template that HTMX will update
+            return render(self.request, 'the_keep/partials/asset_list_table.html', context)
+
+        return super().render_to_response(context, **response_kwargs)
+    
+@player_required_class_based_view
+class PNPAssetDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = PNPAsset
+    template_name = 'the_keep/asset_confirm_delete.html'
+    success_url = reverse_lazy('asset-list')   # The default success URL after deletion
+
+    def test_func(self):
+        asset = self.get_object()
+        # print("testing delete function")
+        return self.request.user.profile == asset.shared_by or self.request.user.profile.admin  # Ensure only the designer can delete
+
+    def post(self, request, *args, **kwargs):
+        # print('Trying to delete')
+        asset = self.get_object()
+        name = asset.title
+        try:
+            # Attempt to delete the asset
+            response = self.delete(request, *args, **kwargs)
+            # Add success message upon successful deletion
+            messages.success(request, f"The asset link '{name}' was successfully deleted.")
+            return response
+        except ProtectedError:
+            # Handle the case where the deletion fails due to foreign key protection
+            messages.error(request, f"The asset link '{name}' cannot be deleted.")
+            # Redirect back to the asset detail page
+            return redirect('asset-list')
+        except IntegrityError:
+            # Handle other integrity errors (if any)
+            messages.error(request, "An error occurred while trying to delete this asset.")
+            return redirect('asset-list')

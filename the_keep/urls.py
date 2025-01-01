@@ -10,6 +10,8 @@ from .views import (
     PostDeleteView,
     TweakCreateView, TweakUpdateView,
 
+    PNPAssetCreateView, PNPAssetListView, PNPAssetUpdateView, PNPAssetDeleteView,
+
     # ComponentDetailListView,
     bookmark_post,
     list_view, activity_list,
@@ -73,4 +75,10 @@ urlpatterns = [
     path('piece/add/', add_piece, name='add-piece'),
     path('piece/update/<int:id>', add_piece, name='update-piece'),
     path('piece/delete/<int:id>', delete_piece, name='delete-piece'),
+
+
+    path('assets/', PNPAssetListView.as_view(), name='asset-list'),
+    path('assets/new/', PNPAssetCreateView.as_view(), name='asset-new'),
+    path('assets/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),
+    path('assets/delete/<int:pk>/', PNPAssetDeleteView.as_view(), name='asset-delete'),
 ]

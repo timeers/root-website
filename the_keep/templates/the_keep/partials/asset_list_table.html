@@ -1,0 +1,25 @@
+<tbody id="asset-table" class="effort-rows">
+    {% for obj in objects %}
+    <tr>
+        <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
+        <td>{{ obj.category }}</td>
+        <td>{{ obj.date_updated |date:"F j, Y" }}</td>
+        <td>
+            {% if obj.shared_by %}
+            {{ obj.shared_by }}
+            {% else %}
+            ---
+            {% endif %}
+        </td>
+        <td>
+            {% if obj.shared_by == profile or profile.admin %}
+            <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+            {% endif %}
+        </td>
+    </tr>
+    {% empty %}
+    <tr>
+        <td colspan="5">No assets found.</td>
+    </tr>
+    {% endfor %}
+</tbody>
