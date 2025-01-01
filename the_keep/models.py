@@ -776,8 +776,7 @@ class PNPAsset(models.Model):
     date_updated = models.DateTimeField(default=timezone.now)
     title = models.CharField(max_length=50)
     link = models.URLField(max_length=300)
-    category = models.CharField(choices=CategoryChoices)
-    description = models.CharField(max_length=300)
+    category = models.CharField(choices=CategoryChoices, max_length=15)
     shared_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, related_name='assets', null=True, blank=True)
 
     class Meta:
