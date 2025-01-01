@@ -1,19 +1,20 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import HttpResponseForbidden, JsonResponse, Http404
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
-from django.views.generic import DetailView, ListView
+from django.views.generic import ListView, UpdateView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
 from functools import wraps
+from django.urls import reverse_lazy
 
-from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm, PlayerCreateForm
-from .models import Profile
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, PNPAssetCreateForm
+from .models import Profile, PNPAsset
+
 
 from the_tavern.views import bookmark_toggle
-from the_warroom.filters import GameFilter
 from the_warroom.models import Tournament, Round, Effort
 
 
@@ -565,3 +566,47 @@ def player_stats(request, slug):
         return render(request, 'the_warroom/partials/player_stats.html', context)
 
     return render(request, 'the_warroom/player_tournament_stats.html', context)
+
+@designer_required_class_based_view
+class PNPAssetCreateView(CreateView):
+    model = PNPAsset
+    form_class = PNPAssetCreateForm
+    template_name = 'the_tavern/pnpasset_form.html'
+    success_url = '' 
+
+    def form_valid(self, form):
+        # Set the shared_by field to the current user's profile
+        form.instance.shared_by = self.request.user.profile 
+        
+        return super().form_valid(form)
+
+@designer_required_class_based_view
+class PNPAssetUpdateView(UpdateView):
+    model = PNPAsset
+    form_class = PNPAssetCreateForm  # Reusing the form
+    template_name = 'appname/pnpasset_form.html'  # The same template
+    success_url = reverse_lazy('asset-list')  # Redirect after successful update
+
+    # Optionally, override `get_object` to ensure permissions or ownership checks
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset=queryset)
+                # Ensure the current user can update the object
+        if obj.shared_by != self.request.user.profile and not self.request.user.profile.admin:
+            raise Http404("You are not authorized to edit this object.")
+        return obj
+
+
+class PNPAssetListView(ListView):
+    model = PNPAsset
+    template_name = 'the_tavern/asset_list.html'
+    context_object_name = 'objects'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        sort_by = self.request.GET.get('sort', 'category')  # Default sort by category
+
+        # Handle sorting by
+        if sort_by in ['title', 'date_updated', 'category']:
+            queryset = queryset.order_by(sort_by)
+
+        return queryset

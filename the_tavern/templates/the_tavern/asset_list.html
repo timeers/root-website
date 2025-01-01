@@ -1,0 +1,46 @@
+
+
+{% extends "the_keep/base.html" %}
+
+{% block head %}
+    <!-- Datatables for asset sorting -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.css">
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.js"></script>
+    
+{% endblock head %}
+
+{% block content %}
+  <h1>My Model List</h1>
+
+  <table id="sortable-table">
+    <thead>
+      <tr>
+        <th><a href="?sort=title">Name</a></th>
+        <th><a href="?sort=date_updated">Date</a></th>
+        <th><a href="?sort=category">Category</a></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for obj in objects %}
+        <tr>
+          <td>{{ obj.title }}</td>
+          <td>{{ obj.date_updated }}</td>
+          <td>{{ obj.category }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+
+{% endblock %}
+
+
+{% block scripts %}
+
+<script>
+    $(document).ready(function() {
+      $('#sortable-table').DataTable();
+    });
+  </script>
+
+{% endblock scripts %}

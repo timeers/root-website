@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import Profile, PlayerBookmark
+from .models import Profile, PlayerBookmark, PNPAsset
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -13,6 +13,10 @@ from django.utils.translation import gettext_lazy as _
 
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField() 
+
+class PNPAssetAdmin(admin.ModelAdmin):
+    list_display = ('title', 'category', 'date_updated', 'shared_by__display_name')
+    search_fields = ('title', 'description')
 
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ('user', 'group', 'display_name', 'discord', 'dwd', 'league', 'weird')
@@ -194,7 +198,7 @@ admin.site.unregister(User)
 # Register the customized User admin
 admin.site.register(User, CustomUserAdmin)
 
-
+admin.site.register(PNPAsset, PNPAssetAdmin)
 
 
 

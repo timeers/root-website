@@ -77,6 +77,12 @@ class Post(models.Model):
         FACTION = 'Faction'
         CLOCKWORK = 'Clockwork'
         TWEAK = 'Tweak'
+    class StatusChoices(models.TextChoices):
+        STABLE = '1','Stable'
+        TESTING = '2', 'Testing'
+        DEVELOPMENT = '3', 'Development'
+        CONCEPT = '4', 'Concept'
+        INACTIVE = '5', 'Inactive'
 
     title = models.CharField(max_length=35)
     animal = models.CharField(max_length=15, null=True, blank=True)
@@ -90,7 +96,9 @@ class Post(models.Model):
     artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     official = models.BooleanField(default=False)
     in_root_digital = models.BooleanField(default=False)
-    stable = models.BooleanField(default=False)
+    # stable = models.BooleanField(default=False)
+    status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)
+
     bgg_link = models.CharField(max_length=200, null=True, blank=True)
     tts_link = models.CharField(max_length=200, null=True, blank=True)
     ww_link = models.CharField(max_length=200, null=True, blank=True)
@@ -241,18 +249,17 @@ class Post(models.Model):
             case _:
                 return Game.objects.none()  # No games if no component matches
             
-    def status(self):
-        plays = self.get_plays_queryset()
-        play_count = plays.count() if plays is not None else 0
-        
-        if play_count > 0:
-            return "Stable" if self.stable else "Testing"
-        else:
-            # Check if date_updated is more than 1 year old
-            if self.date_updated < timezone.now() - timedelta(days=365):
-                return "Inactive"
-            else:
-                return "Development"
+    # def status(self):
+    #     plays = self.get_plays_queryset()
+    #     play_count = plays.count() if plays is not None else 0
+
+    #     if self.stable:
+    #         return "Stable"
+
+    #     if play_count > 0:
+    #         return "Testing"
+    #     else:
+    #         return "Development"
 
     def plays(self):
         plays = self.get_plays_queryset()
@@ -261,7 +268,7 @@ class Post(models.Model):
 
         
     class Meta:
-        ordering = ['sorting', '-official', '-stable', '-date_posted']
+        ordering = ['sorting', '-official', '-status', '-date_posted']
 
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)
@@ -291,9 +298,8 @@ class Deck(Post):
         
 
         play_count = plays.count()
-        stable = self.stable
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -324,7 +330,7 @@ class Landmark(Post):
         stable = self.stable
 
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -346,10 +352,9 @@ class Tweak(Post):
         
 
         play_count = plays.count()
-        stable = self.stable
 
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -375,10 +380,10 @@ class Map(Post):
                 )['total_players']
         
         play_count = plays.count()
-        stable = self.stable
+ 
 
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -457,10 +462,9 @@ class Vagabond(Post):
         
 
         play_count = plays.count()
-        stable = self.stable
 
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -614,10 +618,10 @@ class Faction(Post):
         
 
         play_count = plays.count()
-        stable = self.stable
+ 
 
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -625,7 +629,7 @@ class Faction(Post):
         return (stable_ready, play_count, unique_players, official_faction_count)
 
     class Meta:
-        ordering = ['-component', '-official', '-stable', '-date_posted']
+        ordering = ['-component', '-official', '-status', '-date_posted']
 
 
 class Hireling(Post):
@@ -673,10 +677,10 @@ class Piece(models.Model):
         
 
         play_count = plays.count()
-        stable = self.stable
 
 
-        if play_count >= stable_game_count and stable == False and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
             stable_ready = True
         else:
             stable_ready = False

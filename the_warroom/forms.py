@@ -20,7 +20,8 @@ class GameCreateForm(forms.ModelForm):
                 )
     tweaks = forms.ModelMultipleChoiceField(required=False, 
                 queryset=Tweak.objects.all(),
-                widget=forms.SelectMultiple
+                widget=forms.SelectMultiple,
+                label="Rule Tweaks",
                 )
     PLATFORM_CHOICES = [
         ('Tabletop Simulator', 'Tabletop Simulator'),
@@ -593,10 +594,10 @@ class TournamentCreateForm(forms.ModelForm):
                 instance.decks.set(Deck.objects.filter(in_root_digital=True))
                 instance.vagabonds.set(Vagabond.objects.filter(in_root_digital=True))
             else:
-                instance.factions.set(Faction.objects.filter(official=True, stable=True).exclude(type="C"))
-                instance.maps.set(Map.objects.filter(official=True, stable=True))
-                instance.decks.set(Deck.objects.filter(official=True, stable=True))
-                instance.vagabonds.set(Vagabond.objects.filter(official=True, stable=True))
+                instance.factions.set(Faction.objects.filter(official=True, status='Stable').exclude(type="C"))
+                instance.maps.set(Map.objects.filter(official=True, status='Stable'))
+                instance.decks.set(Deck.objects.filter(official=True, status='Stable'))
+                instance.vagabonds.set(Vagabond.objects.filter(official=True, status='Stable'))
 
 
         return instance

@@ -18,7 +18,7 @@ class PieceInline(admin.StackedInline):
     extra = 0
 
 class MapAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable', 'clearings')
+    list_display = ('title', 'designer', 'official', 'status', 'clearings')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
 
@@ -74,7 +74,7 @@ class MapAdmin(admin.ModelAdmin):
                 print("In Digital", in_root_digital)
                 print(fields[16])
 
-                stable = True if fields[6] == "Stable" else False
+                status = fields[6]
                 official = True if fields[5] == "Y" else False
                 
                 description = None if fields[8] == '' else fields[8]
@@ -103,7 +103,7 @@ class MapAdmin(admin.ModelAdmin):
                     'ww_link': ww_link,
                     'wr_link': wr_link,
                     'pnp_link': pnp_link,
-                    'stable': stable,
+                    'status': status,
                     'official': official,
                     'date_posted': date_posted,
                     'artist': artist_instance,
@@ -132,7 +132,7 @@ class MapAdmin(admin.ModelAdmin):
 
 
 class DeckAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable', 'card_total')
+    list_display = ('title', 'designer', 'official', 'status', 'card_total')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
 
@@ -168,7 +168,7 @@ class DeckAdmin(admin.ModelAdmin):
                 else:
                     expansion_instance, _ = Expansion.objects.get_or_create(title=fields[4])
                     print(expansion_instance)
-                stable = True if fields[6] == "Stable" else False
+                status = fields[6]
                 official = True if fields[5] == "Y" else False
                 bgg_link = None if fields[8] == '' else fields[8]
                 tts_link = None if fields[9] == '' else fields[9]
@@ -203,7 +203,7 @@ class DeckAdmin(admin.ModelAdmin):
                     'ww_link': ww_link,
                     'wr_link': wr_link,
                     'pnp_link': pnp_link,
-                    'stable': stable,
+                    'status': status,
                     'official': official,
                     'date_posted': date_posted,
                     'artist': artist_instance,
@@ -232,12 +232,12 @@ class DeckAdmin(admin.ModelAdmin):
         return render(request, 'admin/csv_upload.html', data)
 
 class TweakAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'based_on', 'official', 'stable')
+    list_display = ('title', 'designer', 'based_on', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
 
 class LandmarkAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable')
+    list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
 
@@ -292,7 +292,7 @@ class LandmarkAdmin(admin.ModelAdmin):
                 in_root_digital = True if fields[14] == 'TRUE' else False
               
 
-                stable = True if fields[6] == "Stable" else False
+                status = fields[6]
                 official = True if fields[5] == "Y" else False
                 
                 # description = None if fields[8] == '' else fields[8]
@@ -321,7 +321,7 @@ class LandmarkAdmin(admin.ModelAdmin):
                     'ww_link': ww_link,
                     'wr_link': wr_link,
                     'pnp_link': pnp_link,
-                    'stable': stable,
+                    'status': status,
                     'official': official,
                     'date_posted': date_posted,
                     # 'artist': artist_instance,
@@ -353,7 +353,7 @@ class LandmarkAdmin(admin.ModelAdmin):
 
 
 class HirelingAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable', 'animal')
+    list_display = ('title', 'designer', 'official', 'status', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline]
@@ -408,7 +408,7 @@ class HirelingAdmin(admin.ModelAdmin):
                 lore = None if fields[15] == '' else fields[15]
                 in_root_digital = True if fields[17] == 'TRUE' else False
 
-                stable = True if fields[6] == "Stable" else False
+                status = fields[6]
                 official = True if fields[5] == "Y" else False
                 
                 if fields[16].strip() != "":
@@ -447,7 +447,7 @@ class HirelingAdmin(admin.ModelAdmin):
                     'ww_link': ww_link,
                     'wr_link': wr_link,
                     'pnp_link': pnp_link,
-                    'stable': stable,
+                    'status': status,
                     'official': official,
                     'date_posted': date_posted,
                     'artist': artist_instance,
@@ -479,14 +479,14 @@ class HirelingAdmin(admin.ModelAdmin):
 
 
 class PostAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable')
+    list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer']
 class ExpansionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer')
 
 class FactionAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable', 'type', 'reach', 'animal')
+    list_display = ('title', 'designer', 'official', 'status', 'type', 'reach', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline]
@@ -528,9 +528,9 @@ class FactionAdmin(admin.ModelAdmin):
                 else:
                     expansion_instance, _ = Expansion.objects.get_or_create(title=fields[5])
                 profile_instance.save()
-                stable = True if fields[7] == "Stable" else False
+                status = fields[7]
                 official = True if fields[6] == "Y" else False
-                # print(fields[1], fields[7], stable)
+
                 bgg_link = None if fields[54] == '' else fields[54]
                 tts_link = None if fields[55] == '' else fields[55]
                 ww_link = None if fields[56] == '' else fields[56]
@@ -553,8 +553,10 @@ class FactionAdmin(admin.ModelAdmin):
                     artist_instance = None
                 in_root_digital = True if fields[3] == 'TRUE' else False
 
-
-
+                if fields[15] != "":
+                    color = fields[15]
+                else:
+                    color = None
                 faction_data = {
                     'title': fields[1],
                     'designer': profile_instance,
@@ -571,12 +573,13 @@ class FactionAdmin(admin.ModelAdmin):
                     'ww_link': ww_link,
                     'wr_link': wr_link,
                     'pnp_link': pnp_link,
-                    'stable': stable,
+                    'status': status,
                     'official': official,
                     'date_posted': date_posted,
                     'lore': lore,
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
+                    'color': color,
                 }
 
                 # Use FactionImportForm for validation
@@ -891,7 +894,7 @@ class FactionAdmin(admin.ModelAdmin):
 
 
 class VagabondAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'stable', 'animal')
+    list_display = ('title', 'designer', 'official', 'status', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer']
     inlines = [PieceInline]
@@ -947,7 +950,7 @@ class VagabondAdmin(admin.ModelAdmin):
                     expansion_instance = None
                 else:
                     expansion_instance, _ = Expansion.objects.get_or_create(title=fields[3])
-                stable = True if fields[4] == "Stable" else False
+                status = fields[4]
                 official = True if fields[5] == "Y" else False
                 ability_item = 'None' if fields[17] == '' else fields[17]
                 ability = None if fields[18] == '' else fields[18]
@@ -1006,7 +1009,7 @@ class VagabondAdmin(admin.ModelAdmin):
                     'ww_link': ww_link,
                     'wr_link': wr_link,
                     'pnp_link': pnp_link,
-                    'stable': stable,
+                    'status': status,
                     'official': official,
                     'date_posted': date_posted,
                     'artist': artist_instance,

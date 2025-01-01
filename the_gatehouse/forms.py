@@ -3,7 +3,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile
+from .models import Profile, PNPAsset
 
 class UserRegisterForm(UserCreationForm):
     email = forms.EmailField(required=True)
@@ -97,3 +97,9 @@ class PlayerCreateForm(forms.ModelForm):
             raise forms.ValidationError('This Discord username is already registered.')
         
         return discord
+
+
+class PNPAssetCreateForm(forms.ModelForm):
+    class Meta:
+        model = PNPAsset
+        fields = ['title', 'category', 'link', 'description']

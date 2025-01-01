@@ -8,7 +8,7 @@ from django.core.validators import URLValidator
 from django.db.models import Q
 
 
-top_fields = ['designer', 'title', 'expansion']
+top_fields = ['designer', 'title', 'expansion', 'status']
 bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'picture', 'artist']
 
 class PostSearchForm(forms.ModelForm):
@@ -66,6 +66,17 @@ class PostCreateForm(forms.ModelForm):
     expansion = forms.ModelChoiceField(
         queryset=Expansion.objects.none(),  # Default empty queryset
         required=False
+    )
+    STATUS_CHOICES = [
+        ('2', 'Testing'),
+        ('3', 'Development'),
+        ('4', 'Concept'),
+        ('5', 'Inactive'),
+    ]
+    status = forms.ChoiceField(
+        choices=STATUS_CHOICES, initial="3",
+        required=True,
+        help_text='Set the current status. Concepts should only be posted if you have a plan to develop them. Once thoroughly playtested the status will be set to "Stable".'
     )
     class Meta:
         model = Post
@@ -207,7 +218,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable', 'in_root_digital', 'expansion'] + bottom_fields
+        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'status', 'in_root_digital', 'expansion'] + bottom_fields
 
 
 
@@ -260,12 +271,12 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class DeckImportForm(PostImportForm):
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'stable'] + bottom_fields
+        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'status'] + bottom_fields
 
 class LandmarkImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Map
-        fields = top_fields + ['card_text', 'based_on', 'designer', 'official', 'stable', 'in_root_digital', 'date_posted',] + bottom_fields
+        fields = top_fields + ['card_text', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -344,7 +355,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Hireling  # Specify the model to be Map
-        fields = top_fields + ['animal', 'type', 'based_on', 'designer', 'official', 'stable', 'in_root_digital', 'date_posted',] + bottom_fields
+        fields = top_fields + ['animal', 'type', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 
@@ -459,7 +470,7 @@ class VagabondCreateForm(PostCreateForm):
 class VagabondImportForm(PostImportForm): 
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'stable', 'official', 'designer', 'expansion', 'in_root_digital',
+        fields = top_fields + ['animal', 'status', 'official', 'designer', 'expansion', 'in_root_digital',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
@@ -577,8 +588,10 @@ class FactionImportForm(PostImportForm):
     reach = forms.IntegerField(min_value=0, max_value=10)
     class Meta(PostImportForm):
         model = Faction 
-        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 'in_root_digital',
-                               'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
+        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  
+                               'in_root_digital', 'color',
+                               'complexity', 'card_wealth', 'aggression', 'crafting_ability',
+                                'designer', 'expansion', 'status', 'date_posted'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
             faction_instance = kwargs.pop('instance', None)

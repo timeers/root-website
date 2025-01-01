@@ -406,13 +406,14 @@ def ultimate_component_view(request, slug):
     except EmptyPage:
         page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
 
+
     context = {
         'object': object,
         'games_total': games.count(),
         'filtered_games': filtered_games.count(),
         'games': page_obj,  # Pagination applied here
         'is_paginated': len(filtered_games) > paginate_by,
-        'page_obj': page_obj,  # Pass the paginated page object to the context
+        # 'page_obj': page_obj,  # Pass the paginated page object to the context
         'commentform': commentform,
         'form': game_filter.form,
         'filterset': game_filter,
@@ -635,22 +636,41 @@ def activity_list(request):
 def confirm_stable(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=slug)
 
+    stable = object.stable_check()
+    print(stable)
+
+    if stable[0] == False:
+        messages.info(request, f'{object} has not yet met the stability requirements. Current stats: {stable[1]} plays with {stable[2]} players and {stable[3]} official factions.')
+        return redirect(object.get_absolute_url())
+    
     # Check if the current user is the designer
-    if post.designer != request.user.profile:
+    if object.designer != request.user.profile:
         messages.error(request, "You are not authorized to make this change.")
-        return redirect('keep-home')
+        return redirect(object.get_absolute_url())
 
     # If form is submitted (POST request)
     if request.method == 'POST':
         # Update the `stable` property to True
-        post.stable = True
-        post.save()
+        object.status = 'Stable'
+        object.save()
 
         # Redirect to a success page or back to the post detail page
         messages.success(request, "The post has been marked as stable.")
-        return redirect(post.get_absolute_url())
+        return redirect(object.get_absolute_url())
 
     # If GET request, render the confirmation form
     form = StableConfirmForm()
-    return render(request, 'the_keep/confirm_stable.html', {'form': form, 'post': post})
+    return render(request, 'the_keep/confirm_stable.html', {'form': form, 'post': object})

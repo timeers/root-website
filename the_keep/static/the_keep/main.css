@@ -199,11 +199,9 @@ th, td {
   border-radius: 10px;
 }
 
-.board-img {
-  max-height: 550px;
-  max-width: 650px;
-  height: auto;  /* Allow height to adjust */
-  width: auto;   /* Allow width to adjust */
+ 
+
+.rounded-corner-img {
   border-radius: 10px;
 }
 

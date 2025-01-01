@@ -66,6 +66,7 @@ urlpatterns = [
     path('profile/', include('the_gatehouse.urls')),
     path('', include('the_warroom.urls')),
     path('accounts/', include('allauth.urls')),
+    path('', include('the_tavern.urls')),
 
     path('__debug__/', include("debug_toolbar.urls")),
 

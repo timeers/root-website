@@ -68,7 +68,9 @@
             {% endif %}
 
 
-            <p>Status: {{ object.status }}</p>
+            <p>Status: 
+                {{ object.get_status_display }}
+            </p>
 
 
 
