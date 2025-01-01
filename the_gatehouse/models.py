@@ -45,7 +45,8 @@ class Profile(models.Model):
         elif self.discord:
             name = self.discord
         else:
-            name = self.user.username
+            name = "Anonymous"
+            # name = self.user.username
         return name
         
 

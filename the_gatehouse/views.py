@@ -1,19 +1,19 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import HttpResponseForbidden, JsonResponse, Http404
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
-from django.views.generic import DetailView, ListView
+from django.views.generic import ListView, UpdateView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
 from functools import wraps
 
-from .forms import UserRegisterForm, UserUpdateForm, ProfileUpdateForm, PlayerCreateForm
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm
 from .models import Profile
 
+
 from the_tavern.views import bookmark_toggle
-from the_warroom.filters import GameFilter
 from the_warroom.models import Tournament, Round, Effort
 
 

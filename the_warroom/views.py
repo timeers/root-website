@@ -350,7 +350,7 @@ def manage_game(request, id=None):
                     if child.faction.status == "Stable":
                         status = "Stable"
                     else:
-                        status = f"{child.faction.status()} - {child.faction.date_updated.strftime('%Y-%m-%d')}"
+                        status = f"{child.faction.status} - {child.faction.date_updated.strftime('%Y-%m-%d')}"
                     child.faction_status = status
                     child.game = parent  # Link the effort to the game
                     child.seat = seat

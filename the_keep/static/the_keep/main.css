@@ -199,11 +199,9 @@ th, td {
   border-radius: 10px;
 }
 
-.board-img {
-  max-height: 550px;
-  max-width: 650px;
-  height: auto;  /* Allow height to adjust */
-  width: auto;   /* Allow width to adjust */
+ 
+
+.rounded-corner-img {
   border-radius: 10px;
 }
 
@@ -253,6 +251,7 @@ th, td {
 tr[data-href] {
   cursor: pointer;
 }
+
 
 /* @font-face {
   font-family: 'Baskerville';
@@ -353,4 +352,12 @@ font-weight: bold;
       flex: none;  /* Remove flex scaling */
       width: 100%; /* Make both charts take up 100% of the width */
   }
+}
+th.sortable {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+th.sortable:hover {
+  background-color: #f1f1f1;  /* Light gray background on hover */
 }

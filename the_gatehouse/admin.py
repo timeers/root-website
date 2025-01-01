@@ -14,6 +14,8 @@ from django.utils.translation import gettext_lazy as _
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField() 
 
+
+
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ('user', 'group', 'display_name', 'discord', 'dwd', 'league', 'weird')
     search_fields = ('display_name', 'discord', 'dwd',)

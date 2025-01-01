@@ -1,14 +1,14 @@
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion, Tweak
+    Piece, Expansion, Tweak, PNPAsset
 )
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
+from django.utils import timezone
 
-
-top_fields = ['designer', 'title', 'expansion']
+top_fields = ['designer', 'title', 'expansion', 'status']
 bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'picture', 'artist']
 
 class PostSearchForm(forms.ModelForm):
@@ -66,6 +66,17 @@ class PostCreateForm(forms.ModelForm):
     expansion = forms.ModelChoiceField(
         queryset=Expansion.objects.none(),  # Default empty queryset
         required=False
+    )
+    STATUS_CHOICES = [
+        ('2', 'Testing'),
+        ('3', 'Development'),
+        ('4', 'Concept'),
+        ('5', 'Inactive'),
+    ]
+    status = forms.ChoiceField(
+        choices=STATUS_CHOICES, initial="3",
+        required=True,
+        help_text='Set the current status. Concepts should only be posted if you have a plan to develop them. Once thoroughly playtested the status will be set to "Stable".'
     )
     class Meta:
         model = Post
@@ -207,7 +218,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'stable', 'in_root_digital', 'expansion'] + bottom_fields
+        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'status', 'in_root_digital', 'expansion'] + bottom_fields
 
 
 
@@ -260,12 +271,12 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class DeckImportForm(PostImportForm):
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'stable'] + bottom_fields
+        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'status'] + bottom_fields
 
 class LandmarkImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Map
-        fields = top_fields + ['card_text', 'based_on', 'designer', 'official', 'stable', 'in_root_digital', 'date_posted',] + bottom_fields
+        fields = top_fields + ['card_text', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -344,7 +355,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Hireling  # Specify the model to be Map
-        fields = top_fields + ['animal', 'type', 'based_on', 'designer', 'official', 'stable', 'in_root_digital', 'date_posted',] + bottom_fields
+        fields = top_fields + ['animal', 'type', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 
@@ -459,7 +470,7 @@ class VagabondCreateForm(PostCreateForm):
 class VagabondImportForm(PostImportForm): 
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'stable', 'official', 'designer', 'expansion', 'in_root_digital',
+        fields = top_fields + ['animal', 'status', 'official', 'designer', 'expansion', 'in_root_digital',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
@@ -577,8 +588,10 @@ class FactionImportForm(PostImportForm):
     reach = forms.IntegerField(min_value=0, max_value=10)
     class Meta(PostImportForm):
         model = Faction 
-        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  'complexity', 'card_wealth', 'in_root_digital',
-                               'aggression', 'crafting_ability', 'designer', 'expansion', 'stable', 'date_posted'] + bottom_fields
+        fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  
+                               'in_root_digital', 'color',
+                               'complexity', 'card_wealth', 'aggression', 'crafting_ability',
+                                'designer', 'expansion', 'status', 'date_posted'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
             faction_instance = kwargs.pop('instance', None)
@@ -666,3 +679,35 @@ class PieceForm(forms.ModelForm):
 class StableConfirmForm(forms.Form):
     # This form doesn't need any fields, just the submit button
     pass
+
+
+class PNPAssetCreateForm(forms.ModelForm):
+    class Meta:
+        model = PNPAsset
+        fields = ['title', 'category', 'link', 'shared_by']
+        help_texts = {
+            'shared_by': 'Selected user will be able to edit and delete this link.',
+            'link': 'Enter the direct link to this asset (Google Drive, Dropbox, etc). The more specific the better.'
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.profile = kwargs.pop('profile', None)
+        super().__init__(*args, **kwargs)
+        
+        # Check if an instance is being updated (i.e., it's an existing object)
+        if self.instance and self.instance.pk or self.profile.admin == False:
+            # If the object exists (it's being updated), remove 'shared_by' field
+            self.fields.pop('shared_by')
+        
+
+    def save(self, commit=True):
+        # Get the instance and update date_updated to current time
+        instance = super().save(commit=False)
+        
+        # Set the date_updated field to the current time
+        instance.date_updated = timezone.now()
+
+        if commit:
+            instance.save()
+        
+        return instance

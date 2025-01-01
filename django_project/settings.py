@@ -147,20 +147,14 @@ SOCIALACCOUNT_PROVIDERS = {
 if DEBUG:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'railway',
+            'USER': 'postgres',
+            'PASSWORD': config["POSTGRES_PASS"],
+            'HOST': 'junction.proxy.rlwy.net',
+            'PORT': '57688',
         }
     }
-    # DATABASES = {
-    #     'default': {
-    #         'ENGINE': 'django.db.backends.postgresql',
-    #         'NAME': 'railway',
-    #         'USER': 'postgres',
-    #         'PASSWORD': '',
-    #         'HOST': 'postgres.railway.internal',
-    #         'PORT': '5432',
-    #     }
-    # }
 else:
     DATABASES = {
         'default': {
