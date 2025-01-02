@@ -684,10 +684,13 @@ class StableConfirmForm(forms.Form):
 class PNPAssetCreateForm(forms.ModelForm):
     class Meta:
         model = PNPAsset
-        fields = ['title', 'category', 'link', 'shared_by']
+        fields = ['title', 'category', 'link', 'file', 'shared_by']
         help_texts = {
             'shared_by': 'Selected user will be able to edit and delete this link.',
             'link': 'Enter the direct link to this asset (Google Drive, Dropbox, etc). The more specific the better.'
+        }
+        labels = {
+            'file': 'File Type'
         }
 
     def __init__(self, *args, **kwargs):

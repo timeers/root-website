@@ -30,9 +30,10 @@
                 <tr>
                     <th class="sortable" onclick="sortTable(0)">Name</th>
                     <th class="sortable" onclick="sortTable(1)">Category</th>
-                    <th class="sortable" onclick="sortTable(2)">Date</th>
-                    <th class="sortable" onclick="sortTable(3)">Shared By</th>
-                    <th class="sortable" onclick="sortTable(4)"></th>
+                    <th class="sortable" onclick="sortTable(2)">File</th>
+                    <th class="sortable" onclick="sortTable(3)">Date</th>
+                    <th class="sortable" onclick="sortTable(4)">Shared By</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody id="asset-table" class="effort-rows">
@@ -40,7 +41,9 @@
                 <tr>
                     <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
                     <td>{{ obj.category }}</td>
-                    <td>{{ obj.date_updated |date:"F j, Y" }}</td>
+                    <td><a href="{{ obj.link }}">{{ obj.file }}</a></td>
+                    <td>{{ obj.date_updated|date:"m/d/y" }}</td>
+
                     <td>
                         {% if obj.shared_by %}
                         {{ obj.shared_by }}

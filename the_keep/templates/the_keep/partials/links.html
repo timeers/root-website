@@ -1,3 +1,4 @@
+{% load static %}
 
 <article class="media content-section">
     
@@ -5,45 +6,53 @@
     <h2>Links</h2>
     <div class="d-flex flex-wrap justify-content-between">
     {% if object.leder_games_link %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.leder_games_link }}" target="blank">Find at Leder Games</a>
-        </p>
+        <a class="mr-2 mt-1" href="{{ object.leder_games_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/LG.jpg' %}" alt="Leder Games">
+            Find at Leder Games
+        </a>
     {% endif %}
     {% if object.bgg_link %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.bgg_link }}" target="blank">Board Game Geek Post</a>
-        </p>
+        <a class="mr-2 mt-1" href="{{ object.bgg_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/BGG.jpg' %}" alt="Board Game Geek">
+            Board Game Geek Post
+        </a>
     {% endif %}
     {% if object.tts_link %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.tts_link }}" target="blank">Tabletop Simulator</a>
-        </p>
+        <a class="mr-2 mt-1" href="{{ object.tts_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/TTS.jpg' %}" alt="Tabletop Simulator">
+            Tabletop Simulator
+        </a>
     {% endif %}
     {% if object.ww_link %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.ww_link }}" target="blank">Woodland Warriors Thread</a>
-        </p>
+        <a class="mr-2 mt-1" href="{{ object.ww_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WW.jpg' %}" alt="Woodland Warriors">
+            Woodland Warriors Thread
+        </a>
     {% endif %}
     {% if object.wr_link %}
         {% if user.profile.in_weird_root %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.wr_link }}" target="blank">Weird Root Thread</a>
-        </p>
+        <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
+            Weird Root Thread
+        </a>
         {% else %}
-            <p class="article-content">
-                <span class="mr-2">Join Weird Root Discord for more</span>
-            </p>
+            <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
+                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
+                Join Weird Root Discord for more
+            </span>
         {% endif %}
     {% endif %}
     {% if object.pnp_link  %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.pnp_link }}" target="blank">Print & Play Files</a>
-        </p>
+        <a class="mr-2 mt-1" href="{{ object.pnp_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/PNP.jpg' %}" alt="Print & Play">
+            Print & Play Files
+        </a>
     {% endif %}
     {% if object.stl_link  %}
-        <p class="article-content">
-            <a class="mr-2" href="{{ object.stl_link }}" target="blank">3D Object Files</a>
-        </p>
+    <a class="mr-2 mt-1" href="{{ object.stl_link }}" style="display: inline-flex; align-items: center;">
+        <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/STL.jpg' %}" alt="STL Files">
+        STL Files
+    </a>
     {% endif %}
     </div>
     </div>

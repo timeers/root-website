@@ -139,6 +139,7 @@ em, i {
     width: auto;   
     margin-right: 2px;
     margin-bottom: 2px;
+    border-radius: 5px;
   }
 
 .lg-faction-icon {

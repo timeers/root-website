@@ -3,7 +3,9 @@
     <tr>
         <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
         <td>{{ obj.category }}</td>
-        <td>{{ obj.date_updated |date:"F j, Y" }}</td>
+        <td><a href="{{ obj.link }}">{{ obj.file }}</a></td>
+        <td>{{ obj.date_updated|date:"m/d/y" }}</td>
+
         <td>
             {% if obj.shared_by %}
             {{ obj.shared_by }}
@@ -12,7 +14,9 @@
             {% endif %}
         </td>
         <td>
-            {% if obj.shared_by == profile or profile.admin %}
+            {% if obj.shared_by == profile and obj.shared_by %}
+            <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+            {% elif profile.admin %}
             <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
             {% endif %}
         </td>

@@ -773,9 +773,18 @@ class PNPAsset(models.Model):
         LANDMARK = 'Landmark'
         HIRELING = 'Hireling'
         OTHER = 'Other'
+    class FileChoices(models.TextChoices):
+        PDF = 'PDF'
+        XCF = 'XCF'
+        PNG = 'PNG'
+        JPEG = 'JPEG'
+        DOC = 'DOC'
+        OTHER = 'Other'
+
     date_updated = models.DateTimeField(default=timezone.now)
     title = models.CharField(max_length=50)
     link = models.URLField(max_length=300)
+    file = models.CharField(choices=FileChoices, max_length=10, default="XCF")
     category = models.CharField(choices=CategoryChoices, max_length=15)
     shared_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, related_name='assets', null=True, blank=True)
 
