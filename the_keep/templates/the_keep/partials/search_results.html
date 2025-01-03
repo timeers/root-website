@@ -8,7 +8,8 @@
             hx-get="{% url 'search' %}"
             hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}", "search_type": "{{ search_type }}", "designer": "{{ designer }}", "faction_type": "{{ faction_type }}", "reach_value": "{{ reach_value }}"}'
             hx-target="#search-results"
-            hx-swap="beforeend">
+            hx-swap="beforeend"
+            hx-indicator="#spinner">
             {% else %}
             <article class="media content-section">
             {% endif %}
@@ -17,9 +18,19 @@
         </article>
 
     {% endfor %} 
+
+    <div id="spinner" class="d-flex justify-content-center htmx-indicator">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+
 {% else %}
     <h3>No results</h3>
 {% endif %}
+
+
 </div>
 
 

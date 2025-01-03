@@ -15,7 +15,8 @@
         <div hx-trigger="revealed" 
         hx-get="{% url 'games-home' %}?page={{ page_obj.number|add:1 }}"
         hx-swap="afterend"
-        hx-include="#gamefilterform">
+        hx-include="#gamefilterform"
+        hx-indicator="#spinner">
     {% else %}
         <div>
     {% endif %}
@@ -29,4 +30,11 @@
 {% empty %}
     No matching games recorded.
 {% endfor %}
+
+<div id="spinner" class="d-flex justify-content-center htmx-indicator">
+    <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+
 </div>

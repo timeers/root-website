@@ -316,12 +316,7 @@ font-weight: bold;
 
 
 
-/* Container that holds both charts side by side */
-.chart-container {
-  display: flex;            /* Use flexbox to lay them out in a row */
-  justify-content: space-between;  /* Space out the charts */
-  width: 100%;  /* Take up full width of the parent container */
-}
+
 
 /* Each individual chart */
 .chart {
@@ -335,25 +330,57 @@ font-weight: bold;
 
 /* Make the pie chart 1/4 of the container width */
 #pieChartContainer {
-  flex: 1;  /* 1/4 of the width */
+  flex: 3;  /* 1/4 of the width */
+}
+
+/* Container that holds both charts side by side */
+.chart-container {
+  display: flex;             /* Use flexbox to lay them out in a row */
+  justify-content: space-between;  /* Space out the charts */
+  width: 100%;               /* Take up full width of the parent container */
+  margin: 0 auto;            /* Center the container */
+  padding: 10px;             /* Optional: Add padding inside container */
+  box-sizing: border-box;    /* Prevent padding from affecting the layout */
 }
 
 /* Optional: Set a maximum width for the chart containers */
 .chart-container {
-  max-width: 1200px;  /* You can set a max width for large screens */
-  margin: 0 auto;  /* Center align the container */
+  max-width: 1200px;         /* Set max width for large screens */
 }
 
+/* Make individual charts responsive */
+.chart-container .chart {
+  flex: 1 1 48%;             /* Each chart will take up ~50% of the container */
+  margin: 0 10px;            /* Space between charts */
+  box-sizing: border-box;    /* Include padding and margins within the element's total width */
+}
+
+/* Make sure the canvas (chart) adjusts to the container size */
+#pieChart, #scorecardChart {
+  width: 100% !important;     /* Make the charts responsive */
+  height: auto !important;    /* Keep aspect ratio */
+}
+
+/* On small screens, stack the charts vertically */
 @media (max-width: 768px) {
   .chart-container {
-      flex-direction: column;  /* Stack charts vertically on small screens */
+    flex-direction: column;   /* Stack charts vertically on small screens */
+    align-items: center;      /* Center-align the charts */
   }
 
-  #lineChartContainer, #pieChartContainer {
-      flex: none;  /* Remove flex scaling */
-      width: 100%; /* Make both charts take up 100% of the width */
+  .chart-container .chart {
+    width: 100%;              /* Ensure the chart takes up full width */
+    margin: 10px 0;           /* Space between charts */
+  }
+
+  /* Adjust the canvas chart sizes for mobile */
+  #pieChart, #scorecardChart {
+    width: 100%;              /* Ensure full width on smaller screens */
+    height: auto !important;  /* Keep aspect ratio intact */
   }
 }
+
+
 th.sortable {
   cursor: pointer;
   text-decoration: underline;
@@ -362,3 +389,4 @@ th.sortable {
 th.sortable:hover {
   background-color: #f1f1f1;  /* Light gray background on hover */
 }
+

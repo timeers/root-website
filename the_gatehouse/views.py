@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
 from functools import wraps
+from django.urls import reverse
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm
 from .models import Profile
@@ -80,18 +81,42 @@ def designer_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         profile = request.user.profile
+        
+        # Check if user is a designer and if they are onboarded
         if profile.designer:
-            if profile.designer_onboard == False:
+            if not profile.designer_onboard:
                 return redirect('onboard-user', user_type = 'designer')
+
             else:
-                return view_func(request, *args, **kwargs) 
+                return view_func(request, *args, **kwargs)  # Proceed with the original view
         else:
-            return HttpResponseForbidden()  # 403 Forbidden
+            return HttpResponseForbidden()  # Forbidden access if user is not a designer
+    return wrapper
+
+def designer_onboard_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        profile = request.user.profile
+        
+        # Check if user is a designer and if they are onboarded
+        if profile.designer:
+            if not profile.designer_onboard:
+                # Capture the current URL the user is visiting
+                next_url = request.GET.get('next', request.path)
+                
+                # Redirect to onboarding page with `next` as a query parameter
+                return redirect(f'{reverse("onboard-user", args=["designer"])}?next={next_url}')
+
+            else:
+                return view_func(request, *args, **kwargs)  # Proceed with the original view
+        else:
+            return HttpResponseForbidden()  # Forbidden access if user is not a designer
     return wrapper
 
 def designer_required_class_based_view(view_class):
     """Decorator to apply to class-based views."""
-    view_class.dispatch = method_decorator(designer_required)(view_class.dispatch)
+    view_class.dispatch = method_decorator(designer_onboard_required)(view_class.dispatch)
     return view_class
 
 def player_required(view_func):
@@ -107,9 +132,30 @@ def player_required(view_func):
             return HttpResponseForbidden()  # 403 Forbidden
     return wrapper
 
+def player_onboard_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        if request.user.profile.player:
+            if request.user.profile.player_onboard == False:
+                # Capture the current URL the user is visiting
+                next_url = request.GET.get('next', request.path)
+                
+                # Redirect to onboarding page with `next` as a query parameter
+                return redirect(f'{reverse("onboard-user", args=["player"])}?next={next_url}')
+
+
+                # return redirect('onboard-user', user_type = 'player')
+            else:
+                return view_func(request, *args, **kwargs) 
+        else:
+            return HttpResponseForbidden()  # 403 Forbidden
+    return wrapper
+
+
 def player_required_class_based_view(view_class):
     """Decorator to apply to class-based views."""
-    view_class.dispatch = method_decorator(player_required)(view_class.dispatch)
+    view_class.dispatch = method_decorator(player_onboard_required)(view_class.dispatch)
     return view_class
 
 def tester_required(view_func):
@@ -118,7 +164,13 @@ def tester_required(view_func):
     def wrapper(request, *args, **kwargs):
         if request.user.profile.player and request.user.profile.tester:
             if request.user.profile.tester_onboard == False:
-                return redirect('onboard-user', user_type = 'tester')
+                # Capture the current URL the user is visiting
+                next_url = request.GET.get('next', request.path)
+                
+                # Redirect to onboarding page with `next` as a query parameter
+                return redirect(f'{reverse("onboard-user", args=["tester"])}?next={next_url}')
+
+                # return redirect('onboard-user', user_type = 'tester')
             else:
                 return view_func(request, *args, **kwargs) 
         else:
@@ -138,7 +190,34 @@ def admin_required(view_func):
     def wrapper(request, *args, **kwargs):
         if request.user.profile.admin:
             if request.user.profile.admin_onboard == False:
+                # Capture the current URL the user is visiting
+                next_url = request.GET.get('next', request.path)
+                
+                # Redirect to onboarding page with `next` as a query parameter
+                return redirect(f'{reverse("onboard-user", args=["admin"])}?next={next_url}')
+
                 return redirect('onboard-user', user_type = 'admin')
+            
+            else:
+                return view_func(request, *args, **kwargs)  # Continue to the view
+        else:
+            return HttpResponseForbidden()  # 403 Forbidden
+    return wrapper
+
+def admin_onboard_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        if request.user.profile.admin:
+            if request.user.profile.admin_onboard == False:
+                # Capture the current URL the user is visiting
+                next_url = request.GET.get('next', request.path)
+                
+                # Redirect to onboarding page with `next` as a query parameter
+                return redirect(f'{reverse("onboard-user", args=["admin"])}?next={next_url}')
+
+                return redirect('onboard-user', user_type = 'admin')
+            
             else:
                 return view_func(request, *args, **kwargs)  # Continue to the view
         else:
@@ -147,7 +226,7 @@ def admin_required(view_func):
 
 def admin_required_class_based_view(view_class):
     """Decorator to apply to class-based views."""
-    view_class.dispatch = method_decorator(admin_required)(view_class.dispatch)
+    view_class.dispatch = method_decorator(admin_onboard_required)(view_class.dispatch)
     return view_class
 
 
@@ -344,7 +423,7 @@ def game_bookmarks(request, slug):
 @login_required
 def game_list(request, slug):
     player = get_object_or_404(Profile, slug=slug.lower())
-    if request.user.is_authenticated():
+    if request.user.is_authenticated:
         if request.user.profile.weird :
             games = player.get_games_queryset()
         else:
@@ -393,7 +472,6 @@ def game_list(request, slug):
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
     return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-    return redirect('player-detail', slug=slug)
 
 @login_required
 def onboard_user(request, user_type=None):
@@ -439,7 +517,8 @@ def onboard_user(request, user_type=None):
             messages.info(request, f"You already have access to the {user_type} role")
             
         # Redirect to a relevant page after onboarding
-        return redirect('keep-home') 
+        next_url = request.POST.get('next', 'keep-home')  # Fallback to a default URL if no `next`
+        return redirect(next_url)
 
     context = {
         'user_type': user_type,
@@ -501,7 +580,7 @@ def onboard_decline(request, user_type=None):
 
 
 
-@player_required
+@login_required
 def player_stats(request, slug):
     tournament_slug = request.GET.get('tournament_slug')
     round_slug = request.GET.get('round_slug')

@@ -70,13 +70,12 @@ class PostCreateForm(forms.ModelForm):
     STATUS_CHOICES = [
         ('2', 'Testing'),
         ('3', 'Development'),
-        ('4', 'Concept'),
-        ('5', 'Inactive'),
+        ('4', 'Inactive'),
     ]
     status = forms.ChoiceField(
         choices=STATUS_CHOICES, initial="3",
         required=True,
-        help_text='Set the current status. Concepts should only be posted if you have a plan to develop them. Once thoroughly playtested the status will be set to "Stable".'
+        help_text='Set the current status. Once thoroughly playtested the status can be set to "Stable".'
     )
     class Meta:
         model = Post
@@ -684,13 +683,13 @@ class StableConfirmForm(forms.Form):
 class PNPAssetCreateForm(forms.ModelForm):
     class Meta:
         model = PNPAsset
-        fields = ['title', 'category', 'link', 'file', 'shared_by']
+        fields = ['title', 'category', 'link', 'file_type', 'shared_by']
         help_texts = {
             'shared_by': 'Selected user will be able to edit and delete this link.',
             'link': 'Enter the direct link to this asset (Google Drive, Dropbox, etc). The more specific the better.'
         }
         labels = {
-            'file': 'File Type'
+            'file_type': 'File Type'
         }
 
     def __init__(self, *args, **kwargs):
@@ -700,11 +699,32 @@ class PNPAssetCreateForm(forms.ModelForm):
         if self.profile:
             self.fields['shared_by'].initial = self.profile
 
+
+        
+
+        # If not admin user the designer will be the active user
+        # Admin users can create posts for any user.
+        if not self.profile.admin:
+            self.fields['shared_by'].queryset = self.fields['shared_by'].queryset.filter(id=self.profile.id)
+        else:
+            self.fields['shared_by'].queryset = self.fields['shared_by'].queryset.filter(
+            Q(id=self.profile.id) | Q(group="O") | Q(group="P") | Q(group="B")
+        )
+        if not self.instance:
+            self.fields['shared_by'].initial = self.profile.id
+
+        self.fields['shared_by'].label = "Shared By (Admin Only)"
+        # # Hide the shared by field for non-admin userss
+        # if not self.profile.admin:
+        #     self.fields.pop('shared_by', None)  # Remove shared by field entirely
+
+
         # Check if an instance is being updated (i.e., it's an existing object)
-        if self.instance and self.instance.pk or self.profile.admin == False:
+        if self.instance and self.instance.pk and self.instance.shared_by or self.profile.admin == False:
             # If the object exists (it's being updated), remove 'shared_by' field
             self.fields.pop('shared_by')
-        
+
+
 
     def save(self, commit=True):
         # Get the instance and update date_updated to current time

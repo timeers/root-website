@@ -2,6 +2,7 @@
     <form action="{% url 'onboard-user' user_type=user_type %}" method="post">
         {% csrf_token %}
         <button type="submit" class="btn btn-primary">I Agree</button>
+        <input type="hidden" name="next" value="{{ request.GET.next }}">
     </form>
     <form action="{% url 'onboard-decline' user_type=user_type %}" method="post">
         {% csrf_token %}

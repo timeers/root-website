@@ -62,6 +62,7 @@
         </div>
 
         {% if form.errors %}
+        {{ form.errors }}
         <div class="alert alert-warning mt-1" role="alert">
                 <ul>
                 {% for error in form.non_field_errors %}

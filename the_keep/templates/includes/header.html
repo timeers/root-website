@@ -21,7 +21,9 @@
               <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>
             {% endif %}
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">Resources</a>
-
+            {% if user.profile.admin %}
+              <a class="nav-item nav-link" href="{% url 'admin:index' %}">Admin</a>
+            {% endif %}
 
           </div>
           <!-- Navbar Right Side -->
@@ -54,9 +56,7 @@
                   <img class="user-icon img-fluid mr-2" src="{{ user.profile.image.url }}">
                   <a class="nav-item nav-link" href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a>
                 </div>
-                  {% if user.profile.admin %}
-                    <a class="nav-item nav-link" href="{% url 'admin:index' %}">Admin</a>
-                  {% endif %}
+
                   <a class="nav-item nav-link" href="{% url 'account_logout' %}">Logout</a>
               {% else %}
                   <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">Login</a>

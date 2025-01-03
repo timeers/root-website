@@ -358,8 +358,6 @@ class Effort(models.Model):
     # notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
-    def clean(self):
-        super().clean()
 
 
     def save(self, *args, **kwargs):

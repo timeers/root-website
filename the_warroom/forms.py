@@ -310,7 +310,10 @@ class GameCreateForm(forms.ModelForm):
 
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
-
+    score = forms.IntegerField(
+        widget=forms.NumberInput(attrs={'type': 'number', 'min': 0, 'step': 1}),
+        required=False 
+    )
     class Meta:
         model = Effort
         fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
@@ -329,9 +332,13 @@ class EffortCreateForm(forms.ModelForm):
         faction = cleaned_data.get('faction')
         player = cleaned_data.get('player')
         dominance = cleaned_data.get('dominance')
-        score = cleaned_data.get('score')
+        score = cleaned_data.get('score', None)
         vagabond = cleaned_data.get('vagabond')
         coalition = cleaned_data.get('coalition_with')
+        if score is None or score == "":
+            cleaned_data['score'] = 0 
+
+        # print(cleaned_data.get('score'))
 
         if faction is None or faction == "":
             # raise ValidationError(f"Faction required")
@@ -353,9 +360,7 @@ class EffortCreateForm(forms.ModelForm):
             # raise ValidationError(f"Score or Dominance required")
             validation_errors_to_display.append('Score or Dominance required')
 
-        
-
-
+        # print(cleaned_data)
             
         if validation_errors_to_display:
             raise ValidationError(validation_errors_to_display)
@@ -365,10 +370,26 @@ class TurnScoreCreateForm(forms.ModelForm):
     class Meta:
         model = TurnScore
         fields = ['id', 'turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points', 'dominance']
-    faction_points = forms.IntegerField(required=False, initial=0)
-    crafting_points = forms.IntegerField(required=False, initial=0)
-    battle_points = forms.IntegerField(required=False, initial=0)
-    other_points = forms.IntegerField(required=False, initial=0)
+    faction_points = forms.IntegerField(
+        required=False, 
+        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        initial=0
+        )
+    crafting_points = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        initial=0
+        )
+    battle_points = forms.IntegerField(
+        required=False, 
+        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        initial=0
+        )
+    other_points = forms.IntegerField(
+        required=False, 
+        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        initial=0
+        )
     # Custom validation for turn_number field
     def clean_turn_number(self):
         turn_number = self.cleaned_data.get('turn_number')
@@ -827,7 +848,7 @@ class TournamentManageAssetsForm(forms.Form):
         
     def clean(self):
         cleaned_data = super().clean()
-        print(cleaned_data)
+        # print(cleaned_data)
         return cleaned_data
     
     def save(self):

@@ -4,7 +4,7 @@
 <article class="media content-section">
     <div class="media-body" style="overflow: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h1>Resources</h1>
+            <h1>Pinned Resources</h1>
             {% if profile.designer %}
             <a class="btn btn-success btn-sm ml-2 mt-1 mb-1" href="{% url 'asset-new' %}">New Resource +</a>
             {% endif %}
@@ -33,7 +33,9 @@
                     <th class="sortable" onclick="sortTable(2)">File</th>
                     <th class="sortable" onclick="sortTable(3)">Date</th>
                     <th class="sortable" onclick="sortTable(4)">Shared By</th>
+                    {% if profile.player %}
                     <th></th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody id="asset-table" class="effort-rows">
@@ -41,7 +43,7 @@
                 <tr>
                     <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
                     <td>{{ obj.category }}</td>
-                    <td><a href="{{ obj.link }}">{{ obj.file }}</a></td>
+                    <td><a href="{{ obj.link }}">{{ obj.file_type }}</a></td>
                     <td>{{ obj.date_updated|date:"m/d/y" }}</td>
 
                     <td>
@@ -51,13 +53,16 @@
                         ---
                         {% endif %}
                     </td>
+                    {% if profile.player %}
                     <td>
                         {% if obj.shared_by == profile and obj.shared_by %}
                         <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
-                        {% elif profile.admin %}
-                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+                        {% endif %}
+                        {% if profile.admin %}
+                          {% include 'the_keep/partials/asset_pins.html' %}
                         {% endif %}
                     </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>

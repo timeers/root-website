@@ -1,6 +1,4 @@
 from django.shortcuts import render
-# from django.contrib.auth.decorators import login_required
-# from django.contrib.admin.views.decorators import staff_member_required
 from django.views.generic import ListView, UpdateView, CreateView, DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
@@ -9,6 +7,7 @@ from django.http import HttpResponse, Http404, HttpResponseForbidden
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
+from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.contrib import messages
 from django.db import IntegrityError
@@ -27,9 +26,9 @@ from .filters import GameFilter
 from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak
 
 from the_gatehouse.models import Profile
-from the_gatehouse.views import (player_required, admin_required, designer_required, 
+from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
-                                 tester_required)
+                                 tester_required, player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 
 from the_tavern.forms import GameCommentCreateForm
@@ -183,7 +182,7 @@ class GameListViewHX(ListView):
         return context
 
 
-@player_required
+@player_onboard_required
 def game_detail_view(request, id=None):
     # hx_url = reverse("game-hx-detail", kwargs={"id": id})
     participants = []
@@ -209,7 +208,7 @@ def game_detail_view(request, id=None):
     }
     return render(request, "the_warroom/game_detail_page.html", context)
 
-@admin_required
+@admin_onboard_required
 def game_delete_view(request, id=None):
     try:
         obj = Game.objects.get(id=id)
@@ -275,7 +274,7 @@ def game_hx_delete(request, id):
     return response
 
 
-@player_required
+@login_required
 def game_detail_hx_view(request, id=None):
     if not request.htmx:
         raise Http404
@@ -292,7 +291,7 @@ def game_detail_hx_view(request, id=None):
 
 
 
-@player_required
+@player_onboard_required
 def manage_game(request, id=None):
     if id:
         obj = get_object_or_404(Game, id=id)
@@ -334,7 +333,6 @@ def manage_game(request, id=None):
     # Handle form submission
     if request.method == 'POST':
         if form.is_valid() and formset.is_valid():
-
             parent = form.save(commit=False)
             parent.recorder = request.user.profile  # Set the recorder
             parent.save()  # Save the new or updated Game instance
@@ -523,7 +521,7 @@ def scorecard_manage_view(request, id=None):
 
 
 # Detail view of a scorecard
-@player_required
+@player_onboard_required
 def scorecard_detail_view(request, id=None):
     try:
         obj = ScoreCard.objects.get(id=id)
@@ -832,7 +830,7 @@ class TournamentDeleteView(DeleteView):
 
 
 
-@admin_required
+@admin_onboard_required
 def tournament_manage_players(request, tournament_slug):
     # Fetch the tournament object
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
@@ -878,7 +876,7 @@ def tournament_manage_players(request, tournament_slug):
 
 
 
-@admin_required
+@admin_onboard_required
 def tournament_manage_assets(request, tournament_slug):
     # Fetch the tournament object
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
@@ -966,7 +964,7 @@ def tournament_manage_assets(request, tournament_slug):
 
     return render(request, 'the_warroom/tournament_manage_assets.html', context)
 
-@player_required
+@player_onboard_required
 def tournaments_home(request):
     scheduled_tournaments = Tournament.objects.filter(start_date__gt=timezone.now())
     scheduled_tournaments = scheduled_tournaments.annotate(
@@ -1014,7 +1012,7 @@ def tournaments_home(request):
 # ============================
 
 
-@player_required
+@player_onboard_required
 def round_detail_view(request, tournament_slug, round_slug):
 
     # Get the tournament from slug
@@ -1160,7 +1158,7 @@ def round_games_pagination(request, id):
 
 
 
-@admin_required
+@admin_onboard_required
 def round_manage_view(request, tournament_slug, round_slug=None):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     current_round = 1
@@ -1187,7 +1185,7 @@ def round_manage_view(request, tournament_slug, round_slug=None):
     return render(request, 'the_warroom/tournament_round_form.html', context)
 
 
-@admin_required
+@admin_onboard_required
 def round_manage_players(request, round_slug, tournament_slug):
     # Fetch the tournament object
     selected_round = get_object_or_404(Round, slug=round_slug)

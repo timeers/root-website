@@ -20,6 +20,7 @@ from .views import (
     ultimate_component_view,
 
     confirm_stable,
+    pin_asset,
 )
 from . import views
 
@@ -81,4 +82,6 @@ urlpatterns = [
     path('assets/new/', PNPAssetCreateView.as_view(), name='asset-new'),
     path('assets/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),
     path('assets/delete/<int:pk>/', PNPAssetDeleteView.as_view(), name='asset-delete'),
+    path('assets/player/<slug:slug>/', PNPAssetListView.as_view(), name='asset-player'),
+    path('assets/pin/<int:id>/', pin_asset, name='pin-asset')
 ]

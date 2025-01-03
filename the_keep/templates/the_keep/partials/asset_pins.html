@@ -1,0 +1,17 @@
+<div id="asset-{{ obj.id }}">
+    {% if user.profile.admin %}
+
+        <a style="cursor: pointer;" 
+        hx-get="{% url 'pin-asset' obj.id %}"
+        hx-target="#asset-{{ obj.id }}"
+        hx-swap="outerHTML"
+        class="btn btn-sm {% if obj.pinned %}btn-secondary{% else %}btn-primary{% endif %}"
+        >
+            {% if obj.pinned %}
+                <i class="bi bi-eye-slash"></i>
+            {% else %}
+                <i class="bi bi-pin-angle"></i>
+            {% endif %}
+        </a>
+    {% endif %}
+</div>

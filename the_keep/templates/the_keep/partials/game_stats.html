@@ -20,7 +20,7 @@
             <p class="article-content">{{ win_rate|floatformat:2 }}% Winrate</p>
             <p class="article-content">{{ tourney_points }} Points (1/2 for Coalition Wins)</p>
         {% else %}
-            <h2>Recorded Games ({{ filtered_total }})</h2>
+            <h2>Recorded Games ({{ filtered_games }})</h2>
             <p class="article-content">{{ object.plays }} Total Games</p>
         {% endif %}
     </div>

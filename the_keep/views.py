@@ -24,7 +24,9 @@ from django.views.generic import (
 )
 from the_warroom.models import Game
 from the_gatehouse.models import Profile
-from the_gatehouse.views import designer_required_class_based_view, designer_required, player_required, player_required_class_based_view
+from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
+                                 player_required, player_required_class_based_view,
+                                 admin_onboard_required)
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -688,11 +690,13 @@ class PNPAssetCreateView(CreateView):
     model = PNPAsset
     form_class = PNPAssetCreateForm
     template_name = 'the_keep/asset_form.html'
-    success_url = reverse_lazy('asset-list') 
 
     def form_valid(self, form):
         # Set the shared_by field to the current user's profile
-        form.instance.shared_by = self.request.user.profile 
+        if not self.request.user.profile.admin:
+            form.instance.shared_by = self.request.user.profile
+        else:
+            form.instance.pinned = True
         
         return super().form_valid(form)
 
@@ -701,6 +705,16 @@ class PNPAssetCreateView(CreateView):
         kwargs = super().get_form_kwargs()
         kwargs['profile'] = self.request.user.profile
         return kwargs    
+    
+    def get_success_url(self):
+        # You can return different success URLs based on the user profile
+        if self.request.user.profile.admin:
+            # Redirect to the asset list for admins
+            return reverse_lazy('asset-list')  # Modify with your actual admin URL
+        else:
+            # Default URL (e.g., asset list or home page)
+            return reverse_lazy('player-detail', kwargs={'slug': self.request.user.profile.slug})
+
 
 
 @player_required_class_based_view
@@ -715,7 +729,7 @@ class PNPAssetUpdateView(UpdateView):
         obj = super().get_object(queryset=queryset)
                 # Ensure the current user can update the object
         if obj.shared_by != self.request.user.profile and not self.request.user.profile.admin:
-            raise PermissionDenied("You are not authorized to edit this object.")
+            raise PermissionDenied("You are not authorized to edit this resource.")
         return obj
 
     def get_form_kwargs(self):
@@ -730,24 +744,19 @@ class PNPAssetListView(ListView):
     template_name = 'the_keep/asset_list.html'
     context_object_name = 'objects'
 
-    # def get_queryset(self):
-    #     queryset = super().get_queryset()
-    #     sort_by = self.request.GET.get('sort', 'category')  # Default sort by category
-
-    #     # Handle sorting by
-    #     if sort_by in ['title', 'date_updated', 'category']:
-    #         queryset = queryset.order_by(sort_by)
-
-    #     return queryset
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Get the search query from the GET parameters
-        search_query = self.request.GET.get('search', '')
         
         # Filter the queryset if there is a search query
     def get_queryset(self):
         queryset = super().get_queryset()
+
+        player_slug = self.kwargs.get('slug')
+
+        if player_slug:
+            # Filter for assets shared by player
+            queryset = queryset.filter(shared_by__slug=player_slug)
+        else:
+            # Filter for only pinned assets
+            queryset = queryset.filter(pinned=True)
         
         # Get the search query from the GET parameters
         search_query = self.request.GET.get('search', '')
@@ -810,3 +819,17 @@ class PNPAssetDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this asset.")
             return redirect('asset-list')
+        
+
+@admin_onboard_required
+def pin_asset(request, id):
+
+    object = get_object_or_404(PNPAsset, id=id)
+    asset_pinned = object.pinned
+    if asset_pinned:
+        object.pinned = False
+    else:
+        object.pinned = True
+    object.save()
+
+    return render(request, 'the_keep/partials/asset_pins.html', {'obj': object })

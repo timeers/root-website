@@ -81,8 +81,7 @@ class Post(models.Model):
         STABLE = '1','Stable'
         TESTING = '2', 'Testing'
         DEVELOPMENT = '3', 'Development'
-        CONCEPT = '4', 'Concept'
-        INACTIVE = '5', 'Inactive'
+        INACTIVE = '4', 'Inactive'
 
     title = models.CharField(max_length=35)
     animal = models.CharField(max_length=15, null=True, blank=True)
@@ -774,19 +773,20 @@ class PNPAsset(models.Model):
         HIRELING = 'Hireling'
         OTHER = 'Other'
     class FileChoices(models.TextChoices):
-        PDF = 'PDF'
-        XCF = 'XCF'
-        PNG = 'PNG'
-        JPEG = 'JPEG'
-        DOC = 'DOC'
+        PDF = 'PDF', 'PDF'
+        XCF = 'XCF', 'XCF'
+        PNG = 'PNG', 'PNG'
+        JPEG = 'JPEG', 'JPEG'
+        DOC = 'DOC', 'DOC'
         OTHER = 'Other'
 
     date_updated = models.DateTimeField(default=timezone.now)
     title = models.CharField(max_length=50)
     link = models.URLField(max_length=300)
-    file = models.CharField(choices=FileChoices, max_length=10, default="XCF")
+    file_type = models.CharField(choices=FileChoices, max_length=10, default="XCF")
     category = models.CharField(choices=CategoryChoices, max_length=15)
     shared_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, related_name='assets', null=True, blank=True)
+    pinned = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['category', 'date_updated']
