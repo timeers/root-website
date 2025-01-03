@@ -75,8 +75,7 @@ class MapAdmin(admin.ModelAdmin):
                     artist_instance = None
                 lore = None if fields[14] == '' else fields[14]
                 in_root_digital = True if fields[16] == 'TRUE' else False
-                print("In Digital", in_root_digital)
-                print(fields[16])
+
 
                 status = fields[6]
                 official = True if fields[5] == "Y" else False
@@ -87,6 +86,7 @@ class MapAdmin(admin.ModelAdmin):
                 ww_link = None if fields[11] == '' else fields[11]
                 wr_link = None if fields[12] == '' else fields[12]
                 pnp_link = None if fields[13] == '' else fields[13]
+                leder_games_link = None if fields[17] == '' else fields[17]
                 clearings = int(fields[7])
 
                 if fields[2] != "":
@@ -113,6 +113,7 @@ class MapAdmin(admin.ModelAdmin):
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
                     'lore': lore,
+                    'leder_games_link': leder_games_link,
                 }
 
                
@@ -179,6 +180,7 @@ class DeckAdmin(admin.ModelAdmin):
                 ww_link = None if fields[10] == '' else fields[10]
                 wr_link = None if fields[11] == '' else fields[11]
                 pnp_link = None if fields[12] == '' else fields[12]
+                leder_games_link = None if fields[16] == '' else fields[16]
                 card_total = int(fields[7])
 
                 if fields[15].strip() != "":
@@ -213,6 +215,7 @@ class DeckAdmin(admin.ModelAdmin):
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
                     'lore': lore,
+                    'leder_games_link': leder_games_link,
                 }
 
                
@@ -305,6 +308,7 @@ class LandmarkAdmin(admin.ModelAdmin):
                 ww_link = None if fields[10] == '' else fields[10]
                 wr_link = None if fields[11] == '' else fields[11]
                 pnp_link = None if fields[12] == '' else fields[12]
+                leder_games_link = None if fields[15] == '' else fields[15]
                 card_text = None if fields[7] == '' else fields[7]
 
                 if fields[2] != "":
@@ -331,6 +335,7 @@ class LandmarkAdmin(admin.ModelAdmin):
                     # 'artist': artist_instance,
                     'in_root_digital': in_root_digital,
                     'lore': lore,
+                    'leder_games_link': leder_games_link,
                 }
 
                
@@ -415,7 +420,7 @@ class HirelingAdmin(admin.ModelAdmin):
                 status = fields[6]
                 official = True if fields[5] == "Y" else False
                 
-                if fields[16].strip() != "":
+                if fields[9].strip() != "":
                     try:
                         based_instance = Faction.objects.get(title=fields[9])
                     except:
@@ -429,6 +434,7 @@ class HirelingAdmin(admin.ModelAdmin):
                 ww_link = None if fields[12] == '' else fields[12]
                 wr_link = None if fields[13] == '' else fields[12]
                 pnp_link = None if fields[14] == '' else fields[14]
+                leder_games_link = None if fields[18] == '' else fields[18]
                 hireling_type = fields[7]
                 animal = fields[8]
 
@@ -457,6 +463,7 @@ class HirelingAdmin(admin.ModelAdmin):
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
                     'lore': lore,
+                    'leder_games_link': leder_games_link,
                 }
 
                
@@ -540,6 +547,7 @@ class FactionAdmin(admin.ModelAdmin):
                 ww_link = None if fields[56] == '' else fields[56]
                 wr_link = None if fields[57] == '' else fields[57]
                 pnp_link = None if fields[58] == '' else fields[58]
+                leder_games_link = None if fields[61] == '' else fields[61]
                 reach = int(fields[9])
 
                 if fields[2] != "":
@@ -561,6 +569,15 @@ class FactionAdmin(admin.ModelAdmin):
                     color = fields[15]
                 else:
                     color = None
+
+                if fields[19].strip() != "":
+                    try:
+                        based_instance = Faction.objects.get(title=fields[19])
+                    except:
+                        based_instance = None
+                else:
+                    based_instance = None
+
                 faction_data = {
                     'title': fields[1],
                     'designer': profile_instance,
@@ -584,6 +601,8 @@ class FactionAdmin(admin.ModelAdmin):
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
                     'color': color,
+                    'based_on': based_instance,
+                    'leder_games_link': leder_games_link,
                 }
 
                 # Use FactionImportForm for validation
@@ -964,6 +983,7 @@ class VagabondAdmin(admin.ModelAdmin):
                 ww_link = None if fields[22] == '' else fields[22]
                 wr_link = None if fields[23] == '' else fields[23]
                 pnp_link = None if fields[24] == '' else fields[24]
+                leder_games_link = None if fields[28] == '' else fields[28]
 
                 if fields[1] != "":
                     year_string = fields[1]
@@ -1019,6 +1039,7 @@ class VagabondAdmin(admin.ModelAdmin):
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
                     'lore': lore,
+                    'leder_games_link': leder_games_link,
                 }
 
                 # Use FactionImportForm for validation

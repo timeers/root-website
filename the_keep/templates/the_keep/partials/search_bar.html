@@ -53,7 +53,7 @@
     </select>
 
     <select id="status" name="status" value="{{ status }}">
-        <option value="">Status</option>  
+        <option value="">Status (All)</option>  
         <option value="1" {% if status == '1' %}selected{% endif %}>Stable</option>
         <option value="2" {% if status == '2' %}selected{% endif %}>Testing</option>
         <option value="3" {% if status == '3' %}selected{% endif %}>Development</option>

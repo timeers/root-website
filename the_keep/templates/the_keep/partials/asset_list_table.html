@@ -19,6 +19,9 @@
                 <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
             {% endif %}
             {% if profile.admin_onboard %}           
+            {% if obj.shared_by == None %}
+                <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+            {% endif %}
                 <!-- Pins -->
                 {% include 'the_keep/partials/asset_pins.html' %}
             {% endif %}

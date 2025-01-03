@@ -116,6 +116,7 @@
 
 
     {% if object.id %}
+        <a class="btn btn-secondary mb-2 mt-2"  href="{{ object.get_absolute_url }}">Cancel</a>
         <a class="btn btn-danger mb-2 mt-2" href="{{ object.get_delete_url }}">Delete</a>
     {% else %}
         <a class="btn btn-secondary mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>

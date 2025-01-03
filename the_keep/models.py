@@ -83,8 +83,8 @@ class Post(models.Model):
         DEVELOPMENT = '3', 'Development'
         INACTIVE = '4', 'Inactive'
 
-    title = models.CharField(max_length=35)
-    animal = models.CharField(max_length=15, null=True, blank=True)
+    title = models.CharField(max_length=40)
+    animal = models.CharField(max_length=25, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)
@@ -98,13 +98,13 @@ class Post(models.Model):
     # stable = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)
 
-    bgg_link = models.CharField(max_length=200, null=True, blank=True)
-    tts_link = models.CharField(max_length=200, null=True, blank=True)
-    ww_link = models.CharField(max_length=200, null=True, blank=True)
-    wr_link = models.CharField(max_length=200, null=True, blank=True)
-    pnp_link = models.CharField(max_length=200, null=True, blank=True)
-    stl_link = models.CharField(max_length=200, null=True, blank=True)
-    leder_games_link = models.CharField(max_length=200, null=True, blank=True)
+    bgg_link = models.CharField(max_length=400, null=True, blank=True)
+    tts_link = models.CharField(max_length=400, null=True, blank=True)
+    ww_link = models.CharField(max_length=400, null=True, blank=True)
+    wr_link = models.CharField(max_length=400, null=True, blank=True)
+    pnp_link = models.CharField(max_length=400, null=True, blank=True)
+    stl_link = models.CharField(max_length=400, null=True, blank=True)
+    leder_games_link = models.CharField(max_length=400, null=True, blank=True)
     change_log = models.TextField(default='[]') 
     component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
     sorting = models.IntegerField(default=10)
@@ -267,7 +267,7 @@ class Post(models.Model):
 
         
     class Meta:
-        ordering = ['sorting', '-official', '-status', '-date_posted']
+        ordering = ['sorting', '-official', 'status', '-date_posted']
 
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)

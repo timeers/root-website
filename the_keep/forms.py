@@ -217,7 +217,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'status', 'in_root_digital', 'expansion'] + bottom_fields
+        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'status', 'in_root_digital', 'expansion', 'leder_games_link'] + bottom_fields
 
 
 
@@ -270,12 +270,12 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class DeckImportForm(PostImportForm):
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
-        fields = top_fields + ['card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'status'] + bottom_fields
+        fields = top_fields + ['leder_games_link', 'card_total', 'date_posted', 'designer', 'official', 'in_root_digital', 'status'] + bottom_fields
 
 class LandmarkImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Map
-        fields = top_fields + ['card_text', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
+        fields = top_fields + ['leder_games_link', 'card_text', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -354,7 +354,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Hireling  # Specify the model to be Map
-        fields = top_fields + ['animal', 'type', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
+        fields = top_fields + ['leder_games_link', 'animal', 'type', 'based_on', 'designer', 'official', 'status', 'in_root_digital', 'date_posted',] + bottom_fields
 
 
 
@@ -470,7 +470,7 @@ class VagabondImportForm(PostImportForm):
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
         fields = top_fields + ['animal', 'status', 'official', 'designer', 'expansion', 'in_root_digital',
-                                'ability_item', 'ability', 'ability_description', 
+                                'ability_item', 'ability', 'ability_description', 'leder_games_link',
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields    
     def clean(self):
@@ -588,7 +588,7 @@ class FactionImportForm(PostImportForm):
     class Meta(PostImportForm):
         model = Faction 
         fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  
-                               'in_root_digital', 'color',
+                               'in_root_digital', 'color', 'based_on', 'leder_games_link',
                                'complexity', 'card_wealth', 'aggression', 'crafting_ability',
                                 'designer', 'expansion', 'status', 'date_posted'] + bottom_fields
 

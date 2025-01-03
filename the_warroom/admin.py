@@ -61,7 +61,7 @@ class EffortInline(admin.StackedInline):
     # fields = ['player', 'faction', 'score', 'win']
 
 class GameAdmin(admin.ModelAdmin):
-    list_display = ('id', 'recorder', 'date_posted', 'deck', 'map', 'type', 'platform', 'round')
+    list_display = ('id', 'recorder', 'date_posted', 'deck', 'map', 'type', 'platform', 'round', 'final')
     search_fields = ['id', 'deck__title', 'map__title', 'type', 'platform', 'efforts__player__discord', 'efforts__faction__title']
     inlines = [EffortInline]
      
@@ -159,6 +159,7 @@ class GameAdmin(admin.ModelAdmin):
                     'platform': 'Root Digital',
                     'official': True,
                     'round': season_instance,
+                    'final': True,
                     # 'league': True,
                 }
                 # Use GameCreateForm for validation

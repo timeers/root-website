@@ -490,7 +490,7 @@ class GameImportForm(forms.ModelForm):
 
     class Meta:
         model = Game
-        fields = ['deck', 'round', 'official', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted']
+        fields = ['deck', 'round', 'official', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted', 'final']
 
 
 
