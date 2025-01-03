@@ -2,13 +2,21 @@
 {% block title %} - Games{% endblock %}
 
 {% block content %}
+
+{% if in_progress %}
+<h1>{{user.profile.name}}'s In Progress Games ({{ in_progress.count }})</h1>
+    {% for game in in_progress %}
+        {% include 'the_warroom/partials/game_detail_button.html' %}
+    {% endfor %}
+{% endif %}
+
 <article class="media content-section">
     <div class="media-body">
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>Games</h1>
 
-        <a href="{% url 'record-game' %}" class="btn btn-success mb-3" id="recordgame">
+        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mb-3" id="recordgame">
             New Game +
         </a>
 

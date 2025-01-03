@@ -138,7 +138,7 @@ class Profile(models.Model):
 
     def winrate(self, faction = None, deck = None, tournament = None, round = None):
         # efforts = self.efforts.all()  # Access the related Effort objects for this player
-        efforts = self.efforts.filter(game__test_match=False)
+        efforts = self.efforts.filter(game__test_match=False, game__final=True)
 
         if faction:
             efforts = efforts.filter(faction=faction)
@@ -168,7 +168,8 @@ class Profile(models.Model):
 
         # Filter for distinct games linked to these efforts
         games = Game.objects.filter(
-            id__in=efforts.values_list('game', flat=True)
+            id__in=efforts.values_list('game', flat=True),
+            final=True
         ).distinct().order_by('-date_posted')
 
         return games
@@ -185,7 +186,8 @@ class Profile(models.Model):
         
         # Count the distinct games linked to the efforts
         distinct_game_count = Game.objects.filter(
-            id__in=efforts.values_list('game', flat=True)
+            id__in=efforts.values_list('game', flat=True),
+            final=True
         ).distinct().count()
 
         return distinct_game_count
@@ -201,7 +203,8 @@ class Profile(models.Model):
         
         # Count the distinct games linked to the efforts
         distinct_game_count = Game.objects.filter(
-            id__in=efforts.values_list('game', flat=True)
+            id__in=efforts.values_list('game', flat=True),
+            final=True
         ).distinct().count()
 
         return distinct_game_count
@@ -236,7 +239,7 @@ class Profile(models.Model):
 
         # Aggregate wins by faction
         wins_by_faction = (
-            self.efforts.filter(win=True, game__test_match=False)
+            self.efforts.filter(win=True, game__test_match=False, game__final=True)
             .values('faction')  # Assuming 'faction' is the field name
             .annotate(win_count=Count('id'))  # Count wins
             .order_by('-win_count')  # Order by count descending
@@ -263,7 +266,7 @@ class Profile(models.Model):
         The `limit` parameter controls how many players to return.
         """
         # Start with the base queryset for players
-        queryset = cls.objects.all()
+        queryset = cls.objects.filter(efforts__game__final=True, efforts__game__test_match=False)
 
         # If a tournament is provided, filter efforts that are related to that tournament
         if tournament:
@@ -323,21 +326,21 @@ class Profile(models.Model):
             # Now, annotate with the total efforts and win counts for player
             if round:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round=round)),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round=round)),
-                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round=round))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round=round, efforts__game__final=True, efforts__game__test_match=False)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round=round, efforts__game__final=True, efforts__game__test_match=False)),
+                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round=round, efforts__game__final=True, efforts__game__test_match=False))
                 )
             elif tournament:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round__tournament=tournament)),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round__tournament=tournament)),
-                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round__tournament=tournament))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round__tournament=tournament, efforts__game__final=True, efforts__game__test_match=False)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round__tournament=tournament, efforts__game__final=True, efforts__game__test_match=False)),
+                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round__tournament=tournament, efforts__game__final=True, efforts__game__test_match=False))
                 )
             else:
                 queryset = queryset.annotate(
-                    total_efforts=Count('efforts', filter=Q(efforts__player=self)),
-                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self)),
-                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self))
+                    total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__final=True, efforts__game__test_match=False)),
+                    win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__final=True, efforts__game__test_match=False)),
+                    coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__final=True, efforts__game__test_match=False))
                 )
 
             # Filter factions who have enough efforts

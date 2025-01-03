@@ -447,7 +447,7 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
-    posts, search, search_type, designer, faction_type, reach_value = _search_components(request, slug)
+    posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     if request.user.is_authenticated:
         if request.user.profile.weird:
@@ -464,6 +464,7 @@ def list_view(request, slug=None):
         'search_type': search_type or "",
         'faction_type': faction_type or "",
         'reach_value': reach_value or "",
+        'status': status or "",
         "designers": designers,
         'designer': designer,
         'is_search_view': False,
@@ -476,7 +477,7 @@ def list_view(request, slug=None):
 
 
 def search_view(request, slug=None):
-    posts, search, search_type, designer, faction_type, reach_value = _search_components(request, slug)
+    posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # Get all designers (Profiles) who have at least one post
     if request.user.is_authenticated:
         if request.user.profile.weird:
@@ -493,6 +494,7 @@ def search_view(request, slug=None):
         'search_type': search_type or "",
         'faction_type': faction_type or "",
         'reach_value': reach_value or "",
+        'status': status or "",
         "designers": designers,
         'designer': designer,
         'is_search_view': True,
@@ -506,6 +508,7 @@ def _search_components(request, slug=None):
     search_type = request.GET.get('search_type', '')
     faction_type = request.GET.get('faction_type', '')
     reach_value = request.GET.get('reach_value', '')
+    status = request.GET.get('status', '')
     designer = request.GET.get('designer') 
     page = request.GET.get('page')
 
@@ -545,6 +548,9 @@ def _search_components(request, slug=None):
     if designer:
         posts = posts.filter(designer__id=designer)
 
+    if status:
+        posts = posts.filter(status=status)
+
     paginator = Paginator(posts, settings.PAGE_SIZE)
     try:
         posts = paginator.page(page)
@@ -552,7 +558,7 @@ def _search_components(request, slug=None):
         posts = paginator.page(1)
     except EmptyPage:
         posts = paginator.page(paginator.num_pages)
-    return posts, search or "", search_type or "", designer or "", faction_type or "", reach_value or ""
+    return posts, search or "", search_type or "", designer or "", faction_type or "", reach_value or "", status or ""
 
 
 
@@ -656,7 +662,7 @@ def confirm_stable(request, slug):
     object = get_object_or_404(Klass, slug=slug)
 
     stable = object.stable_check()
-    print(stable)
+    # print(stable)
 
     if stable[0] == False:
         messages.info(request, f'{object} has not yet met the stability requirements. Current stats: {stable[1]} plays with {stable[2]} players and {stable[3]} official factions.')

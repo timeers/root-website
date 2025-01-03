@@ -7,6 +7,9 @@
         <a href="{{ game.get_absolute_url }}">
         <div class="article-metadata">
             <small class="text-muted">
+                    {% if not game.final %}
+                        In Progress 
+                    {% endif  %}
                     {% if game.round %}
                         {{ game.type }} {{ game.round.tournament.name }} Game |
                     {% else %}
@@ -14,8 +17,9 @@
                         {% if game.solo %}Solo {% endif %}
                         {% if game.coop %}Co-op {% endif %}
                         {{ game.platform }}
-                         {% if game.test_match %}Playtest{% else %}Game{% endif %} |
+                        {% if game.test_match %}Playtest{% else %}Game{% endif %} |
                     {% endif %}
+                  
                 {{ game.date_posted|date:"F j, Y" }} |
                 {{ game.deck }} Deck -
                 {{ game.map }} Map

@@ -40,7 +40,7 @@
     <ul class="nav nav-tabs" id="profileTabs" role="tablist">
         {% if player.efforts.count %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">Games ({{ player.efforts.count }})</a>
+            <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">Games ({{ games_played }})</a>
         </li>
         {% endif %}
         {% if player == user.profile and player.bookmarkedgames.count %}

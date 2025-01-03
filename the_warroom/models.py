@@ -217,9 +217,11 @@ class Game(models.Model):
     coop = models.BooleanField(default=False)
     solo = models.BooleanField(default=False)
     official = models.BooleanField(default=True)
+    final = models.BooleanField(default=False)
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
+
 
     def __str__(self):
         return f'Game {self.id}'

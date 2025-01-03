@@ -44,7 +44,7 @@
         <td>
             {% if turn.dominance %}
 
-                {% if object.effort %}
+                {% if object.effort and object.effort.dominance %}
                     <img class="faction-icon"  
                     src="{% static 'images/dominance/' %}{{ object.effort.dominance }}_Icon.png" 
                     alt="{{ object.effort.dominance }} Dominance">

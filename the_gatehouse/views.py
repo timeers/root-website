@@ -262,8 +262,10 @@ def add_player(request):
 @login_required
 def player_page_view(request, slug):
     player = get_object_or_404(Profile, slug=slug.lower())
+    games_played = player.games_played
     context = {
         'player': player,
+        'games_played': games_played,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
@@ -593,11 +595,11 @@ def player_stats(request, slug):
             round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
 
     if round:
-        efforts = Effort.objects.filter(player=player, game__round=round)
+        efforts = Effort.objects.filter(player=player, game__round=round, game__final=True)
     elif tournament:
-        efforts = Effort.objects.filter(player=player, game__round__tournament=tournament)
+        efforts = Effort.objects.filter(player=player, game__round__tournament=tournament, game__final=True)
     else:
-        efforts = Effort.objects.filter(player=player, game__test_match=False)
+        efforts = Effort.objects.filter(player=player, game__test_match=False, game__final=True)
 
     game_threshold = 2
     # if not tournament and not round:

@@ -79,7 +79,7 @@
         hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
         hx-target="#game-{{ game.id }}" 
         hx-swap="outerHTML">
-        Delete
+        <i class="bi bi-trash3"></i>
     </a>
     {% else %}
         <a class="btn btn-danger btn-sm" href="{{ game.get_delete_url }}">Delete Game</a>

@@ -88,8 +88,11 @@ class GameListView(ListView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-    
+        if self.request.user.is_authenticated:
+            profile = self.request.user.profile
+        else:
+            profile = None
+        in_progress = Game.objects.filter(final=False, recorder=profile)
         # Reuse the cached queryset here instead of calling get_queryset again
         games = self._cached_queryset  # Use the already-evaluated queryset
         # print("got queryset")
@@ -105,6 +108,7 @@ class GameListView(ListView):
         except EmptyPage:
             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
 
+        context['in_progress'] = in_progress
         context['games'] = page_obj  # Pass the paginated page object to the context
         context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
         context['page_obj'] = page_obj  # Pass the page_obj to the context
@@ -161,7 +165,7 @@ class GameListViewHX(ListView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
+       
         # Get the ordered queryset of games
         games = self.get_queryset()
         # Paginate games
@@ -208,7 +212,7 @@ def game_detail_view(request, id=None):
     }
     return render(request, "the_warroom/game_detail_page.html", context)
 
-@admin_onboard_required
+@player_onboard_required
 def game_delete_view(request, id=None):
     try:
         obj = Game.objects.get(id=id)
@@ -219,6 +223,15 @@ def game_delete_view(request, id=None):
         if request.htmx:
             return HttpResponse("Not Found")
         raise Http404
+    
+    profile = request.user.profile
+    if obj.final and not profile.admin:
+        messages.error(request, "Game cannot be deleted.")
+        return redirect(obj.get_absolute_url())
+    elif not profile.admin and profile != obj.recorder:
+        messages.error(request, "You do not have permission to delete this game.")
+        return redirect(obj.get_absolute_url())    
+
     if request.method == "POST":
         obj.delete()
         success_url = reverse('games-home')
@@ -298,6 +311,15 @@ def manage_game(request, id=None):
     else:
         obj = Game()  # Create a new Game instance but do not save it yet
     user = request.user
+
+    if id:
+        if obj.final and not user.profile.admin:
+            messages.error(request, "Game cannot be edited.")
+            return redirect(obj.get_absolute_url())
+        elif not user.profile.admin and user.profile != obj.recorder:
+            messages.error(request, "You do not have permission to edit this game.")
+            return redirect(obj.get_absolute_url())
+
     # Don't think the form needs to be initiated here
     # form = GameCreateForm(request.POST or None, instance=obj, user=user)
     player_form = PlayerCreateForm()
@@ -334,6 +356,12 @@ def manage_game(request, id=None):
     if request.method == 'POST':
         if form.is_valid() and formset.is_valid():
             parent = form.save(commit=False)
+            # Check if game is final
+            if request.POST.get('final') == 'False':
+                parent.final = False  # Save as draft
+            else:
+                parent.final = True  # Finalize the game
+
             parent.recorder = request.user.profile  # Set the recorder
             parent.save()  # Save the new or updated Game instance
             form.save_m2m()
@@ -354,16 +382,7 @@ def manage_game(request, id=None):
                     child.seat = seat
                     child.save()
                     
-                    # if child.player:
-                    #     # Add player.id to the roster
-                    #     roster.append(child.player.id)
 
-            # if len(roster) != len(set(roster)):
-            #     parent.test_match = True
-            #     parent.save()
-            # elif id and parent.test_match == True:
-            #     parent.test_match = False
-            #     parent.save()
             parent.save()
             context['message'] = "Game Saved"
             return redirect(parent.get_absolute_url())

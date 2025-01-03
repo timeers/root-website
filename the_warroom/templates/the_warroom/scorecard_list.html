@@ -82,7 +82,7 @@ These scorecards have not been linked with a game:
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>{% if complete_scorecards %}Your {% endif %}Scorecards</h1>
     {% if user.profile.tester %}
-        <a class="btn btn-success ml-1 ms-1 mb-1" href="{% url 'record-scorecard' %}">New Scorecard +</a>
+        <a class="btn btn-success btn-sm ml-1 ms-1 mb-1" href="{% url 'record-scorecard' %}">New Scorecard +</a>
     {% endif %}
 </div>
 

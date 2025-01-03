@@ -34,7 +34,7 @@ class GameCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Game
-        fields = ['solo', 'coop', 'official', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'tweaks']
+        fields = ['solo', 'coop', 'official', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'tweaks', 'final']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -89,13 +89,18 @@ class GameCreateForm(forms.ModelForm):
 
     def clean(self):
         validation_errors_to_display = []  # List to store error messages
+        progress_errors_to_display = []  # List to store error messages when only saving progress
         cleaned_data = super().clean()
 
+
+        map = cleaned_data.get('map')
+        deck = cleaned_data.get('deck')
+        final = cleaned_data.get('final')
+
+         
         round = cleaned_data.get('round')
         platform = cleaned_data.get('platform')
         link = cleaned_data.get('link')
-        map = cleaned_data.get('map')
-        deck = cleaned_data.get('deck')
         landmarks = cleaned_data.get('landmarks')
         tweaks = cleaned_data.get('tweaks')
         hirelings = cleaned_data.get('hirelings')
@@ -125,7 +130,6 @@ class GameCreateForm(forms.ModelForm):
    
         if self.effort_formset.is_valid():
            
-
             faction_roster = set()
             vagabond_roster = set()
             player_roster = set()
@@ -236,6 +240,7 @@ class GameCreateForm(forms.ModelForm):
 
             if len(faction_roster) + max(0, vagabond_count-1) < 2:
                 validation_errors_to_display.append(f'Select at least two factions') 
+                progress_errors_to_display.append(f'Select at least two factions') 
 
             if len(coalition_receiver) != coalition_count:
                         validation_errors_to_display.append('One faction cannot have two Coalitions')
@@ -302,6 +307,15 @@ class GameCreateForm(forms.ModelForm):
                 for vagabond in vagabond_roster:
                     if vagabond not in tournament_vagabonds:
                         validation_errors_to_display.append(f'The Vagabond {vagabond} is not playable in {round.tournament}')
+
+        if not final:
+            if not deck:
+                progress_errors_to_display.append(f"Select a deck") 
+            if not map:
+                progress_errors_to_display.append(f"Select a map") 
+            if progress_errors_to_display:
+                raise ValidationError(progress_errors_to_display)
+            return cleaned_data
 
 
         if validation_errors_to_display:

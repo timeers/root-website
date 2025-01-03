@@ -241,9 +241,9 @@ class Post(models.Model):
             case "Map" | "Deck" | "Landmark" | "Tweak" | "Hireling":
                 return self.games.order_by('-date_posted')  # Return a queryset directly
             case "Vagabond":
-                return Game.objects.filter(efforts__vagabond=self)
+                return Game.objects.filter(efforts__vagabond=self, efforts__game__final=True)
             case "Faction":
-                return Game.objects.filter(efforts__faction=self)
+                return Game.objects.filter(efforts__faction=self, efforts__game__final=True)
 
             case _:
                 return Game.objects.none()  # No games if no component matches
@@ -285,6 +285,8 @@ class Deck(Post):
     def save(self, *args, **kwargs):
         self.component = 'Deck'  # Set the component type
         self.sorting = 3
+        if not self.picture:
+            self.picture = 'default_images/deck.png'
         super().save(*args, **kwargs)  # Call the parent save method
 
 
@@ -315,6 +317,8 @@ class Landmark(Post):
     def save(self, *args, **kwargs):
         self.component = 'Landmark'  # Set the component type
         self.sorting = 5
+        if not self.picture:
+            self.picture = 'default_images/landmark.png'
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -340,6 +344,8 @@ class Tweak(Post):
     def save(self, *args, **kwargs):
         self.component = 'Tweak'  # Set the component type
         self.sorting = 8
+        if not self.picture:
+            self.picture = 'default_images/tweak.png'
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -368,7 +374,7 @@ class Map(Post):
         self.component = 'Map'  # Set the component type
         self.sorting = 2
         if not self.picture:
-            self.picture = 'default_images/default_map.png'
+            self.picture = 'default_images/map.png'
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -423,9 +429,7 @@ class Vagabond(Post):
     def save(self, *args, **kwargs):
         self.component = 'Vagabond'  # Set the component type
         self.sorting = 4
-        if not self.picture:
-            self.picture = animal_default_picture(self)
-        elif self.picture == 'default_images/animals/default_animal.png':
+        if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -433,11 +437,11 @@ class Vagabond(Post):
     def wins(self):
         # plays = self.get_plays_queryset()
         # wins = plays.filter(win=True, game__test_match=False)
-        wins = self.efforts.filter(win=True, game__test_match=False)
+        wins = self.efforts.filter(win=True, game__test_match=False, game__final=True)
         return wins.count() if wins else 0
 
     def get_wins_queryset(self):
-        return self.efforts.all().filter(win=True, game__test_match=False)
+        return self.efforts.all().filter(win=True, game__test_match=False, game__final=True)
 
     @property
     def winrate(self):
@@ -449,7 +453,7 @@ class Vagabond(Post):
             if winners_count > 0:
                 points += 1 / winners_count
 
-        total_plays = self.get_plays_queryset().filter(game__test_match=False).count()
+        total_plays = self.get_plays_queryset().filter(game__test_match=False, game__final=True).count()
         return points / total_plays * 100 if total_plays > 0 else 0
     
     def stable_check(self):
@@ -508,9 +512,7 @@ class Faction(Post):
                 self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_images/default_faction_icon.png'
-        if not self.picture:
-            self.picture = animal_default_picture(self)
-        elif self.picture == 'default_images/animals/default_animal.png': #Update animal if default was previously used.
+        if not self.picture or self.picture == 'default_images/animals/default_animal.png': #Update animal if default was previously used.
             self.picture = animal_default_picture(self)
 
         if self.type == "C":
@@ -529,11 +531,11 @@ class Faction(Post):
     
     def wins(self):
         plays = self.get_plays_queryset()
-        wins = plays.filter(win=True, game__test_match=False)
+        wins = plays.filter(win=True, game__test_match=False, game__final=True)
         return wins.count() if plays else 0
 
     def get_wins_queryset(self):
-        return self.efforts.all().filter(win=True, game__test_match=False)
+        return self.efforts.all().filter(win=True, game__test_match=False, game__final=True)
 
     @property
     def winrate(self):
@@ -545,7 +547,7 @@ class Faction(Post):
             if winners_count > 0:
                 points += 1 / winners_count
 
-        total_plays = self.get_plays_queryset().filter(game__test_match=False).count()
+        total_plays = self.get_plays_queryset().filter(game__test_match=False, game__final=True).count()
         return points / total_plays * 100 if total_plays > 0 else 0
 
     @classmethod
@@ -572,9 +574,9 @@ class Faction(Post):
             )
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
-            total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id) if player_id else Q()),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True)),
-            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True))
+            total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__game__final=True, efforts__game__test_match=False)),
+            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
+            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
         )
         
         # Filter factions who have enough efforts (before doing the annotation)
@@ -640,9 +642,7 @@ class Hireling(Post):
     def save(self, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
         self.sorting = 6
-        if not self.picture:
-            self.picture = animal_default_picture(self)
-        elif self.picture == 'default_images/animals/default_animal.png':
+        if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
 
         super().save(*args, **kwargs)  # Call the parent save method
@@ -778,6 +778,7 @@ class PNPAsset(models.Model):
         PNG = 'PNG', 'PNG'
         JPEG = 'JPEG', 'JPEG'
         DOC = 'DOC', 'DOC'
+        PSD = 'PSD', 'PSD'
         OTHER = 'Other'
 
     date_updated = models.DateTimeField(default=timezone.now)

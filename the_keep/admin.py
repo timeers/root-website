@@ -18,7 +18,7 @@ class PieceInline(admin.StackedInline):
     extra = 0
 
 class PNPAssetAdmin(admin.ModelAdmin):
-    list_display = ('title', 'category', 'date_updated', 'shared_by__display_name')
+    list_display = ('title', 'category', 'date_updated', 'shared_by__display_name', 'pinned')
     search_fields = ('title', 'description')
 
 class MapAdmin(admin.ModelAdmin):

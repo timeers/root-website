@@ -85,24 +85,33 @@
 
 
 {% if user.profile.admin %}
-<article class="media content-section">
-    <div class="media-body">
-    <h2>Admin Options</h2>
-    <div>
-        Admin users can edit and delete game data.<br>
-        This cannot be undone and should be handled with care.
+    <article class="media content-section">
+        <div class="media-body">
+        <h2>Admin Options</h2>
+        <div>
+            Admin users can edit and delete game data.<br>
+                This cannot be undone and should be handled with care.
+            </div>
+        <small>
+            <a class="btn btn-secondary" href="{{ game.get_edit_url }}">Edit Game</a>
+            <a class="btn btn-danger" href="{{ game.get_delete_url }}">Delete Game</a>
+        </small>
+        </div>
+        </article>
+{% elif user.profile == game.recorder and not game.final %}
+    <article class="media content-section">
+        <div class="media-body">
+        <h2>Edit Options</h2>
+        <div>
+            This game is in progress and can still be edited.
+        </div>
+    <small>
+        <a class="btn btn-secondary" href="{{ game.get_edit_url }}">Edit Game</a>
+        <a class="btn btn-danger" href="{{ game.get_delete_url }}">Delete Game</a>
+    </small>
     </div>
-<small>
-    <a class="btn btn-secondary" href="{{ game.get_edit_url }}">Edit Game</a>
-    <a class="btn btn-danger" href="{{ game.get_delete_url }}">Delete Game</a>
-</small>
-</div>
-</article>
+    </article>
 {% endif %}
-
-
-
-
 
 {% endblock content %}
 

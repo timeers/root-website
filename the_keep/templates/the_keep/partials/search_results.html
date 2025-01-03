@@ -6,7 +6,7 @@
             {% if forloop.last and posts.has_next %}
             <article class="media content-section" hx-trigger="revealed" 
             hx-get="{% url 'search' %}"
-            hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}", "search_type": "{{ search_type }}", "designer": "{{ designer }}", "faction_type": "{{ faction_type }}", "reach_value": "{{ reach_value }}"}'
+            hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}", "search_type": "{{ search_type }}", "designer": "{{ designer }}", "faction_type": "{{ faction_type }}", "reach_value": "{{ reach_value }}", "status": "{{ status }}"}'
             hx-target="#search-results"
             hx-swap="beforeend"
             hx-indicator="#spinner">
