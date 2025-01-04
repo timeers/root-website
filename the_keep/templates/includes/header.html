@@ -14,8 +14,8 @@
             <a class="nav-item nav-link" href="{% url 'keep-home' %}">Home</a>
             
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
-            {% if user.profile.player %}
-            <!-- <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Tournaments</a> -->
+            {% if user.profile.admin %}
+            <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Tournaments</a>
             {% endif %}
             {% if user.profile.tester %}
               <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>

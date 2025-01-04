@@ -354,16 +354,6 @@ def artist_component_view(request, slug):
 
 
 
-
-
-
-
-
-
-
-
-
-
 @login_required
 def post_bookmarks(request, slug):
     from django.apps import apps
@@ -497,14 +487,14 @@ def onboard_user(request, user_type=None):
             if profile.tester:
                 profile.tester_onboard = True
                 profile.save()
-                messages.info(request, "Have fun!")
+                messages.info(request, "Enjoy!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'designer' and not profile.designer_onboard:
             if profile.designer:
                 profile.designer_onboard = True
                 profile.save()
-                messages.info(request, "Have fun!")
+                messages.info(request, "Welcome, go make some cool stuff!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'admin' and not profile.admin_onboard:
@@ -540,8 +530,11 @@ def onboard_decline(request, user_type=None):
     decline_choices = {
     "admin": "D",
     "designer": "P",
+    "player": "P",
     'tester': "T",
     }
+    print(user_type)
+    print(decline_choices[user_type])
     decline_type = decline_choices[user_type]
     # If a user refuses to accept website policies they will demote themselves
     if request.method == 'POST':
@@ -557,26 +550,27 @@ def onboard_decline(request, user_type=None):
              profile.gourp = "B"
         
         
-        match decline_type:
-            case "D":
+        match user_type:
+            case "admin":
                 profile.admin_onboard = False
-                messages.error(request, "No problem. Contact an Administrator if you change your mind")
-            case "P":
+                messages.error(request, "Contact an Administrator if you change your mind")
+            case "designer":
                 profile.designer_onboard = False
-                messages.error(request, "No problem. Contact an Administrator if you change your mind")
-            case "T":
+                messages.error(request, "Contact an Administrator if you would like to post")
+            case "tester":
                 profile.tester_onboard = False
-                messages.error(request, "No problem. Contact an Administrator if you change your mind")
+                messages.error(request, "Contact an Administrator if you want to record detailed game data")
+            case "player":
+                profile.tester_onboard = False
+                messages.warning(request, "Once you accept you will be able to record games")
             case _:
                 profile.player_onboard = False
-                messages.error(request, "We're sorry to see you go")
+                messages.error(request, "An error occured")
         profile.save()
 
-        # request.session.pop('onboard_data', None)
         # Redirect to homepage
         return redirect('keep-home') 
     
-    # onboard_data = request.session.get('onboard_data', {})
     # Load onboard page with relevant onboard data
     return render(request, 'the_gatehouse/onboard_user.html')
 
@@ -602,17 +596,7 @@ def player_stats(request, slug):
         efforts = Effort.objects.filter(player=player, game__test_match=False, game__final=True)
 
     game_threshold = 2
-    # if not tournament and not round:
-    #     if efforts.count() > 200:
-    #         game_threshold = 10
-    #     elif efforts.count() > 100:
-    #         game_threshold = 5
-    #     elif efforts.count() > 10:
-    #         game_threshold = 2
-    #     else:
-    #         game_threshold = 1
 
-    # print(f"{player.name} Game Threshold {game_threshold}")
 
 
     win_games = 0
