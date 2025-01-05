@@ -34,7 +34,8 @@ def resize_image(image_field, max_size):
         print(f"Error resizing image: {e}")
 
 def delete_old_image(old_image):
-        """Helper method to delete old image if it exists."""
+    """Helper method to delete old image if it exists."""
+    if old_image:
         if not old_image.name.startswith('default_images/'):
             if old_image and os.path.exists(old_image.path):
                 os.remove(old_image.path)

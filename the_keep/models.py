@@ -734,9 +734,12 @@ class Piece(models.Model):
 
     def delete(self, *args, **kwargs):
         # Delete the old image file from storage before deleting the instance
+        print('delete piece')
         if self.small_icon:
             # Check if the file exists
+            print('found small icon')
             if os.path.isfile(self.small_icon.path):
+                print('delete small icon')
                 os.remove(self.small_icon.path)
         
         # Now delete the Piece instance
