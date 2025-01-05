@@ -133,6 +133,11 @@ class Post(models.Model):
         return Piece.objects.filter(parent=self, type=Piece.TypeChoices.OTHER)
 
     def delete(self, *args, **kwargs):
+        for piece in self.pieces.all():
+            if piece.small_icon:
+                piece_image = getattr(piece, "small_icon")
+                delete_old_image(piece_image)
+
         # Delete the old image file from storage before deleting the instance
         image_fields = ['card_image', 'picture', 'small_icon', 'board_image']
         for field_name in image_fields:
@@ -142,7 +147,7 @@ class Post(models.Model):
             if post_image and not post_image.name.startswith('default_images/'):
                 # Delete non-default images
                 print(f'deleting {post_image}')
-                # self._delete_old_image(post_image)
+                self._delete_old_image(post_image)
             else:
                 print(f'not deleting {post_image}')
         
@@ -729,7 +734,6 @@ class Piece(models.Model):
         super().save(*args, **kwargs)
         # Resize images before saving
         if self.small_icon:
-            print('resize')
             resize_image(self.small_icon, 40)  # Resize small_icon
 
     def delete(self, *args, **kwargs):
