@@ -12,16 +12,19 @@ from PIL import Image
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
-from .utils import validate_hex_color
+from .utils import validate_hex_color, resize_image
 import boto3
 import random
 from django.conf import settings
 
 
-
+# Stable requirements
+# 10 games played
 stable_game_count = 10
-stable_player_count = 5
-stable_faction_count = 6
+# 5 different players
+unique_player_count = 5
+# In games with 6 different official factions
+official_faction_count = 6
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
@@ -148,10 +151,19 @@ class Post(models.Model):
                         # Ignore any files in the default_images folder
                         print(f"Default image saved: {old_image}")
         
+            # Resize images before saving
+        if self.small_icon:
+            resize_image(self.small_icon, 40)  # Resize small_icon
+        if self.board_image:
+            resize_image(self.board_image, 950)  # Resize board_image
+        if self.card_image:
+            resize_image(self.card_image, 350)  # Resize card_image
+
+
         super().save(*args, **kwargs)
-        self._resize_image(self.small_icon, 40)  # Resize small_icon
-        self._resize_image(self.board_image, 950)  # Resize board_image
-        self._resize_image(self.card_image, 350)  # Resize card_image
+        # self._resize_image(self.small_icon, 40)  # Resize small_icon
+        # self._resize_image(self.board_image, 950)  # Resize board_image
+        # self._resize_image(self.card_image, 350)  # Resize card_image
 
     def _delete_old_image(self, old_image):
         """Helper method to delete old image if it exists."""
@@ -300,7 +312,7 @@ class Deck(Post):
 
         play_count = plays.count()
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -333,7 +345,7 @@ class Landmark(Post):
         stable = self.stable
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -359,7 +371,7 @@ class Tweak(Post):
         play_count = plays.count()
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -388,7 +400,7 @@ class Map(Post):
  
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -467,7 +479,7 @@ class Vagabond(Post):
         play_count = plays.count()
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -622,7 +634,7 @@ class Faction(Post):
  
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
             stable_ready = True
         else:
             stable_ready = False
@@ -648,7 +660,29 @@ class Hireling(Post):
         super().save(*args, **kwargs)  # Call the parent save method
     # def get_absolute_url(self):
     #     return reverse('hireling-detail', kwargs={'slug': self.slug})
-    
+
+    def stable_check(self):
+        plays = self.get_plays_queryset()
+        official_faction_count = Faction.objects.filter(efforts__game__hirelings=self, official=True).distinct().count()
+        unique_players = plays.aggregate(
+                    total_players=Count('efforts__player', distinct=True)
+                )['total_players']
+        
+
+        play_count = plays.count()
+
+
+
+        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= official_faction_count:
+            stable_ready = True
+        else:
+            stable_ready = False
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
+        return (stable_ready, play_count, unique_players, official_faction_count)
+
+
+
+
 # Game Pieces for Factions and Hirelings
 class Piece(models.Model):
     class TypeChoices(models.TextChoices):
@@ -663,28 +697,37 @@ class Piece(models.Model):
     suited = models.BooleanField(default=False)
     parent = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='pieces')
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
+    small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} (x{self.quantity})"
 
-    def stable_check(self):
-        plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__hirelings=self, official=True).distinct().count()
-        unique_players = plays.aggregate(
-                    total_players=Count('efforts__player', distinct=True)
-                )['total_players']
+    def save(self, *args, **kwargs):
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Piece.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            field_name = 'small_icon'
+
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image:
+                # The image has changed, so check if it's not a default image
+                if old_image and not old_image.name.startswith('default_images/'):
+                    # Delete non-default images
+                    self._delete_old_image(old_image)
+                else:
+                    # Ignore any files in the default_images folder
+                    print(f"Default image saved: {old_image}")
         
+        # Resize images before saving
+        if self.small_icon:
+            resize_image(self.small_icon, 40)  # Resize small_icon
 
-        play_count = plays.count()
+        super().save(*args, **kwargs)
 
 
-
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= stable_player_count and official_faction_count >= stable_faction_count:
-            stable_ready = True
-        else:
-            stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}, Players: {unique_players}, Official Factions: {official_faction_count}')
-        return (stable_ready, play_count, unique_players, official_faction_count)
 
 
 def animal_default_picture(instance):
@@ -790,7 +833,7 @@ class PNPAsset(models.Model):
     pinned = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ['category', 'date_updated']
+        ordering = ['pinned', 'category', 'date_updated']
 
 
 

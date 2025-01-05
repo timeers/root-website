@@ -52,9 +52,9 @@
               {% endif %}
 
               {% if user.is_authenticated %}
-              <div class="d-flex align-items-center">
-                  <img class="user-icon img-fluid mr-2" src="{{ user.profile.image.url }}">
-                  <a class="nav-item nav-link" href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a>
+                <div class="d-flex align-items-center">
+                    <img class="user-icon img-fluid mr-2" src="{{ user.profile.image.url }}">
+                    <a class="nav-item nav-link" href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a>
                 </div>
 
                   <a class="nav-item nav-link" href="{% url 'account_logout' %}">Logout</a>

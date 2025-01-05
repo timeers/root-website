@@ -3,6 +3,35 @@ from django.utils.text import slugify
 from django.apps import apps
 from django.core.exceptions import ValidationError
 import re
+from PIL import Image
+import os
+
+def resize_image(image_field, max_size):
+    """Helper function to resize the image if necessary."""
+    try:
+        if image_field and os.path.exists(image_field.path):  # Check if the image exists
+            img = Image.open(image_field.path)
+
+            # Resize if the image is larger than the max_size
+            if img.height > max_size or img.width > max_size:
+                # Calculate the new size while maintaining the aspect ratio
+                if img.width > img.height:
+                    ratio = max_size / img.width
+                    new_size = (max_size, int(img.height * ratio))
+                else:
+                    ratio = max_size / img.height
+                    new_size = (int(img.width * ratio), max_size)
+
+                # Resize image and save
+                img = img.resize(new_size, Image.LANCZOS)
+                img.save(image_field.path)
+                print(f'Resized image saved at: {image_field.path}')
+            else:
+                print(f'Original image saved at: {image_field.path}')
+    except Exception as e:
+        print(f"Error resizing image: {e}")
+
+
 
 def validate_hex_color(value):
     # Regular expression to check for valid hex color codes (e.g., #RRGGBB)

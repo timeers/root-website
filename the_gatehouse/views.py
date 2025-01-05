@@ -82,13 +82,9 @@ def designer_required(view_func):
     def wrapper(request, *args, **kwargs):
         profile = request.user.profile
         
-        # Check if user is a designer and if they are onboarded
+        # Check if user is a designer
         if profile.designer:
-            if not profile.designer_onboard:
-                return redirect('onboard-user', user_type = 'designer')
-
-            else:
-                return view_func(request, *args, **kwargs)  # Proceed with the original view
+            return view_func(request, *args, **kwargs)  # Proceed with the original view
         else:
             return HttpResponseForbidden()  # Forbidden access if user is not a designer
     return wrapper
@@ -124,10 +120,7 @@ def player_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.player:
-            if request.user.profile.player_onboard == False:
-                return redirect('onboard-user', user_type = 'player')
-            else:
-                return view_func(request, *args, **kwargs) 
+            return view_func(request, *args, **kwargs) 
         else:
             return HttpResponseForbidden()  # 403 Forbidden
     return wrapper
@@ -189,17 +182,7 @@ def admin_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.admin:
-            if request.user.profile.admin_onboard == False:
-                # Capture the current URL the user is visiting
-                next_url = request.GET.get('next', request.path)
-                
-                # Redirect to onboarding page with `next` as a query parameter
-                return redirect(f'{reverse("onboard-user", args=["admin"])}?next={next_url}')
-
-                return redirect('onboard-user', user_type = 'admin')
-            
-            else:
-                return view_func(request, *args, **kwargs)  # Continue to the view
+            return view_func(request, *args, **kwargs)  # Continue to the view
         else:
             return HttpResponseForbidden()  # 403 Forbidden
     return wrapper
@@ -216,7 +199,7 @@ def admin_onboard_required(view_func):
                 # Redirect to onboarding page with `next` as a query parameter
                 return redirect(f'{reverse("onboard-user", args=["admin"])}?next={next_url}')
 
-                return redirect('onboard-user', user_type = 'admin')
+                # return redirect('onboard-user', user_type = 'admin')
             
             else:
                 return view_func(request, *args, **kwargs)  # Continue to the view

@@ -26,7 +26,7 @@ from the_warroom.models import Game
 from the_gatehouse.models import Profile
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
-                                 admin_onboard_required)
+                                 admin_onboard_required, admin_required)
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -827,7 +827,7 @@ class PNPAssetDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             return redirect('asset-list')
         
 
-@admin_onboard_required
+@admin_required
 def pin_asset(request, id):
 
     object = get_object_or_404(PNPAsset, id=id)

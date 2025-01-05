@@ -179,6 +179,17 @@ th, td {
   vertical-align: middle; /* Center align vertically */
 }
 
+@media (max-width: 768px) {
+  table {
+      font-size: 12px; /* You can adjust this value as needed */
+  }
+
+  th, td {
+      padding: 8px; /* Optionally reduce padding as well */
+  }
+}
+
+
 .effort-rows {
   border-top: 1px solid #000; /* Line before the tbody */
 }
@@ -390,3 +401,7 @@ th.sortable:hover {
   background-color: #f1f1f1;  /* Light gray background on hover */
 }
 
+.form-control-num {
+  width: 60px;  /* Adjust the width for a 3-digit number */
+  text-align: center;  /* Optional: Center the text inside the input box */
+}

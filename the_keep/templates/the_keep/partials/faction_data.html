@@ -8,26 +8,33 @@
         <p class="article-content">{{ object.description }}</p>
     {% endif %}
 
-        <p class="article-content">
-            <div class="d-flex flex-wrap justify-content-between">
-            <div>
-                <div>Complexity:</div> 
-                <div>{{ object.get_complexity_display }}</div>
-            </div>
-            <div>
-                <div>Card Wealth:</div>
-                <div>{{ object.get_card_wealth_display }}</div>
-            </div>
-            <div>
-                <div>Aggression:</div>
-                <div>{{ object.get_aggression_display }}</div>
-            </div>
-            <div>
-                <div>Crafting Ability:</div>
-                <div>{{ object.get_crafting_ability_display }}</div>
-            </div>
-        </div>
-        </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Complexity</th>
+                <th>Card Wealth</th>
+                <th>Aggression</th>
+                <th>Crafting Ability</th>
+            </tr>
+        </thead>
+        <tbody class="effort-rows">
+            <tr>
+                <td>
+                    {{ object.get_complexity_display }}
+                </td>
+                <td>
+                    {{ object.get_card_wealth_display }}
+                </td>
+                <td>
+                    {{ object.get_aggression_display }}
+                </td>
+                <td>
+                    {{ object.get_crafting_ability_display }}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
         <div class="article-content">
             {% if object.reach > 0 %}
             {{ object.get_type_display }} ({{ object.reach }} Reach)

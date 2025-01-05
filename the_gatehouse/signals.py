@@ -126,30 +126,6 @@ def user_logged_in_handler(request, user, **kwargs):
         user.is_staff = False
         print(f'User {user} removed from {group_name}')
         user.save()
-
-    # if user.profile.player_onboard == False and user.profile.player:
-    #     onboard_for_player = True
-    # else:
-    #     onboard_for_player = False
-
-    # if user.profile.designer_onboard == False and user.profile.designer:
-    #     onboard_for_designer = True
-    # else:
-    #     onboard_for_designer = False
-
-    # if user.profile.admin_onboard == False and user.profile.admin:
-    #     onboard_for_admin = True
-    # else:
-    #     onboard_for_admin = False
-
-    # print(f'Player onboard:{onboard_for_player}, Designer onboard:{onboard_for_designer}, Admin Onboard:{onboard_for_admin}')
-    # # If any of the onboard flags are True, store them in the session
-    # if onboard_for_admin or onboard_for_designer or onboard_for_player:
-    #     request.session['onboard_data'] = {
-    #         'admin_onboard': onboard_for_admin,
-    #         'player_onboard': onboard_for_player,
-    #         'designer_onboard': onboard_for_designer,
-    #     }
         
 
 
