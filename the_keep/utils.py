@@ -10,6 +10,7 @@ def resize_image(image_field, max_size):
     """Helper function to resize the image if necessary."""
     try:
         if image_field and os.path.exists(image_field.path):  # Check if the image exists
+            print('resizing')
             img = Image.open(image_field.path)
 
             # Resize if the image is larger than the max_size
@@ -28,10 +29,18 @@ def resize_image(image_field, max_size):
                 print(f'Resized image saved at: {image_field.path}')
             else:
                 print(f'Original image saved at: {image_field.path}')
+        print('done resizing here')
     except Exception as e:
         print(f"Error resizing image: {e}")
 
-
+def delete_old_image(old_image):
+        """Helper method to delete old image if it exists."""
+        if not old_image.name.startswith('default_images/'):
+            if old_image and os.path.exists(old_image.path):
+                os.remove(old_image.path)
+                print(f"Old image deleted: {old_image}")
+        else:
+            print(f"Default image saved: {old_image}")
 
 def validate_hex_color(value):
     # Regular expression to check for valid hex color codes (e.g., #RRGGBB)

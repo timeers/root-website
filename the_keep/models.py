@@ -12,7 +12,7 @@ from PIL import Image
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
-from .utils import validate_hex_color, resize_image
+from .utils import validate_hex_color, resize_image, delete_old_image
 import boto3
 import random
 from django.conf import settings
@@ -132,6 +132,24 @@ class Post(models.Model):
     def otherpieces(self):
         return Piece.objects.filter(parent=self, type=Piece.TypeChoices.OTHER)
 
+    def delete(self, *args, **kwargs):
+        # Delete the old image file from storage before deleting the instance
+        image_fields = ['card_image', 'picture', 'small_icon', 'board_image']
+        for field_name in image_fields:
+            post_image = getattr(self, field_name)
+
+            # The image has changed, so check if it's not a default image
+            if post_image and not post_image.name.startswith('default_images/'):
+                # Delete non-default images
+                print(f'deleting {post_image}')
+                # self._delete_old_image(post_image)
+            else:
+                print(f'not deleting {post_image}')
+        
+        # Now delete the post instance
+        super().delete(*args, **kwargs)
+
+
     def save(self, *args, **kwargs):
 
         # Check if the image field has changed (only works if the instance is already saved)
@@ -151,19 +169,12 @@ class Post(models.Model):
                         # Ignore any files in the default_images folder
                         print(f"Default image saved: {old_image}")
         
-            # Resize images before saving
-        if self.small_icon:
-            resize_image(self.small_icon, 40)  # Resize small_icon
-        if self.board_image:
-            resize_image(self.board_image, 950)  # Resize board_image
-        if self.card_image:
-            resize_image(self.card_image, 350)  # Resize card_image
 
 
         super().save(*args, **kwargs)
-        # self._resize_image(self.small_icon, 40)  # Resize small_icon
-        # self._resize_image(self.board_image, 950)  # Resize board_image
-        # self._resize_image(self.card_image, 350)  # Resize card_image
+        resize_image(self.small_icon, 40)  # Resize small_icon
+        resize_image(self.board_image, 950)  # Resize board_image
+        resize_image(self.card_image, 350)  # Resize card_image
 
     def _delete_old_image(self, old_image):
         """Helper method to delete old image if it exists."""
@@ -175,30 +186,30 @@ class Post(models.Model):
             print(f"Default image saved: {old_image}")
 
 
-    def _resize_image(self, image_field, max_size):
-        """Helper method to resize the image if necessary."""
-        try:
-            if image_field and os.path.exists(image_field.path):  # Check if the image exists
-                img = Image.open(image_field.path)
+    # def _resize_image(self, image_field, max_size):
+    #     """Helper method to resize the image if necessary."""
+    #     try:
+    #         if image_field and os.path.exists(image_field.path):  # Check if the image exists
+    #             img = Image.open(image_field.path)
 
-                # Resize if the image is larger than the max_size
-                if img.height > max_size or img.width > max_size:
-                    # Calculate the new size while maintaining the aspect ratio
-                    if img.width > img.height:
-                        ratio = max_size / img.width
-                        new_size = (max_size, int(img.height * ratio))
-                    else:
-                        ratio = max_size / img.height
-                        new_size = (int(img.width * ratio), max_size)
+    #             # Resize if the image is larger than the max_size
+    #             if img.height > max_size or img.width > max_size:
+    #                 # Calculate the new size while maintaining the aspect ratio
+    #                 if img.width > img.height:
+    #                     ratio = max_size / img.width
+    #                     new_size = (max_size, int(img.height * ratio))
+    #                 else:
+    #                     ratio = max_size / img.height
+    #                     new_size = (int(img.width * ratio), max_size)
 
-                    # Resize image and save
-                    img = img.resize(new_size, Image.LANCZOS)
-                    img.save(image_field.path)
-                    print(f'Resized image saved at: {image_field.path}')
-                else:
-                    print(f'Original image saved at: {image_field.path}')
-        except Exception as e:
-            print(f"Error resizing image: {e}")
+    #                 # Resize image and save
+    #                 img = img.resize(new_size, Image.LANCZOS)
+    #                 img.save(image_field.path)
+    #                 print(f'Resized image saved at: {image_field.path}')
+    #             else:
+    #                 print(f'Original image saved at: {image_field.path}')
+    #     except Exception as e:
+    #         print(f"Error resizing image: {e}")
 
     def get_absolute_url(self):
         match self.component:
@@ -692,7 +703,7 @@ class Piece(models.Model):
         CARD = 'C'
         OTHER = 'O'
     name = models.CharField(max_length=30)
-    quantity = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(40)])
+    quantity = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     description = models.TextField(null=True, blank=True)
     suited = models.BooleanField(default=False)
     parent = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='pieces')
@@ -713,21 +724,23 @@ class Piece(models.Model):
             old_image = getattr(old_instance, field_name)
             new_image = getattr(self, field_name)
             if old_image != new_image:
-                # The image has changed, so check if it's not a default image
-                if old_image and not old_image.name.startswith('default_images/'):
-                    # Delete non-default images
-                    self._delete_old_image(old_image)
-                else:
-                    # Ignore any files in the default_images folder
-                    print(f"Default image saved: {old_image}")
+                delete_old_image(old_image)
         
+        super().save(*args, **kwargs)
         # Resize images before saving
         if self.small_icon:
+            print('resize')
             resize_image(self.small_icon, 40)  # Resize small_icon
 
-        super().save(*args, **kwargs)
-
-
+    def delete(self, *args, **kwargs):
+        # Delete the old image file from storage before deleting the instance
+        if self.small_icon:
+            # Check if the file exists
+            if os.path.isfile(self.small_icon.path):
+                os.remove(self.small_icon.path)
+        
+        # Now delete the Piece instance
+        super().delete(*args, **kwargs)
 
 
 def animal_default_picture(instance):

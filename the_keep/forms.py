@@ -664,14 +664,18 @@ class PieceImportForm(forms.ModelForm):
 class PieceForm(forms.ModelForm):
     class Meta:
         model = Piece
-        fields = ['name', 'quantity', 'suited', 'id']
-
+        fields = ['name', 'quantity', 'suited', 'small_icon', 'id']  # These fields are automatically recognized by Django
+        widgets = {
+            'name': forms.TextInput(attrs={'style': 'width: 75px;'}),  # Adjust the width here
+            'quantity': forms.NumberInput(attrs={'inputmode': 'numeric', 'min': 0, 'max': 99}),
+            'small_icon': forms.ClearableFileInput(attrs={'class': 'form-control compact-file-input'}),
+        }
     # Override clean_quantity method for custom validation
     def clean_quantity(self):
         quantity = self.cleaned_data.get('quantity')
 
-        if quantity > 36:
-            raise ValidationError('Quantity cannot be greater than 36.')
+        if quantity > 99:
+            raise ValidationError('Quantity cannot be greater than 99.')
         
         return quantity
 

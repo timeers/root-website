@@ -574,7 +574,7 @@ def add_piece(request, id=None):
     else:
         obj = Piece()  # Create a new Piece instance but do not save it yet
 
-    form = PieceForm(request.POST or None, instance=obj)
+    form = PieceForm(request.POST or None, request.FILES or None, instance=obj)
 
     piece_type = request.GET.get('piece')
     slug = request.GET.get('slug')

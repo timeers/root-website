@@ -405,3 +405,20 @@ th.sortable:hover {
   width: 60px;  /* Adjust the width for a 3-digit number */
   text-align: center;  /* Optional: Center the text inside the input box */
 }
+
+.compact-file-input {
+  display: none;  /* Hide the default file input */
+}
+
+.file-input-button {
+  background-color: #007bff;
+  color: white;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.file-input-button:hover {
+  background-color: #0056b3;
+}

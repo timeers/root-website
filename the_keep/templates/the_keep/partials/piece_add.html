@@ -4,10 +4,19 @@
             hx-swap="beforeend"
             hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
             hx-on="htmx:afterRequest: this.remove()"
-            hx-trigger="click from:#save-all">
+            hx-trigger="click from:#save-all"
+            method="post"
+            enctype="multipart/form-data">
         <div class="hidden">{{ form.id }}</div>
-        <div class="form-control-num">{{ form.quantity }} </div>
-        {{ form.name }}
+        <div>
+            <label class="file-input-button">
+                <input type="file" class="compact-file-input" name="small_icon">
+            </label>
+        </div>
+        <div>
+            {{ form.quantity }}
+            {{ form.name }}
+        </div>
         {% if form.quantity.errors %}
                 {% for error in form.quantity.errors %}
                     <div class="alert alert-danger mt-1" role="alert">
@@ -15,8 +24,14 @@
                     </div>
                 {% endfor %}
         {% endif %}
-        Suited:{{ form.suited }}
-        <button class="btn btn-outline-danger btn-sm" type="button"
-            hx-on="click: this.closest('form').remove()"><i class="bi bi-trash3"></i></button>
+
+        <div>
+            Suited:{{ form.suited }}
+            
+            <button class="btn btn-outline-danger btn-sm" type="button"
+                hx-on="click: this.closest('form').remove()">
+                <i class="bi bi-trash3"></i>
+            </button>
+        </div>
     </form>
 </div>

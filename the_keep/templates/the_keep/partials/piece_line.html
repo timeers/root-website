@@ -1,10 +1,11 @@
 <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
     <div class="d-flex">
-    {% if piece.suited %}
-        {{ piece.quantity }} Fox/Mouse/Rabbit {{ piece.name }}
-    {% else %}
-        {{ piece.quantity }} {{ piece.name }}
+    {% if piece.small_icon %}
+        <img class="faction-icon mr-2" src="{{ piece.small_icon.url }}">x
     {% endif %}
+    {{ piece.quantity }}
+    {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}
+    {{ piece.name }}
     </div>
     {% if object.designer == user.profile and user.profile.designer %}
     <div class="d-flex">

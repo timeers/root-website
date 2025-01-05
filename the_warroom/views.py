@@ -121,69 +121,69 @@ class GameListView(ListView):
         return context
     
 
-# Not used currently.
-@player_required_class_based_view
-class GameListViewHX(ListView):
-    queryset = Game.objects.all()
-    model = Game
-    # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
-    context_object_name = 'games'
-    ordering = ['-date_posted']
-    paginate_by = settings.PAGE_SIZE
+# # Not used currently.
+# @player_required_class_based_view
+# class GameListViewHX(ListView):
+#     queryset = Game.objects.all()
+#     model = Game
+#     # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
+#     context_object_name = 'games'
+#     ordering = ['-date_posted']
+#     paginate_by = settings.PAGE_SIZE
 
-    def get_template_names(self):
-        if self.request.htmx:
-            return 'the_warroom/partials/game_list_home.html'
-        return 'the_warroom/games_home.html'
+#     def get_template_names(self):
+#         if self.request.htmx:
+#             return 'the_warroom/partials/game_list_home.html'
+#         return 'the_warroom/games_home.html'
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
+#     def get_queryset(self):
+#         queryset = super().get_queryset()
 
 
-####### Trying to use this one view to get game list data for anything.
-        full_path = self.request.path
-        # Get the first part of the path after the domain
-        first_part = full_path.split('/')[1] if len(full_path.split('/')) > 1 else ''
+# ####### Trying to use this one view to get game list data for anything.
+#         full_path = self.request.path
+#         # Get the first part of the path after the domain
+#         first_part = full_path.split('/')[1] if len(full_path.split('/')) > 1 else ''
         
 
-        if first_part != 'games':
-            # Get the slug from the URL (assuming your URL pattern captures a slug)
-            slug = self.kwargs.get('slug')
-            # print(f'found slug {slug}')
-            if slug:
-                # print(f'found slug {slug}')
-                if first_part == 'profile':
-                    player = get_object_or_404(Profile, slug=slug)
-                    # print(f'found player {player}')
-                    queryset = queryset.filter(
-                        Q(efforts__player=player)) # Filter by Profile Page
+#         if first_part != 'games':
+#             # Get the slug from the URL (assuming your URL pattern captures a slug)
+#             slug = self.kwargs.get('slug')
+#             # print(f'found slug {slug}')
+#             if slug:
+#                 # print(f'found slug {slug}')
+#                 if first_part == 'profile':
+#                     player = get_object_or_404(Profile, slug=slug)
+#                     # print(f'found player {player}')
+#                     queryset = queryset.filter(
+#                         Q(efforts__player=player)) # Filter by Profile Page
 
 
 
-        self.filterset = GameFilter(self.request.GET, queryset=queryset)
-        return self.filterset.qs
+#         self.filterset = GameFilter(self.request.GET, queryset=queryset)
+#         return self.filterset.qs
     
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+#     def get_context_data(self, **kwargs):
+#         context = super().get_context_data(**kwargs)
        
-        # Get the ordered queryset of games
-        games = self.get_queryset()
-        # Paginate games
-        if games.exists():
-            paginator = Paginator(games, self.paginate_by)
-            page_number = self.request.GET.get('page')
-            page_obj = paginator.get_page(page_number)
-        else:
-            page_obj = []  # Or handle as needed
+#         # Get the ordered queryset of games
+#         games = self.get_queryset()
+#         # Paginate games
+#         if games.exists():
+#             paginator = Paginator(games, self.paginate_by)
+#             page_number = self.request.GET.get('page')
+#             page_obj = paginator.get_page(page_number)
+#         else:
+#             page_obj = []  # Or handle as needed
 
-        context['games'] = page_obj  # Pass the paginated page object to the context
-        context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
-        context['page_obj'] = page_obj  # Pass the page_obj to the context
+#         context['games'] = page_obj  # Pass the paginated page object to the context
+#         context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
+#         context['page_obj'] = page_obj  # Pass the page_obj to the context
 
-        context['form'] = self.filterset.form
-        context['filterset'] = self.filterset
+#         context['form'] = self.filterset.form
+#         context['filterset'] = self.filterset
         
-        return context
+#         return context
 
 
 @player_onboard_required
