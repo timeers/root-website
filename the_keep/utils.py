@@ -29,7 +29,7 @@ def resize_image(image_field, max_size):
                 print(f'Resized image saved at: {image_field.path}')
             else:
                 print(f'Original image saved at: {image_field.path}')
-        print('done resizing here')
+        
     except Exception as e:
         print(f"Error resizing image: {e}")
 

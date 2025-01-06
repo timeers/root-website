@@ -3,6 +3,7 @@ from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
     Piece, Expansion, Tweak, PNPAsset
 )
+from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
@@ -75,7 +76,11 @@ class PostCreateForm(forms.ModelForm):
     status = forms.ChoiceField(
         choices=STATUS_CHOICES, initial="3",
         required=True,
-        help_text='Set the current status. Once thoroughly playtested the status can be set to "Stable".'
+        help_text='Set the current status. Set status to "Testing" once a game has been recorded. Once thoroughly playtested the status can be set to "Stable". Set to "Inactive" if you are no longer working on this project.'
+    )
+    artist = forms.ModelChoiceField(
+        queryset=Profile.objects.exclude(discord='kyleferrin'),
+        required=False
     )
     class Meta:
         model = Post
@@ -135,6 +140,14 @@ class PostCreateForm(forms.ModelForm):
         # Hide the designer field for non-admin users
         if not user.profile.admin:
             self.fields.pop('designer', None)  # Remove designer field entirely
+
+        # Check if the post has any related plays and adjust the status choices accordingly
+        if post_instance and post_instance.plays() > 0:
+            # Add status '2' (Testing) only if the post has plays
+            self.fields['status'].choices.append(('2', 'Testing'))
+        else:
+            # Remove '2' (Testing) if no plays exist
+            self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '2']
 
 
     def clean(self):
@@ -376,7 +389,13 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Faction', 'Hireling']),
-        required=False
+        required=False,
+        label="Based On (Faction or other Hireling):"
+    )
+    other_side = forms.ModelChoiceField(
+        queryset=Hireling.objects.filter(other_side__isnull=True),
+        required=False,
+        label="Other Side"
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
@@ -384,7 +403,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
-        fields = top_fields + ['animal', 'type', 'based_on'] + bottom_fields
+        fields = top_fields + ['animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated
@@ -396,6 +415,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            self.fields['other_side'].queryset = self.fields['other_side'].queryset.exclude(id=instance.id)
 
     def clean(self):
         cleaned_data = super().clean()

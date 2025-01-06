@@ -1,14 +1,30 @@
 <article class="media content-section">
     <div class="media-body">
         
-    <h2>Hireling Details</h2>
+    <h2>{{ object.get_type_display }} Hireling Details</h2>
 
     {% if object.description %}
         <h3>Description</h3>
         <p class="article-content">{{ object.description }}</p>
     {% endif %}
-        <p class="article-content">{{ object.get_type_display }}</p> 
+
+        {% if object.board_image %}
+            <img class="rounded-corner-img responsive-img" src="{{ object.board_image.url }}">
+        {% endif %}
 
         {% include 'the_keep/partials/pieces.html' %}
+
+        {% if object.other_side %}
+        <a href="{{ object.other_side.get_absolute_url }}">
+            <h3>{{ object.other_side.get_type_display }} Side</h3>
+            <img class="lg-faction-icon mr-2" src="{{ object.other_side.picture.url }}">
+            {{ object.other_side }}
+
+
+            {% if object.other_side.board_image %}
+                <img class="rounded-corner-img responsive-img" src="{{ object.other_side.board_image.url }}">
+            {% endif %}
+        </a>
+        {% endif %}
     </div>
 </article>

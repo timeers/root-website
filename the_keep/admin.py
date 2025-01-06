@@ -362,7 +362,7 @@ class LandmarkAdmin(admin.ModelAdmin):
 
 
 class HirelingAdmin(admin.ModelAdmin):
-    list_display = ('title', 'designer', 'official', 'status', 'animal')
+    list_display = ('title', 'designer', 'official', 'status', 'animal', 'other_side__title')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline]

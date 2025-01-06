@@ -667,13 +667,31 @@ class Hireling(Post):
         DEMOTED = 'D'
 
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
-    def save(self, *args, **kwargs):
+    # promoted = models.ForeignKey('self', on_delete=models.SET_NULL, related_name='demoted_side', blank=True, null=True)
+    # demoted = models.ForeignKey('self', on_delete=models.SET_NULL, related_name='promoted_side', blank=True, null=True)
+    other_side = models.OneToOneField('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='other_side_of')
+
+    def save(self, commit=True, *args, **kwargs):
         self.component = 'Hireling'  # Set the component type
         self.sorting = 6
         if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
 
-        super().save(*args, **kwargs)  # Call the parent save method
+        # Call the parent class's save() method (this saves self to the database)
+        super().save(*args, **kwargs)
+
+        # Handle the reverse relationship for other_side
+        if self.other_side:
+            other_side = self.other_side
+            if other_side.other_side != self:
+                other_side.other_side = self
+                other_side.save()  # Save the other side to ensure consistency
+
+        return self
+
+        # super().save(*args, **kwargs)  # Call the parent save method
+
+
     # def get_absolute_url(self):
     #     return reverse('hireling-detail', kwargs={'slug': self.slug})
 
