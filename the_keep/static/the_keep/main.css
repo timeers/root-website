@@ -283,9 +283,7 @@ tr[data-href] {
 .turn-form {
   border-bottom: 1px solid black;
 }
-.hidden {
-  display: None ;
-}
+
 
 .turn-header, .turn-form {
 display: flex;
@@ -423,4 +421,8 @@ th.sortable:hover {
 
 .file-input-button:hover {
   background-color: #0056b3;
+}
+
+.hidden-buttons {
+  display: none;  /* Hide the buttons initially */
 }

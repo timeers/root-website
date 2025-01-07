@@ -246,9 +246,15 @@ def add_player(request):
 def player_page_view(request, slug):
     player = get_object_or_404(Profile, slug=slug.lower())
     games_played = player.games_played
+    view_status = 4
+    if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
+    components = player.posts.filter(status__lte=view_status)
+    posts_count = components.count()
     context = {
         'player': player,
         'games_played': games_played,
+        'posts_count': posts_count,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
@@ -257,14 +263,16 @@ def player_page_view(request, slug):
 def designer_component_view(request, slug):
     # Get the designer object using the slug from the URL path
     designer = get_object_or_404(Profile, slug=slug.lower())
-
+    view_status = 4
+    if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
     # Get the component from the query parameters
     component = request.GET.get('component')  # e.g., /designer/john-doe/component/?component=some_component
     # Filter posts based on the designer and the component (if provided)
     if component:
-        components = designer.posts.filter(component__icontains=component)
+        components = designer.posts.filter(component__icontains=component, status__lte=view_status)
     else:
-        components = designer.posts.all()
+        components = designer.posts.filter(status__lte=view_status)
     # print(f'Components: {components.count()}')
     # Get the total count of components (total posts matching the filter)
     total_count = components.count()

@@ -7,7 +7,7 @@
         {{ object.designer.name }}
         <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
     </div>
-        {% if not object.official %}Fan Made {% endif %}{{ object.component }}
+        {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
         <h2>{{ object.title }}</h2>
 
      {% if object.artist %}

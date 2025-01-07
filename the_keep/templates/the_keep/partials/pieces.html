@@ -2,7 +2,14 @@
 {% if object.pieces.count or object.designer == user.profile %}
 <p class="article-content">
 {% if object.component != "Vagabond" %}
+<div class="d-flex flex-wrap justify-content-between">
 <h3>Components</h3>
+{% if object.designer == user.profile and user.profile.designer %}
+<button id="edit-button" class="btn btn-warning btn-sm mt-1 mb-1 ml-2">
+    <i class="bi bi-pencil-square"></i>
+</button>
+{% endif %}
+</div>
 {% endif %}
     <div class="d-flex flex-wrap justify-content-evenly">
         {% if object.component != "Vagabond" %}
@@ -16,10 +23,10 @@
             </div>
             {% if object.designer == user.profile and object.warriors.count < 6 and user.profile.designer %}
                 <div>
-                    <button type="button" class="btn btn-primary me-2"
+                    <button type="button" class="btn btn-primary me-2 hidden-buttons"
                         hx-get="{% url 'add-piece' %}?piece=W&slug={{ object.slug }}"
                         hx-target="#W-pieces"
-                        hx-swap="afterend"
+                        hx-swap="beforeend"
                     >Add+</button>
                 </div>
             {% endif %}
@@ -36,10 +43,10 @@
             </div>
             {% if object.designer == user.profile and object.buildings.count < 6 and user.profile.designer %}
                 <div>
-                    <button type="button" class="btn btn-primary me-2"
+                    <button type="button" class="btn btn-primary me-2 hidden-buttons"
                         hx-get="{% url 'add-piece' %}?piece=B&slug={{ object.slug }}"
                         hx-target="#B-pieces"
-                        hx-swap="afterend"
+                        hx-swap="beforeend"
                     >Add+</button>
                 </div>
             {% endif %}
@@ -56,10 +63,10 @@
             </div>
             {% if object.designer == user.profile and object.tokens.count < 6 and user.profile.designer %}
                 <div>
-                    <button type="button" class="btn btn-primary me-2"
+                    <button type="button" class="btn btn-primary me-2 hidden-buttons"
                         hx-get="{% url 'add-piece' %}?piece=T&slug={{ object.slug }}"
                         hx-target="#T-pieces"
-                        hx-swap="afterend"
+                        hx-swap="beforeend"
                     >Add+</button>
                 </div>
             {% endif %}
@@ -76,10 +83,10 @@
             </div>
             {% if object.designer == user.profile and object.cards.count < 6 and user.profile.designer %}
                 <div>
-                    <button type="button" class="btn btn-primary me-2"
+                    <button type="button" class="btn btn-primary me-2 hidden-buttons"
                         hx-get="{% url 'add-piece' %}?piece=C&slug={{ object.slug }}"
                         hx-target="#C-pieces"
-                        hx-swap="afterend"
+                        hx-swap="beforeend"
                     >Add+</button>
                 </div>
             {% endif %}
@@ -96,10 +103,10 @@
             </div>
             {% if object.designer == user.profile and object.otherpieces.count < 6 and user.profile.designer %}
                 <div>
-                    <button type="button" class="btn btn-primary me-2"
+                    <button type="button" class="btn btn-primary me-2 hidden-buttons"
                         hx-get="{% url 'add-piece' %}?piece=O&slug={{ object.slug }}"
                         hx-target="#O-pieces"
-                        hx-swap="afterend"
+                        hx-swap="beforeend"
                     >Add+</button>
                 </div>
             {% endif %}
@@ -108,7 +115,106 @@
 
     </div>
     {% if object.designer == user.profile and user.profile.designer %}
-    <button type="button" id="save-all" class="btn btn-success mt-1">Save</button>
+    <button type="button" id="save-all" class="btn btn-success mt-1 hidden-buttons">Save All</button>
     {% endif %}
 </p>
 {% endif %}
+
+
+{% block scripts %}
+<script>
+
+    function updateFileName(event) {
+    var input = event.target;  // Get the file input element that triggered the event
+    var file = input.files[0];  // Get the selected file
+
+    // Find the closest form or container to the file input
+    var formContainer = input.closest('.piece-form-container');
+
+    // Find the image preview container inside the current form/container
+    var imagePreviewContainer = formContainer.querySelector('.image-preview-container');
+    var imagePreview = formContainer.querySelector('.image-preview');  // The image element to display the preview
+
+    // Check if a file was selected
+    if (file) {
+        // Create an object URL for the selected file (used to show a preview)
+        var reader = new FileReader();
+        
+        reader.onload = function(e) {
+            // Set the preview image's source to the selected file's object URL
+            imagePreview.src = e.target.result;
+
+            // Show the image preview container
+            imagePreviewContainer.style.display = "inline-block";
+        };
+
+        // Read the file as a data URL (base64 representation)
+        reader.readAsDataURL(file);
+    }
+    else {
+        // Hide the image preview if no file is selected
+        imagePreviewContainer.style.display = "none";
+    }
+}
+
+
+
+        // Function to attach event listeners to all file input fields
+        function attachFileInputListeners() {
+            var fileInputs = document.querySelectorAll('.compact-file-input');  // Select all file input elements with the class '.compact-file-input'
+            
+            // Attach the change event to each file input
+            fileInputs.forEach(function(input) {
+                input.removeEventListener('change', updateFileName);  // Remove any existing listeners to prevent duplicates
+                input.addEventListener('change', updateFileName);  // Add the change event listener
+                console.log('add listener')
+            });
+        }
+
+        // Initial attachment of listeners when the page loads
+        attachFileInputListeners();
+
+        // Listen for HTMX after content has been loaded into the DOM
+        document.body.addEventListener('htmx:afterOnLoad', function () {
+            console.log("HTMX")
+            attachFileInputListeners();  // Re-attach the event listeners to any newly added file inputs
+        });
+
+
+
+
+        var editButton = document.getElementById('edit-button');
+        if (editButton) {
+            document.getElementById('edit-button').addEventListener('click', function() {
+            var buttons = document.querySelectorAll('.hidden-buttons'); // Select all buttons with class 'hidden-buttons'
+
+            // Loop through the buttons and toggle their visibility
+            buttons.forEach(function(button) {
+
+                if (button.style.display === "none" || button.style.display === "") {
+                    button.style.display = "inline-block";  // Show the button
+                } else {
+                    button.style.display = "none";  // Hide the button
+                }
+            });
+        });
+        }
+        var saveButton = document.getElementById('save-all');
+        if (saveButton) {
+            document.getElementById('save-all').addEventListener('click', function() {
+                var buttons = document.querySelectorAll('.hidden-buttons'); // Select all buttons with class 'hidden-buttons'
+
+                // Loop through the buttons and toggle their visibility
+                buttons.forEach(function(button) {
+
+                    if (button.style.display === "none" || button.style.display === "") {
+                        button.style.display = "inline-block";  // Show the button
+                    } else {
+                        button.style.display = "none";  // Hide the button
+                    }
+                });
+            });
+        }
+</script>
+
+{% endblock scripts %}

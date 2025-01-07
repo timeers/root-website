@@ -85,6 +85,7 @@ class Post(models.Model):
         TESTING = '2', 'Testing'
         DEVELOPMENT = '3', 'Development'
         INACTIVE = '4', 'Inactive'
+        ABANDONED = '5', 'Abandoned'
 
     title = models.CharField(max_length=40)
     animal = models.CharField(max_length=25, null=True, blank=True)

@@ -686,8 +686,16 @@ class PieceForm(forms.ModelForm):
         model = Piece
         fields = ['name', 'quantity', 'suited', 'small_icon', 'id']  # These fields are automatically recognized by Django
         widgets = {
-            'name': forms.TextInput(attrs={'style': 'width: 75px;'}),  # Adjust the width here
-            'quantity': forms.NumberInput(attrs={'inputmode': 'numeric', 'min': 0, 'max': 99}),
+            'name': forms.TextInput(attrs={
+                'style': 'width: 75px;',  # Adjust the width here
+                'placeholder': 'Name'  # Add placeholder text for the name field
+            }),
+            'quantity': forms.NumberInput(attrs={
+                'inputmode': 'numeric',  # Mobile-friendly number input
+                'min': 0, 
+                'max': 99,
+                'placeholder': '#'  # Add placeholder text for the quantity field
+            }),
             'small_icon': forms.ClearableFileInput(attrs={'class': 'form-control compact-file-input'}),
         }
     # Override clean_quantity method for custom validation

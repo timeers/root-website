@@ -21,14 +21,27 @@ class UserUpdateForm(forms.ModelForm):
 
 # Removed League checkbox
 class ProfileUpdateForm(forms.ModelForm):
+    STATUS_CHOICES = [
+        ('1', 'Stable Only'),
+        ('2', 'Testing and Above'),
+        ('3', 'Development and Above'),
+        ('4', 'All (include Inactive)'),
+    ]
+    view_status = forms.ChoiceField(
+        choices=STATUS_CHOICES, initial="4",
+        required=True,
+        help_text='Choose what is visible to you.',
+        label="Status Visiblity"
+    )
     class Meta:
         model = Profile     
-        fields = ['image', 'dwd', 'weird'] # 'league' to add yourself to RDL tournament
+        fields = ['image', 'dwd', 'weird', 'view_status'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root Digital League',
             'weird' : 'Show Fan Content',
         }
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

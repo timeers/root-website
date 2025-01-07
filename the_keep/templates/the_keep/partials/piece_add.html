@@ -6,13 +6,17 @@
             hx-on="htmx:afterRequest: this.remove()"
             hx-trigger="click from:#save-all"
             method="post"
-            enctype="multipart/form-data">
+            enctype="multipart/form-data"
+            >
         <div class="hidden">{{ form.id }}</div>
         <div>
             <label class="file-input-button">
                 Choose Icon
-                <input type="file" class="compact-file-input" name="small_icon">
+                <input type="file" class="compact-file-input" name="small_icon" onchange="updateFileName(event)">
             </label>
+            <div class="image-preview-container" style="display:none;">
+                <img class="image-preview" src="" alt="Image Preview" style="max-width: 20px; max-height: 20px; margin-left: 10px;">
+            </div>
         </div>
         <div>
             {{ form.quantity }}

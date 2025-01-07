@@ -446,14 +446,16 @@ class ScoreCardCreateForm(forms.ModelForm):
         # Call the parent constructor
         super(ScoreCardCreateForm, self).__init__(*args, **kwargs)
         # Check if faction is passed to the form
-
+        view_status = user.profile.view_status
         if faction:
             self.fields['faction'].queryset = Faction.objects.filter(id=faction)
             self.fields['faction'].initial = faction  # Set the initial value of the faction
             self.fields['faction'].empty_label = None
             # self.fields['faction'].disabled = True
         elif not user.profile.weird:
-            self.fields['faction'].queryset = Faction.objects.filter(official=True)
+            self.fields['faction'].queryset = Faction.objects.filter(official=True, status__lte=view_status)
+        else:
+            self.fields['faction'].queryset = Faction.objects.filter(status__lte=view_status)
         self.user = user  # Save the user parameter for later use
 
     def clean(self):

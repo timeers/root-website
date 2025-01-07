@@ -299,11 +299,17 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         name = post.title
         detail_view = f'{post.component.lower()}-detail'
         try:
-            # Attempt to delete the post
-            response = self.delete(request, *args, **kwargs)
-            # Add success message upon successful deletion
+            # # Attempt to delete the post
+            # response = self.delete(request, *args, **kwargs)
+            # # Add success message upon successful deletion
+            # messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
+            # return response
+
+            # Abandon the post without deleting
+            post.status = 5  # Set the status to abandoned
+            post.save()
             messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
-            return response
+            return redirect('keep-home')
         except ProtectedError:
             # Handle the case where the deletion fails due to foreign key protection
             messages.error(request, f"The {post.component} '{name}' cannot be deleted because it has been used in a game.")
@@ -449,15 +455,26 @@ def bookmark_post(request, object):
 def list_view(request, slug=None):
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+    view_status = 4
     if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
         if request.user.profile.weird:
-            designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+            # Filter designers who have at least one post with a status less than or equal to the user's view_status
+            designers = Profile.objects.annotate(
+                posts_count=Count('posts'),
+                valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+            ).filter(posts_count__gt=0, valid_posts_count__gt=0)
         else:
             # Filter designers who have at least one post with 'official' property set to True
-            designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
-                                .filter(official_posts_count__gt=0)
+            designers = Profile.objects.annotate(
+                official_posts_count=Count('posts', filter=Q(posts__official=True)),
+                valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+                ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
     else:
-        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+        designers = Profile.objects.annotate(
+            posts_count=Count('posts'),
+            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+            ).filter(posts_count__gt=0, valid_posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
@@ -479,15 +496,26 @@ def list_view(request, slug=None):
 def search_view(request, slug=None):
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # Get all designers (Profiles) who have at least one post
+    view_status = 4
     if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
         if request.user.profile.weird:
-            designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+            # Filter designers who have at least one post with a status less than or equal to the user's view_status
+            designers = Profile.objects.annotate(
+                posts_count=Count('posts'),
+                valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+            ).filter(posts_count__gt=0, valid_posts_count__gt=0)
         else:
             # Filter designers who have at least one post with 'official' property set to True
-            designers = Profile.objects.annotate(official_posts_count=Count('posts', filter=Q(posts__official=True))) \
-                                .filter(official_posts_count__gt=0)
+            designers = Profile.objects.annotate(
+                official_posts_count=Count('posts', filter=Q(posts__official=True)),
+                valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+                ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
     else:
-        designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
+        designers = Profile.objects.annotate(
+            posts_count=Count('posts'),
+            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+            ).filter(posts_count__gt=0, valid_posts_count__gt=0)
     context = {
         "posts": posts, 
         'search': search or "", 
@@ -511,15 +539,18 @@ def _search_components(request, slug=None):
     status = request.GET.get('status', '')
     designer = request.GET.get('designer') 
     page = request.GET.get('page')
+    view_status = 4
+    if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
 
     if faction_type or reach_value:
         if request.user.is_authenticated:
             if request.user.profile.weird:
-                posts = Faction.objects.all().prefetch_related('designer')
+                posts = Faction.objects.filter(status__lte=view_status).prefetch_related('designer')
             else:
-                posts = Faction.objects.filter(official=True).prefetch_related('designer')
+                posts = Faction.objects.filter(official=True, status__lte=view_status).prefetch_related('designer')
         else:
-            posts = Faction.objects.all().prefetch_related('designer')
+            posts = Faction.objects.filter(status__lte=view_status).prefetch_related('designer')
 
         if faction_type:
             posts = posts.filter(type=faction_type)
@@ -529,11 +560,11 @@ def _search_components(request, slug=None):
     else:
         if request.user.is_authenticated:
             if request.user.profile.weird:
-                posts = Post.objects.all().prefetch_related('designer')
+                posts = Post.objects.filter(status__lte=view_status).prefetch_related('designer')
             else:
-                posts = Post.objects.filter(official=True).prefetch_related('designer')
+                posts = Post.objects.filter(official=True, status__lte=view_status).prefetch_related('designer')
         else:
-            posts = Post.objects.all().prefetch_related('designer')
+            posts = Post.objects.filter(status__lte=view_status).prefetch_related('designer')
 
     if slug:
         player = get_object_or_404(Profile, slug=slug)

@@ -19,6 +19,12 @@ class Profile(models.Model):
         DESIGNER = 'D'
         ADMIN = 'A'
         BANNED = 'B'
+    class StatusChoices(models.TextChoices):
+        STABLE = '1','Stable'
+        TESTING = '2', 'Testing'
+        DEVELOPMENT = '3', 'Development'
+        INACTIVE = '4', 'Inactive'
+        ABANDONED = '5', 'Abandoned'
 
     component = 'Profile'
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
@@ -30,6 +36,7 @@ class Profile(models.Model):
     tester = models.BooleanField(default=False)
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
+    view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)
     display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
