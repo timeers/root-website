@@ -1,3 +1,4 @@
+import random
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse, HttpResponseForbidden
@@ -12,7 +13,6 @@ from django.db import IntegrityError
 from django.db.models import ProtectedError, Count
 from django.urls import reverse, reverse_lazy
 from django.contrib import messages
-
 
 from the_warroom.filters import GameFilter
 from django.views.generic import (
@@ -40,7 +40,7 @@ from .forms import (PostCreateForm, MapCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
                     PieceForm, ClockworkCreateForm,
-                    StableConfirmForm, TweakCreateForm,
+                    StatusConfirmForm, TweakCreateForm,
                     PNPAssetCreateForm,
 )
 from the_tavern.forms import PostCommentCreateForm
@@ -141,7 +141,8 @@ class PostCreateView(LoginRequiredMixin, CreateView):
     the current logged-in user's profile and also pass the user to the form.
     """
     def form_valid(self, form):
-        form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
+        if not form.instance.designer:
+            form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
         return super().form_valid(form)
 
     def get_form_kwargs(self):
@@ -178,6 +179,14 @@ class HirelingCreateView(PostCreateView):
     model = Hireling
     form_class = HirelingCreateForm
     template_name = 'the_keep/post_form.html'
+
+    def get_form_kwargs(self):
+        # Get the default form kwargs
+        kwargs = super().get_form_kwargs()
+        # Add user to the kwargs
+        kwargs['designer'] = self.request.user.profile
+        print("TEST")
+        return kwargs
 
 @designer_required_class_based_view
 class VagabondCreateView(PostCreateView):
@@ -265,6 +274,13 @@ class HirelingUpdateView(PostUpdateView):
     form_class = HirelingCreateForm
     template_name = 'the_keep/post_form.html'
 
+    def get_form_kwargs(self):
+        # Get the default form kwargs
+        kwargs = super().get_form_kwargs()
+        # Add user to the kwargs
+        kwargs['designer'] = self.request.user.profile
+        return kwargs
+
 @designer_required_class_based_view
 class VagabondUpdateView(PostUpdateView):
     model = Vagabond
@@ -307,6 +323,17 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
             # Abandon the post without deleting
             post.status = 5  # Set the status to abandoned
+            rand_int = random.randint(100, 999)
+            post.title = f'Deleted {post.component}-{rand_int}'
+            if post.component == 'Hireling':
+                hireling = Hireling.objects.get(slug=post.slug)
+                if hireling.other_side:
+                    other_side = hireling.other_side
+                    other_side.other_side = None
+                    hireling.other_side = None
+                    other_side.save()
+                    hireling.save()
+
             post.save()
             messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
             return redirect('keep-home')
@@ -342,14 +369,23 @@ def ultimate_component_view(request, slug):
         }
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
-    stable_ready = None
-    if request.user.is_authenticated:
-        if object.designer == request.user.profile:
-            stable_ready = object.stable_check()
+
     # print(f'Stable Ready: {stable_ready}')
+    view_status = 4
+    if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
+    related_posts = Post.objects.filter(based_on=object, status__lte=view_status)
 
     # Start with the base queryset
     games = object.get_games_queryset()
+
+    stable_ready = None
+    testing_ready = None
+    if request.user.is_authenticated:
+        if object.designer == request.user.profile:
+            stable_ready = object.stable_check()
+            if object.status == '3' and games.count() > 0:
+                testing_ready = True
 
     # Apply the conditional filter if needed
     if request.user.is_authenticated:
@@ -437,6 +473,8 @@ def ultimate_component_view(request, slug):
         'tourney_points': tourney_points,
         'total_efforts': total_efforts,
         'stable_ready': stable_ready,
+        'testing_ready': testing_ready,
+        'related_posts': related_posts,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -707,16 +745,60 @@ def confirm_stable(request, slug):
     # If form is submitted (POST request)
     if request.method == 'POST':
         # Update the `stable` property to True
-        object.status = 'Stable'
+        object.status = 1
         object.save()
 
         # Redirect to a success page or back to the post detail page
-        messages.success(request, "The post has been marked as stable.")
+        messages.success(request, f'{object.title} has been marked as "Stable".')
         return redirect(object.get_absolute_url())
 
     # If GET request, render the confirmation form
-    form = StableConfirmForm()
+    form = StatusConfirmForm()
     return render(request, 'the_keep/confirm_stable.html', {'form': form, 'post': object})
+
+@player_required
+def confirm_testing(request, slug):
+    # Get the Post object based on the slug from the URL
+    post = get_object_or_404(Post, slug=slug)
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=slug)
+
+    testing = object.get_games_queryset().count() > 0
+
+    # print(stable)
+
+    if testing == False:
+        messages.info(request, f'{object} has not yet recorded a playtest.')
+        return redirect(object.get_absolute_url())
+    
+    # Check if the current user is the designer
+    if object.designer != request.user.profile:
+        messages.error(request, "You are not authorized to make this change.")
+        return redirect(object.get_absolute_url())
+
+    # If form is submitted (POST request)
+    if request.method == 'POST':
+        # Update the `testing` property to True
+        object.status = 2
+        object.save()
+
+        # Redirect to a success page or back to the post detail page
+        messages.success(request, f'{object.title} has been marked as "Testing".')
+        return redirect(object.get_absolute_url())
+
+    # If GET request, render the confirmation form
+    form = StatusConfirmForm()
+    return render(request, 'the_keep/confirm_testing.html', {'form': form, 'post': object})
 
 
 

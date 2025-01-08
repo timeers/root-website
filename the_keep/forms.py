@@ -9,8 +9,8 @@ from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
 
-top_fields = ['designer', 'title', 'expansion', 'status']
-bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'picture', 'artist']
+top_fields = ['designer', 'title', 'expansion', 'picture', 'status']
+bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
 
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
@@ -393,7 +393,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label="Based On (Faction or other Hireling):"
     )
     other_side = forms.ModelChoiceField(
-        queryset=Hireling.objects.filter(other_side__isnull=True),
+        queryset=Hireling.objects.all(),
         required=False,
         label="Other Side"
     )
@@ -405,13 +405,16 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         model = Hireling 
         fields = top_fields + ['animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args,  **kwargs):
         # Check if an instance is being created or updated
         instance = kwargs.get('instance', None)
+        designer = kwargs.pop('designer', None)
         super().__init__(*args, **kwargs)
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief explanation on how to use this Hireling...'
             })
+        print(designer)
+        self.fields['other_side'].queryset = self.fields['other_side'].queryset.filter(designer=designer, status__lte=designer.view_status)
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
@@ -563,10 +566,16 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
         required=False
     )
+    color = forms.CharField(
+        max_length=7,  # Color code length (e.g., #FFFFFF)
+        widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
+        required=False,
+        label="Faction Color"
+    )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['small_icon', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
-                               'aggression', 'crafting_ability', 'card_image', 'board_image'] + bottom_fields
+        fields = top_fields + ['color', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
+                               'aggression', 'crafting_ability', 'small_icon', 'card_image', 'board_image'] + bottom_fields
 
     def clean_reach_and_type(self, cleaned_data):
         reach = cleaned_data.get('reach')
@@ -707,7 +716,7 @@ class PieceForm(forms.ModelForm):
         
         return quantity
 
-class StableConfirmForm(forms.Form):
+class StatusConfirmForm(forms.Form):
     # This form doesn't need any fields, just the submit button
     pass
 

@@ -1,0 +1,17 @@
+{% if related_posts %}
+<article class="media content-section">
+    <div class="media-body">
+        <h2>Related</h2>
+{% for related in related_posts %}
+    <div>
+        <a href="{{ related.get_absolute_url }}">
+            <img class="lg-faction-icon mr-2" src="{{ related.picture.url }}">
+            {{ related.title }} -
+            {% if related.official %}Official{% else %}Fan Made{% endif %}
+            {{ related.component }}
+        </a>
+    </div>
+{% endfor %}
+    </div>
+</article>
+{% endif %}

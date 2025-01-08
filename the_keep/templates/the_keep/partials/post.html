@@ -3,9 +3,25 @@
 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
 <a href="{{ object.get_absolute_url }}" class="media-body">
    
-    <div class="article-metadata">
+    <div class="article-metadata d-flex flex-wrap justify-content-between">
+        <div>
         {{ object.designer.name }}
         <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
+        </div>
+        <div>
+        {% if object.status == '1' %}
+            <i class="bi bi-check-circle-fill text-success"></i>
+        {% elif object.status == '2' %}
+            <i class="bi bi-play-circle-fill text-primary"></i>
+        {% elif object.status == '3' %}
+            <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
+        {% elif object.status == '4' %}
+            <i class="bi bi-pause-circle-fill text-secondary"></i>
+        {% else %}
+            <i class="bi bi-x-circle-fill text-dark"></i>
+        {% endif %}
+    </div>
+
     </div>
         {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
         <h2>{{ object.title }}</h2>

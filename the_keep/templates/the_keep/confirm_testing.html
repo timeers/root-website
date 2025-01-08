@@ -1,0 +1,19 @@
+{% extends 'the_keep/base.html' %}
+{% block title %} - Testing{% endblock %}
+{% block content %}
+<article class="content-section">
+<h1>Ready for Testing?</h1>
+<div>
+By marking {{ post.title }} as "Testing" you convey to other users that you are testing and fine tuning this {{ post.component }}, you can always undo this later.
+</div>
+<div>
+    If you have started testing, click "Yes!"
+</div>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn btn-success" type="submit">Yes!</button>
+    <a href="{{ post.get_absolute_url }}" class="btn btn-secondary">Not yet...</a href="{{ post.get_absolute_url }}">
+</form>
+</article>
+{% endblock content %}

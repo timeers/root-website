@@ -325,7 +325,7 @@ class GameCreateForm(forms.ModelForm):
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
     score = forms.IntegerField(
-        widget=forms.NumberInput(attrs={'type': 'number', 'min': 0, 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'min': 0, 'step': 1}),
         required=False 
     )
     class Meta:
@@ -386,22 +386,22 @@ class TurnScoreCreateForm(forms.ModelForm):
         fields = ['id', 'turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points', 'dominance']
     faction_points = forms.IntegerField(
         required=False, 
-        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'step': 1}),
         initial=0
         )
     crafting_points = forms.IntegerField(
-        required=False,
-        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        required=False, 
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'step': 1}),
         initial=0
         )
     battle_points = forms.IntegerField(
         required=False, 
-        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'step': 1}),
         initial=0
         )
     other_points = forms.IntegerField(
         required=False, 
-        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'step': 1}),
         initial=0
         )
     # Custom validation for turn_number field

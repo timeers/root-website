@@ -536,9 +536,9 @@ class Faction(Post):
 
     def save(self, *args, **kwargs):
         
-        if not self.card_image:  # Only set if it's not already defined
-            if self.reach != 0:
-                self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
+        # if not self.card_image:  # Only set if it's not already defined
+        #     if self.reach != 0:
+        #         self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_images/default_faction_icon.png'
         if not self.picture or self.picture == 'default_images/animals/default_animal.png': #Update animal if default was previously used.
@@ -681,20 +681,23 @@ class Hireling(Post):
         # Call the parent class's save() method (this saves self to the database)
         super().save(*args, **kwargs)
 
-        # Handle the reverse relationship for other_side
-        if self.other_side:
-            other_side = self.other_side
-            if other_side.other_side != self:
-                other_side.other_side = self
-                other_side.save()  # Save the other side to ensure consistency
+        # # Handle the reverse relationship for `other_side` before saving
+        # if self.other_side:
+        #     other_side = self.other_side
+
+        #     # First, we need to check if the `other_side` already has a reverse relationship to `self`
+        #     if other_side.other_side == self:
+        #         # Clear the reverse relationship if it exists
+        #         other_side.other_side = None
+        #         other_side.save()  # Save to ensure consistency
+
+        #     # Now, set the reverse relationship from the other side to this hireling
+        #     other_side.other_side = self
+        #     other_side.save()  # Save the other side to ensure consistency
 
         return self
 
         # super().save(*args, **kwargs)  # Call the parent save method
-
-
-    # def get_absolute_url(self):
-    #     return reverse('hireling-detail', kwargs={'slug': self.slug})
 
     def stable_check(self):
         plays = self.get_plays_queryset()

@@ -12,9 +12,27 @@
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            <fieldset class="form-group">
-                <legend class="border-bottom mb-4">{{ form.form_type }}</legend>
-                <small>Post your {{ form.form_type }} here. Required fields are marked with * and each post must have a link to a BGG post, Woodland Warriors or Weird Root Thread, PNP Files or TTS Mod.</small>
+            <fieldset class="form-group">                
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <legend class="border-bottom mb-4">{{ form.form_type }}</legend>
+                    <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                        <i class="bi bi-info-circle"></i>
+                    </button>
+                </div>   
+                    
+                    
+                <div class="collapse" id="collapseRegister">
+                    <!-- <div class="card card-body">    -->
+                            <div id="form-info" class="mb-2">
+                                <small>Post your {{ form.form_type }} here. Required fields are marked with an *. Each post must have a link to a BGG post, Woodland Warriors or Weird Root Thread, PNP Files or TTS Mod.</small>
+                            </div>        
+                    <!-- </div> -->
+                </div>
+
+                
+                
+
+                
                 {{ form | crispy }}
             </fieldset>
 

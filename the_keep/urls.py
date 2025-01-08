@@ -20,6 +20,7 @@ from .views import (
     ultimate_component_view,
 
     confirm_stable,
+    confirm_testing,
     pin_asset,
 )
 from . import views
@@ -70,6 +71,7 @@ urlpatterns = [
 
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
     path("post/<slug:slug>/stable/", confirm_stable, name='confirm-stable'),
+    path("post/<slug:slug>/testing/", confirm_testing, name='confirm-testing'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),
