@@ -138,8 +138,9 @@ class PostCreateForm(forms.ModelForm):
 
         self.fields['designer'].label = "Designer (Admin Only)"
         # Hide the designer field for non-admin users
-        if not user.profile.admin:
-            self.fields.pop('designer', None)  # Remove designer field entirely
+        # Hiding the designer field for all users
+        # if not user.profile.admin:
+        self.fields.pop('designer', None)  # Remove designer field entirely
 
         # Check if the post has any related plays and adjust the status choices accordingly
         if post_instance and post_instance.plays() > 0:
@@ -413,7 +414,6 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief explanation on how to use this Hireling...'
             })
-        print(designer)
         self.fields['other_side'].queryset = self.fields['other_side'].queryset.filter(designer=designer, status__lte=designer.view_status)
         if instance:
             # Exclude the current instance from the queryset

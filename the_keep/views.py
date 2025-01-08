@@ -314,34 +314,58 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         post = self.get_object()
         name = post.title
         detail_view = f'{post.component.lower()}-detail'
+
+        component_mapping = {
+                "Map": Map,
+                "Deck": Deck,
+                "Landmark": Landmark,
+                "Tweak": Tweak,
+                "Hireling": Hireling,
+                "Vagabond": Vagabond,
+                "Faction": Faction,
+                "Clockwork": Faction,
+            }
+        Klass = component_mapping.get(post.component)
+        object = get_object_or_404(Klass, slug=post.slug)
+
         try:
             # # Attempt to delete the post
             # response = self.delete(request, *args, **kwargs)
             # # Add success message upon successful deletion
             # messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
             # return response
+            games = object.get_games_queryset()
+            if not games.exists():
+                # Abandon the post without deleting
+                post.status = 5  # Set the status to abandoned
+                rand_int = random.randint(100, 999)
+                post.title = f'Deleted {post.component}-{rand_int}'
+                if post.component == 'Hireling':
+                    hireling = Hireling.objects.get(slug=post.slug)
+                    if hireling.other_side:
+                        other_side = hireling.other_side
+                        other_side.other_side = None
+                        hireling.other_side = None
+                        other_side.save()
+                        hireling.save()
 
-            # Abandon the post without deleting
-            post.status = 5  # Set the status to abandoned
-            rand_int = random.randint(100, 999)
-            post.title = f'Deleted {post.component}-{rand_int}'
-            if post.component == 'Hireling':
-                hireling = Hireling.objects.get(slug=post.slug)
-                if hireling.other_side:
-                    other_side = hireling.other_side
-                    other_side.other_side = None
-                    hireling.other_side = None
-                    other_side.save()
-                    hireling.save()
+                post.save()
+                messages.success(request, f'The {post.component} "{name}" was successfully deleted.')
+                return redirect('keep-home')
+            else:
+                # Do not delete posts with games recorded.
+                post.status = 4  # Set the status to inactive
+                post.save()
+                messages.error(request, f'The {post.component} "{name}"" cannot be deleted because it has been used in a game. Status has been set to "Inactive".')
+                # Redirect back to the post detail page
+                return redirect(detail_view, post.slug)
+            
 
-            post.save()
-            messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
-            return redirect('keep-home')
         except ProtectedError:
             # Handle the case where the deletion fails due to foreign key protection
             messages.error(request, f"The {post.component} '{name}' cannot be deleted because it has been used in a game.")
             # Redirect back to the post detail page
-            return redirect(detail_view, post.slug)  # Make sure `post.get_absolute_url()` is correct
+            return redirect(detail_view, post.slug)
         except IntegrityError:
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")

@@ -6,9 +6,23 @@
     <div>
         <a href="{{ related.get_absolute_url }}">
             <img class="lg-faction-icon mr-2" src="{{ related.picture.url }}">
-            {{ related.title }} -
+            {{ related.title }}
+            -
+            {% if related.status == '1' %}
+                <i class="bi bi-check-circle-fill text-success"></i>
+            {% elif related.status == '2' %}
+                <i class="bi bi-play-circle-fill text-primary"></i>
+            {% elif related.status == '3' %}
+                <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
+            {% elif related.status == '4' %}
+                <i class="bi bi-pause-circle-fill text-secondary"></i>
+            {% else %}
+                <i class="bi bi-x-circle-fill text-dark"></i>
+            {% endif %}
             {% if related.official %}Official{% else %}Fan Made{% endif %}
             {{ related.component }}
+
+            by {{ related.designer.display_name }}
         </a>
     </div>
 {% endfor %}

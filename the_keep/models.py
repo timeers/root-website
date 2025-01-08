@@ -117,6 +117,8 @@ class Post(models.Model):
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
     board_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_image = models.ImageField(upload_to='cards', null=True, blank=True)
+    board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
+    card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
 
     objects = PostManager()
