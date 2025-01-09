@@ -119,31 +119,31 @@ class GameAdmin(admin.ModelAdmin):
                 vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
                 faction_instance = Faction.objects.filter(title=faction).first()
 
-                season_name = fields[23].strip()
-                match = re.findall(r'\d+', fields[23])
+                # season_name = fields[23].strip()
+                # match = re.findall(r'\d+', fields[23])
                 
 
                 date_obj = datetime.strptime(fields[0], '%m/%d/%Y %H:%M:%S')
 
-                if season_name:
-                    if match:
-                        # Join all found digits, then take the last two digits
-                        digits = ''.join(match)[-2:]
-                        season_number = int(digits)
-                    else:
-                        # Handle the case where no digits are found (if necessary)
-                        season_number = 0 
-                    # season_instance = Round.objects.get(name=season_name)
-                    try:
-                        season_instance = Round.objects.get(name=season_name)
-                    except:
-                        try:
-                            digital_league = Tournament.objects.get(name="Root Digital League", start_date=date_obj)
-                        except:
-                            digital_league = Tournament.objects.create(name="Root Digital League")
-                        season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
-                else:
-                    season_instance = None
+                # if season_name:
+                #     if match:
+                #         # Join all found digits, then take the last two digits
+                #         digits = ''.join(match)[-2:]
+                #         season_number = int(digits)
+                #     else:
+                #         # Handle the case where no digits are found (if necessary)
+                #         season_number = 0 
+                #     # season_instance = Round.objects.get(name=season_name)
+                #     try:
+                #         season_instance = Round.objects.get(name=season_name)
+                #     except:
+                #         try:
+                #             digital_league = Tournament.objects.get(name="Root Digital League", start_date=date_obj)
+                #         except:
+                #             digital_league = Tournament.objects.create(name="Root Digital League")
+                #         season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
+                # else:
+                #     season_instance = None
 
 
 
@@ -158,7 +158,7 @@ class GameAdmin(admin.ModelAdmin):
                     'link': fields[22],
                     'platform': 'Root Digital',
                     'official': True,
-                    'round': season_instance,
+                    # 'round': season_instance,
                     'final': True,
                     # 'league': True,
                 }
