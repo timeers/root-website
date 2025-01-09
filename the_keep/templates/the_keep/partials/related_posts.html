@@ -3,7 +3,7 @@
     <div class="media-body">
         <h2>Related</h2>
 {% for related in related_posts %}
-    <div>
+    <div class="d-flex justify-content-between align-items-top">
         <a href="{{ related.get_absolute_url }}">
             <img class="lg-faction-icon mr-2" src="{{ related.picture.url }}">
             {{ related.title }}

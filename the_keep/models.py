@@ -180,9 +180,18 @@ class Post(models.Model):
 
 
         super().save(*args, **kwargs)
-        resize_image(self.small_icon, 40)  # Resize small_icon
+        # if self.small_icon:
+        resize_image(self.small_icon, 40)
+        # if self.board_image:
         resize_image(self.board_image, 950)  # Resize board_image
+        # if self.board_2_image:
+        resize_image(self.board_image, 950)  # Resize board_image
+        # if self.card_image:
         resize_image(self.card_image, 350)  # Resize card_image
+        # if self.card_2_image:
+        resize_image(self.card_image, 350)  # Resize card_image
+        # if self.picture:
+        resize_image(self.picture, 350)
 
     def _delete_old_image(self, old_image):
         """Helper method to delete old image if it exists."""
@@ -194,30 +203,30 @@ class Post(models.Model):
             print(f"Default image saved: {old_image}")
 
 
-    # def _resize_image(self, image_field, max_size):
-    #     """Helper method to resize the image if necessary."""
-    #     try:
-    #         if image_field and os.path.exists(image_field.path):  # Check if the image exists
-    #             img = Image.open(image_field.path)
+    def _resize_image(self, image_field, max_size):
+        """Helper method to resize the image if necessary."""
+        try:
+            if image_field and os.path.exists(image_field.path):  # Check if the image exists
+                img = Image.open(image_field.path)
 
-    #             # Resize if the image is larger than the max_size
-    #             if img.height > max_size or img.width > max_size:
-    #                 # Calculate the new size while maintaining the aspect ratio
-    #                 if img.width > img.height:
-    #                     ratio = max_size / img.width
-    #                     new_size = (max_size, int(img.height * ratio))
-    #                 else:
-    #                     ratio = max_size / img.height
-    #                     new_size = (int(img.width * ratio), max_size)
+                # Resize if the image is larger than the max_size
+                if img.height > max_size or img.width > max_size:
+                    # Calculate the new size while maintaining the aspect ratio
+                    if img.width > img.height:
+                        ratio = max_size / img.width
+                        new_size = (max_size, int(img.height * ratio))
+                    else:
+                        ratio = max_size / img.height
+                        new_size = (int(img.width * ratio), max_size)
 
-    #                 # Resize image and save
-    #                 img = img.resize(new_size, Image.LANCZOS)
-    #                 img.save(image_field.path)
-    #                 print(f'Resized image saved at: {image_field.path}')
-    #             else:
-    #                 print(f'Original image saved at: {image_field.path}')
-    #     except Exception as e:
-    #         print(f"Error resizing image: {e}")
+                    # Resize image and save
+                    img = img.resize(new_size, Image.LANCZOS)
+                    img.save(image_field.path)
+                    print(f'Resized image saved at: {image_field.path}')
+                else:
+                    print(f'Original image saved at: {image_field.path}')
+        except Exception as e:
+            print(f"Error resizing image: {e}")
 
     def get_absolute_url(self):
         match self.component:
@@ -687,15 +696,20 @@ class Hireling(Post):
         # if self.other_side:
         #     other_side = self.other_side
 
-        #     # First, we need to check if the `other_side` already has a reverse relationship to `self`
+        #     # Check if the other side already has a reverse relationship to this object
         #     if other_side.other_side == self:
-        #         # Clear the reverse relationship if it exists
+        #         # If it does, clear the reverse relationship first
         #         other_side.other_side = None
-        #         other_side.save()  # Save to ensure consistency
+        #         other_side.save()  # Save the other side to ensure consistency
 
-        #     # Now, set the reverse relationship from the other side to this hireling
+        #     # Now, set the reverse relationship from the other side
         #     other_side.other_side = self
         #     other_side.save()  # Save the other side to ensure consistency
+
+        #     # Also ensure the current object (self) doesn't have any conflicting `other_side`
+        #     if self != other_side:
+        #         self.other_side = other_side
+        #         self.save()
 
         return self
 
