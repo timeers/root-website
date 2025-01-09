@@ -4,9 +4,14 @@
 
 <div class="chart-container">
     <div class="chart">
-
-    <h1>Points per Turn</h1>
-
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>Points per Turn</h1>
+            {% if user.profile == object.recorder %}
+                <div>
+                    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
+                </div>
+            {% endif %}
+        </div>
     <article class="media content-section">
         <div class="media-body">
 
@@ -34,11 +39,7 @@
     <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
 </div>
 
-{% if user.profile == object.recorder %}
-<div>
-    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
-</div>
-    {% endif %}
+
 
 </div>
 
