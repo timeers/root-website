@@ -62,19 +62,19 @@ class GameListView(ListView):
         
         if self.request.user.is_authenticated:
             if self.request.user.profile.weird:
-                queryset = Game.objects.all().prefetch_related(
+                queryset = Game.objects.filter(final=True).prefetch_related(
                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
                     )
                 # queryset = super().get_queryset()
             else:
-                queryset = Game.objects.filter(official=True).prefetch_related(
+                queryset = Game.objects.filter(official=True, final=True).prefetch_related(
                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
                     )
                 # queryset = super().get_queryset().only_official_components()
         else:
-            queryset = Game.objects.all().prefetch_related(
+            queryset = Game.objects.filter(final=True).prefetch_related(
                 'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
                 'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
                 )
@@ -420,6 +420,8 @@ def scorecard_manage_view(request, id=None):
     faction = request.GET.get('faction', None)
     # print(faction)
     effort_id = request.GET.get('effort', None)
+    next_scorecard = None
+    previous_scorecard = None
     try:
         effort = Effort.objects.get(id=effort_id)
 
@@ -447,6 +449,27 @@ def scorecard_manage_view(request, id=None):
         if obj.effort != None:
             effort = obj.effort
         existing_scorecard = True
+
+
+        if not obj.effort:
+            # Filter scorecards by category (or order) to group them together
+            grouped_scorecards = ScoreCard.objects.filter(
+                game_group=obj.game_group, effort=None, recorder=request.user.profile
+                ).order_by('date_posted')
+
+            scorecard_list = list(grouped_scorecards)
+            current_index = scorecard_list.index(obj)
+
+            # Get the next and previous scorecards
+            next_scorecard = scorecard_list[(current_index + 1) % len(scorecard_list)]
+            previous_scorecard = scorecard_list[(current_index - 1) % len(scorecard_list)]
+            # Set next and previous to None if they are the same as the current scorecard
+            if next_scorecard == obj:
+                next_scorecard = None
+            if previous_scorecard == obj:
+                previous_scorecard = None
+
+
     else:
         obj = ScoreCard()  # Create a new ScoreCard instance but do not save it yet
     user = request.user
@@ -459,7 +482,7 @@ def scorecard_manage_view(request, id=None):
         extra_forms = 0
     else:
         existing_count = 0  # New game has no existing turns
-        extra_forms = 4
+        extra_forms = 1
     TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms)
     qs = obj.turns.all() if id else TurnScore.objects.none()  # Only fetch existing turns if updating
     formset = TurnFormset(request.POST or None, queryset=qs)
@@ -478,6 +501,8 @@ def scorecard_manage_view(request, id=None):
         'form_count': form_count,
         'faction': faction,
         'score': score,
+        'next_scorecard': next_scorecard,
+        'previous_scorecard': previous_scorecard,
     }
 
 
@@ -533,6 +558,16 @@ def scorecard_manage_view(request, id=None):
             child.scorecard = parent  # Link the turn to the game
             child.save()
 
+        # Check if the "next" button was clicked
+        if request.POST.get('next'):
+            # Redirect to the update page of the next scorecard
+            return redirect('update-scorecard', next_scorecard.id)
+        # Check if the "previous" button was clicked
+        if request.POST.get('previous'):
+            # Redirect to the update page of the next scorecard
+            return redirect('update-scorecard', previous_scorecard.id)
+
+
         context['message'] = "Scores Saved"
         return redirect(parent.get_absolute_url())
     
@@ -546,9 +581,33 @@ def scorecard_detail_view(request, id=None):
         obj = ScoreCard.objects.get(id=id)
     except ObjectDoesNotExist:
         obj = None
+
+    next_scorecard = None   
+    previous_scorecard = None
+    if not obj.effort:
+        # Filter scorecards by category (or order) to group them together
+        grouped_scorecards = ScoreCard.objects.filter(
+            game_group=obj.game_group, effort=None, recorder=request.user.profile
+            ).order_by('date_posted')
+
+        scorecard_list = list(grouped_scorecards)
+        current_index = scorecard_list.index(obj)
+
+        # Get the next and previous scorecards
+        next_scorecard = scorecard_list[(current_index + 1) % len(scorecard_list)]
+        previous_scorecard = scorecard_list[(current_index - 1) % len(scorecard_list)]
+        # Set next and previous to None if they are the same as the current scorecard
+        if next_scorecard == obj:
+            next_scorecard = None
+        if previous_scorecard == obj:
+            previous_scorecard = None
+
     context=  {
         'object': obj,
+        'previous_scorecard': previous_scorecard,
+        'next_scorecard': next_scorecard,
     }
+
     return render(request, "the_warroom/score_detail.html", context)
 
 
@@ -602,7 +661,7 @@ def effort_assign_view(request, id):
                 Q(game__efforts__player=request.user.profile) |  # Player is linked to the game
                 Q(game__recorder=request.user.profile),  # Recorder is the current user
                 scorecard=None, faction=scorecard.faction,
-                score=scorecard.total_points  # Effort has no associated scorecard
+                score=scorecard.total_points, game__final=True  # Effort has no associated scorecard
             ).prefetch_related(
                 'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
                 'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
@@ -679,8 +738,8 @@ def scorecard_list_view(request):
     # QuerySets
     unassigned_scorecards = all_scorecards.filter(effort=None)
     unassigned_count = unassigned_scorecards.count()
-    if unassigned_count > 10:
-        unassigned_scorecards = unassigned_scorecards[:10]
+    # if unassigned_count > 10:
+    #     unassigned_scorecards = unassigned_scorecards[:10]
     complete_scorecards = all_scorecards.exclude(effort=None).prefetch_related(
         'effort__game', 'effort__player', 'effort__faction')
 

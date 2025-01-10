@@ -55,7 +55,7 @@
                 <th>Player</th>
                 <th>Faction</th>
                 <th>Score</th>
-                {% if user.profile.tester %}
+                {% if user.profile.tester and game.final %}
                     <th>Detail</th>
                 {% endif %}
                 {% if user.profile.admin  %}

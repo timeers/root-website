@@ -50,7 +50,7 @@
     {% endif %}
 
 </td>
-{% if user.profile.tester %}
+{% if user.profile.tester and game.final %}
 <td>   
     {% if effort.scorecard %}
         <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-three-dots"></i></a>

@@ -10,19 +10,20 @@
 <h1>Unassigned Scorecards ({{ unassigned_count }})</h1>
 These scorecards have not been linked with a game:
 
-
+<article class="media content-section">
+    <div class="media-body">
 <table>
     <thead>
         <tr>
             <th>Faction</th>
             <th>Points</th>
-            <th>Turns</th>
-            <th>Note</th>
-            <th>Actions</th> <!-- Added an Actions column for the buttons -->
+            <th>Turn</th>
+            <th>Game</th>
+            <th>Actions</th>
        
         </tr>
     </thead>
-    <tbody class="scorecard-rows">
+    <tbody class="effort-rows">
         {% for object in unassigned_scorecards %}
         <tr>
             <td>
@@ -36,15 +37,7 @@ These scorecards have not been linked with a game:
             </td>
 
             <td>
-                {% if object.description %}
-                    {% if object.description|length > 30 %}
-                        {{ object.description|slice:":30" }}...
-                    {% else %}
-                        {{ object.description }}
-                    {% endif %}
-                {% else %}
-                    None
-                {% endif %}
+                {{ object.game_group }}
             </td>
             <td>
                 <a class="btn btn-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
@@ -56,26 +49,15 @@ These scorecards have not been linked with a game:
                 <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'detail-scorecard' object.id %}">
                     <i class="bi bi-info-circle"></i>
                 </a>
-                {% if object.efforts_available %}
-                <a class="btn btn-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
-                    <i class="bi bi-link"></i>
-                </a>
-            {% endif %}
             </td>
         </tr>
 
         {% endfor %}
 
-        {% if unassigned_count > 10 %}
-        <tr>
-            <td colspan="6">
-                + Assign or Delete Unassigned Scorecards for more
-            </td>
-        </tr>
-        {% endif %}
     </tbody>
 </table>
-
+</div>
+</article>
 {% endif %}
 
 
@@ -95,7 +77,8 @@ These scorecards have not been linked with a game:
 </div>
 <small>*Based on the data you've recorded. Data for your plays can be found in the profile stats tab.</small>
 </div>
-
+<article class="media content-section">
+    <div class="media-body">
 <table>
     <thead>
         <tr>
@@ -107,14 +90,15 @@ These scorecards have not been linked with a game:
             <th>Actions</th> <!-- Added an Actions column for the buttons -->
         </tr>
     </thead>
-    <tbody class="scorecard-rows">
+    <tbody class="effort-rows">
 
 
         {% include 'the_warroom/partials/scorecard_list_partial.html' %}
 
 </tbody>
 </table>
-
+</div>
+</article>
 {% else %}
     You have not recorded any scorecards
 {% endif %}

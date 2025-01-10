@@ -76,7 +76,7 @@
             {% endif %}
 
 
-            <p>Status: 
+            <div>
                 {% if object.status == '1' %}
                     <span class="text-success">{{ object.get_status_display }}</span>
                     <i class="bi bi-check-circle-fill text-success"></i>
@@ -93,7 +93,7 @@
                     <span class="text-dark">{{ object.get_status_display }}</span>
                     <i class="bi bi-x-circle-fill text-dark"></i>
                 {% endif %}
-            </p>
+            </div>
 
 
 

@@ -437,11 +437,11 @@ class TurnScoreCreateForm(forms.ModelForm):
 class ScoreCardCreateForm(forms.ModelForm):
     class Meta:
         model = ScoreCard
-        fields = ['faction', 'description']
+        fields = ['faction', 'description', 'game_group']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
+            'game_group': forms.TextInput(attrs={'placeholder': 'To distinguish games'}),
         }
-
     def __init__(self, *args, user=None, faction=None, **kwargs):
         # Call the parent constructor
         super(ScoreCardCreateForm, self).__init__(*args, **kwargs)

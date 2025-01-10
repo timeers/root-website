@@ -2,52 +2,82 @@
 {% block title %} - Scorecard{% endblock %}
 {% block content %}
 
+
+
+<div style="display: flex; align-items: center;">
+    {% if object.effort %}
+    <a href="{{ object.effort.game.get_absolute_url }}">Game </a>
+    <i class="bi bi-chevron-right"></i>
+    {% else %}
+    <a href="{% url 'list-scorecard' %}">Scorecards </a>
+    <i class="bi bi-chevron-right"></i>
+    {% endif %}
+
+     {{ object.faction }}
+
+</div>
+
+
+
+
+
 <div class="chart-container">
     <div class="chart">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1>Points per Turn</h1>
             {% if user.profile == object.recorder %}
-                <div>
-                    <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %} "><i class="bi bi-pencil-square"></i></a>
+                <div class='d-flex'>
+                    {% if object.efforts_available %}
+                        <a class="btn btn-success btn-sm ml-1 ms-1 mb-1 mr-1" href="{% url 'assign-effort' object.id %}">
+                            <i class="bi bi-link"></i>
+                        </a>
+                    {% endif %}
+
+                    <div>
+                        <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %}"><i class="bi bi-pencil-square"></i></a>
+                    </div>
                 </div>
             {% endif %}
         </div>
     <article class="media content-section">
         <div class="media-body">
 
-{% if object.effort %}
+        {% if object.effort %}
 
-    <div>
-    <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game.type }} {{ object.effort.game.platform }} Game</a> 
-    </div>
-    {% if object.effort.player %}
-    <div>
-        Player: <a href="{% url 'player-detail' object.effort.player.slug %}">{{ object.effort.player.name }}</a>
-    </div>
-    {% endif %}
-{% endif %}
-<div>
-    <a href="{% url 'faction-detail' object.faction.slug %}">{{ object.faction }}</a> - {{ object.turns.count }} Turns
-</div>
-<small>
-    Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
-</small>
+            <div>
+            <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game.type }} {{ object.effort.game.platform }} Game</a> 
+            </div>
+            {% if object.effort.player %}
+            <div>
+                Player: <a href="{% url 'player-detail' object.effort.player.slug %}">{{ object.effort.player.name }}</a>
+            </div>
+            {% endif %}
+        {% endif %}
+        <div>
+            <a href="{% url 'faction-detail' object.faction.slug %}">{{ object.faction }}</a> - {{ object.turns.count }} Turns
+        </div>
+        <small>
+            Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
+        </small>
         </div>
     </article>
 </div>  
-<div class="chart" id="pieChartContainer">
-    <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
-</div>
-
-
-
-</div>
-
-<div class="chart-container" id="lineChartContainer">
-    <div class="chart">
-        <canvas id="scorecardChart"></canvas>  <!-- Line Chart -->
+{% if object.effort %}
+    <div class="chart" id="pieChartContainer">
+        <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
     </div>
-</div>
+
+    </div>
+
+    <div class="chart-container" id="lineChartContainer">
+        <div class="chart">
+            <canvas id="scorecardChart"></canvas>  <!-- Line Chart -->
+        </div>
+    </div>
+{% else %}
+    </div>
+{% endif %}
+
 <article class="media content-section">
     <div class="media-body">
 

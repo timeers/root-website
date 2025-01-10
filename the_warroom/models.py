@@ -415,6 +415,7 @@ class ScoreCard(models.Model):
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
+    game_group = models.CharField(max_length=100, null=True, blank=True)
 
     total_points = models.IntegerField(default=0)
     total_battle_points = models.IntegerField(default=0)
@@ -424,6 +425,8 @@ class ScoreCard(models.Model):
     dominance = models.BooleanField(default=False)
 
     def efforts_available(self):
+        if self.effort:
+            return False
         
         if self.dominance:
             # If self.dominance is True, filter for efforts where dominance is not null
@@ -452,18 +455,12 @@ class ScoreCard(models.Model):
 
     
     def __str__(self):
-        if self.description:
-            if len(self.description) > 10:
-                description = f'{self.description[:10]}...'
-            else:
-                description = self.description
-        else:
-            description = 'No Note'
-        return f"{self.turns.count()} Turn - {self.total_points} Point Game - {self.date_posted.strftime('%Y-%m-%d')} - {description}"
+        return f"{self.faction} - {self.total_points} points"
+    
     def get_absolute_url(self):
         return reverse("detail-scorecard", kwargs={"id": self.id})
     class Meta:
-        ordering = ['-date_posted']  
+        ordering = ['-date_posted']
 
 class TurnScore(models.Model):
     scorecard = models.ForeignKey(ScoreCard, related_name='turns', on_delete=models.CASCADE, null=True, blank=True)
