@@ -5,13 +5,10 @@
 
 
 <div style="display: flex; align-items: center;">
-    {% if object.effort %}
-    <a href="{{ object.effort.game.get_absolute_url }}">Game </a>
-    <i class="bi bi-chevron-right"></i>
-    {% else %}
+
     <a href="{% url 'list-scorecard' %}">Scorecards </a>
     <i class="bi bi-chevron-right"></i>
-    {% endif %}
+
 
      {{ object.faction }}
 

@@ -1,20 +1,20 @@
 {% for object in complete_scorecards %}
 
     {% if forloop.last and complete_scorecards.has_next %}
-    <tr id="load-more-row" hx-get="{% url 'list-scorecard' %}?page={{ complete_scorecards.number|add:1 }}"
+    <tr data-href="{{ object.get_absolute_url }}" id="load-more-row" hx-get="{% url 'list-scorecard' %}?page={{ complete_scorecards.number|add:1 }}"
     hx-trigger="revealed" 
     hx-target="this" 
     hx-swap="afterend">
             <!-- hx-include="#gamefilterform"> -->
     {% else %}
-        <tr>
+        <tr data-href="{{ object.get_absolute_url }}">
     {% endif %}
 
 
 
  
         <td>
-            <a href="{% url 'faction-detail' object.faction.slug %}">{{  object.faction }}</a>
+            {{  object.faction }}
         </td>
         <td>
             {{ object.total_points }}
@@ -25,22 +25,13 @@
 
         <td>
             {% if object.effort.player %}
-                <a href="{% url 'player-detail' object.effort.player.slug %}">{{  object.effort.player.name }}</a>
+                {{  object.effort.player.name }}
             {% else %}
                 No Player
             {% endif %}
         </td>
 
-        <td>
 
-            <a class="btn btn-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}">
-                <i class="bi bi-pencil-square"></i>
-            </a>
-
-            <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">
-                <i class="bi bi-info-circle"></i>
-            </a>
-        </td>
 </tr>
 
 {% empty %}
