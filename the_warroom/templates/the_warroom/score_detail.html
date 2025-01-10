@@ -32,9 +32,19 @@
                             <i class="bi bi-link"></i>
                         </a>
                     {% endif %}
+                    <div class='d-flex'>
+                        {% if object.effort %}
 
-                    <div>
-                        <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' object.id %}"><i class="bi bi-pencil-square"></i></a>
+                            <div>
+                            <a class="btn btn-primary btn-sm" href="{% url 'game-detail' object.effort.game.id %}">View Game</a>
+
+                            </div>
+
+                        {% endif %}
+
+                        <div>
+                            <a class="btn btn-warning btn-sm ml-1" href="{% url 'update-scorecard' object.id %}"><i class="bi bi-pencil-square"></i></a>
+                        </div>
                     </div>
                 </div>
             {% endif %}
@@ -44,9 +54,6 @@
 
         {% if object.effort %}
 
-            <div>
-            <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game.type }} {{ object.effort.game.platform }} Game</a> 
-            </div>
             {% if object.effort.player %}
             <div>
                 Player: <a href="{% url 'player-detail' object.effort.player.slug %}">{{ object.effort.player.name }}</a>
@@ -97,6 +104,14 @@ const scorecardId = "{{ object.id }}";  // Replace with actual scorecard ID
 const factionSlug = "{{ object.faction.slug }}";  // Replace with actual faction slug
 const scorecardEndpoint = `/api/scorecard/detail/${scorecardId}/`;  // API endpoint for the scorecard data
 const factionEndpoint = `/api/scorecard/faction/${factionSlug}/`;  // API endpoint for the faction average data
+
+
+// Check if the element with id 'scorecardChart' exists before making the API calls
+const scorecardChartElement = document.getElementById('scorecardChart');
+if (!scorecardChartElement) {
+    // If the element doesn't exist, exit the function early and prevent the API calls
+    console.log('No Chart Found');
+} else {
 
 // Fetch both data endpoints in parallel using Promise.all
 Promise.all([
@@ -269,7 +284,7 @@ Promise.all([
     .catch(error => {
         console.error('Error fetching data:', error);
     });
-
+}
 
 </script>
 {% endblock scripts %}

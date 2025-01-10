@@ -4,10 +4,20 @@
 {% block content %}
 
 {% if in_progress %}
-<h1>{{user.profile.name}}'s In Progress Games ({{ in_progress.count }})</h1>
-    {% for game in in_progress %}
-        {% include 'the_warroom/partials/game_detail_button.html' %}
-    {% endfor %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>In Progress Games ({{ in_progress.count }})</h2>
+        <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+            <i class="bi bi-info-circle"></i>
+        </button>
+    </div>   
+    
+    
+    <div class="collapse" id="collapseRegister">
+        {% for game in in_progress %}
+            {% include 'the_warroom/partials/game_detail_button.html' %}
+        {% endfor %}
+    </div>
+
 {% endif %}
 
 <article class="media content-section">
