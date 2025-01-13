@@ -20,6 +20,7 @@ media/faction_boards/
 media/faction_icons/
 media/profile_pics/
 media/small_component_icons/
+media/cards/
 
 # Django stuff:
 *.log
