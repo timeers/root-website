@@ -387,8 +387,8 @@ class TurnScoreCreateForm(forms.ModelForm):
     faction_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
-            'inputmode': 'numeric',  # Suggests numeric keypad
-            'step': '1',  # Ensures input is an integer (whole numbers)
+            'type': 'number',
+            'step': 1,  # Ensures input is an integer (whole numbers)
         }),
         initial=0
         )
@@ -399,14 +399,13 @@ class TurnScoreCreateForm(forms.ModelForm):
         )
     battle_points = forms.IntegerField(
         required=False, 
-        widget=forms.NumberInput(attrs={'type': 'text', 'inputmode': 'numeric', 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
         initial=0
         )
     other_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
-            'type': 'text',
-            'inputmode': 'number',
+            'type': 'number',
             'step': 1
         }),
         initial=0
