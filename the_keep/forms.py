@@ -205,9 +205,17 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Map',  # Set the label for the picture field
         required=False
     )
+    card_image = forms.ImageField(
+        label='Card', 
+        required=False
+    )
+    card_2_image = forms.ImageField(
+        label='Card Back', 
+        required=False
+    )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'fixed_clearings', 'board_image', 'based_on'] + bottom_fields
+        fields = top_fields + ['clearings', 'fixed_clearings', 'board_image', 'card_image', 'card_2_image', 'based_on'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated

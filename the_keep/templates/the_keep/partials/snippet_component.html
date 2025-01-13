@@ -1,6 +1,8 @@
 <a href="{% url object.component|lower|add:'-detail' object.slug %}">
 <article class="media content-section">
+<div class="article-img-container">
 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+</div>
 <div class="media-body">
 
    <div class="article">

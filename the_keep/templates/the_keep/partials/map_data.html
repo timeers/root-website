@@ -4,16 +4,24 @@
     <h2>Map Details</h2>
     {{ object.clearings }} Clearings
 
+    {% if object.description %}
+        <h3>Description</h3>
+        <p class="article-content">{{ object.description }}</p>
+    {% endif %}
 
     {% if object.board_image %}
     <div><img class="rounded-corner-img responsive-img" src="{{ object.board_image.url }}"></div>
     {% endif %}
 
-
-    {% if object.description %}
-        <h3>Description</h3>
-        <p class="article-content">{{ object.description }}</p>
+    {% if object.card_image %}
+        <img class="adset-img" src="{{ object.card_image.url }}">
     {% endif %}
+    {% if object.card_2_image %}
+        <img class="adset-img" src="{{ object.card_2_image.url }}">
+    {% endif %}
+
+
+
 
     </div>
 </article>

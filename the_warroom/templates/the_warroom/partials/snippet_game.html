@@ -2,7 +2,9 @@
 <article class="media content-section">
 {% for effort in object.efforts.all %}
         {% if effort.win and not effort.coalition_with %}
+        <div class="article-img-container">
                 <img class="article-img" src="{{ effort.faction.picture.url }}">
+        </div>
         {% endif %}
 {% endfor %}
         <div class="media-body">

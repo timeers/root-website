@@ -1,6 +1,7 @@
 
-
+<div class="article-img-container">
 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+</div>
 <a href="{{ object.get_absolute_url }}" class="media-body">
    
     <div class="article-metadata d-flex flex-wrap justify-content-between">

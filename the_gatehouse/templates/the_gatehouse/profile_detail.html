@@ -4,8 +4,9 @@
 
 {% block content %}
     <div class="media content-section">
-
+        <div class="article-img-container">
             <img class="article-img" src="{{ player.image.url }}">
+        </div>
             <div class="media-body">
                 <h1 class="account-heading">{{ player.name }}</h1>
                 {% if user.profile.player or player == user.profile %}
