@@ -42,7 +42,9 @@
                 {{ form.game_group }}
             </div>
         {% else %}
+        <div class='mt-1 mb-1'>
             Game Nickname: {{ form.game_group }}
+        </div>
         {% endif %}
         </div>
         </div>
@@ -122,21 +124,23 @@
         <h4>Notes:</h4>{{ form.description }}
     </div>
 
-    <button class="btn btn-success mb-2 mt-2" type="submit">Save</button>
+    <button class="btn btn-success mb-1 mt-1" type="submit">Save</button>
     {% if object.id %}
-        <a class="btn btn-secondary mb-2 mt-2" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
-        <a class="btn btn-danger mb-2 mt-2" href="{% url 'delete-scorecard' object.id %}">Delete</a>
+        <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
+        <a class="btn btn-danger mb-1 mt-1" href="{% url 'delete-scorecard' object.id %}">Delete</a>
     {% else %}
-        <a class="btn btn-secondary mb-2 mt-2" href="{% url 'games-home' %}">Cancel</a>
+        <a class="btn btn-secondary mb-1 mt-1" href="{% url 'games-home' %}">Cancel</a>
     {% endif %}
 
     <div>
     {% if previous_scorecard %}
-        <button type="submit" class="btn btn-success mb-2 mt-2 mr-1" name="previous" value="true">Save and Go to {{previous_scorecard.faction}}</button>
+        <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">Save and Go to {{previous_scorecard.faction}}</button>
     {% endif %}
 
     {% if next_scorecard %}
-        <button type="submit" class="btn btn-success mb-2 mt-2 mr-1" name="next" value="true">Save and Go to {{next_scorecard.faction}}</button>
+        <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">Save and Go to {{next_scorecard.faction}}</button>
+    {% else %}
+        <small>Add scorecards with the same nickname to quickly switch between them here<small>
     {% endif %}
     </div>
 

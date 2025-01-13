@@ -15,9 +15,15 @@
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h2>Unassigned Scorecards ({{ unassigned_count }})</h2>
-        <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
-            <i class="bi bi-info-circle"></i>
-        </button>
+    <button class="btn btn-info btn-sm ml-2 ms-2" 
+        type="button" 
+        data-bs-toggle="collapse" 
+        data-bs-target="#collapseRegister" 
+        aria-expanded="false" 
+        aria-controls="collapseRegister" 
+        id="collapseToggleButton">
+    Show
+    </button>
     </div>   
     
     
@@ -41,7 +47,7 @@
                 {% for object in unassigned_scorecards %}
                 <tr data-href="{{ object.get_absolute_url }}">
                     <td>
-                        <a href="{% url 'faction-detail' object.faction.slug %}">{{  object.faction }}</a>
+                        {{  object.faction }}
                     </td>
                     <td>
                         {{ object.total_points }}
@@ -122,9 +128,8 @@
 
     // Check if the element with the ID 'scorecardChart' exists
     const factionChartsElement = document.getElementById('scorecardChart');
-    console.log('Starting')
     if (factionChartsElement) { 
-        console.log("Creating Scorecard Chart")
+        
     // Get the game ID dynamically from the template
     const recorderSlug = "{{ user.profile.slug }}";  // Replace with actual game ID (from Django template)
 
@@ -230,5 +235,19 @@
         return color;
     }
 }
+// Get the collapse element and button
+const collapseElement = document.getElementById('collapseRegister');
+const collapseToggleButton = document.getElementById('collapseToggleButton');
+
+// Add event listeners to the collapse element
+collapseElement.addEventListener('show.bs.collapse', function () {
+    // Change button text to "Hide" when collapse is shown
+    collapseToggleButton.innerHTML = 'Hide';
+});
+
+collapseElement.addEventListener('hide.bs.collapse', function () {
+    // Change button text to "Show" when collapse is hidden
+    collapseToggleButton.innerHTML = 'Show';
+});
 </script>
 {% endblock scripts %}
