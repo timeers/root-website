@@ -6,7 +6,7 @@
     <div class="article-metadata d-flex flex-wrap justify-content-between">
         <div>
         {{ object.designer.name }}
-        <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
+        {% comment %} <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small> {% endcomment %}
         </div>
         <div>
         {% if object.status == '1' %}
