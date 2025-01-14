@@ -41,28 +41,22 @@
 
 
 
-        {% if game.notes %}
-        <div>
-            Notes: {{ game.notes }}
-        </div>
-        {% endif %}
 
+        {% if game.map.board_image %}
+        <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
+        {% endif %}
         {% if game.link %}
         <div>
             <a href="{{ game.link }}">Link to Game Thread</a>
         </div>
         {% endif %}
-        {% if game.recorder %}
-        <div>
-            Recorded by: {{ game.recorder.name }}
-        </div>
-        {% endif %}
+
         <div>
             <canvas id="scorecardChart"></canvas>
           </div>
 
 
-
+{% comment %} 
         {% if user.is_authenticated %}
             {% if user.profile in participants or user.profile == game.recorder %}
                 {% include 'the_tavern/game_comment_form.html' %}
@@ -76,9 +70,17 @@
                 {% include 'the_tavern/comment.html' %}
             {% endfor %}
             </div>
+        {% endif %} {% endcomment %}
+        {% if game.notes %}
+        <div>
+            Notes: {{ game.notes }}
+        </div>
         {% endif %}
-
-
+        {% if game.recorder %}
+        <div>
+            Recorded by: {{ game.recorder.name }}
+        </div>
+        {% endif %}
     </div>
 </article>
 

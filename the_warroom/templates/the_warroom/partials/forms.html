@@ -130,23 +130,4 @@
 
     
 
-    <h5 class="d-inline-flex align-items-center">Register New Player
-        <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
-                <i class="bi bi-chevron-double-down"></i>
-        </button>
-    </h5>
-      <div class="collapse" id="collapseRegister">
-        <div class="card card-body">
-                
-                <div id="player-form-container" style="display: block;">
-                        <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
-                            {% csrf_token %}
-                            {{ player_form.discord.label }}:
-                            {{ player_form.discord }}
-                            <button type="submit" class="btn btn-primary btn-sm">Register Player</button>
-                        </form>
-                </div>
-                
-                <div id="player-form-errors"><small>If a player is missing you can add them here.</small></div>        
-        </div>
-      </div>
+ 

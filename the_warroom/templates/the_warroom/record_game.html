@@ -2,15 +2,33 @@
 {% block title %} - New Game{% endblock %}
 {% load crispy_forms_tags %}
 {% block content %}
-        
-        <legend>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</legend>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</h1>
 
-        <style>
-                .effort-form {
-                        border-bottom: 1px solid black;
-                }
 
-        </style>
+        <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                <i class="bi bi-person-plus-fill"></i>
+        </button>
+
+</div>
+              <div class="collapse" id="collapseRegister">
+                <div class="card card-body">
+                        <h5>Register New Player</h5>
+                        <div id="player-form-container" style="display: block;">
+                                <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
+                                    {% csrf_token %}
+                                    {{ player_form.discord.label }}:
+                                    {{ player_form.discord }}
+                                    <button type="submit" class="btn btn-primary btn-sm">Register Player</button>
+                                </form>
+                        </div>
+                        
+                        <div id="player-form-errors"><small>If a player is missing you can add them here.</small></div>        
+                </div>
+              </div>
+
+
+
         {% if form.errors or form.non_field_errors or non_field_errors.errors or message %}
         <div class="alert alert-warning" role="alert">
                 <ul>

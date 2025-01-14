@@ -14,7 +14,8 @@
                         
             <div id="scorecard-info"><small>Record turn by turn point details for a faction. This is optional but can provide some insight into a faction's scoring pace and how they score points.<br>
                 'Faction Points' are points scored or lost from your faction abilities, 'Crafting Points' are from items crafted, 'Battle Points' are from removing buildings and tokens in battle, and 'Other Points' are for everything else.<br>
-                If you do not wish to break points down by category, use the 'Other Points' column.
+                If you do not wish to break points down by category, use the 'Other Points' column.<br>
+                If you want to record scores for multiple players in one game, save each scorecard with the same "Game Nickname" to then quickly switch between players.<br>
             </small></div>        
     </div>
   </div>
@@ -124,6 +125,16 @@
         <h4>Notes:</h4>{{ form.description }}
     </div>
 
+    <div>
+        {% if previous_scorecard %}
+            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">Save and Go to {{previous_scorecard.faction}}</button>
+        {% endif %}
+    
+        {% if next_scorecard %}
+            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">Save and Go to {{next_scorecard.faction}}</button>
+        {% endif %}
+    </div>
+
     <button class="btn btn-success mb-1 mt-1" type="submit">Save</button>
     {% if object.id %}
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
@@ -132,17 +143,7 @@
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'games-home' %}">Cancel</a>
     {% endif %}
 
-    <div>
-    {% if previous_scorecard %}
-        <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">Save and Go to {{previous_scorecard.faction}}</button>
-    {% endif %}
 
-    {% if next_scorecard %}
-        <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">Save and Go to {{next_scorecard.faction}}</button>
-    {% else %}
-        <small>Add scorecards with the same nickname to quickly switch between them here<small>
-    {% endif %}
-    </div>
 
     </form>
 </div>
