@@ -404,7 +404,7 @@ def game_bookmarks(request, slug):
 
 
 @login_required
-def game_list(request, slug):
+def player_games(request, slug):
     player = get_object_or_404(Profile, slug=slug.lower())
     if request.user.is_authenticated:
         if request.user.profile.weird :

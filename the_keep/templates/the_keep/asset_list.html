@@ -1,15 +1,15 @@
 {% extends "the_keep/base.html" %}
 
 {% block content %}
-<article class="media content-section">
-    <div class="media-body" style="overflow: auto;">
+
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1>Pinned Resources</h1>
             {% if profile.player %}
-            <a class="btn btn-success btn-sm ml-2 mt-1 mb-1" href="{% url 'asset-new' %}">New Resource +</a>
+            <a class="btn btn-sm btn-success mb-3" href="{% url 'asset-new' %}">New Resource +</a>
             {% endif %}
         </div>
-
+        <article class="media content-section">
+            <div class="media-body" style="overflow: auto;">
         <!-- Search bar with htmx attributes -->
         <div class="mb-3">
             <input 

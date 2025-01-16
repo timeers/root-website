@@ -357,6 +357,10 @@ class EffortCreateForm(forms.ModelForm):
         if faction is None or faction == "":
             # raise ValidationError(f"Faction required")
             validation_errors_to_display.append("Faction required")
+        elif faction.type == "C" and player:
+            validation_errors_to_display.append('This is a Clockwork faction and cannot have a "player"')
+        elif not player:
+            validation_errors_to_display.append('Please select a player. If the player is missing add them using the "Register Player" form in the top right.')
         
         elif faction.title == 'Vagabond' and not vagabond:
             # raise ValidationError('Select a Vagabond.')
@@ -367,8 +371,8 @@ class EffortCreateForm(forms.ModelForm):
             if captains.count() != 3 and captains.count() != 0:
                 # raise ValidationError({'captains': 'Please assign 3 Vagabonds as captains.'})
                 validation_errors_to_display.append('Please assign 3 Vagabonds as captains')
-        elif faction.type == "C" and player:
-            validation_errors_to_display.append('This is a Clockwork faction and cannot have a "player"')
+
+
 
         if not dominance and not score and not coalition:
             # raise ValidationError(f"Score or Dominance required")

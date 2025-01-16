@@ -168,18 +168,18 @@
         <div class="tab-pane fade" id="stats" role="tabpanel" aria-labelledby="stats-tab">
             
 
-            <div class="content-section" id="scorecardContainer">
-                <h2>Average Game by Faction</h2>
-            <div>
-                <canvas id="scorecardChart" width="400" height="400"></canvas>
-            </div>
-                
-            </div>
+
                 
             <div hx-trigger="revealed" 
             hx-get="{% url 'player-stats' player.slug %}" 
             hx-swap="outerHTML"></div>
-                
+
+            <div class="content-section" id="scorecardContainer">
+                <h2>Average Game by Faction</h2>
+                <div>
+                    <canvas id="scorecardChart" width="400" height="400"></canvas>
+                </div>
+            </div>
            
         </div>
         {% endif %}

@@ -6,7 +6,7 @@
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>Scorecards</h1>
     {% if user.profile.tester %}
-        <a class="btn btn-success btn-sm ml-1 ms-1 mb-1" href="{% url 'record-scorecard' %}">New Scorecard +</a>
+        <a class="btn btn-sm btn-success mb-3" href="{% url 'record-scorecard' %}">New Scorecard +</a>
     {% endif %}
 </div>
 
@@ -14,7 +14,7 @@
 {% if unassigned_scorecards %}
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h2>Unassigned Scorecards ({{ unassigned_count }})</h2>
+    <h3>Unassigned Scorecards ({{ unassigned_count }})</h3>
     <button class="btn btn-info btn-sm ml-2 ms-2" 
         type="button" 
         data-bs-toggle="collapse" 
@@ -22,7 +22,7 @@
         aria-expanded="false" 
         aria-controls="collapseRegister" 
         id="collapseToggleButton">
-    Show
+    View
     </button>
     </div>   
     
@@ -79,14 +79,14 @@
 
 {% if complete_scorecards %}
 <div class="content-section" id="scorecardContainer">
-    <h2>Your Recorded Average by Faction</h2>
+    <h3>Your Recorded Average by Faction</h3>
 <div>
     <canvas id="scorecardChart" width="400" height="400"></canvas>
 </div>
 <small>*Based on the data you've recorded. Data for your plays can be found in the profile stats tab.</small>
 </div>
 
-<h2>Completed Scorecards</h2>
+<h3>Completed Scorecards</h3>
 
 <article class="media content-section">
     <div class="media-body">
@@ -199,7 +199,7 @@
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false,
+                    {% comment %} maintainAspectRatio: false, {% endcomment %}
                     scales: {
                         x: {
                             title: {
@@ -246,8 +246,8 @@ collapseElement.addEventListener('show.bs.collapse', function () {
 });
 
 collapseElement.addEventListener('hide.bs.collapse', function () {
-    // Change button text to "Show" when collapse is hidden
-    collapseToggleButton.innerHTML = 'Show';
+    // Change button text to "View" when collapse is hidden
+    collapseToggleButton.innerHTML = 'View';
 });
 </script>
 {% endblock scripts %}

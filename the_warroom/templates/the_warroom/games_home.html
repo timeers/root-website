@@ -2,17 +2,32 @@
 {% block title %} - Games{% endblock %}
 
 {% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Games</h1>
 
+        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mb-3" id="recordgame">
+            New Game +
+        </a>
+
+</div>
 {% if in_progress %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h2>In Progress Games ({{ in_progress.count }})</h2>
-        <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
-            <i class="bi bi-info-circle"></i>
-        </button>
+    <h3>In Progress Games ({{ in_progress.count }})</h3>
+        <button class="btn btn-info btn-sm ml-2 ms-2" 
+        type="button" 
+        data-bs-toggle="collapse" 
+        data-bs-target="#collapseRegister" 
+        aria-expanded="false" 
+        aria-controls="collapseRegister" 
+        id="collapseToggleButton">
+    View
+    </button>
+ 
     </div>   
     
     
     <div class="collapse" id="collapseRegister">
+        These games have not been submitted:
         {% for game in in_progress %}
             {% include 'the_warroom/partials/game_detail_button.html' %}
         {% endfor %}
@@ -23,14 +38,9 @@
 <article class="media content-section">
     <div class="media-body">
 
-<div style="display: flex; justify-content: space-between; align-items: center;">
-    <h1>Games</h1>
 
-        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mb-3" id="recordgame">
-            New Game +
-        </a>
+    <h3>Filters</h3>
 
-</div>
 
 
 
@@ -85,6 +95,23 @@
                 placeholder: "Select an option",
                 allowClear: true
             });
+        });
+
+
+
+        // Get the collapse element and button
+        const collapseElement = document.getElementById('collapseRegister');
+        const collapseToggleButton = document.getElementById('collapseToggleButton');
+
+        // Add event listeners to the collapse element
+        collapseElement.addEventListener('show.bs.collapse', function () {
+            // Change button text to "Hide" when collapse is shown
+            collapseToggleButton.innerHTML = 'Hide';
+        });
+
+        collapseElement.addEventListener('hide.bs.collapse', function () {
+            // Change button text to "View" when collapse is hidden
+            collapseToggleButton.innerHTML = 'View';
         });
     </script>
 {% endblock %}

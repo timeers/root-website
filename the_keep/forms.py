@@ -79,7 +79,7 @@ class PostCreateForm(forms.ModelForm):
         help_text='Set the current status. Set status to "Testing" once a game has been recorded. Once thoroughly playtested the status can be set to "Stable". Set to "Inactive" if you are no longer working on this project.'
     )
     artist = forms.ModelChoiceField(
-        queryset=Profile.objects.exclude(discord='kyleferrin'),
+        queryset=Profile.objects.exclude(discord__in=['kyleferrin', 'leder games']),
         required=False
     )
     class Meta:

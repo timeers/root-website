@@ -1,29 +1,57 @@
-
-
-
-
-
 <article class="media content-section">
     <div class="media-body">
     {% if top_factions or most_factions %}
-    <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
-    {% if top_factions %}
-        <h4>By Winrate</h4>
-        {% with top_factions as leaderboard_factions %}
-            {% include 'the_keep/partials/leaderboard.html' %}
-        {% endwith %}
-    {% endif %}
-    {% if most_factions %}
-        <h4>By Games Won</h4>
-        {% with most_factions as leaderboard_factions %}
-            {% include 'the_keep/partials/leaderboard.html' %}
-        {% endwith %}
-    {% endif %}
+        <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+
+        {% if top_factions and most_factions %}
+        <ul class="nav nav-tabs" id="leaderboardTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <a class="nav-link active" id="game-leaderboard-tab" data-bs-toggle="tab" href="#game-leaderboard" role="tab" aria-controls="game-leaderboard" aria-selected="true">By Games Won</a>
+            </li>        
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="winrate-leaderboard-tab" data-bs-toggle="tab" href="#winrate-leaderboard" role="tab" aria-controls="winrate-leaderboard" aria-selected="false">By Winrate</a>
+            </li>            
+        </ul>
+        {% endif %}
+
+        {% if top_factions %}
+            {% if top_factions and most_factions %}
+            <div class="tab-content" id="tab-contents">
+
+                <div class="tab-pane active" id="game-leaderboard" role="tabpanel" aria-labelledby="game-leaderboard-tab">
+            {% else %}
+            <h4>By Winrate</h4>
+            {% endif %}
+            {% with top_factions as leaderboard_factions %}
+                {% include 'the_keep/partials/leaderboard.html' %}
+            {% endwith %}
+
+        {% if top_factions and most_factions %}
+            </div>
+        {% endif %}
+        {% endif %}
+
+        {% if most_factions %}
+            {% if top_factions and most_factions %}
+                <div class="tab-pane" id="winrate-leaderboard" role="tabpanel" aria-labelledby="winrate-leaderboard-tab">
+            {% else %}
+            <h4>By Games Won</h4>
+            {% endif %}
+            {% with most_factions as leaderboard_factions %}
+                {% include 'the_keep/partials/leaderboard.html' %}
+            {% endwith %}
+
+            {% if top_factions and most_factions %}
+                </div>
+                </div>
+            {% endif %}
+        {% endif %}
     {% else %}
         <h2>No Games Recorded</h2>
     {% endif %}
     </div>
 </article>
+
 
 
 
