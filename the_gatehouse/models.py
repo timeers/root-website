@@ -58,7 +58,10 @@ class Profile(models.Model):
         
 
     def __str__(self):
-        return f'{self.name} ({self.discord})'
+        if self.name.lower() == self.discord:
+            return self.name
+        else:
+            return f'{self.name} ({self.discord})'
     
     def save(self, *args, **kwargs):
         # Check for blank display names

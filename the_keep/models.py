@@ -872,6 +872,7 @@ class PNPAsset(models.Model):
         VAGABOND = 'Vagabond'
         LANDMARK = 'Landmark'
         HIRELING = 'Hireling'
+        ICONS = 'Icons'
         OTHER = 'Other'
     class FileChoices(models.TextChoices):
         PDF = 'PDF', 'PDF'
