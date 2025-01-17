@@ -120,7 +120,7 @@ class Post(models.Model):
     board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
-    component_color = models.CharField(
+    color = models.CharField(
         max_length=7,
         blank=True,
         null=True,

@@ -578,7 +578,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
         required=False
     )
-    component_color = forms.CharField(
+    color = forms.CharField(
         max_length=7,  # Color code length (e.g., #FFFFFF)
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
@@ -586,7 +586,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['component_color', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
+        fields = top_fields + ['color', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'small_icon', 'card_image', 'board_image'] + bottom_fields
 
     def clean_reach_and_type(self, cleaned_data):
@@ -629,7 +629,7 @@ class FactionImportForm(PostImportForm):
     class Meta(PostImportForm):
         model = Faction 
         fields = top_fields + ['small_icon', 'official', 'type', 'reach', 'animal',  
-                               'in_root_digital', 'component_color', 'based_on', 'leder_games_link',
+                               'in_root_digital', 'color', 'based_on', 'leder_games_link',
                                'complexity', 'card_wealth', 'aggression', 'crafting_ability',
                                 'designer', 'expansion', 'status', 'date_posted'] + bottom_fields
 
