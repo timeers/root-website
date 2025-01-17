@@ -1,0 +1,51 @@
+
+{% extends "the_keep/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div style="display: flex; align-items: center;">
+
+    <a href="{{ user_to_edit.get_absolute_url }}">{{user_to_edit.name}}</a>
+    <i class="bi bi-chevron-right"></i>
+    Update Status
+
+</div>
+
+    <div class="media content-section">
+        <div class="article-img-container">
+            <img class="article-img" src="{{ user_to_edit.image.url }}">
+        </div>
+            <div class="media-body">
+                <h1 class="account-heading">{{ user_to_edit.name }}</h1>
+                {% if user_to_edit.discord %}
+                    <span class="text-secondary">Discord: {{ user_to_edit.discord }}</span><br>
+                {% endif %}
+                {% if user_to_edit.dwd %}
+                    {% if user_to_edit.league %}
+                        <span class="text-secondary">Digital League: {{ user_to_edit.dwd }}</span><br>
+                    {% else %}
+                        <span class="text-secondary">DWD: {{ user_to_edit.dwd }}</span><br>
+                    {% endif %}
+                {% endif %}
+                
+            </div>
+
+    </div>
+    {% if user_to_edit.group != "O" %}
+    <!-- User management form -->
+    <form method="post">
+      {% csrf_token %}
+      
+      <!-- Render the form fields -->
+      <div class="form-group">
+        {{ form | crispy }}
+      </div>
+
+      <!-- Submit button -->
+      <button type="submit" class="btn btn-primary">Update</button>
+    </form>
+    {% else %}
+      This account is not yet registered or the user is not a member of Woodland Warriors and cannot be edited.
+    {% endif %}
+
+{% endblock %}

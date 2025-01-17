@@ -63,7 +63,7 @@ urlpatterns = [
     path('api/', include('the_warroom.api.urls')),
 
     path('', include('the_keep.urls')),
-    path('profile/', include('the_gatehouse.urls')),
+    path('', include('the_gatehouse.urls')),
     path('', include('the_warroom.urls')),
     path('accounts/', include('allauth.urls')),
 

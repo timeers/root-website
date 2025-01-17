@@ -13,7 +13,10 @@
         <tr>
             <td>{{ forloop.counter }}</td>
             <td>
-                <a href="{% url 'player-detail' player.slug %}">{{ player.name }}</a>
+                <a href="{% url 'player-detail' player.slug %}">
+                    <img class="faction-icon" src="{{ player.image.url }}">
+                    {{ player.name }}
+                </a>
             </td>
             <td>
                 {{ player.win_rate|floatformat:2 }}%

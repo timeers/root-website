@@ -13,7 +13,10 @@
         <tr>
             <td>{{ forloop.counter }}</td>
             <td>
-                <a href="{% url 'faction-detail' faction.slug %}">{{ faction.title }}</a>
+                <a href="{% url 'faction-detail' faction.slug %}">
+                    <img class="faction-icon" src="{{ faction.small_icon.url }}">
+                    {{ faction.title }}
+                </a>
             </td>
             <td>
                 {{ faction.win_rate|floatformat:2 }}%

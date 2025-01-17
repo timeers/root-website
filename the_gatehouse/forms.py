@@ -79,7 +79,39 @@ class ProfileUpdateForm(forms.ModelForm):
 
         return cleaned_data
 
+class UserManageForm(forms.ModelForm):
+    STATUS_CHOICES = [
+        ('B', 'Banned'),
+        ('P', 'User'),
+        ('D', 'Designer')
+    ]
+    group = forms.ChoiceField(
+        choices=STATUS_CHOICES,
+        required=False,
+        label="User Status"
+    )
+    # Adding a checkbox to the form
+    nominate_admin = forms.BooleanField(
+        required=False,
+        label="Nominate User as Moderator",  # Label for the checkbox
+        initial=False,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
+    )
 
+    class Meta:
+        model = Profile
+        fields = ['group', 'nominate_admin']
+
+    def __init__(self, *args, **kwargs):
+        user_to_edit = kwargs.pop('user_to_edit', None)
+        super().__init__(*args, **kwargs)  # Ensure the form is initialized with the correct args and kwargs
+
+        if user_to_edit:
+            if user_to_edit.admin or user_to_edit.group == "O":
+                self.fields.pop('nominate_admin', None)
+                self.fields.pop('group', None)
+
+        
 
 class PlayerCreateForm(forms.ModelForm):
     class Meta:

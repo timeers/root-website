@@ -1,0 +1,27 @@
+<tbody id="players-table" class="effort-rows">
+    {% for obj in objects %}
+    <tr data-href="{{ obj.get_absolute_url }}">
+        <td>{{ obj }}</td>
+        <td>{{obj.active_posts_count}}</td>
+        <td>{{obj.complete_games_count}}</td>
+        <td>
+            {% if obj.group == "O" %}
+            Unregistered
+            {% elif obj.group == "P" %}
+            Registered
+            {% elif obj.group == "B" %}
+            Banned
+            {% elif obj.group == "D" %}
+            Designer
+            {% elif obj.group == "A" %}
+            Admin
+            {% endif %}
+
+        </td>
+    </tr>
+    {% empty %}
+    <tr>
+        <td colspan="4">No players found.</td>
+    </tr>
+    {% endfor %}
+</tbody>

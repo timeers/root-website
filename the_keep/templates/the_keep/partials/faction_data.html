@@ -36,11 +36,12 @@
     </table>
 
         <div class="article-content">
-            {% if object.reach > 0 %}
-            {{ object.get_type_display }} ({{ object.reach }} Reach)
-            {% endif %}
             {% if object.card_image %}
                 <img class="adset-img" src="{{ object.card_image.url }}">
+            {% else %}
+                {% if object.reach > 0 %}
+                {{ object.get_type_display }} ({{ object.reach }} Reach)
+                {% endif %}
             {% endif %}
         </div> 
         {% if object.board_image %}

@@ -9,8 +9,9 @@ from django.core.paginator import Paginator, EmptyPage
 from django.conf import settings
 from functools import wraps
 from django.urls import reverse
+from django.db.models import Count, Q
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm
 from .models import Profile
 
 
@@ -621,3 +622,101 @@ def player_stats(request, slug):
         return render(request, 'the_warroom/partials/player_stats.html', context)
 
     return render(request, 'the_warroom/player_tournament_stats.html', context)
+
+
+
+class ProfileListView(ListView):
+    model = Profile
+    template_name = 'the_gatehouse/profiles_list.html'
+    context_object_name = 'objects'
+
+        
+    # Filter the queryset if there is a search query
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        # Get the search query from the GET parameters
+        search_query = self.request.GET.get('search', '')
+        
+        # If a search query is provided, filter the queryset based on title, category, and shared_by
+        if search_query:
+            queryset = queryset.filter(
+                Q(display_name__icontains=search_query) |
+                Q(discord__icontains=search_query) |
+                Q(dwd__icontains=search_query)
+            )
+        queryset = queryset.prefetch_related('efforts')
+        queryset = queryset.annotate(
+            active_posts_count=Count('posts', filter=Q(posts__status__lte=4), distinct=True),
+            complete_games_count=Count('efforts', filter=Q(efforts__game__final=True), distinct=True)
+        )
+        return queryset
+
+
+    def get_context_data(self, **kwargs):
+        # Add current user to the context data
+        context = super().get_context_data(**kwargs)
+        # if self.request.user.is_authenticated:
+        #     context['profile'] = self.request.user.profile  # Adding the user to the context
+        #     context['shared_assets'] = Profile.objects.filter(shared_by__slug=self.request.user.profile.slug)
+        # else:
+        #     context['profile'] = None
+        #     context['shared_assets'] = None
+        return context
+    
+    def render_to_response(self, context, **response_kwargs):
+        # Check if it's an HTMX request
+        if self.request.headers.get('HX-Request') == 'true':
+            # Only return the part of the template that HTMX will update
+            return render(self.request, 'the_gatehouse/partials/profiles_list_table.html', context)
+
+        return super().render_to_response(context, **response_kwargs)
+
+
+@admin_onboard_required
+def manage_user(request, slug):
+    user = get_object_or_404(Profile, slug=slug.lower())
+
+    # If form is submitted (POST request)
+    if request.method == 'POST':
+        # Pass request.POST as the first argument and user_to_edit as a keyword argument
+        form = UserManageForm(request.POST, user_to_edit=user)
+
+        # If the form is valid, save the new user status
+        if form.is_valid():
+            update_user = False
+
+            # Handle updating the group status
+            if form.cleaned_data.get('group'):
+                user.group = form.cleaned_data['group']
+                update_user = True
+
+            # Handle updating the nominate_admin status
+            if form.cleaned_data.get('nominate_admin'):
+                # Logic for nominating admin could go here
+
+                update_user = True
+
+            # Save the user if any change was made
+            if update_user:
+                user.save()
+
+            # Redirect with a success message
+            messages.success(request, f'{user.name} has been updated.')
+        else:
+            # Handle form validation errors (optional)
+            messages.error(request, 'There were errors in the form submission.')
+
+        # Redirect after the form is successfully saved or errors are handled
+        return redirect(user.get_absolute_url())
+
+    # If GET request, render the form with the current user's status pre-filled
+    else:
+        # Pre-populate the form with the current status of the user
+        form = UserManageForm(initial={'group': user.group}, user_to_edit=user)
+
+    context = {
+        'user_to_edit': user,
+        'form': form,
+    }
+    return render(request, 'the_gatehouse/manage_user.html', context)

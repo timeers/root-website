@@ -55,7 +55,10 @@ class Profile(models.Model):
             name = "Anonymous"
             # name = self.user.username
         return name
-        
+    
+    @property
+    def active_posts(self):
+        return self.posts.filter(status__lte=4).count()
 
     def __str__(self):
         if self.name.lower() == self.discord:

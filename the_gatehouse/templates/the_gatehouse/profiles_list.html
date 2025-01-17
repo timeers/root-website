@@ -1,0 +1,99 @@
+{% extends "the_keep/base.html" %}
+
+{% block content %}
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>Users</h1>
+            {% if profile.player %}
+            <a class="btn btn-sm btn-success mb-3" href="{% url '' %}">New User +</a>
+            {% endif %}
+        </div>
+
+
+
+        <article class="media content-section">
+            <div class="media-body" style="overflow: auto;">
+
+        <!-- Search bar with htmx attributes -->
+        <div class="mb-3">
+            <input 
+                type="text" 
+                class="form-control" 
+                id="search-bar" 
+                name="search" 
+                placeholder="Search..." 
+                hx-get="{% url 'players-list' %}" 
+                hx-target="#players-table" 
+                hx-trigger="keyup changed delay:300ms"
+                hx-swap="outerHTML"
+            />
+        </div>
+        <div style="overflow-x: auto;">
+        <table id="sortable-table">
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="sortTable(0)">Name</th>
+                    <th class="sortable" onclick="sortTable(1)">Posts</th>
+                    <th class="sortable" onclick="sortTable(2)">Games</th>
+                    <th class="sortable" onclick="sortTable(3)">Status</th>
+
+
+                </tr>
+            </thead>
+            {% include 'the_gatehouse/partials/profiles_list_table.html' %}
+        </table>
+        </div>
+    </div>
+</article>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    function sortTable(n) {
+        var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        table = document.getElementById("sortable-table");
+        switching = true;
+        dir = "asc"; // Set the sorting direction to ascending
+    
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+    
+            for (i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                x = rows[i].getElementsByTagName("TD")[n];
+                y = rows[i + 1].getElementsByTagName("TD")[n];
+    
+                // Compare values as numbers if they are numeric
+                var xValue = isNaN(x.innerHTML) ? x.innerHTML.toLowerCase() : parseFloat(x.innerHTML);
+                var yValue = isNaN(y.innerHTML) ? y.innerHTML.toLowerCase() : parseFloat(y.innerHTML);
+    
+                if (dir == "asc") {
+                    if (xValue > yValue) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                } else if (dir == "desc") {
+                    if (xValue < yValue) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                }
+            }
+    
+            if (shouldSwitch) {
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                switchcount++;
+            } else {
+                if (switchcount == 0 && dir == "asc") {
+                    dir = "desc";
+                    switching = true;
+                }
+            }
+        }
+    }
+    
+</script>
+{% endblock scripts %}
