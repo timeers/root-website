@@ -120,7 +120,7 @@ class Post(models.Model):
     board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
-    comp_color = models.CharField(
+    component_color = models.CharField(
         max_length=7,
         blank=True,
         null=True,
@@ -539,13 +539,13 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
-    color = models.CharField(
-        max_length=7,
-        blank=True,
-        null=True,
-        validators=[validate_hex_color],
-        help_text="Enter a hex color code (e.g., #RRGGBB)."
-    )
+    # color = models.CharField(
+    #     max_length=7,
+    #     blank=True,
+    #     null=True,
+    #     validators=[validate_hex_color],
+    #     help_text="Enter a hex color code (e.g., #RRGGBB)."
+    # )
 
     def __add__(self, other):
         if isinstance(other, Faction):

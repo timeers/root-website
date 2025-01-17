@@ -600,7 +600,7 @@ class FactionAdmin(admin.ModelAdmin):
                     'lore': lore,
                     'artist': artist_instance,
                     'in_root_digital': in_root_digital,
-                    'color': color,
+                    'component_color': color,
                     'based_on': based_instance,
                     'leder_games_link': leder_games_link,
                 }
