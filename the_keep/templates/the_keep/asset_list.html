@@ -3,13 +3,84 @@
 {% block content %}
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h1>Pinned Resources</h1>
+            <h1>Resources</h1>
             {% if profile.player %}
             <a class="btn btn-sm btn-success mb-3" href="{% url 'asset-new' %}">New Resource +</a>
             {% endif %}
         </div>
+
+        {% if shared_assets %}
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>Shared ({{ shared_assets.count }})</h3>
+                <button class="btn btn-info btn-sm ml-2 ms-2" 
+                type="button" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#collapseRegister" 
+                aria-expanded="false" 
+                aria-controls="collapseRegister" 
+                id="collapseToggleButton">
+            View
+            </button>
+         
+            </div>   
+            
+            
+            <div class="collapse" id="collapseRegister">
+                <article class="media content-section">
+                    <div class="media-body">
+                <div style="overflow-x: auto;">
+                    <table id="sortable-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>File</th>
+                                <th>Date</th>
+                                <th>Shared By</th>
+                                {% if profile.player %}
+                                <th></th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+    
+                    
+                        <tbody id="asset-table-body">
+                            <!-- The rows will be dynamically swapped here by HTMX -->
+                            <tr>
+                                <td>Loading</td>
+                                <td>---</td>
+                                <td>---</td>
+                                <td>---</td>
+                                <td>---</td>
+                                {% if profile.player %}
+                                <td>---</td>
+                                {% endif %}
+                            </tr>
+    
+                        </tbody>
+                    
+                    </table>
+
+                </div>
+    
+                <div hx-trigger="revealed" 
+                    hx-get="{% url 'asset-player' slug=profile.slug %}" 
+                    hx-target="#asset-table-body" 
+                    hx-swap="outerHTML">
+                </div>
+            </div>
+        </article>
+            </div>
+        
+        {% endif %}
+
+
+
         <article class="media content-section">
             <div class="media-body" style="overflow: auto;">
+                {% if shared_assets %}
+                    <h3>Pinned</h3>
+                {% endif %}
         <!-- Search bar with htmx attributes -->
         <div class="mb-3">
             <input 
@@ -48,7 +119,7 @@
 
                     <td>
                         {% if obj.shared_by %}
-                        {{ obj.shared_by }}
+                        {{ obj.shared_by.display_name }}
                         {% else %}
                         ---
                         {% endif %}
@@ -115,5 +186,19 @@
             }
         }
     }
+    // Get the collapse element and button
+const collapseElement = document.getElementById('collapseRegister');
+const collapseToggleButton = document.getElementById('collapseToggleButton');
+
+// Add event listeners to the collapse element
+collapseElement.addEventListener('show.bs.collapse', function () {
+    // Change button text to "Hide" when collapse is shown
+    collapseToggleButton.innerHTML = 'Hide';
+});
+
+collapseElement.addEventListener('hide.bs.collapse', function () {
+    // Change button text to "View" when collapse is hidden
+    collapseToggleButton.innerHTML = 'View';
+});
 </script>
 {% endblock scripts %}

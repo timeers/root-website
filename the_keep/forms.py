@@ -138,9 +138,13 @@ class PostCreateForm(forms.ModelForm):
 
         self.fields['designer'].label = "Designer (Admin Only)"
         # Hide the designer field for non-admin users
-        # Hiding the designer field for all users
-        # if not user.profile.admin:
-        self.fields.pop('designer', None)  # Remove designer field entirely
+
+        if not user.profile.admin or post_instance:
+            self.fields.pop('designer', None)  # Remove designer field entirely
+        
+        # Remove Weird Root link option if not in Weird Root
+        if not user.profile.in_weird_root:
+            self.fields.pop('wr_link', None)
 
         # Check if the post has any related plays and adjust the status choices accordingly
         if post_instance and post_instance.plays() > 0:

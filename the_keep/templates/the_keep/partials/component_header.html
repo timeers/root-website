@@ -4,12 +4,12 @@
         <div class="article-img-container">
         <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
         </div>
-        <h1 {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h1>
+        <h1 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h1>
     </div>
     <div class="d-flex flex-nowrap">
 
 
-            {% if object.designer == user.profile and user.profile.designer %}
+            {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
                     <div>
                         <a class="btn btn-warning btn-sm mt-1 mb-1 mr-2" href="{% url object.component|lower|add:'-update' object.slug %}">
                             <i class="bi bi-pencil-square"></i>

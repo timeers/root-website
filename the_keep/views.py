@@ -225,6 +225,8 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 
     def test_func(self):
         obj = self.get_object()
+        if self.request.user.profile.admin and not obj.designer.designer:
+            return True
         # Only allow access if the logged-in user is the designer of the object
         return self.request.user.profile == obj.designer
 
@@ -850,13 +852,10 @@ class PNPAssetCreateView(CreateView):
         return kwargs    
     
     def get_success_url(self):
-        # You can return different success URLs based on the user profile
-        if self.request.user.profile.admin:
-            # Redirect to the asset list for admins
-            return reverse_lazy('asset-list')  # Modify with your actual admin URL
-        else:
-            # Default URL (e.g., asset list or home page)
-            return reverse_lazy('player-detail', kwargs={'slug': self.request.user.profile.slug})
+
+        # Redirect to the asset list
+        return reverse_lazy('asset-list') 
+
 
 
 
@@ -920,8 +919,10 @@ class PNPAssetListView(ListView):
         context = super().get_context_data(**kwargs)
         if self.request.user.is_authenticated:
             context['profile'] = self.request.user.profile  # Adding the user to the context
+            context['shared_assets'] = PNPAsset.objects.filter(shared_by__slug=self.request.user.profile.slug)
         else:
             context['profile'] = None
+            context['shared_assets'] = None
         return context
     
     def render_to_response(self, context, **response_kwargs):

@@ -8,7 +8,7 @@
 
         <td>
             {% if obj.shared_by %}
-            {{ obj.shared_by }}
+            {{ obj.shared_by.display_name }}
             {% else %}
             ---
             {% endif %}

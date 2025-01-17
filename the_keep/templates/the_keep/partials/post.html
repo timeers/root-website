@@ -6,7 +6,8 @@
    
     <div class="article-metadata d-flex flex-wrap justify-content-between">
         <div>
-        {{ object.designer.name }}
+        {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
+        
         {% comment %} <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small> {% endcomment %}
         </div>
         <div>
@@ -24,9 +25,10 @@
     </div>
 
     </div>
-        {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
-        <h2>{{ object.title }}</h2>
-
+        
+        <h2 class='root-title'>{{ object.title }}</h2>
+        {% comment %} <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h2> {% endcomment %}
+        by {{ object.designer.name }}
      {% if object.artist %}
     <div class="article-metadata">
         Art by {{ object.artist.name }}

@@ -120,6 +120,14 @@ class Post(models.Model):
     board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
+    comp_color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
+
 
     objects = PostManager()
 
