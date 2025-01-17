@@ -3,7 +3,7 @@ import requests
 # from django.conf import settings
 from django.contrib.auth.decorators import login_required
 # from django.shortcuts import render
-from django.http import HttpResponseForbidden
+from django.core.exceptions import PermissionDenied
 
 
 from allauth.socialaccount.models import SocialAccount
@@ -89,7 +89,7 @@ def woodland_warriors_required():
             if is_user_in_guild(request.user, guild_id):
                 return view_func(request, *args, **kwargs)  # Continue to the view
             else:
-                return HttpResponseForbidden()  # 403 Forbidden
+                raise PermissionDenied()   # 403 Forbidden
                 # return render(request, 'the_gatehouse/not_verified.html')  # Redirect to home if not a member
         return wrapper
     return decorator

@@ -10,9 +10,9 @@
             <div class="media-body">
                 
                 {% if user.profile.player %}
-                    <h2 class="account-heading"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h2>
+                    <h2 class="account-heading root-title"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h2>
                 {% else %}
-                    <h2 class="account-heading">{{ user.profile.name }}</h2>
+                    <h2 class="account-heading root-title">{{ user.profile.name }}</h2>
                 {% endif %}
                 {% if user.profile.discord %}
                     <span class="text-secondary">Discord: {{ user.profile.discord }}</span><br>
@@ -30,7 +30,7 @@
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="form-group">
-                <legend class="border-bottom mb-4">Profile Info</legend>
+                <legend class="border-bottom mb-4 mt-2">Profile Info</legend>
                 {% if user.profile.player %}
                     {{ p_form | crispy }}
                 {% else %}

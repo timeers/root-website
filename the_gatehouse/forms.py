@@ -88,14 +88,23 @@ class UserManageForm(forms.ModelForm):
     group = forms.ChoiceField(
         choices=STATUS_CHOICES,
         required=False,
-        label="User Status"
+        label="User Status",
+        help_text="Users can record games, Designers can post new fan content, users should only be banned after being warned and repeatedly posting false data. User status is only visible to Moderators."
     )
     # Adding a checkbox to the form
     nominate_admin = forms.BooleanField(
         required=False,
-        label="Nominate User as Moderator",  # Label for the checkbox
+        label="Recommend User as Moderator",  # Label for the checkbox
         initial=False,
-        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        help_text="Check this box if you want to vote to promote the user to the moderator role. (Other moderators will be able to see your recommendation)"
+    )
+    dismiss_admin = forms.BooleanField(
+        required=False,
+        label="Vote to dismiss Moderator",  # Label for the checkbox
+        initial=False,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        help_text="Check this box if you want to vote to dismiss the user from the moderator role. (Other moderators will be able to see your vote)"
     )
 
     class Meta:
@@ -104,12 +113,34 @@ class UserManageForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         user_to_edit = kwargs.pop('user_to_edit', None)
+        current_user = kwargs.pop('current_user', None)
         super().__init__(*args, **kwargs)  # Ensure the form is initialized with the correct args and kwargs
 
         if user_to_edit:
+            if not user_to_edit.admin:
+                self.fields.pop('dismiss_admin', None)
+            elif user_to_edit.admin_dismiss:
+                if user_to_edit.admin_dismiss != current_user:
+                    self.fields['dismiss_admin'].label = f"Dismiss Moderator (Voted by {user_to_edit.admin_dismiss.name})"
+                    self.fields['dismiss_admin'].help_text = ""
+                else:
+                    self.fields['dismiss_admin'].label = f"Voted to dismiss Moderator"
+                    self.fields['dismiss_admin'].help_text = ""
+                    # Disable the field (make it uneditable)
+                    self.fields['dismiss_admin'].widget.attrs['disabled'] = 'disabled'
             if user_to_edit.admin or user_to_edit.group == "O":
                 self.fields.pop('nominate_admin', None)
                 self.fields.pop('group', None)
+
+            elif user_to_edit.admin_nominated:
+                if user_to_edit.admin_nominated != current_user:
+                    self.fields['nominate_admin'].label = f"Promote User to Moderator (Recommended by {user_to_edit.admin_nominated.name})"
+                    self.fields['nominate_admin'].help_text = ""
+                else:
+                    self.fields['nominate_admin'].label = f"Recommended as Moderator"
+                    self.fields['nominate_admin'].help_text = ""
+                    # Disable the field (make it uneditable)
+                    self.fields['nominate_admin'].widget.attrs['disabled'] = 'disabled'
 
         
 

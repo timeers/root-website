@@ -8,7 +8,7 @@
             <img class="article-img" src="{{ player.image.url }}">
         </div>
             <div class="media-body">
-                <h1 class="account-heading">{{ player.name }}</h1>
+                <h1 class="account-heading root-title">{{ player.name }}</h1>
                 {% if user.profile.player or player == user.profile %}
                 {% if player.discord %}
                     <span class="text-secondary">Discord: {{ player.discord }}</span><br>
@@ -24,9 +24,11 @@
                 
             </div>
             {% if player == user.profile %}
-                <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-pencil-square"></i></a>
+                <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-pencil-square"></i></a> 
+            {% elif user.profile.admin %}
+                    <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'manage-user' player.slug %}"><i class="bi bi-pencil-square"></i></a>
             {% elif user.profile.player %}
-                <!-- Bookmarks -->
+            <!-- Bookmarks -->
                 {% include 'the_gatehouse/partials/bookmarks.html' %}
             {% endif %}
 
@@ -425,7 +427,7 @@
                             },
                             beginAtZero: true,
                             ticks: {
-                                stepSize: 5,  // Set the y-axis step size to 10 points per block
+                                stepSize: 5,  // Set the y-axis step size to 5 points per block
                             },
                         }
                     }

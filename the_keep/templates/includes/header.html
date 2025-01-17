@@ -22,7 +22,17 @@
             {% endif %}
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">Resources</a>
             {% if user.profile.admin %}
-              <a class="nav-item nav-link" href="{% url 'admin:index' %}">Admin</a>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Moderator
+                </a>
+                <ul class="dropdown-menu">
+                  <li><a class="dropdown-item" href="{% url 'admin:index' %}">Admin Site</a></li>
+                  <li><a class="dropdown-item" href="{% url 'players-list' %}">Users</a></li>
+                </ul>
+              </li>
+
+
             {% endif %}
 
           </div>

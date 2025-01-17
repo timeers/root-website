@@ -178,7 +178,7 @@ Promise.all([
                         borderColor: color,  // Line color for scorecard
                         backgroundColor: color,  // Fill color under the line for scorecard
                         fill: false,  // Do not fill under the line
-                        tension: 0.2  // Smooth curve for scorecard line
+                        tension: 0.1  // Smooth curve for scorecard line
                     },
                     {
                         label: 'Faction Average',  // Label for the faction average line chart
@@ -186,7 +186,7 @@ Promise.all([
                         borderColor: color,  // Line color for faction average (different color)
                         backgroundColor: color,  // Fill color under the line for faction
                         fill: false,  // Do not fill under the line
-                        tension: 0.2,  // Smooth curve for faction line
+                        tension: 0.1,  // Smooth curve for faction line
                         borderDash: [5, 5]  // Make the line dashed with 5px dashes and 5px gaps
                     }
                 ]
@@ -210,7 +210,10 @@ Promise.all([
                             display: false,
                             text: 'Game Points'  // Label for y-axis
                         },
-                        beginAtZero: true  // Start y-axis from 0
+                        beginAtZero: true,  // Start y-axis from 0
+                        ticks: {
+                            stepSize: 5,  // Set the y-axis step size to 5 points per block
+                        },
                     }
                 }
             }

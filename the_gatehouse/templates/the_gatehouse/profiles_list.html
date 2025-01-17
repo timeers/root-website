@@ -1,15 +1,31 @@
 {% extends "the_keep/base.html" %}
-
+{% block title %} - Users{% endblock %}
 {% block content %}
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1>Users</h1>
-            {% if profile.player %}
-            <a class="btn btn-sm btn-success mb-3" href="{% url '' %}">New User +</a>
-            {% endif %}
+
+            <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                    <i class="bi bi-person-plus-fill"></i>
+            </button>
+         
         </div>
 
-
+        <div class="collapse" id="collapseRegister">
+            <div class="card card-body mb-1">
+                    <h5>Register New User</h5>
+                    <div id="player-form-container" style="display: block;">
+                            <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
+                                {% csrf_token %}
+                                {{ player_form.discord.label }}:
+                                {{ player_form.discord }}
+                                <button type="submit" class="btn btn-primary btn-sm">Register User</button>
+                            </form>
+                    </div>
+                    
+                    <div id="player-form-errors"><small>If a user is missing you can add them here. Users do not need to be registered to log in. Accounts are created upon login.</small></div>        
+            </div>
+          </div>
 
         <article class="media content-section">
             <div class="media-body" style="overflow: auto;">
@@ -35,7 +51,9 @@
                     <th class="sortable" onclick="sortTable(0)">Name</th>
                     <th class="sortable" onclick="sortTable(1)">Posts</th>
                     <th class="sortable" onclick="sortTable(2)">Games</th>
+                    {% if user.profile.admin %}
                     <th class="sortable" onclick="sortTable(3)">Status</th>
+                    {% endif %}
 
 
                 </tr>
@@ -95,5 +113,69 @@
         }
     }
     
+
+
+    document.addEventListener('htmx:afterRequest', function(event) {
+        // Clear all previous error or success messages before handling the response
+        const errorContainer = document.getElementById('player-form-errors');
+        errorContainer.innerHTML = '';  // Clear all content in the error container
+    
+        // Remove all error messages for each field before processing the new response
+        const existingErrorDivs = document.querySelectorAll('.error-message');
+        existingErrorDivs.forEach(div => div.remove());  // Remove any previous error messages
+    
+        // Handle error response (400)
+        if (event.detail.xhr.status === 400) {
+            const response = JSON.parse(event.detail.xhr.responseText);  // Parse the response text into a JSON object
+            const errors = JSON.parse(response.error);  // Parse the 'error' string to JSON
+    
+            if (errors) {
+                // Iterate through each error for the fields
+                for (const fieldName in errors) {
+                    if (errors.hasOwnProperty(fieldName)) {
+                        const fieldErrors = errors[fieldName];
+                        const field = document.querySelector(`[name="${fieldName}"]`);
+                        
+                        if (field) {
+                            const errorDiv = document.createElement('div');
+                            errorDiv.classList.add('error-message', 'alert', 'alert-warning');
+    
+                            // Display all error messages for this field
+                            errorDiv.innerHTML = fieldErrors.map(error => `<p>${error.message}</p>`).join('');
+                            field.parentElement.appendChild(errorDiv);  // Add errors below the field
+                        }
+                    }
+                }
+            }
+        }
+        // Handle success response (200)
+        if (event.detail.xhr.status === 200) {
+            // Check if the response is of type 'application/json'
+            const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+            if (contentType && contentType.includes('application/json')) {
+                const response = JSON.parse(event.detail.xhr.responseText);  // Parse the JSON response
+            
+                if (response.id && response.discord) {
+                    // Clear the form fields
+                    const form = document.querySelector('[id="register-form"]');
+                    form.reset();  // This will reset all form fields to their default values
+            
+                    // Optionally, show a success message in the 'player-form-errors' div
+                    const successMessage = response.message || "Player registered successfully!";
+                    
+                    // Create a success message div
+                    const successDiv = document.createElement('div');
+                    successDiv.classList.add('success-message', 'alert', 'alert-success');  // Add classes for styling
+                    successDiv.innerHTML = `<p>${successMessage}</p>`;
+                    
+                    // Append the success message to the player-form-errors div
+                    errorContainer.appendChild(successDiv);
+                }
+            }
+        }
+
+    });
+
+
 </script>
 {% endblock scripts %}

@@ -3,8 +3,8 @@ from django.views.generic import ListView, UpdateView, CreateView, DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
-from django.http import HttpResponse, Http404, HttpResponseForbidden
-from django.core.exceptions import ObjectDoesNotExist
+from django.http import HttpResponse, Http404
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
 from django.contrib.auth.decorators import login_required
@@ -432,7 +432,7 @@ def scorecard_manage_view(request, id=None):
         if game.recorder:
             participants.append(game.recorder)
         if not request.user.profile in participants:
-                    return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+            raise PermissionDenied() 
 
 
     except Effort.DoesNotExist:
@@ -442,7 +442,7 @@ def scorecard_manage_view(request, id=None):
         obj = get_object_or_404(ScoreCard, id=id)
         # Check if the current user is the same as the recorder
         if obj.recorder != request.user.profile:
-            return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+            raise PermissionDenied() 
         if obj.faction != None:
             faction = obj.faction.id
             # print(faction)
@@ -625,7 +625,7 @@ def scorecard_assign_view(request, id):
     if game.recorder:
         participants.append(game.recorder)
     if not request.user.profile in participants:
-                return HttpResponseForbidden("You do not have permission to edit this scorecard.")
+        raise PermissionDenied() 
     dominance = False
     if effort_link.dominance:
         dominance = True

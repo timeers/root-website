@@ -4,24 +4,26 @@
         <td>{{ obj }}</td>
         <td>{{obj.active_posts_count}}</td>
         <td>{{obj.complete_games_count}}</td>
+        {% if user.profile.admin %}
         <td>
             {% if obj.group == "O" %}
             Unregistered
             {% elif obj.group == "P" %}
-            Registered
+            User
             {% elif obj.group == "B" %}
             Banned
             {% elif obj.group == "D" %}
             Designer
             {% elif obj.group == "A" %}
-            Admin
+            Moderator
             {% endif %}
 
         </td>
+        {% endif %}
     </tr>
     {% empty %}
     <tr>
-        <td colspan="4">No players found.</td>
+        <td colspan="{% if user.profile.admin %}4{% else %}3{% endif %}">No users found.</td>
     </tr>
     {% endfor %}
 </tbody>

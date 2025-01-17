@@ -1,7 +1,7 @@
 import random
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import Http404, HttpResponse, HttpResponseForbidden
+from django.http import Http404, HttpResponse
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
@@ -665,7 +665,7 @@ def add_piece(request, id=None):
         obj = get_object_or_404(Piece, id=id)
         #Check if user owns this object
         if obj.parent.designer!=request.user.profile:
-            raise HttpResponseForbidden()
+            raise PermissionDenied() 
     else:
         obj = Piece()  # Create a new Piece instance but do not save it yet
 
@@ -714,7 +714,7 @@ def delete_piece(request, id):
         piece.delete()
         return HttpResponse('')
     else:
-        raise HttpResponseForbidden()
+        raise PermissionDenied() 
 
 
 

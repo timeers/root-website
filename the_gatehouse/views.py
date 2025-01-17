@@ -1,11 +1,12 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.http import HttpResponseForbidden, JsonResponse, Http404
+from django.http import JsonResponse, Http404
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.views.generic import ListView, UpdateView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator, EmptyPage
+from django.core.exceptions import PermissionDenied
 from django.conf import settings
 from functools import wraps
 from django.urls import reverse
@@ -87,7 +88,7 @@ def designer_required(view_func):
         if profile.designer:
             return view_func(request, *args, **kwargs)  # Proceed with the original view
         else:
-            return HttpResponseForbidden()  # Forbidden access if user is not a designer
+            raise PermissionDenied() 
     return wrapper
 
 def designer_onboard_required(view_func):
@@ -108,7 +109,7 @@ def designer_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs)  # Proceed with the original view
         else:
-            return HttpResponseForbidden()  # Forbidden access if user is not a designer
+            raise PermissionDenied() 
     return wrapper
 
 def designer_required_class_based_view(view_class):
@@ -123,7 +124,7 @@ def player_required(view_func):
         if request.user.profile.player:
             return view_func(request, *args, **kwargs) 
         else:
-            return HttpResponseForbidden()  # 403 Forbidden
+            raise PermissionDenied() 
     return wrapper
 
 def player_onboard_required(view_func):
@@ -143,7 +144,7 @@ def player_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs) 
         else:
-            return HttpResponseForbidden()  # 403 Forbidden
+            raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
 
@@ -168,7 +169,7 @@ def tester_required(view_func):
             else:
                 return view_func(request, *args, **kwargs) 
         else:
-            return HttpResponseForbidden()  # 403 Forbidden
+            raise PermissionDenied()  # 403 Forbidden
     return wrapper
 
 def tester_required_class_based_view(view_class):
@@ -185,7 +186,7 @@ def admin_required(view_func):
         if request.user.profile.admin:
             return view_func(request, *args, **kwargs)  # Continue to the view
         else:
-            return HttpResponseForbidden()  # 403 Forbidden
+            raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
 def admin_onboard_required(view_func):
@@ -205,7 +206,7 @@ def admin_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs)  # Continue to the view
         else:
-            return HttpResponseForbidden()  # 403 Forbidden
+            raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
 def admin_required_class_based_view(view_class):
@@ -656,12 +657,8 @@ class ProfileListView(ListView):
     def get_context_data(self, **kwargs):
         # Add current user to the context data
         context = super().get_context_data(**kwargs)
-        # if self.request.user.is_authenticated:
-        #     context['profile'] = self.request.user.profile  # Adding the user to the context
-        #     context['shared_assets'] = Profile.objects.filter(shared_by__slug=self.request.user.profile.slug)
-        # else:
-        #     context['profile'] = None
-        #     context['shared_assets'] = None
+        context['player_form'] = PlayerCreateForm()
+
         return context
     
     def render_to_response(self, context, **response_kwargs):
@@ -680,21 +677,40 @@ def manage_user(request, slug):
     # If form is submitted (POST request)
     if request.method == 'POST':
         # Pass request.POST as the first argument and user_to_edit as a keyword argument
-        form = UserManageForm(request.POST, user_to_edit=user)
+        form = UserManageForm(request.POST, user_to_edit=user, current_user=request.user.profile)
 
         # If the form is valid, save the new user status
         if form.is_valid():
             update_user = False
-
+            update_message = "No changes were made"
             # Handle updating the group status
             if form.cleaned_data.get('group'):
                 user.group = form.cleaned_data['group']
                 update_user = True
+                update_message  = f'{user.name} has been updated.'
 
             # Handle updating the nominate_admin status
             if form.cleaned_data.get('nominate_admin'):
-                # Logic for nominating admin could go here
+                # Logic for nominating admin
+                if user.admin_nominated and user.admin_nominated != request.user.profile:
+                    user.group = "A"
+                    user.admin_dismiss = None
+                    update_message = f'{user.name} has been promoted to Moderator.'
+                else:
+                    user.admin_nominated = request.user.profile
+                    update_message = f'{user.name} has been recommended as Moderator.'
+                update_user = True
 
+            # Handle updating the dismiss_admin status
+            if form.cleaned_data.get('dismiss_admin'):
+                # Logic for dismissing admin
+                if user.admin_dismiss and user.admin_dismiss != request.user.profile:
+                    user.group = "D"
+                    user.admin_nominated = None
+                    update_message = f'{user.name} has been removed from the Moderator group.'
+                else:
+                    user.admin_dismiss = request.user.profile
+                    update_message = f'You have voted to remove {user.name} from the Moderator group.'
                 update_user = True
 
             # Save the user if any change was made
@@ -702,7 +718,7 @@ def manage_user(request, slug):
                 user.save()
 
             # Redirect with a success message
-            messages.success(request, f'{user.name} has been updated.')
+            messages.success(request, update_message)
         else:
             # Handle form validation errors (optional)
             messages.error(request, 'There were errors in the form submission.')
@@ -713,7 +729,7 @@ def manage_user(request, slug):
     # If GET request, render the form with the current user's status pre-filled
     else:
         # Pre-populate the form with the current status of the user
-        form = UserManageForm(initial={'group': user.group}, user_to_edit=user)
+        form = UserManageForm(initial={'group': user.group}, user_to_edit=user, current_user=request.user.profile)
 
     context = {
         'user_to_edit': user,
