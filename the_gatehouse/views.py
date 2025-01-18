@@ -608,13 +608,13 @@ def player_stats(request, slug):
     # print("Stat Lookup", f'tournament-{tournament}', f'round-{round}', f'game threshold-{game_threshold}')
     top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
     most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
-
+    print(top_factions)
     context = {
         'player': player,
         'selected_tournament': tournament,
         'tournament_round': round,
-        'top_factions': top_factions,
-        'most_factions': most_factions,
+        'top_factions': most_factions,
+        'most_factions': top_factions,
         'all_games': all_games,
         'win_points': win_points,
         'win_rate': win_rate,
@@ -625,7 +625,7 @@ def player_stats(request, slug):
     return render(request, 'the_warroom/player_tournament_stats.html', context)
 
 
-
+@player_required_class_based_view
 class ProfileListView(ListView):
     model = Profile
     template_name = 'the_gatehouse/profiles_list.html'
@@ -651,6 +651,7 @@ class ProfileListView(ListView):
             active_posts_count=Count('posts', filter=Q(posts__status__lte=4), distinct=True),
             complete_games_count=Count('efforts', filter=Q(efforts__game__final=True), distinct=True)
         )
+        queryset = queryset.order_by('display_name')
         return queryset
 
 

@@ -385,18 +385,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
     // Initial call to populate options when the page loads
     if (tournamentSelect.value === ""){
 //         updateOptions(platformSelect.value);
@@ -441,41 +429,6 @@ function updateDominance(dominanceName = '', addDominance = True){
 
 
 
-// function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
-//     const currentSelection = String(selectElement.value || '');  // Convert value to string to handle type mismatch
-
-//     selectElement.innerHTML = '';  // Clear current options
-
-//     // Add placeholder if provided
-//     if (placeholderText) {
-//         const placeholderOption = document.createElement('option');
-//         placeholderOption.value = '';
-//         placeholderOption.text = placeholderText;
-//         selectElement.appendChild(placeholderOption);
-//     }
-
-//     let found = false;
-
-//     // Add new options
-//     optionsData.forEach(item => {
-//         const option = document.createElement('option');
-//         option.value = item.id;  // Set option value
-//         option.text = item.name;  // Set option text
-//         selectElement.appendChild(option);
-
-//         // Check if the previously selected value is available
-//         if (String(item.id) === currentSelection) {
-//             found = true;
-//         }
-//     });
-
-//     // If the previously selected value exists, reselect it
-//     if (found) {
-//         selectElement.value = currentSelection;  // Set value directly
-//     } else {
-//         selectElement.value = '';  // Reset if not found
-//     }
-// }
 // New code handles multiple select options for Landmarks, Hirelings etc.
 function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
     const currentSelections = selectElement.value ? Array.from(selectElement.selectedOptions).map(option => option.value) : [];  // Handle multiple selections
@@ -487,7 +440,7 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
         const placeholderOption = document.createElement('option');
         placeholderOption.value = '';
         placeholderOption.text = placeholderText;
-        placeholderOption.disabled = true;  // Optionally disable placeholder
+        placeholderOption.disabled = false;  // Optionally disable placeholder
         selectElement.appendChild(placeholderOption);
     }
 

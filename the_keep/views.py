@@ -219,7 +219,8 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 
     def form_valid(self, form):
         # Ensure the designer is set to the logged-in user's profile
-        form.instance.designer = self.request.user.profile
+        # if not self.request.user.profile.admin:
+        #     form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()  # Set the updated timestamp
         return super().form_valid(form)
 
@@ -635,7 +636,7 @@ def _search_components(request, slug=None):
         posts = posts.filter(designer=player)
     if search:
         # posts = posts.filter(title__icontains=search)
-        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search))
+        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search)|Q(expansion__title__icontains=search))
         
     if search_type:
         posts = posts.filter(component__icontains=search_type)
@@ -929,8 +930,10 @@ class PNPAssetListView(ListView):
         # Check if it's an HTMX request
         if self.request.headers.get('HX-Request') == 'true':
             # Only return the part of the template that HTMX will update
+            print("HTMX")
+            print(context)
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
-
+        print("NOT HTMX")
         return super().render_to_response(context, **response_kwargs)
     
 @player_required_class_based_view

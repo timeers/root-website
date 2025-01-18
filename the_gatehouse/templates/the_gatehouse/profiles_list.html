@@ -4,13 +4,13 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1>Users</h1>
-
+            {% if user.profile.admin %}
             <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                     <i class="bi bi-person-plus-fill"></i>
             </button>
-         
+            {% endif %}
         </div>
-
+        {% if user.profile.admin %}
         <div class="collapse" id="collapseRegister">
             <div class="card card-body mb-1">
                     <h5>Register New User</h5>
@@ -26,6 +26,7 @@
                     <div id="player-form-errors"><small>If a user is missing you can add them here. Users do not need to be registered to log in. Accounts are created upon login.</small></div>        
             </div>
           </div>
+          {% endif %}
 
         <article class="media content-section">
             <div class="media-body" style="overflow: auto;">

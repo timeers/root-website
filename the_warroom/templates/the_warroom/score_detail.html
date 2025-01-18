@@ -49,17 +49,24 @@
     <article class="media content-section">
         <div class="media-body">
 
+
+        <div>
+            <a href="{% url 'faction-detail' object.faction.slug %}">
+                <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
+                {{ object.faction }}
+            </a> - {{ object.turns.count }} Turns
+        </div>
         {% if object.effort %}
 
-            {% if object.effort.player %}
-            <div>
-                Player: <a href="{% url 'player-detail' object.effort.player.slug %}">{{ object.effort.player.name }}</a>
-            </div>
-            {% endif %}
-        {% endif %}
+        {% if object.effort.player %}
         <div>
-            <a href="{% url 'faction-detail' object.faction.slug %}">{{ object.faction }}</a> - {{ object.turns.count }} Turns
+            <a href="{% url 'player-detail' object.effort.player.slug %}">
+                <img class="faction-icon" src="{{ object.effort.player.image.url }}">
+                {{ object.effort.player.name }}
+            </a>
         </div>
+        {% endif %}
+    {% endif %}
         <small>
             Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
         </small>

@@ -1,6 +1,6 @@
 {% load crispy_forms_tags %}
 
-<form action="." method="POST" hx-swap="outerHTML">
+<form method="POST" action="">
     {% csrf_token %}
 
     
@@ -107,9 +107,9 @@
 
     <!-- Save Progress and Submit Buttons -->
      <button class="btn btn-success mb-2 mt-2" id="save" type="submit">Submit</button>
-     {% if not object.final or not object.id %}
+     {% comment %} {% if not object.final or not object.id %}
     <button class="btn btn-warning mb-2 mt-2" id="save-progress" type="button">Save Progress</button>
-    {% endif %}
+    {% endif %} {% endcomment %}
     
 
     <!-- Hidden Field for Final Flag -->

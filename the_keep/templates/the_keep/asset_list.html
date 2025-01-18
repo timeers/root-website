@@ -29,7 +29,7 @@
                 <article class="media content-section">
                     <div class="media-body">
                 <div style="overflow-x: auto;">
-                    <table id="sortable-table">
+                    <table id="nonsortable-table">
                         <thead>
                             <tr>
                                 <th>Name</th>
@@ -44,30 +44,48 @@
                         </thead>
     
                     
-                        <tbody id="asset-table-body">
-                            <!-- The rows will be dynamically swapped here by HTMX -->
+                        <tbody id="shared-asset-table" class="effort-rows">
+                            {% for obj in shared_assets %}
                             <tr>
-                                <td>Loading</td>
-                                <td>---</td>
-                                <td>---</td>
-                                <td>---</td>
-                                <td>---</td>
+                                <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
+                                <td>{{ obj.category }}</td>
+                                <td><a href="{{ obj.link }}">{{ obj.file_type }}</a></td>
+                                <td>{{ obj.date_updated|date:"m/d/y" }}</td>
+                        
+                                <td>
+                                    {% if obj.shared_by %}
+                                    {{ obj.shared_by.display_name }}
+                                    {% else %}
+                                    ---
+                                    {% endif %}
+                                </td>
                                 {% if profile.player %}
-                                <td>---</td>
+                                <td>
+                                    {% if obj.shared_by == profile and obj.shared_by %}
+                                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+                                    {% endif %}
+                                    {% if profile.admin_onboard %}           
+                                    {% if obj.shared_by == None %}
+                                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
+                                    {% endif %}
+                                        <!-- Pins -->
+                                        {% include 'the_keep/partials/asset_pins.html' %}
+                                    {% endif %}
+                                </td>
                                 {% endif %}
                             </tr>
-    
+                            {% empty %}
+                            <tr>
+                                <td colspan="5">No assets found.</td>
+                            </tr>
+                            {% endfor %}
                         </tbody>
                     
                     </table>
 
                 </div>
     
-                <div hx-trigger="revealed" 
-                    hx-get="{% url 'asset-player' slug=profile.slug %}" 
-                    hx-target="#asset-table-body" 
-                    hx-swap="outerHTML">
-                </div>
+
             </div>
         </article>
             </div>

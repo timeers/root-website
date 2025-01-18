@@ -341,7 +341,7 @@ def manage_game(request, id=None):
     # Pass the formset to the parent form by storing it in the parent form instance
     # Allowing validation based on the total form
     form = GameCreateForm(request.POST or None, instance=obj, user=user, effort_formset=formset)
-
+    print("Here")
     form_count = extra_forms + existing_count
     context = {
         'form': form,
@@ -353,7 +353,9 @@ def manage_game(request, id=None):
 
 
     # Handle form submission
+    print(request.method)
     if request.method == 'POST':
+        print("Post")
         if form.is_valid() and formset.is_valid():
             parent = form.save(commit=False)
             # Check if game is final

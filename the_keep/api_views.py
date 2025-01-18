@@ -58,8 +58,12 @@ def get_options_for_platform(request, platform):
     landmarks_data = [{'id': landmark.id, 'name': landmark.title} for landmark in landmarks]
     tweaks_data = [{'id': tweak.id, 'name': tweak.title} for tweak in tweaks]
     hirelings_data = [{'id': hireling.id, 'name': hireling.title} for hireling in hirelings]
-    players_data = [{'id': player.id, 'name': f'{player.name} ({player.discord})'} for player in players.all()]
 
+    if platform == 'root_digital':
+        players_data = [{'id': player.id, 'name': f'{player.name} ({player.dwd if player.dwd else player.discord})'} for player in players.all()]
+    else:
+        players_data = [{'id': player.id, 'name': f'{player.name} ({player.discord})'} for player in players.all()]
+        
     # Return all the data in a single response
     return JsonResponse({
         'decks': decks_data,
