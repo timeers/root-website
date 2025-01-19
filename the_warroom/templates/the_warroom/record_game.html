@@ -737,7 +737,7 @@ document.addEventListener('htmx:afterRequest', function(event) {
                 const formCopyTarget = document.getElementById("effort-form-list")
                 
                 const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true)
-                copyEmptyFormEl.setAttribute('class', 'effort-form form-control')
+                copyEmptyFormEl.setAttribute('class', 'effort-form form-control mb-1')
                 copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`)
                 const regex = new RegExp('__prefix__', 'g')
                 copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex)

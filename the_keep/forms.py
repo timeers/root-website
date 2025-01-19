@@ -69,6 +69,7 @@ class PostCreateForm(forms.ModelForm):
         required=False
     )
     STATUS_CHOICES = [
+        ('1', 'Stable'),
         ('2', 'Testing'),
         ('3', 'Development'),
         ('4', 'Inactive'),
@@ -153,6 +154,12 @@ class PostCreateForm(forms.ModelForm):
         else:
             # Remove '2' (Testing) if no plays exist
             self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '2']
+        print(post_instance.status)
+        if post_instance and post_instance.status == '1':
+            self.fields['status'].choices.append(('1', 'Stable'))
+        else:
+            # Remove '1' (Stable) if not already stable
+            self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '1']
 
 
     def clean(self):

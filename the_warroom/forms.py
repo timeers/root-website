@@ -21,7 +21,7 @@ class GameCreateForm(forms.ModelForm):
     tweaks = forms.ModelMultipleChoiceField(required=False, 
                 queryset=Tweak.objects.all(),
                 widget=forms.SelectMultiple,
-                label="Rule Tweaks",
+                label="House Rules",
                 )
     PLATFORM_CHOICES = [
         ('Tabletop Simulator', 'Tabletop Simulator'),

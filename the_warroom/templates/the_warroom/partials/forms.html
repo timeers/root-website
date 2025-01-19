@@ -5,6 +5,7 @@
 
     
     <h2>Game Details</h2>
+    <div class='form-control mb-1'>
         <div id="game-tournament-field">
                 {{ form.round.label_tag }} {{ form.round }}
         </div>
@@ -28,13 +29,13 @@
                 {{ form.hirelings.label_tag }} {{ form.hirelings }}
         </div>
 
-
+</div>
 
         <h2>Players</h2>
         <div class="hidden">{{ formset.management_form }}</div>
         <div id="effort-form-list">
                 {% for form in formset %}
-                        <div id="form-{{ forloop.counter0 }}" class="effort-form form-control">
+                        <div id="form-{{ forloop.counter0 }}" class="effort-form form-control mb-1">
 
 
                         
@@ -86,22 +87,25 @@
                         Remove
                 </button>
         </div>
-        <div id="game-undrafted_faction-field">
-                {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
+        <div>
+                <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
         </div>
-        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
-                {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
-        </div>
-        <div class="mt-2" id="game-link-field">
-                {{ form.link.label_tag }} {{ form.link }}
-        </div>
-        <div class="mt-2" id="game-tweaks-field">
-                {{ form.tweaks.label_tag }} {{ form.tweaks }}
+        <h2>Misc.</h2>
+        <div class='form-control'>
+                <div id="game-undrafted_faction-field">
+                        {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
+                </div>
+                <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
+                        {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
+                </div>
+                <div class="mt-2" id="game-link-field">
+                        {{ form.link.label_tag }} {{ form.link }}
+                </div>
+                <div class="mt-2" id="game-tweaks-field">
+                        {{ form.tweaks.label_tag }} {{ form.tweaks }}
+                </div>
         </div>
 
-<div>
-    <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
-</div>
     <!-- <div class="htmx-indicator mb-2 mt-2">Loading...</div> -->
     <!-- <button class="btn btn-success htmx-inverted-indicator mb-2 mt-2" type="submit">Save</button> -->
 
