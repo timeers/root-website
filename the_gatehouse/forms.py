@@ -53,11 +53,14 @@ class ProfileUpdateForm(forms.ModelForm):
         #     # self.fields.disable('weird')  # Remove the weird field from the form if the profile's in_weird_root is False
 
         # Check if the instance has a value for dwd
-        if self.instance and self.instance.dwd:
+        if self.instance and self.instance.dwd and not self.instance.admin:
             # Disable the Direwolf Digital field if DWD has a value (don't want users to change their names)
             self.fields.pop('dwd')  # This removes the dwd field
         else:
-            self.fields['dwd'].label = "Direwolf Digital Username (cannot be changed once saved)"
+            if self.instance.admin:
+                self.fields['dwd'].label = "Direwolf Digital Username"
+            else:
+                self.fields['dwd'].label = "Direwolf Digital Username (cannot be changed once saved)"
         # Save to repurpose #########################
         # if self.instance and self.instance.league == True:
         #     self.fields.pop('league')
@@ -109,7 +112,10 @@ class UserManageForm(forms.ModelForm):
 
     class Meta:
         model = Profile
-        fields = ['group', 'nominate_admin']
+        fields = ['group', 'nominate_admin', 'dwd']
+        labels = {
+            'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
+        }
 
     def __init__(self, *args, **kwargs):
         user_to_edit = kwargs.pop('user_to_edit', None)
@@ -117,6 +123,10 @@ class UserManageForm(forms.ModelForm):
         super().__init__(*args, **kwargs)  # Ensure the form is initialized with the correct args and kwargs
 
         if user_to_edit:
+            self.instance = user_to_edit
+            # Set the initial value for the dwd field
+            self.fields['dwd'].initial = user_to_edit.dwd
+
             if not user_to_edit.admin:
                 self.fields.pop('dismiss_admin', None)
             elif user_to_edit.admin_dismiss:
@@ -126,9 +136,11 @@ class UserManageForm(forms.ModelForm):
                 else:
                     self.fields['dismiss_admin'].label = f"Voted to dismiss Moderator"
                     self.fields['dismiss_admin'].help_text = ""
-                    # Disable the field (make it uneditable)
                     self.fields['dismiss_admin'].widget.attrs['disabled'] = 'disabled'
+
             if user_to_edit.admin or user_to_edit.group == "O":
+                if user_to_edit == current_user:
+                    self.fields.pop('dismiss_admin', None)
                 self.fields.pop('nominate_admin', None)
                 self.fields.pop('group', None)
 
@@ -139,8 +151,26 @@ class UserManageForm(forms.ModelForm):
                 else:
                     self.fields['nominate_admin'].label = f"Recommended as Moderator"
                     self.fields['nominate_admin'].help_text = ""
-                    # Disable the field (make it uneditable)
                     self.fields['nominate_admin'].widget.attrs['disabled'] = 'disabled'
+
+
+    def clean_dwd(self):
+        """
+        Custom validation for the dwd field. This ensures that the uniqueness constraint is only enforced 
+        if the dwd value is being changed.
+        """
+        dwd = self.cleaned_data.get('dwd')
+        user_to_edit = self.instance
+        if dwd and not re.match(r'^[a-zA-Z0-9]+(\+\d{4})$', dwd):
+            raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
+        
+        if dwd is not None and user_to_edit.dwd != dwd:
+            # Check for uniqueness only if dwd is changing
+            if Profile.objects.filter(dwd=dwd).exists():
+                raise ValidationError(f"'{dwd}' is already associated with another user.")
+        
+        # If dwd is not changing or is unique, return it
+        return dwd
 
         
 

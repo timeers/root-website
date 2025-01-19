@@ -154,7 +154,7 @@ class PostCreateForm(forms.ModelForm):
         else:
             # Remove '2' (Testing) if no plays exist
             self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '2']
-            
+
         if post_instance and post_instance.status == '1':
             self.fields['status'].choices.append(('1', 'Stable'))
         else:
@@ -560,7 +560,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         widget=forms.RadioSelect(),
         required=True
     )
-    reach = forms.IntegerField(min_value=1, max_value=10)
+    reach = forms.IntegerField(min_value=0, max_value=10)
     complexity = create_style_choice_field('Complexity')
     card_wealth = create_style_choice_field('Card Wealth')
     aggression = create_style_choice_field('Aggression')

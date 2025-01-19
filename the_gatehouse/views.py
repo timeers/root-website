@@ -673,67 +673,75 @@ class ProfileListView(ListView):
 
 @admin_onboard_required
 def manage_user(request, slug):
-    user = get_object_or_404(Profile, slug=slug.lower())
+    user_to_edit = get_object_or_404(Profile, slug=slug.lower())
 
     # If form is submitted (POST request)
     if request.method == 'POST':
         # Pass request.POST as the first argument and user_to_edit as a keyword argument
-        form = UserManageForm(request.POST, user_to_edit=user, current_user=request.user.profile)
+        form = UserManageForm(request.POST, user_to_edit=user_to_edit, current_user=request.user.profile)
 
-        # If the form is valid, save the new user status
+        # If the form is valid, save the new user_to_edit status
         if form.is_valid():
             update_user = False
             update_message = "No changes were made"
             # Handle updating the group status
             if form.cleaned_data.get('group'):
-                user.group = form.cleaned_data['group']
+                user_to_edit.group = form.cleaned_data['group']
                 update_user = True
-                update_message  = f'{user.name} has been updated.'
+                update_message  = f'{user_to_edit.name} has been updated.'
+            
+            if form.cleaned_data.get('dwd'):
+                user_to_edit.dwd = form.cleaned_data['dwd']
+                update_user = True
+                update_message  = f'{user_to_edit.name} has been updated.'
 
             # Handle updating the nominate_admin status
             if form.cleaned_data.get('nominate_admin'):
                 # Logic for nominating admin
-                if user.admin_nominated and user.admin_nominated != request.user.profile:
-                    user.group = "A"
-                    user.admin_dismiss = None
-                    update_message = f'{user.name} has been promoted to Moderator.'
+                if user_to_edit.admin_nominated and user_to_edit.admin_nominated != request.user.profile:
+                    user_to_edit.group = "A"
+                    user_to_edit.admin_dismiss = None
+                    update_message = f'{user_to_edit.name} has been promoted to Moderator.'
                 else:
-                    user.admin_nominated = request.user.profile
-                    update_message = f'{user.name} has been recommended as Moderator.'
+                    user_to_edit.admin_nominated = request.user.profile
+                    update_message = f'{user_to_edit.name} has been recommended as Moderator.'
                 update_user = True
 
             # Handle updating the dismiss_admin status
             if form.cleaned_data.get('dismiss_admin'):
                 # Logic for dismissing admin
-                if user.admin_dismiss and user.admin_dismiss != request.user.profile:
-                    user.group = "D"
-                    user.admin_nominated = None
-                    update_message = f'{user.name} has been removed from the Moderator group.'
+                if user_to_edit.admin_dismiss and user_to_edit.admin_dismiss != request.user.profile:
+                    user_to_edit.group = "D"
+                    user_to_edit.admin_nominated = None
+                    update_message = f'{user_to_edit.name} has been removed from the Moderator group.'
                 else:
-                    user.admin_dismiss = request.user.profile
-                    update_message = f'You have voted to remove {user.name} from the Moderator group.'
+                    user_to_edit.admin_dismiss = request.user.profile
+                    update_message = f'You have voted to remove {user_to_edit.name} from the Moderator group.'
                 update_user = True
+
+
 
             # Save the user if any change was made
             if update_user:
-                user.save()
+                user_to_edit.save()
 
             # Redirect with a success message
             messages.success(request, update_message)
+            # Redirect after the form is successfully saved
+            return redirect(user_to_edit.get_absolute_url())
         else:
             # Handle form validation errors (optional)
             messages.error(request, 'There were errors in the form submission.')
 
-        # Redirect after the form is successfully saved or errors are handled
-        return redirect(user.get_absolute_url())
+
 
     # If GET request, render the form with the current user's status pre-filled
     else:
         # Pre-populate the form with the current status of the user
-        form = UserManageForm(initial={'group': user.group}, user_to_edit=user, current_user=request.user.profile)
+        form = UserManageForm(initial={'group': user_to_edit.group}, user_to_edit=user_to_edit, current_user=request.user.profile)
 
     context = {
-        'user_to_edit': user,
+        'user_to_edit': user_to_edit,
         'form': form,
     }
     return render(request, 'the_gatehouse/manage_user.html', context)

@@ -11,20 +11,14 @@
     </div>
         <div class="media-body">
             
-            {% if user_to_edit.player %}
-                <h2 class="account-heading root-title"><a href="{% url 'player-detail' user_to_edit.slug %}">{{ user_to_edit.name }}</a></h2>
-            {% else %}
-                <h2 class="account-heading root-title">{{ user_to_edit.name }}</h2>
-            {% endif %}
+
+            <h2 class="account-heading root-title"><a href="{% url 'player-detail' user_to_edit.slug %}">{{ user_to_edit.name }}</a></h2>
+
             {% if user_to_edit.discord %}
                 <span class="text-secondary">Discord: {{ user_to_edit.discord }}</span><br>
             {% endif %}
             {% if user_to_edit.dwd %}
-                {% if user_to_edit.league %}
-                    <span class="text-secondary">Digital League: {{ user_to_edit.dwd }}</span><br>
-                {% else %}
-                    <span class="text-secondary">DWD: {{ user_to_edit.dwd }}</span><br>
-                {% endif %}
+                <span class="text-secondary">DWD: {{ user_to_edit.dwd }}</span><br>
             {% endif %}
             
         </div>
@@ -48,12 +42,7 @@
 
 
 
-    {% if user_to_edit == user.profile %}
-    You cannot edit your own profile.
-    <div>
-    <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">Cancel</a>
-    </div>
-    {% elif user_to_edit.group != "O" %}
+
     <!-- User management form -->
     <form method="post">
     {% csrf_token %}
@@ -63,18 +52,32 @@
     {{ form | crispy }}
     </div>
 
+
+
+    <!-- If there are any non-field errors -->
+    {% if form.non_field_errors %}
+        <div class="non-field-errors">
+            <strong>Form Errors:</strong>
+            <ul>
+                {% for error in form.non_field_errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
     <!-- Submit button -->
     <div class="form-group">
     <button class="btn btn-outline-info" type="submit">Save</button>
     <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">Cancel</a>
     </div>
     </form>
-    {% else %}
+    {% comment %} {% else %}
     This account is not yet registered or the user is not a member of Woodland Warriors and cannot be edited.
     <div>
         <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">Cancel</a>
-    </div>
-    {% endif %}
+    </div> {% endcomment %}
+
 </div>
 {% endblock %}
 
