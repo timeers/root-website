@@ -61,7 +61,13 @@
                 {% if object.artist %}
                 <div>
                     Art by 
-                    <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
+                    {% if user.profile.player %}
+                        <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
+                    {% else %}
+                        {{ object.artist.name }}
+                    {% endif %}
+
+
                 </div>
                 {% endif %}
                 {% if object.based_on %}
