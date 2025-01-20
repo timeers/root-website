@@ -291,7 +291,6 @@ def manage_game(request, id=None):
 
     # Handle form submission
     if request.method == 'POST':
-        print("Post")
         if form.is_valid() and formset.is_valid():
             parent = form.save(commit=False)
             # Check if game is final

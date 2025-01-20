@@ -764,12 +764,16 @@ document.addEventListener('htmx:afterRequest', function(event) {
 
         // Check if the "Save Progress" button exists in the DOM
         const saveProgressButton = document.getElementById('save-progress');
+        const submitButton = document.getElementById('save');
         if (saveProgressButton) {
         saveProgressButton.addEventListener('click', function() {
                 // Set the final hidden input value to 'False'
                 document.getElementById('final').value = 'False';  
                 // Submit the form
-                document.querySelector('form').submit();  
+                // document.querySelector('form').submit();  
+                if (submitButton) {
+                        submitButton.click();
+                }
         });
         }
 </script>

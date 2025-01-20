@@ -353,7 +353,6 @@ class EffortCreateForm(forms.ModelForm):
             cleaned_data['score'] = 0 
 
         # print(cleaned_data.get('score'))
-
         if faction is None or faction == "":
             # raise ValidationError(f"Faction required")
             validation_errors_to_display.append("Faction required")
@@ -372,9 +371,8 @@ class EffortCreateForm(forms.ModelForm):
                 # raise ValidationError({'captains': 'Please assign 3 Vagabonds as captains.'})
                 validation_errors_to_display.append('Please assign 3 Vagabonds as captains')
 
-
-
-        if not dominance and not score and not coalition:
+        print(score)
+        if not dominance and score is None and not coalition:
             # raise ValidationError(f"Score or Dominance required")
             validation_errors_to_display.append('Score or Dominance required')
 
