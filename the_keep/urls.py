@@ -23,16 +23,15 @@ from .views import (
     confirm_testing,
     pin_asset,
 )
+from .api_views import search_posts
 from . import views
 
 urlpatterns = [
-    # path('', PostListView.as_view(), name='keep-home'),
     path("", list_view, name='keep-home'),
     # path("new/", activity_list, name='activity-list'),
  
- 
-
     path("search/", search_view, name='search'),
+    path('api/search/', search_posts, name='api-search-posts'),
 
     path('new/faction/', FactionCreateView.as_view(), name='faction-create'),
     path('new/clockwork/', ClockworkCreateView.as_view(), name='clockwork-create'),

@@ -443,8 +443,19 @@ class ScoreCard(models.Model):
                 Q(game__efforts__player=self.recorder) |  # Player is linked to the game
                 Q(game__recorder=self.recorder),  # Recorder is the current user
                 scorecard=None, faction=self.faction,
-                score=self.total_points  # Effort has no associated scorecard
+                score=self.total_points,  # Effort has no associated scorecard
+                game__final=True
             ).exists()
+            available_test_efforts = Effort.objects.filter(
+                Q(game__efforts__player=self.recorder) |  # Player is linked to the game
+                Q(game__recorder=self.recorder),  # Recorder is the current user
+                scorecard=None, faction=self.faction,
+                score=self.total_points,  # Effort has no associated scorecard
+                game__final=True
+            )
+            print(available_test_efforts)
+            for effort in available_test_efforts:
+                print(effort.game.get_absolute_url())
             print(f'Faction: {self.faction} - No Dominance')
 
 

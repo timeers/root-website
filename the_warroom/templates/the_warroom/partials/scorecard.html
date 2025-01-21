@@ -75,10 +75,14 @@
 
 </table>
 <div>
-<div>Recorded on: {{ object.date_posted|date:"F j, Y" }}</div>
+
+    {% if object.description %}
+    <h4>Notes:</h4>
+    <div>{{ object.description }}</div>
+    {% endif %}
+
+<small>Recorded on: {{ object.date_posted|date:"F j, Y" }}</small>
 
 
-{% if object.description %}
-<div>{{ object.description }}</div>
-{% endif %}
+
 </div>

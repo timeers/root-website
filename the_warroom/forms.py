@@ -34,7 +34,10 @@ class GameCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Game
-        fields = ['solo', 'coop', 'official', 'test_match', 'round', 'platform', 'type', 'deck', 'map', 'random_clearing', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'tweaks', 'final']
+        fields = ['solo', 'coop', 'official', 'test_match', 'round', 
+                  'platform', 'type', 'deck', 'map', 'random_clearing', 
+                  'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
+                  'hirelings', 'link', 'tweaks', 'final', 'notes']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -45,6 +48,16 @@ class GameCreateForm(forms.ModelForm):
     def __init__(self, *args, user=None, effort_formset=None, **kwargs):
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
+
+        self.fields['notes'].widget.attrs.update({
+            'rows': '2',
+            'placeholder': 'Game Notes...',
+            'class': 'form-control full-width', 
+        })
+        self.fields['link'].widget.attrs.update({
+            'placeholder': 'Link to Game Thread',
+            'class': 'form-control full-width', 
+        })
 
         self.effort_formset = effort_formset 
 
@@ -453,6 +466,11 @@ class ScoreCardCreateForm(forms.ModelForm):
     def __init__(self, *args, user=None, faction=None, **kwargs):
         # Call the parent constructor
         super(ScoreCardCreateForm, self).__init__(*args, **kwargs)
+        self.fields['description'].widget.attrs.update({
+            'rows': '2',
+            'placeholder': 'Faction Notes...',
+            'class': 'form-control full-width', 
+        })
         # Check if faction is passed to the form
         view_status = user.profile.view_status
         if faction:
@@ -464,6 +482,7 @@ class ScoreCardCreateForm(forms.ModelForm):
             self.fields['faction'].queryset = Faction.objects.filter(official=True, status__lte=view_status)
         else:
             self.fields['faction'].queryset = Faction.objects.filter(status__lte=view_status)
+
         self.user = user  # Save the user parameter for later use
 
     def clean(self):

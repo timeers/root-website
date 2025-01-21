@@ -355,8 +355,9 @@ def bookmark_game(request, object):
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
     faction = request.GET.get('faction', None)
-    # print(faction)
     effort_id = request.GET.get('effort', None)
+    game_group = request.GET.get('game_group', None)
+
     next_scorecard = None
     previous_scorecard = None
     try:
@@ -440,6 +441,7 @@ def scorecard_manage_view(request, id=None):
         'score': score,
         'next_scorecard': next_scorecard,
         'previous_scorecard': previous_scorecard,
+        'game_group': game_group,
     }
 
 
@@ -503,11 +505,15 @@ def scorecard_manage_view(request, id=None):
         if request.POST.get('previous'):
             # Redirect to the update page of the next scorecard
             return redirect('update-scorecard', previous_scorecard.id)
+        # Check if the "add_player" button was clicked
+        if request.POST.get('add_player'):
+            # Redirect to the record page to record new
+            game_group = parent.game_group
+            return redirect(f'{reverse("record-scorecard")}?game_group={game_group}')
 
 
         context['message'] = "Scores Saved"
         return redirect(parent.get_absolute_url())
-    
     return render(request, 'the_warroom/record_scores.html', context)
 
 

@@ -59,16 +59,47 @@
     <div class="media-body">
 
     <h2>Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+
+    {% if top_players and most_players %}
+    <ul class="nav nav-tabs" id="leaderboardTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <a class="nav-link active" id="winrate-leaderboard-tab" data-bs-toggle="tab" href="#winrate-leaderboard" role="tab" aria-controls="winrate-leaderboard" aria-selected="true">By Winrate</a>
+        </li>    
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="game-leaderboard-tab" data-bs-toggle="tab" href="#game-leaderboard" role="tab" aria-controls="game-leaderboard" aria-selected="false">By Games Won</a>
+        </li>        
+        
+    </ul>
+    {% endif %}
+
+
+
     {% if top_players %}
-        <h4>By Winrate</h4>
+        {% if top_players and most_players %}
+        <div class="tab-content" id="tab-contents">
+            <div class="tab-pane active" id="winrate-leaderboard" role="tabpanel" aria-labelledby="winrate-leaderboard-tab">
+        {% else %}
+            <h4>By Winrate</h4>
+        {% endif %}
         {% with top_players as leaderboard_players %}
             {% include 'the_gatehouse/partials/leaderboard.html' %}
         {% endwith %}
+        {% if top_players and most_players %}
+            </div>
+        {% endif %}
     {% endif %}
+    {% if top_players and most_players %}
+        <div class="tab-pane" id="game-leaderboard" role="tabpanel" aria-labelledby="game-leaderboard-tab">
+    {% else %}
     <h4>By Games Won</h4>
+    {% endif %}
     {% with most_players as leaderboard_players %}
         {% include 'the_gatehouse/partials/leaderboard.html' %}
     {% endwith %}
+    {% if top_players and most_players %}
+        </div>
+        </div>
+    {% endif %}
     </div>
     
 </article>

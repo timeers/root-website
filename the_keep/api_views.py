@@ -1,7 +1,13 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak
+from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak, Post
+from .serializers import (
+    MapSerializer, DeckSerializer, LandmarkSerializer, TweakSerializer, 
+    HirelingSerializer, VagabondSerializer, FactionSerializer
+)
 from the_gatehouse.models import Profile
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
 
 
 def get_options_for_platform(request, platform):
@@ -75,3 +81,49 @@ def get_options_for_platform(request, platform):
         'hirelings': hirelings_data,
         'players': players_data,
     })
+
+
+# API search view
+@api_view(['GET'])
+def search_posts(request):
+    search_query = request.GET.get('search', None)  # Get the 'search' kwarg from the URL
+    
+    if search_query:
+        # First, attempt to find posts with an exact match on the title
+        exact_match = Post.objects.filter(title__iexact=search_query).first()
+
+        if exact_match:
+            post = exact_match
+        else:
+            # If no exact match is found, search for the first post containing the query in the title (case-insensitive)
+            post = Post.objects.filter(title__icontains=search_query).first()
+
+        
+        if post:
+
+            # Define the serializer mapping based on component type
+            component_serializer_mapping = {
+                "Map": MapSerializer,
+                "Deck": DeckSerializer,
+                "Landmark": LandmarkSerializer,
+                "Tweak": TweakSerializer,
+                "Hireling": HirelingSerializer,
+                "Vagabond": VagabondSerializer,
+                "Faction": FactionSerializer,
+                "Clockwork": FactionSerializer,  # Mapping Clockwork to FactionSerializer
+            }
+
+            # Get the correct serializer for the component
+            SerializerClass = component_serializer_mapping.get(post.component)
+
+            if SerializerClass:
+                # If serializer is found, serialize the instance
+                serializer = SerializerClass(post)
+                return Response(serializer.data)
+            else:
+                # Handle the case where the component type does not exist
+                return Response({"message": "No matching component found"}, status=404)
+        else:
+            return Response({"message": "No matching post found"}, status=404)
+    else:
+        return Response({"message": "No search query provided"}, status=400)

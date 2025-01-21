@@ -14,7 +14,6 @@
                         
             <div id="scorecard-info"><small>Record turn by turn point details for a faction. This is optional but can provide some insight into a faction's scoring pace and how they score points.<br>
                 'Faction Points' are points scored or lost from your faction abilities, 'Crafting Points' are from items crafted, 'Battle Points' are from removing buildings and tokens in battle, and 'Other Points' are for everything else.<br>
-                If you do not wish to break points down by category, use the 'Other Points' column.<br>
                 If you want to record scores for multiple players in one game, save each scorecard with the same "Game Nickname" to then quickly switch between players.<br>
             </small></div>        
     </div>
@@ -37,15 +36,30 @@
         {% endif %}
         <div>
         <div>
-        {% if object.game_group and next_scorecard %}
-            Game: {{ object.game_group }}
+        {% if object.effort %}
+            {% if object.game_group %}
+                Game: {{ object.game_group }}
+            {% endif %}
             <div style="display: none;">
                 {{ form.game_group }}
             </div>
         {% else %}
-        <div class='mt-1 mb-1'>
-            Game Nickname: {{ form.game_group }}
-        </div>
+        {% if object.game_group and next_scorecard %}
+                Game: {{ object.game_group }}
+                <div style="display: none;">
+                    {{ form.game_group }}
+                </div>
+        {% else %}
+            <div class="form-group mt-1">
+                <input 
+                    type="text" 
+                    name="{{ form.game_group.name }}" 
+                    id="{{ form.game_group.id_for_label }}" 
+                    value="{% if game_group %}{{ game_group }}{% endif %}" 
+                    class="form-control" 
+                    placeholder="Game Nickname for Organization">
+            </div>
+        {% endif %}
         {% endif %}
         </div>
         </div>
@@ -136,6 +150,10 @@
     </div>
 
     <button class="btn btn-success mb-1 mt-1" type="submit">Save</button>
+
+    {% if not previous_scorecard and not object.effort %}
+        <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1" name="add_player" value="true">Save and add next Seat</button>
+    {% endif %}
     {% if object.id %}
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
         <a class="btn btn-danger mb-1 mt-1" href="{% url 'delete-scorecard' object.id %}">Delete</a>
@@ -483,6 +501,32 @@ $(document).ready(function () {
                 });
             }
     }
+
+
+    const gameGroupField = document.getElementById('id_game_group');
+    const saveButton = document.getElementById('save_and_add_next_seat');
+    
+    
+    
+    // Function to check if the button should be visible
+    function checkButtonVisibility() {
+        // Check if the button exists before proceeding
+        if (saveButton) {
+            if (gameGroupField.value.trim() !== "") {
+                saveButton.style.display = "inline-block"; // Show button
+            } else {
+                saveButton.style.display = "none"; // Hide button
+            }
+        }
+    }
+    
+    // Run once when the page loads
+    checkButtonVisibility();
+    
+    // Add event listener for changes in the game group field
+    gameGroupField.addEventListener('input', checkButtonVisibility);
+
+
 
 
 });

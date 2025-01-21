@@ -447,8 +447,8 @@ def ultimate_component_view(request, slug):
     page_number = request.GET.get('page')  # Get the page number from the request
     if not page_number:
         if object.component == "Faction":
-            top_players = Profile.top_players(faction_id=object.id, limit=5)
-            most_players = Profile.top_players(faction_id=object.id, limit=5, top_quantity=True, game_threshold=1)
+            top_players = Profile.top_players(faction_id=object.id, limit=10, game_threshold=5)
+            most_players = Profile.top_players(faction_id=object.id, limit=10, top_quantity=True, game_threshold=1)
             game_values = filtered_games.aggregate(
                         total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
                         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),

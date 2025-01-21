@@ -45,18 +45,14 @@
         {% if game.map.board_image %}
         <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
         {% endif %}
-        {% if game.link %}
-        <div>
-            <a href="{{ game.link }}">Link to Game Thread</a>
-        </div>
-        {% endif %}
+
 
         <div class='chart-container'>
             <canvas id="scorecardChart"></canvas>
           </div>
 
 
-{% comment %} 
+        {% comment %} 
         {% if user.is_authenticated %}
             {% if user.profile in participants or user.profile == game.recorder %}
                 {% include 'the_tavern/game_comment_form.html' %}
@@ -72,14 +68,23 @@
             </div>
         {% endif %} {% endcomment %}
         {% if game.notes %}
+        <div class='mb-1'>
+            <h4>Notes:</h4>
+            {{ game.notes }}
+        </div>
+        {% endif %}
+        {% if game.link %}
         <div>
-            Notes: {{ game.notes }}
+            <a class='btn btn-primary' href="{{ game.link }}">
+                <i class="bi bi-link"></i>
+                Link to Game Thread
+            </a>
         </div>
         {% endif %}
         {% if game.recorder %}
-        <div>
+        <small>
             Recorded by: {{ game.recorder.name }}
-        </div>
+        </small>
         {% endif %}
     </div>
 </article>

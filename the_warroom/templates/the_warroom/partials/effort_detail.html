@@ -20,8 +20,9 @@
     {% if effort.faction %}
         <a href="{% url 'faction-detail' effort.faction.slug %}">
             <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
+
+            {{ effort.faction }}
         </a>
-        <a href="{% url 'faction-detail' effort.faction.slug %}">{{ effort.faction }}</a>
         {% if effort.vagabond %}
             (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
         {% endif %}
@@ -53,7 +54,7 @@
 {% if user.profile.tester and game.final %}
 <td>   
     {% if effort.scorecard %}
-        <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-three-dots"></i></a>
+        <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-zoom-in"></i></a>
     {% elif effort.available_scorecard %}
         {% if user.is_authenticated %}
             {% if user.profile in participants or user.profile == game.recorder  %}

@@ -47,6 +47,7 @@
                 {% for object in unassigned_scorecards %}
                 <tr data-href="{{ object.get_absolute_url }}">
                     <td>
+                        <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
                         {{  object.faction }}
                     </td>
                     <td>
