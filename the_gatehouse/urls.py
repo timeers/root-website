@@ -8,7 +8,7 @@ from .views import (profile, player_page_view,
 urlpatterns = [
     
     path('profile/<slug:slug>/', player_page_view, name='player-detail'),
-    path('profile/<slug:slug>/status/', manage_user, name='manage-user'),
+    path('profile/<slug:slug>/manage/', manage_user, name='manage-user'),
     path('profile/<slug:slug>/stats/', player_stats, name='player-stats'),
     path('profile/<slug:slug>/creations/', list_view, name='player-creations'),
     path('profile/<slug:slug>/component-list/', designer_component_view, name='designer-components'),

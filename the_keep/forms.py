@@ -12,6 +12,7 @@ from django.utils import timezone
 top_fields = ['designer', 'title', 'expansion', 'picture', 'status']
 bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
 
+
 class PostSearchForm(forms.ModelForm):
     search_term = forms.CharField(required=True, max_length=100)
 
@@ -581,6 +582,14 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Character Art',  # Set the label for the picture field
         required=False
     )
+    board_image = forms.ImageField(
+        label='Faction Board Front',  # Set the label for the faction board field
+        required=False
+    )
+    board_2_image = forms.ImageField(
+        label='Faction Board Back',  # Set the label for the faction board back field
+        required=False
+    )
     small_icon = forms.ImageField(
         label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
         required=False
@@ -594,7 +603,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     class Meta(PostCreateForm.Meta): 
         model = Faction 
         fields = top_fields + ['color', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
-                               'aggression', 'crafting_ability', 'small_icon', 'card_image', 'board_image'] + bottom_fields
+                               'aggression', 'crafting_ability', 'small_icon', 'card_image', 'board_image', 'board_2_image'] + bottom_fields
 
     def clean_reach_and_type(self, cleaned_data):
         reach = cleaned_data.get('reach')

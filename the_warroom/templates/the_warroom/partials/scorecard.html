@@ -3,14 +3,16 @@
 <table>
     <thead>
         <tr>
-            <th>Turn</th>
-            <th>Faction Points</th>
-            <th>Crafting Points</th>
-            <th>Battle Points</th>
-            <th>Other Points</th>
-            <th>Turn Total</th>
+            <th style="text-align: center;">Turn</th>
+            {% if not object.total_generic_points %}
+            <th style="text-align: center;">Faction Points</th>
+            <th style="text-align: center;">Crafting Points</th>
+            <th style="text-align: center;">Battle Points</th>
+            <th style="text-align: center;">Other Points</th>
+            {% endif %}
+            <th style="text-align: center;">Turn Total</th>
             {% if object.dominance %}
-                <th>Dom</th>
+                <th style="text-align: center;">Dom</th>
             {% endif %}
         </tr>
     </thead>
@@ -21,33 +23,38 @@
     {% for turn in object.turns.all %}
 
     <tr>
-    <td>
+    <td style="text-align: center;">
         {{ turn.turn_number }}
     </td>
-        
-    <td>
+    {% if not object.total_generic_points %}
+    <td style="text-align: center;">
         {{ turn.faction_points }}
     </td>
-    <td>
+    <td style="text-align: center;">
         {{ turn.crafting_points }}
     </td>
-    <td>
+    <td style="text-align: center;">
         {{ turn.battle_points }}
     </td>
-    <td>
+    <td style="text-align: center;">
         {{ turn.other_points }}
     </td>
-    <td>
+    {% endif %}
+    <td style="text-align: center;">
         {{ turn.total_points }}
     </td>
     {% if object.dominance %}
-        <td>
+        <td style="text-align: center;">
             {% if turn.dominance %}
 
                 {% if object.effort and object.effort.dominance %}
                     <img class="faction-icon"  
                     src="{% static 'images/dominance/' %}{{ object.effort.dominance }}_Icon.png" 
                     alt="{{ object.effort.dominance }} Dominance">
+                {% elif object.effort and object.effort.coalition_with %}
+                    <img class="faction-icon"  
+                    src="{{ object.effort.coalition_with.small_icon.url }}"
+                    alt="{{ object.effort.coalition_with.title }} Coalition">
                 {% else %}
                     Dom
                 {% endif %}
@@ -64,12 +71,14 @@
 
 <tfoot>
     <tr>
-        <td><strong>Total</strong></td>
-        <td><strong>{{ object.total_faction_points }}</strong></td>
-        <td><strong>{{ object.total_crafting_points }}</strong></td>
-        <td><strong>{{ object.total_battle_points }}</strong></td>
-        <td><strong>{{ object.total_other_points }}</strong></td>
-        <td><strong>{{ object.total_points }}</strong></td>
+        <td style="text-align: center;"><strong>Total</strong></td>
+        {% if not object.total_generic_points %}
+        <td style="text-align: center;"><strong>{{ object.total_faction_points }}</strong></td>
+        <td style="text-align: center;"><strong>{{ object.total_crafting_points }}</strong></td>
+        <td style="text-align: center;"><strong>{{ object.total_battle_points }}</strong></td>
+        <td style="text-align: center;"><strong>{{ object.total_other_points }}</strong></td>
+        {% endif %}
+        <td style="text-align: center;"><strong>{{ object.total_points }}</strong></td>
     </tr>
 </tfoot>
 

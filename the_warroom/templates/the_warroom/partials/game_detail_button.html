@@ -11,9 +11,10 @@
                         In Progress 
                     {% endif  %}
                     {% if game.round %}
-                        {{ game.type }} {{ game.round.tournament.name }} Game |
+                        {% if game.platform == "Root Digital" %}{{ game.type }}{% endif %}
+                         {{ game.round.tournament.name }} Game |
                     {% else %}
-                        {{ game.type }} 
+                        {% if game.platform == "Root Digital" %}{{ game.type }}{% endif %}
                         {% if game.solo %}Solo {% endif %}
                         {% if game.coop %}Co-op {% endif %}
                         {{ game.platform }}

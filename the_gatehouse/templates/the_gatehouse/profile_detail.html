@@ -14,11 +14,7 @@
                     <span class="text-secondary">Discord: {{ player.discord }}</span><br>
                 {% endif %}
                 {% if player.dwd %}
-                    {% if player.league %}
-                        <span class="text-secondary">Digital League: {{ player.dwd }}</span><br>
-                    {% else %}
                         <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
-                    {% endif %}
                 {% endif %}
                 {% endif %}
                 
@@ -429,6 +425,12 @@
                             ticks: {
                                 stepSize: 5,  // Set the y-axis step size to 5 points per block
                             },
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',  // Move the legend below the chart
+                            align: 'center',  // Align the legend items to the center (optional)
                         }
                     }
                 }

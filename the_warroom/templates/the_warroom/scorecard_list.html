@@ -37,8 +37,8 @@
             <thead>
                 <tr>
                     <th>Faction</th>
-                    <th>Points</th>
-                    <th>Turn</th>
+                    <th style="text-align: center;">Points</th>
+                    <th style="text-align: center;">Turn</th>
                     <th>Game</th>
             
                 </tr>
@@ -50,10 +50,10 @@
                         <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
                         {{  object.faction }}
                     </td>
-                    <td>
+                    <td style="text-align: center;">
                         {{ object.total_points }}
                     </td>
-                    <td>
+                    <td style="text-align: center;">
                         {{ object.turns.count }}
                     </td>
 
@@ -96,8 +96,8 @@
     <thead>
         <tr>
             <th>Faction</th>
-            <th>Points</th>
-            <th>Turns</th>
+            <th style="text-align: center;">Points</th>
+            <th style="text-align: center;">Turns</th>
 
             <th>Player</th>
 
@@ -218,6 +218,12 @@
                             ticks: {
                                 stepSize: 5,  // Set the y-axis step size to 5 points per block
                             },
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',  // Move the legend below the chart
+                            align: 'center',  // Align the legend items to the center (optional)
                         }
                     }
                 }

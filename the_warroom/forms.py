@@ -371,7 +371,7 @@ class EffortCreateForm(forms.ModelForm):
             validation_errors_to_display.append("Faction required")
         elif faction.type == "C" and player:
             validation_errors_to_display.append('This is a Clockwork faction and cannot have a "player"')
-        elif not player:
+        elif faction.type != "C" and not player:
             validation_errors_to_display.append('Please select a player. If the player is missing add them using the "Register Player" form in the top right.')
         
         elif faction.title == 'Vagabond' and not vagabond:
@@ -398,30 +398,48 @@ class EffortCreateForm(forms.ModelForm):
 class TurnScoreCreateForm(forms.ModelForm):
     class Meta:
         model = TurnScore
-        fields = ['id', 'turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points', 'dominance']
+        fields = ['id', 'turn_number', 
+                  'faction_points', 'crafting_points', 'battle_points', 'other_points', 'dominance', 
+                  'total_points', 'generic_points']
     faction_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
-            'type': 'number',
-            'step': 1,  # Ensures input is an integer (whole numbers)
-        }),
+            'type': 'number', 
+            'step': 1,
+            'style': 'text-align: right;'}),
         initial=0
         )
     crafting_points = forms.IntegerField(
         required=False, 
-        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        widget=forms.NumberInput(attrs={
+            'type': 'number', 
+            'step': 1,
+            'style': 'text-align: right;'}),
         initial=0
         )
     battle_points = forms.IntegerField(
         required=False, 
-        widget=forms.NumberInput(attrs={'type': 'number', 'step': 1}),
+        widget=forms.NumberInput(attrs={
+            'type': 'number', 
+            'step': 1,
+            'style': 'text-align: right;'}),
         initial=0
         )
     other_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
             'type': 'number',
-            'step': 1
+            'step': 1,
+            'style': 'text-align: right;' 
+        }),
+        initial=0
+    )
+    generic_points = forms.IntegerField(
+        required=False, 
+        widget=forms.NumberInput(attrs={
+            'type': 'number',
+            'step': 1,
+            'style': 'text-align: right; max-width: 50px;' 
         }),
         initial=0
     )
@@ -433,23 +451,24 @@ class TurnScoreCreateForm(forms.ModelForm):
         return turn_number
 
     # Custom validation for the total_points (can be a derived field if needed)
-    def clean_total_points(self):
-        faction_points = self.cleaned_data.get('faction_points', 0)
-        crafting_points = self.cleaned_data.get('crafting_points', 0)
-        battle_points = self.cleaned_data.get('battle_points', 0)
-        other_points = self.cleaned_data.get('other_points', 0)
+    # def clean_total_points(self):
+    #     faction_points = self.cleaned_data.get('faction_points', 0)
+    #     crafting_points = self.cleaned_data.get('crafting_points', 0)
+    #     battle_points = self.cleaned_data.get('battle_points', 0)
+    #     other_points = self.cleaned_data.get('other_points', 0)
+    #     generic_points = self.cleaned_data.get('generic_points', 0)
 
-        # Ensure the total points are consistent
-        total_points = faction_points + crafting_points + battle_points + other_points
-        if total_points != self.cleaned_data.get('total_points', 0):
-            raise forms.ValidationError("The total points do not match the sum of faction, crafting, battle, and other points.")
+    #     # Ensure the total points are consistent
+    #     total_points = faction_points + crafting_points + battle_points + other_points + generic_points
+    #     if total_points != self.cleaned_data.get('total_points', 0):
+    #         raise forms.ValidationError("The total points do not match the sum of faction, crafting, battle, and other points.")
 
-        return total_points
+    #     return total_points
     def clean(self):
         cleaned_data = super().clean()
 
         # Set any missing points to 0
-        for field in ['faction_points', 'crafting_points', 'battle_points', 'other_points']:
+        for field in ['faction_points', 'crafting_points', 'battle_points', 'other_points', 'generic_points']:
             if field in cleaned_data and not cleaned_data.get(field):
                 cleaned_data[field] = 0
 
@@ -458,7 +477,9 @@ class TurnScoreCreateForm(forms.ModelForm):
 class ScoreCardCreateForm(forms.ModelForm):
     class Meta:
         model = ScoreCard
-        fields = ['faction', 'description', 'game_group']
+        fields = ['faction', 'description', 'game_group', 
+                  'total_points', 'total_other_points', 'total_generic_points',
+                  'total_faction_points', 'total_crafting_points', 'total_battle_points']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'cols': 20}),
             'game_group': forms.TextInput(attrs={'placeholder': 'To distinguish games'}),

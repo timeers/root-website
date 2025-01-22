@@ -16,7 +16,7 @@
 {% empty %}
 <article class="media content-section">
     <div class="media-body">
-    No games recorded{% if object %} for {{ object }}{% endif %}.
+    <small>No games recorded{% if object %} for {{ object }}{% endif %}.</small>
     </div>
 </article>
 {% endfor %}

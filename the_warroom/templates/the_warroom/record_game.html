@@ -4,28 +4,55 @@
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
         <h1>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</h1>
-
-
-        <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
-                <i class="bi bi-person-plus-fill"></i>
-        </button>
-
+        <div>
+                <button class="btn btn-primary btn-sm ml-1 ms-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                        <i class="bi bi-person-plus-fill"></i>
+                </button>
+                <button class="btn btn-info btn-sm ml-1 ms-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
+                        <i class="bi bi-info-circle"></i>
+                </button>
+        </div>
 </div>
-              <div class="collapse" id="collapseRegister">
-                <div class="card card-body">
-                        <h5>Register New Player</h5>
-                        <div id="player-form-container" style="display: block;">
-                                <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
-                                    {% csrf_token %}
-                                    {{ player_form.discord.label }}:
-                                    {{ player_form.discord }}
-                                    <button type="submit" class="btn btn-primary btn-sm">Register Player</button>
-                                </form>
-                        </div>
-                        
-                        <div id="player-form-errors"><small>If a player is missing you can add them here.</small></div>        
+<div class="collapse mb-1" id="collapseRegister">
+        <div class="card card-body">
+                <h5>Register New Player</h5>
+                <div id="player-form-container" style="display: block;">
+                        <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
+                                {% csrf_token %}
+                                {{ player_form.discord.label }}:
+                                {{ player_form.discord }}
+                                <button type="submit" class="btn btn-primary btn-sm">Register Player</button>
+                        </form>
                 </div>
-              </div>
+                
+                <div id="player-form-errors"><small>If a player is missing you can add them here (if they do not have Discord choose a unique name for them).</small></div>        
+        </div>
+</div>
+
+
+
+
+
+<div class="collapse" id="collapseInfo">
+    <div class="card card-body">
+                        
+            <div id="game-info"><small>
+                Each game must have a Deck and Map selected.<br>
+                Each seat must have a Player and Faction or be left blank. You can register new players with the Register Player Form above.<br>
+                If the game is in progress you can save instead of submitting. Once a game is submitted it cannot be edited.<br>
+                <br>
+                Special Games:<br>
+                If you are running a multihanded playtest you should select yourself as the Player for each Faction.<br>
+                Do not select a Player for Clockwork Factions.<br>
+                If you are playing a co-op game against Clockwork opponents select either all Players or all Clockwork Factions as winners.
+            </small></div>        
+    </div>
+  </div>
+
+
+
+
+
 
 
 

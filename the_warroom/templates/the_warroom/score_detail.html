@@ -24,29 +24,29 @@
             <h1>Points per Turn</h1>
             {% if user.profile == object.recorder %}
                 <div class='d-flex'>
-                    {% if object.efforts_available %}
-                        <a class="btn btn-success btn-sm ml-1 ms-1 mb-1 mr-1" href="{% url 'assign-effort' object.id %}">
-                            <i class="bi bi-link"></i>
-                        </a>
-                    {% else %}
-                        <a class="btn btn-danger btn-sm ml-1 ms-1 mb-1 mr-1" href="{% url 'delete-scorecard' object.id %}">
-                            <i class="bi bi-trash3"></i>
-                        </a>
-                    {% endif %}
-                    <div class='d-flex'>
+
+
                         {% if object.effort %}
 
                             <div>
-                            <a class="btn btn-primary btn-sm" href="{% url 'game-detail' object.effort.game.id %}">View Game</a>
+                            <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">View Game</a>
 
                             </div>
 
                         {% endif %}
+                        {% if object.efforts_available %}
+                            <a class="btn btn-success btn-sm ml-1 ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
+                                <i class="bi bi-link"></i>
+                            </a>
+                        {% else %}
+                            <a class="btn btn-danger btn-sm ml-1 ms-1 mb-1" href="{% url 'delete-scorecard' object.id %}">
+                                <i class="bi bi-trash3"></i>
+                            </a>
+                        {% endif %}
+                        
+                            <a class="btn btn-warning btn-sm ml-1 ms-1 mb-1" href="{% url 'update-scorecard' object.id %}"><i class="bi bi-pencil-square"></i></a>
+                       
 
-                        <div>
-                            <a class="btn btn-warning btn-sm ml-1" href="{% url 'update-scorecard' object.id %}"><i class="bi bi-pencil-square"></i></a>
-                        </div>
-                    </div>
                 </div>
             {% endif %}
         </div>
@@ -237,6 +237,7 @@ Promise.all([
         const totalOtherPoints = scorecardData.total_other_points;
         const totalGamePoints = totalFactionPoints + totalCraftingPoints + totalBattlePoints + totalOtherPoints;
 
+        if (totalGamePoints){
         // Prepare data for Pie Chart
         const pieData = {
             labels: [
@@ -290,6 +291,11 @@ Promise.all([
                 }
             }
         });
+    }else{
+        if (pieChartContainer) {
+            pieChartContainer.remove();
+        }
+    }
 
     })
     .catch(error => {

@@ -431,6 +431,10 @@ def scorecard_manage_view(request, id=None):
     else:
         score = None
 
+    if not obj.total_generic_points and obj.id:
+        generic_view = False
+    else:
+        generic_view = True
 
     context = {
         'form': form,
@@ -442,6 +446,7 @@ def scorecard_manage_view(request, id=None):
         'next_scorecard': next_scorecard,
         'previous_scorecard': previous_scorecard,
         'game_group': game_group,
+        'generic_view': generic_view,
     }
 
 
@@ -466,7 +471,8 @@ def scorecard_manage_view(request, id=None):
                 child_form.cleaned_data.get('faction_points', 0) +
                 child_form.cleaned_data.get('crafting_points', 0) +
                 child_form.cleaned_data.get('battle_points', 0) +
-                child_form.cleaned_data.get('other_points', 0)
+                child_form.cleaned_data.get('other_points', 0) + 
+                child_form.cleaned_data.get('generic_points', 0) 
             )
         if effort and total_points != effort.score and effort.score:
             # If points don't match effort.score
@@ -482,7 +488,7 @@ def scorecard_manage_view(request, id=None):
                 parent.delete()
             return render(request, 'the_warroom/record_scores.html', context)
 
-        if (effort and dominance and not effort.dominance) or (effort and not dominance and effort.dominance):
+        if (effort and dominance and not effort.dominance and not effort.coalition_with) or (effort and not dominance and effort.dominance) or (effort and not dominance and effort.coalition_with):
             if dominance:
                 context['message'] = f"Dominance Error: The original effort does not have a Dominance Played."
             else:

@@ -422,6 +422,7 @@ class ScoreCard(models.Model):
     total_crafting_points = models.IntegerField(default=0)
     total_faction_points = models.IntegerField(default=0)
     total_other_points = models.IntegerField(default=0)
+    total_generic_points = models.IntegerField(default=0)
     dominance = models.BooleanField(default=False)
 
     def efforts_available(self):
@@ -473,6 +474,7 @@ class ScoreCard(models.Model):
     class Meta:
         ordering = ['-date_posted']
 
+
 class TurnScore(models.Model):
     scorecard = models.ForeignKey(ScoreCard, related_name='turns', on_delete=models.CASCADE, null=True, blank=True)
     turn_number = models.IntegerField(default=0, validators=[MinValueValidator(1)])
@@ -480,6 +482,7 @@ class TurnScore(models.Model):
     crafting_points = models.IntegerField(default=0)
     faction_points = models.IntegerField(default=0)
     other_points = models.IntegerField(default=0)
+    generic_points = models.IntegerField(default=0)
     total_points = models.IntegerField(default=0)
     dominance = models.BooleanField(default=False)
     # game_points = models.IntegerField(default=0)
@@ -502,30 +505,31 @@ class TurnScore(models.Model):
     #     return total_game_points
 
 
-    def save(self, *args, **kwargs):
-        with transaction.atomic():
-            self.total_points = (self.battle_points + self.crafting_points + self.faction_points + self.other_points)
-            super().save(*args, **kwargs)
-            if self.scorecard:
-                scorecard = self.scorecard
-                aggregate_values = scorecard.turns.aggregate(
-                total_points=Sum('total_points'),
-                total_battle_points=Sum('battle_points'),
-                total_crafting_points=Sum('crafting_points'),
-                total_faction_points=Sum('faction_points'),
-                total_other_points=Sum('other_points'),
-            )
+    # def save(self, *args, **kwargs):
+    #     with transaction.atomic():
+    #         self.total_points = (self.battle_points + self.crafting_points + self.faction_points + self.other_points)
+    #         super().save(*args, **kwargs)
+            # if self.scorecard:
+            #     scorecard = self.scorecard
+            #     aggregate_values = scorecard.turns.aggregate(
+            #     total_points=Sum('total_points'),
+            #     total_battle_points=Sum('battle_points'),
+            #     total_crafting_points=Sum('crafting_points'),
+            #     total_faction_points=Sum('faction_points'),
+            #     total_other_points=Sum('other_points'),
+            # )
 
-                scorecard.total_points = aggregate_values['total_points'] or 0
-                scorecard.total_battle_points = aggregate_values['total_battle_points'] or 0
-                scorecard.total_crafting_points = aggregate_values['total_crafting_points'] or 0
-                scorecard.total_faction_points = aggregate_values['total_faction_points'] or 0
-                scorecard.total_other_points = aggregate_values['total_other_points'] or 0
+            #     scorecard.total_points = aggregate_values['total_points'] or 0
+            #     scorecard.total_battle_points = aggregate_values['total_battle_points'] or 0
+            #     scorecard.total_crafting_points = aggregate_values['total_crafting_points'] or 0
+            #     scorecard.total_faction_points = aggregate_values['total_faction_points'] or 0
+            #     scorecard.total_other_points = aggregate_values['total_other_points'] or 0
 
-                any_dominance_true = scorecard.turns.filter(dominance=True).exists()
-                scorecard.dominance = any_dominance_true
-                # print(any_dominance_true)
-                scorecard.save()
+            #     any_dominance_true = scorecard.turns.filter(dominance=True).exists()
+            #     scorecard.dominance = any_dominance_true
+            #     # print(any_dominance_true)
+            #     print('save')
+            #     scorecard.save()
   
 
 

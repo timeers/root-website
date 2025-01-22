@@ -47,19 +47,19 @@ def profile(request):
         if p_form.is_valid():
             # u_form.save()
             p_form.save()
-            # Check if user Registered for Digital League
+            # Check if user Registered for TTS League
             new_status = p_form.instance.league
             if new_status and not league_status:
                 try:
-                    # Get the 'Root Digital League' tournament, or return 404 if not found
-                    digital_league = get_object_or_404(Tournament, name="Root Digital League")
+                    # Get the 'Root TTS League' tournament, or return 404 if not found
+                    digital_league = get_object_or_404(Tournament, name="Root TTS League")
                     
                     # Add the user to the tournament's players
                     digital_league.players.add(request.user.profile)
-                    messages.success(request, f'You are now registered for Root Digital League!')
+                    messages.success(request, f'You are now registered for Root TTS League!')
                 except Tournament.DoesNotExist:
                     # Handle the case where the tournament doesn't exist
-                    messages.error(request, 'Could not find the Root Digital League.')
+                    messages.error(request, 'Could not find the Root TTS League.')
 
             messages.success(request, f'Account updated!')
             return redirect('profile')
@@ -713,6 +713,7 @@ def manage_user(request, slug):
                 if user_to_edit.admin_dismiss and user_to_edit.admin_dismiss != request.user.profile:
                     user_to_edit.group = "D"
                     user_to_edit.admin_nominated = None
+                    user_to_edit.admin_onboard = False
                     update_message = f'{user_to_edit.name} has been removed from the Moderator group.'
                 else:
                     user_to_edit.admin_dismiss = request.user.profile

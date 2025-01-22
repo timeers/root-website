@@ -38,7 +38,7 @@ class ProfileUpdateForm(forms.ModelForm):
         fields = ['image', 'dwd', 'weird', 'view_status'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
-            'league' : 'Register for Root Digital League',
+            'league' : 'Register for Root TTS League',
             'weird' : 'Show Fan Content',
         }
 
@@ -161,8 +161,9 @@ class UserManageForm(forms.ModelForm):
         """
         dwd = self.cleaned_data.get('dwd')
         user_to_edit = self.instance
-        if dwd and not re.match(r'^[a-zA-Z0-9]+(\+\d{4})$', dwd):
-            raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
+        # Removing format requirement from Admin form
+        # if dwd and not re.match(r'^[a-zA-Z0-9]+(\+\d{4})$', dwd):
+        #     raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
         
         if dwd is not None and user_to_edit.dwd != dwd:
             # Check for uniqueness only if dwd is changing

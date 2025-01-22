@@ -49,7 +49,10 @@
         {% endif %}
         
         {% include 'the_keep/partials/pieces.html' %}
-
+        
+        {% if object.board_2_image %}
+            <img class="rounded-corner-img responsive-img" src="{{ object.board_2_image.url }}">
+        {% endif %}
     </div>
 </article>
 
@@ -112,10 +115,10 @@
         <div class="chart-container">
             <div class="chart" id="lineChartContainer">
                 <h2>Point Breakdown</h2>
-                <div>
-                    Average points by category and per turn
+                <div id='pieDescription'>
+                    Average points by category and per turn<br>
+                    Faction points are scored with faction abilities, crafting points are from crafting items, battle points are from removing cardboard in battle, other points are anything else.
                 </div>
-                <div>Faction points are scored with faction abilities, crafting points are from crafting items, battle points are from removing cardboard in battle, other points are anything else.</div>
                 Based on:
                 <div id="titleGames">
                     x Faction Games
@@ -170,7 +173,7 @@
         }
         return;  // Exit the function if no scorecards are found
         }
-        console.log("Still in Function")
+        // console.log("Still in Function")
         // Line Chart Data Processing for the Scorecard Data
         let color = factionData.color ? factionData.color : '#000000';  // Default color if not provided
 
@@ -300,6 +303,7 @@
         const totalOtherPoints = factionData.totals.total_other_points;
         const totalGamePoints = totalFactionPoints + totalCraftingPoints + totalBattlePoints + totalOtherPoints;
 
+        if (totalGamePoints){
         // Prepare data for Pie Chart
         const pieData = {
             labels: [
@@ -353,6 +357,16 @@
                 }
             }
         });
+
+    }else{
+        if (pieChartContainer) {
+            pieChartContainer.remove();
+        }
+        const pieDescriptionElement = document.getElementById('pieDescription');
+        if (pieDescriptionElement) {
+            pieDescriptionElement.remove();  // This will remove the entire element
+        }
+    }
 
     })
     .catch(error => {
