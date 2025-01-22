@@ -6,7 +6,7 @@
     {% if generic_view %}
         {% comment %} <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="enabled" type="button">Less</button>
     {% else %} {% endcomment %}
-        <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="disabled" type="button">More</button>
+        <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="disabled" type="button">Detail</button>
     {% endif %}
     <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
         <i class="bi bi-info-circle"></i>
@@ -63,7 +63,7 @@
                     id="{{ form.game_group.id_for_label }}" 
                     value="{% if game_group %}{{ game_group }}{% endif %}" 
                     class="form-control" 
-                    placeholder="Game Nickname for Organization">
+                    placeholder="Game Nickname for Grouping">
             </div>
         {% endif %}
         {% endif %}
@@ -157,11 +157,17 @@
 
     <div>
         {% if previous_scorecard %}
-            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">Save and Go to {{previous_scorecard.faction}}</button>
+            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">
+                <i class="bi bi-arrow-left-short"></i>
+                Save and Go to {{previous_scorecard.faction}}
+            </button>
         {% endif %}
     
         {% if next_scorecard %}
-            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">Save and Go to {{next_scorecard.faction}}</button>
+            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">
+                Save and Go to {{next_scorecard.faction}}
+                <i class="bi bi-arrow-right-short"></i>
+            </button>
         {% endif %}
     </div>
 
@@ -524,7 +530,7 @@ $(document).ready(function () {
 
         // Hide/unhide column
         if (event.target.value === "disabled"){
-            event.target.innerText = "Less";
+            event.target.innerText = "Simplify";
             event.target.value = "enabled"; 
             detailColumns.forEach(function(element) {
                 element.classList.remove('hidden');
@@ -587,7 +593,7 @@ $(document).ready(function () {
 
 
         }else{
-            event.target.innerText = "More";
+            event.target.innerText = "Detail";
             event.target.value = "disabled"; 
             detailColumns.forEach(function(element) {
                 element.classList.add('hidden');

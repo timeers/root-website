@@ -431,7 +431,7 @@ def scorecard_manage_view(request, id=None):
     else:
         score = None
 
-    if not obj.total_generic_points and obj.id:
+    if not obj.total_generic_points and obj.id and obj.total_points:
         generic_view = False
     else:
         generic_view = True
