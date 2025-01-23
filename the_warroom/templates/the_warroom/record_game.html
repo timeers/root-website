@@ -3,15 +3,15 @@
 {% load crispy_forms_tags %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h1>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</h1>
-        <div>
-                <button class="btn btn-primary btn-sm ml-1 ms-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+        <legend>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</legend>
+       
+                <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-person-plus-fill"></i>
                 </button>
-                <button class="btn btn-info btn-sm ml-1 ms-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
+                <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
                         <i class="bi bi-info-circle"></i>
                 </button>
-        </div>
+       
 </div>
 <div class="collapse mb-1" id="collapseRegister">
         <div class="card card-body">

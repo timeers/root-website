@@ -18,7 +18,15 @@
     </td>
     <td>
         {% if effort.faction %}
-                <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
+            <div class="parent mr-2">
+                <!-- The first image -->
+                <img class="faction-icon image1" src="{{ effort.faction.small_icon.url }}" alt="Faction Icon">
+
+                {% if effort.win %}
+                    <!-- The second image (overlay) -->
+                    <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Win">
+                {% endif %}
+            </div>
             {{ effort.faction }}
             {% if effort.vagabond %}
                 ({{ effort.vagabond }})
@@ -41,9 +49,7 @@
                 {{ effort.score }}
             {% endif %}
         {% endif %}
-        {% if effort.win %}
-            <img class="faction-icon"  src="{% static 'images/winner.png' %}" alt="Win">
-        {% endif %}
+
 
     </td>
 </tr>

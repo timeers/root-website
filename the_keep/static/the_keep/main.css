@@ -429,3 +429,22 @@ th.sortable:hover {
   display: none;  /* Hide the buttons initially */
 }
 
+.parent {
+  position: relative;
+  display: inline-block; /* Ensures images don't break out of the parent container */
+}
+
+.image1 {
+  position: relative;
+  top: 0;
+  left: 0;
+  /* border: 1px red solid; */
+}
+
+.image2 {
+  position: absolute;
+  top: -4px;  /* Adjust as needed */
+  left: -10.5px; /* Adjust as needed */
+  /* border: 1px green solid; */
+  z-index: 10; /* Make sure this image appears on top */
+}

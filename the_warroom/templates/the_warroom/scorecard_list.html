@@ -224,8 +224,26 @@
                         legend: {
                             position: 'bottom',  // Move the legend below the chart
                             align: 'center',  // Align the legend items to the center (optional)
+                        },
+                        tooltip: {
+                            enabled: true,  // This enables tooltips by default
+                            mode: 'nearest',  // This controls how tooltips are triggered ('nearest' is common for line charts)
+                            intersect: false,  // Makes the tooltip show when you hover near the line, not necessarily over the data point
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                        // Access the dataset label from the datasetIndex
+                                        var datasetLabel = tooltipItem.chart.data.datasets[tooltipItem.datasetIndex].label;
+
+                                        // Return the legend label and the value (e.g., 'Faction: 45')
+                                        return datasetLabel + ': ' + tooltipItem.raw;
+                                }
+                            }
                         }
-                    }
+                    },
+                    interaction: {
+                        mode: 'index',  // This can also be 'nearest' or 'point' depending on your use case
+                        intersect: false  // Tooltip will show when hovering near the data point, not just on it
+                    } 
                 }
             });
         })

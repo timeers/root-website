@@ -357,6 +357,10 @@ def scorecard_manage_view(request, id=None):
     faction = request.GET.get('faction', None)
     effort_id = request.GET.get('effort', None)
     game_group = request.GET.get('game_group', None)
+    if faction:
+        faction_name = Faction.objects.get(id=faction).title
+    else:
+        faction_name = None
 
     next_scorecard = None
     previous_scorecard = None
@@ -442,13 +446,13 @@ def scorecard_manage_view(request, id=None):
         'object': obj,
         'form_count': form_count,
         'faction': faction,
+        'faction_name': faction_name,
         'score': score,
         'next_scorecard': next_scorecard,
         'previous_scorecard': previous_scorecard,
         'game_group': game_group,
         'generic_view': generic_view,
     }
-
 
     # Handle form submission
     if form.is_valid() and formset.is_valid():

@@ -1,12 +1,12 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - Record{% endblock %}
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center;">
+<div style="display: flex; justify-content: space-between; align-items: start;">
     <legend>{% if object.id %}Update{% else %}Record{% endif %} Detailed Game Scores</legend>
     {% if generic_view %}
         {% comment %} <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="enabled" type="button">Less</button>
     {% else %} {% endcomment %}
-        <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="disabled" type="button">Detail</button>
+        <button class="btn btn-warning btn-sm ml-2 ms-2" id="toggle-detail" value="disabled" type="button">Detail</button>
     {% endif %}
     <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
         <i class="bi bi-info-circle"></i>
@@ -24,7 +24,7 @@
             </small></div>        
     </div>
   </div>
-<div style="margin-top: 30px;">
+<div class='mt-4'>
 
     <form method="POST">
         {% csrf_token %}
@@ -33,12 +33,17 @@
     <div id="game-faction-select" class="{{ form.required_css_class }}" {% if object.id %}disabled{% endif %}>
         <h4>Faction:</h4>
         {% if object.faction %}
-        {{ object.faction }}
-        <div style="display: none;">
-        {{ form.faction }}
-        </div>
+            {{ object.faction }}
+            <div style="display: none;">
+                {{ form.faction }}
+            </div>
+        {% elif faction %}
+            {{ faction_name }}
+            <div style="display: none;">
+                {{ form.faction }}
+            </div>
         {% else %}
-        {{ form.faction }}
+            {{ form.faction }}
         {% endif %}
         <div>
         <div>
@@ -61,7 +66,7 @@
                     type="text" 
                     name="{{ form.game_group.name }}" 
                     id="{{ form.game_group.id_for_label }}" 
-                    value="{% if game_group %}{{ game_group }}{% endif %}" 
+                    value="{% if game_group %}{{ game_group }}{% elif object.game_group %}{{ object.game_group }}{% endif %}" 
                     class="form-control" 
                     placeholder="Game Nickname for Grouping">
             </div>
@@ -71,9 +76,9 @@
         </div>
     </div>
 
-    <h4>
-        Turns{% if score %} ({{ score }} points){% endif %}:
-    </h4>
+
+    {% if score %}<h4>{{ score }} points:</h4>{% endif %}
+
     {% if message %}
         <div class="alert alert-warning" role="alert">
             {{ message }}
@@ -120,7 +125,7 @@
         {% endfor %}
 
         <div id="total-row" class="turn-form total-row">
-            <div class="turn-column">Totals</div>
+            <div id='total-label' class="turn-column">Total{% if not generic_view %}s{% endif %}</div>
             <div id="total-faction" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
             <div id="total-crafting" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
             <div id="total-battle" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
@@ -149,10 +154,10 @@
         <div class="turn-column dom-column hidden">{{ formset.empty_form.dominance }}</div>
     </div>
     <button class="btn btn-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
-    <button class="btn btn-danger btn-sm mb-2 mt-2" id="remove-turn" type="button">Remove Turn</button>
+    <button class="btn btn-danger btn-sm mb-2 mt-2 hidden" id="remove-turn" type="button">Remove Turn</button>
     <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">Play Dominance</button>
-    <div id="game-description-field">
-        <h4>Notes:</h4>{{ form.description }}
+    <div id="game-description-field" class='mb-1'>
+        {{ form.description }}
     </div>
 
     <div>
@@ -174,7 +179,7 @@
     <button class="btn btn-success mb-1 mt-1" type="submit">Save</button>
 
     {% if not previous_scorecard and not object.effort %}
-        <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1" name="add_player" value="true">Save and add next Seat</button>
+        <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1 hidden" name="add_player" value="true">Save and add next Seat</button>
     {% endif %}
     {% if object.id %}
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
@@ -524,13 +529,14 @@ $(document).ready(function () {
 
         const detailColumns = document.querySelectorAll('.detail-column');
         const genericColumns = document.querySelectorAll('.generic-column');
-
+        const totalLabel = document.getElementById("total-label")
         // Find all turn forms on the page
         const turnForms = document.querySelectorAll('.active-form');
 
         // Hide/unhide column
         if (event.target.value === "disabled"){
             event.target.innerText = "Simplify";
+            totalLabel.innerText = "Totals"
             event.target.value = "enabled"; 
             detailColumns.forEach(function(element) {
                 element.classList.remove('hidden');
@@ -539,61 +545,34 @@ $(document).ready(function () {
                 element.classList.add('hidden');
             });
 
+            // Loop through each turn form and calculate the total points
+            turnForms.forEach(turnForm => {
+                // Get the individual point values for the current turn form
+                const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
+                const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
+                const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
+                const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
+                const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
 
+                {% comment %} console.log(factionPoints, craftingPoints, battlePoints, otherPoints, genericPoints) {% endcomment %}
+                // Calculate the total points
+                const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
+                // Update the total points field in the current turn form
+                const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
+                const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
+                const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
+                const otherPointsField = turnForm.querySelector('[name*="other_points"]');
+                const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
 
+                genericPointsField.value = 0
+                otherPointsField.value = genericPoints
 
-
-
-
-
-
-    // Loop through each turn form and calculate the total points
-    turnForms.forEach(turnForm => {
-        // Get the individual point values for the current turn form
-        const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
-        const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
-        const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
-        const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
-        const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
-
-        {% comment %} console.log(factionPoints, craftingPoints, battlePoints, otherPoints, genericPoints) {% endcomment %}
-        // Calculate the total points
-        const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
-        // Update the total points field in the current turn form
-        const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
-        const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
-        const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
-        const otherPointsField = turnForm.querySelector('[name*="other_points"]');
-        const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
-
-        genericPointsField.value = 0
-        otherPointsField.value = genericPoints
-
-    });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            });
 
 
         }else{
             event.target.innerText = "Detail";
+            totalLabel.innerText = "Total"
             event.target.value = "disabled"; 
             detailColumns.forEach(function(element) {
                 element.classList.add('hidden');
@@ -602,40 +581,32 @@ $(document).ready(function () {
                 element.classList.remove('hidden');
             });
 
+            // Loop through each turn form and calculate the total points
+            turnForms.forEach(turnForm => {
+                // Get the individual point values for the current turn form
+                const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
+                const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
+                const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
+                const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
+                const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
 
+                {% comment %} console.log(factionPoints, craftingPoints, battlePoints, otherPoints, genericPoints) {% endcomment %}
+                // Calculate the total points
+                const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
+                // Update the total points field in the current turn form
+                const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
+                const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
+                const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
+                const otherPointsField = turnForm.querySelector('[name*="other_points"]');
+                const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
 
+                genericPointsField.value = totalPoints
+                factionPointsField.value = 0
+                craftingPointsField.value = 0
+                battlePointsField.value = 0
+                otherPointsField.value = 0
 
-
-    // Loop through each turn form and calculate the total points
-    turnForms.forEach(turnForm => {
-        // Get the individual point values for the current turn form
-        const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
-        const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
-        const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
-        const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
-        const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
-
-        {% comment %} console.log(factionPoints, craftingPoints, battlePoints, otherPoints, genericPoints) {% endcomment %}
-        // Calculate the total points
-        const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
-        // Update the total points field in the current turn form
-        const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
-        const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
-        const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
-        const otherPointsField = turnForm.querySelector('[name*="other_points"]');
-        const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
-
-        genericPointsField.value = totalPoints
-        factionPointsField.value = 0
-        craftingPointsField.value = 0
-        battlePointsField.value = 0
-        otherPointsField.value = 0
-
-    });
-
-
-
-
+            });
 
         }
         updateOverallTotals();
