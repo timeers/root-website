@@ -3,7 +3,7 @@
 <article class="media content-section">
     
     <div class="media-body">
-    <h2>Links</h2>
+    <h2>Link{% if links_count != 1 %}s{% endif %}</h2>
     <div class="d-flex flex-wrap justify-content-between">
     {% if object.leder_games_link %}
         <a class="mr-2 mt-1" href="{{ object.leder_games_link }}" style="display: inline-flex; align-items: center;">
@@ -29,17 +29,19 @@
             Woodland Warriors Thread
         </a>
     {% endif %}
-    {% if object.wr_link %}
-        {% if user.profile.in_weird_root %}
-        <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-            Weird Root Thread
-        </a>
-        {% else %}
-            <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
+    {% if user.profile.in_weird_root %}
+        {% if object.wr_link %}
+            {% if user.profile.in_weird_root %}
+            <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-                Join Weird Root Discord for more
-            </span>
+                Weird Root Thread
+            </a>
+            {% else %}
+                <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
+                    Join Weird Root Discord for more
+                </span>
+            {% endif %}
         {% endif %}
     {% endif %}
     {% if object.pnp_link  %}
@@ -49,10 +51,10 @@
         </a>
     {% endif %}
     {% if object.stl_link  %}
-    <a class="mr-2 mt-1" href="{{ object.stl_link }}" style="display: inline-flex; align-items: center;">
-        <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/STL.jpg' %}" alt="STL Files">
-        STL Files
-    </a>
+        <a class="mr-2 mt-1" href="{{ object.stl_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/STL.jpg' %}" alt="STL Files">
+            STL Files
+        </a>
     {% endif %}
     </div>
     </div>

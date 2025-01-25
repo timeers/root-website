@@ -5,8 +5,9 @@
 
 
     {% include 'the_keep/partials/component_header.html' %}
-
-    {% include 'the_keep/partials/links.html' %}
+    {% if links_count != 0 %}
+        {% include 'the_keep/partials/links.html' %}
+    {% endif %}
     <!-- Component Specific Details -->
     {% include 'the_keep/partials/'|add:object.component|lower|add:'_data.html' %}
 

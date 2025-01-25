@@ -481,6 +481,8 @@ def ultimate_component_view(request, slug):
     except EmptyPage:
         page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
 
+    links_count = object.count_links(request.user)
+
 
     context = {
         'object': object,
@@ -502,6 +504,7 @@ def ultimate_component_view(request, slug):
         'stable_ready': stable_ready,
         'testing_ready': testing_ready,
         'related_posts': related_posts,
+        'links_count': links_count,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)

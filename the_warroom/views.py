@@ -414,6 +414,21 @@ def scorecard_manage_view(request, id=None):
 
     else:
         obj = ScoreCard()  # Create a new ScoreCard instance but do not save it yet
+        if game_group:
+            grouped_scorecards = ScoreCard.objects.filter(
+                game_group=game_group, effort=None, recorder=request.user.profile
+                ).order_by('date_posted')
+
+            scorecard_list = list(grouped_scorecards)
+
+            # Get the next scorecard (always the first one)
+            next_scorecard = scorecard_list[0]
+            # Get the previous scorecard (always the last one)
+            previous_scorecard = scorecard_list[-1]
+
+
+
+
     user = request.user
 
     
@@ -471,13 +486,14 @@ def scorecard_manage_view(request, id=None):
             turn_dominance = child_form.cleaned_data.get('dominance')
             if turn_dominance:
                 dominance = True
-            total_points += (
-                child_form.cleaned_data.get('faction_points', 0) +
-                child_form.cleaned_data.get('crafting_points', 0) +
-                child_form.cleaned_data.get('battle_points', 0) +
-                child_form.cleaned_data.get('other_points', 0) + 
-                child_form.cleaned_data.get('generic_points', 0) 
-            )
+            # total_points += (
+            #     child_form.cleaned_data.get('faction_points', 0) +
+            #     child_form.cleaned_data.get('crafting_points', 0) +
+            #     child_form.cleaned_data.get('battle_points', 0) +
+            #     child_form.cleaned_data.get('other_points', 0) + 
+            #     child_form.cleaned_data.get('generic_points', 0) 
+            # )
+            total_points += child_form.cleaned_data.get('total_points', 0)
         if effort and total_points != effort.score and effort.score:
             # If points don't match effort.score
             context['message'] = f"Error: The recorded points ({total_points}) do not match the total game points ({effort.score})."

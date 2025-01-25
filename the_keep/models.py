@@ -131,6 +131,24 @@ class Post(models.Model):
 
     objects = PostManager()
 
+    def count_links(self, user):
+        # List of link field names you want to check
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'leder_games_link']
+        
+        # Count how many of these fields are not None or empty
+        count = 0
+        for field in link_fields:
+            # Special handling for 'wr_link' if the user is authenticated and a member of WR
+            if field == 'wr_link':
+                if user.is_authenticated:
+                    if user.profile.in_weird_root:
+                        if getattr(self, field):  # Checks if the field value is not None or empty string
+                            count += 1
+            else:
+                if getattr(self, field):  # Checks if the field value is not None or empty string
+                    count += 1
+        return count
+
 
     def warriors(self):
         return Piece.objects.filter(parent=self, type=Piece.TypeChoices.WARRIOR)

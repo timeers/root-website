@@ -19,7 +19,7 @@
                         
             <div id="scorecard-info"><small>Record turn by turn point details for a faction. This is optional but can provide some insight into a faction's scoring pace and how they score points.<br>
                 You can record the total score per turn or break into categories.<br>
-                If you use categories 'Faction Points' are points scored or lost from your faction abilities, 'Crafting Points' are from items crafted, 'Battle Points' are from removing buildings and tokens in battle.<br>
+                If you use categories, 'Faction Points' are points scored or lost from your faction abilities, 'Crafting Points' are from items crafted, 'Battle Points' are from removing buildings and tokens in battle.<br>
                 If you want to record scores for multiple players in one game, save each scorecard with the same "Game Nickname" to then quickly switch between players as the game progresses.<br>
             </small></div>        
     </div>
@@ -177,9 +177,10 @@
     </div>
 
     <button class="btn btn-success mb-1 mt-1" type="submit">Save</button>
-
-    {% if not previous_scorecard and not object.effort %}
-        <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1 hidden" name="add_player" value="true">Save and add next Seat</button>
+    {% if not object.effort  %}
+        {% if not previous_scorecard or not object.id%}
+            <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1 hidden" name="add_player" value="true">Save and add next Seat</button>
+        {% endif %}
     {% endif %}
     {% if object.id %}
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">Cancel</a>

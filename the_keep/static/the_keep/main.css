@@ -443,7 +443,7 @@ th.sortable:hover {
 
 .image2 {
   position: absolute;
-  top: -4px;  /* Adjust as needed */
+  top: -4.5px;  /* Adjust as needed */
   left: -10.5px; /* Adjust as needed */
   /* border: 1px green solid; */
   z-index: 10; /* Make sure this image appears on top */

@@ -404,45 +404,50 @@ class TurnScoreCreateForm(forms.ModelForm):
     faction_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
-            'type': 'number', 
+            'type': 'number',
             'step': 1,
-            'style': 'text-align: right;'}),
-        initial=0
+            'style': 'text-align: right; max-width: 50px;',
+            'placeholder': '0' 
+        })
         )
     crafting_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
-            'type': 'number', 
+            'type': 'number',
             'step': 1,
-            'style': 'text-align: right;'}),
-        initial=0
+            'style': 'text-align: right; max-width: 50px;',
+            'placeholder': '0' 
+        })
         )
     battle_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
-            'type': 'number', 
+            'type': 'number',
             'step': 1,
-            'style': 'text-align: right;'}),
-        initial=0
+            'style': 'text-align: right; max-width: 50px;',
+            'placeholder': '0' 
+        })
         )
     other_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
             'type': 'number',
             'step': 1,
-            'style': 'text-align: right;' 
-        }),
-        initial=0
+            'style': 'text-align: right; max-width: 50px;',
+            'placeholder': '0' 
+        })
     )
     generic_points = forms.IntegerField(
         required=False, 
         widget=forms.NumberInput(attrs={
             'type': 'number',
             'step': 1,
-            'style': 'text-align: right; max-width: 50px;' 
-        }),
-        initial=0
+            'style': 'text-align: right; max-width: 50px;',
+            'placeholder': '0' 
+        })
     )
+
+
     # Custom validation for turn_number field
     def clean_turn_number(self):
         turn_number = self.cleaned_data.get('turn_number')
@@ -464,6 +469,7 @@ class TurnScoreCreateForm(forms.ModelForm):
     #         raise forms.ValidationError("The total points do not match the sum of faction, crafting, battle, and other points.")
 
     #     return total_points
+    
     def clean(self):
         cleaned_data = super().clean()
 

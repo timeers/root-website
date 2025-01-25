@@ -7,18 +7,21 @@
 <div>This is a collection of components for Root, the board game by Leder Games.</div>
 <div>Thank you for your interest in the Database!</div>
 <div>All art credit, unless otherwise stated, goes to the amazing Kyle Ferrin at Leder Games.</div>
-<h2 class="mt-2">Weird Root</h2>
-Much of the content here comes from the Weird Root Discord.
-<div>Join the Discord community to see many more fan made creations.</div>
+{% if user.is_authenticated %}
+    {% if user.profile.player %}
+        <h2 class="mt-2">Weird Root</h2>
+        Much of the content here comes from the Weird Root Discord.
+        <div>Join the Discord community to see many more fan made creations.</div>
+    {% endif %}
+    <h2 class="mt-2">Woodland Warriors</h2>
+    <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
 
-<h2 class="mt-2">Woodland Warriors</h2>
-<div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
+    <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
 
-<a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
-
-
-<h2 class="mt-2">Feedback and FAQ</h2>
-<div>For suggestions, requests or bugs as well as a more detailed FAQ, visit <a href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.</div>
-
+    {% if user.profile.player %}
+        <h2 class="mt-2">Feedback and FAQ</h2>
+        <div>For suggestions, requests or bugs as well as a more detailed FAQ, visit <a href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.</div>
+    {% endif %}
+{% endif %}
 {% endblock content %}
 

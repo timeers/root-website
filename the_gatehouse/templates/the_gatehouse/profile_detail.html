@@ -20,7 +20,7 @@
                 
             </div>
             {% if player == user.profile %}
-                <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-pencil-square"></i></a> 
+                <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-gear-wide-connected"></i></a> 
             {% elif user.profile.admin %}
                     <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'manage-user' player.slug %}"><i class="bi bi-pencil-square"></i></a>
             {% elif user.profile.player %}

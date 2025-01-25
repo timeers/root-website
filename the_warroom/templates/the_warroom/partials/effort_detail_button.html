@@ -18,7 +18,7 @@
     </td>
     <td>
         {% if effort.faction %}
-            <div class="parent mr-2">
+            <div class="parent mr-2 mb-1">
                 <!-- The first image -->
                 <img class="faction-icon image1" src="{{ effort.faction.small_icon.url }}" alt="Faction Icon">
 
@@ -41,9 +41,17 @@
                 src="{% static 'images/dominance/' %}{{ effort.dominance }}_Icon.png" 
                 alt="{{ effort.dominance }} Dominance">
         {% elif effort.coalition_with %}
-            <img class="faction-icon" 
+            <div class="parent mr-2">
+                <!-- The first image -->
+                <img class="faction-icon image1" 
                 src="{{ effort.coalition_with.small_icon.url }}"
                 alt="{{ effort.coalition_with.title }} Icon">
+
+                {% if effort.win %}
+                    <!-- The second image (overlay) -->
+                    <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Win">
+                {% endif %}
+            </div>
         {% else %}
             {% if effort.score %}
                 {{ effort.score }}
