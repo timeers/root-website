@@ -37,7 +37,7 @@ class Profile(models.Model):
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
     view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)
-    display_name = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    display_name = models.CharField(max_length=100, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
     player_onboard = models.BooleanField(default=False)

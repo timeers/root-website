@@ -189,12 +189,14 @@
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'games-home' %}">Cancel</a>
     {% endif %}
     <div class='hidden'>
-    {{form.total_faction_points}}
-    {{form.total_crafting_points}}
-    {{form.total_battle_points}}
-    {{form.total_other_points}}
-    {{ form.total_generic_points }}
-    {{form.total_points}}
+        <!-- Auto fields for totals -->
+        {{form.total_faction_points}}
+        {{form.total_crafting_points}}
+        {{form.total_battle_points}}
+        {{form.total_other_points}}
+        {{ form.total_generic_points }}
+        {{form.total_points}}
+        {% comment %} {{form.dominance}}     {% endcomment %}
     </div>
 
     </form>
@@ -493,6 +495,7 @@ $(document).ready(function () {
         const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
         const dominanceColumn = document.getElementById("id_dominance-column")
         const domColumns = document.querySelectorAll('.dom-column');
+        {% comment %} const dominanceField = document.getElementById('id_dominance') {% endcomment %}
 
         // Hide/unhide column
         if (dominanceColumn.classList.contains('hidden')) {
@@ -506,6 +509,7 @@ $(document).ready(function () {
             }
             event.target.innerText = "Undo Dominance";
             event.target.value = "enabled"; 
+            {% comment %} dominanceField.checked = true {% endcomment %}
         } else {
             domColumns.forEach(function(element) {
                 element.classList.add('hidden');
@@ -516,6 +520,7 @@ $(document).ready(function () {
             });
             event.target.innerText = "Play Dominance";
             event.target.value = "disabled"; 
+            {% comment %} dominanceField.checked = false {% endcomment %}
         }
         
     }
@@ -620,8 +625,9 @@ $(document).ready(function () {
         const currentId = inputElement.id;
         const currentNumber = parseInt(currentId.split('-')[1]);
         const emptyFormDom = document.getElementById("id_form-__prefix__-dominance")
-        if(inputElement.checked)
-            {
+
+        
+        if(inputElement.checked){
                 // Loop through all checkboxes and add check to future turns
                 checkboxes.forEach(function(checkbox) {
                     const checkboxId = checkbox.id;
@@ -647,6 +653,7 @@ $(document).ready(function () {
                     }
                 });
             }
+
     }
 
 

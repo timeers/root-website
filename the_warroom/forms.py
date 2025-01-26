@@ -483,7 +483,7 @@ class TurnScoreCreateForm(forms.ModelForm):
 class ScoreCardCreateForm(forms.ModelForm):
     class Meta:
         model = ScoreCard
-        fields = ['faction', 'description', 'game_group', 
+        fields = ['faction', 'description', 'game_group', 'dominance',
                   'total_points', 'total_other_points', 'total_generic_points',
                   'total_faction_points', 'total_crafting_points', 'total_battle_points']
         widgets = {

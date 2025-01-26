@@ -227,12 +227,13 @@ def add_player(request):
         form = PlayerCreateForm(request.POST)
         if form.is_valid():
             player = form.save(commit=False)  # Save the new player to the database
-            player.display_name = player.discord
+            if not player.display_name:
+                player.display_name = player.discord
             player.save()
             response_data = {
                 'id': player.id,
                 'discord': player.discord,  # Include the new player's details
-                'message': f"Player '{player.discord} (New)' registered successfully!",
+                'message': f"Player '{player}' registered successfully!",
             }
             return JsonResponse(response_data)  # Return a success JSON response
         else:

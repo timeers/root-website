@@ -475,7 +475,7 @@ def scorecard_manage_view(request, id=None):
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
         parent.effort = effort
-        parent.save()  # Save the new or updated Game Score instance
+        parent.save()
         dominance = False
 
         # Calculate the total points from the formset
@@ -522,6 +522,11 @@ def scorecard_manage_view(request, id=None):
             child = turn_form.save(commit=False)
             child.scorecard = parent  # Link the turn to the game
             child.save()
+
+        if parent.dominance != dominance:
+            parent.dominance = dominance
+            print("dominance", dominance)
+            parent.save()  # Save the new or updated Game Score instance
 
         # Check if the "next" button was clicked
         if request.POST.get('next'):

@@ -5,7 +5,7 @@ from the_warroom.models import ScoreCard, TurnScore
 from the_keep.models import Faction
 from the_gatehouse.models import Profile
 from .serializers import ScoreCardDetailSerializer, FactionAverageTurnScoreSerializer
-from django.db.models import Avg, Sum
+from django.db.models import Avg, Sum, Count
 
 from collections import defaultdict
 
@@ -114,7 +114,7 @@ class GameScorecardView(APIView):
 class FactionAverageTurnScoreView(APIView):
     def get(self, request, slug, format=None):
         # Get all scorecards related to the given faction
-        scorecards = ScoreCard.objects.filter(faction__slug=slug, effort__isnull=False, dominance=False)
+        scorecards = ScoreCard.objects.filter(faction__slug=slug, effort__isnull=False)
         faction = Faction.objects.get(slug=slug)
 
         color = faction.color if faction.color else generate_neon_color()
@@ -125,10 +125,21 @@ class FactionAverageTurnScoreView(APIView):
             return Response({
                 "message": "No scorecards found."
             }, status=status.HTTP_200_OK)
+        
+        # Calculate the average number of Turns for the filtered scorecards
+        turn_count = scorecards.annotate(num_turns=Count('turns')) 
+        
+        # Calculate the total number of turn objects and the total number of scorecards
+        total_turns = sum([scorecard.num_turns for scorecard in turn_count])
+        total_scorecards = scorecards.count()
+
+        # Calculate the average
+        average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
+
 
         # Calculate the total points for each turn across all scorecards
         turn_averages = (
-            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10)  # Filter by the related scorecards
+            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=average_turns)  # Filter by the related scorecards
             .values('turn_number')  # Group by turn number
             .annotate(
                 total_points_sum=Sum('total_points'),  # Calculate the total points per turn
@@ -207,11 +218,11 @@ class AverageTurnScoreView(APIView):
         if faction_type:
             # Filter by the provided faction type
             # print('Faction Type', faction_type)
-            scorecards = ScoreCard.objects.filter(effort__isnull=False, dominance=False, faction__type=faction_type)
+            scorecards = ScoreCard.objects.filter(effort__isnull=False, faction__type=faction_type)
         else:
             faction_type = "A"
             # If no type is provided, get all scorecards with the original conditions
-            scorecards = ScoreCard.objects.filter(effort__isnull=False, dominance=False)
+            scorecards = ScoreCard.objects.filter(effort__isnull=False)
 
 
         # Check if there are no scorecards
@@ -220,6 +231,17 @@ class AverageTurnScoreView(APIView):
             return Response({
                 "message": "No scorecards found."
             }, status=status.HTTP_200_OK)
+
+        # Calculate the average number of Turns for the filtered scorecards
+        turn_count = scorecards.annotate(num_turns=Count('turns')) 
+        
+        # Calculate the total number of turn objects and the total number of scorecards
+        total_turns = sum([scorecard.num_turns for scorecard in turn_count])
+        total_scorecards = scorecards.count()
+
+        # Calculate the average
+        average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
+
 
         # Calculate the total points for each turn across all scorecards
         turn_averages = (
@@ -316,8 +338,22 @@ class PlayerScorecardView(APIView):
         # Initialize a dictionary to store the average data per faction
         average_data_by_faction = {}
 
+
+
         # Loop through each faction and calculate averages
         for faction, faction_scorecards in faction_groups.items():
+
+            # Calculate the average number of Turns for the filtered scorecards
+            turn_count = scorecards.annotate(num_turns=Count('turns')) 
+            
+            # Calculate the total number of turn objects and the total number of scorecards
+            total_turns = sum([scorecard.num_turns for scorecard in turn_count])
+            total_scorecards = scorecards.count()
+
+            # Calculate the average
+            average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
+
+
             turn_averages = (
                 TurnScore.objects.filter(scorecard__in=faction_scorecards, turn_number__lte=10)
                 .values('turn_number')  # Group by turn number

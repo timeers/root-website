@@ -43,6 +43,9 @@
         <img class="faction-icon"  
             src="{% static 'images/dominance/' %}{{ effort.dominance }}_Icon.png" 
             alt="{{ effort.dominance }} Dominance">
+        {% if effort.score %}
+            ({{ effort.score }})
+        {% endif %}
     {% elif effort.coalition_with %}
         <a href="{% url 'faction-detail' effort.coalition_with.slug %}">
             <div class="parent mr-2">

@@ -176,15 +176,19 @@ class UserManageForm(forms.ModelForm):
         
 
 class PlayerCreateForm(forms.ModelForm):
+    discord = forms.CharField(
+        required=True,  # Make it required
+        widget=forms.TextInput(attrs={'maxlength': '32', 'placeholder': 'Discord Username'}),  # Max length handled here
+        label='Discord Username'
+    )
+    display_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Display Name (optional)'}), 
+        label='Display Name (optional)'
+    )
     class Meta:
         model = Profile
-        fields = ['discord']
-        widgets = {
-            'discord': forms.TextInput(attrs={'maxlength': '32'})  # Max length handled here
-        }
-        labels = {
-            'discord': 'Discord Username'
-        }
+        fields = ['discord', 'display_name']
 
     def clean_discord(self):
         discord = self.cleaned_data['discord']

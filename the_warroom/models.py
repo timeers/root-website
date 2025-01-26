@@ -428,8 +428,9 @@ class ScoreCard(models.Model):
     def efforts_available(self):
         if self.effort:
             return False
-        
+        print(self)
         if self.dominance:
+            print('dominance')
             # If self.dominance is True, filter for efforts where dominance is not null
             available_efforts = Effort.objects.filter(
                 Q(game__efforts__player=self.recorder) |  # Player is linked to the game
