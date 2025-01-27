@@ -109,7 +109,7 @@
 {% endif %}
 {% endif %}
 
-
+{% if scorecard_count %}
 <article class="media content-section" id="factionCharts">
     <div class="media-body">
         <div class="chart-container">
@@ -143,7 +143,7 @@
         </div>
     </div>
 </article>
-
+{% endif %}
 
 
 
@@ -156,7 +156,9 @@
   const averageEndpoint = `/api/scorecard/average/`;  // API endpoint for the scorecard data
   const factionEndpoint = `/api/scorecard/faction/${factionSlug}/`;  // API endpoint for the faction average data
   const typeEndpoint = `/api/scorecard/average/?type=${factionType}`;
+  const factionChartsElement = document.getElementById('factionCharts');
 
+  if (factionChartsElement) {
   // Fetch both data endpoints in parallel using Promise.all
   Promise.all([
       fetch(averageEndpoint).then(res => res.json()),  // Fetch scorecard data
@@ -167,11 +169,10 @@
 
         // Check if the response contains the "No scorecards found" message
         if (factionData.message && factionData.message === "No scorecards found.") {
-        const factionChartsElement = document.getElementById('factionCharts');
-        if (factionChartsElement) {
-            factionChartsElement.remove();  // This will remove the entire element
-        }
-        return;  // Exit the function if no scorecards are found
+            if (factionChartsElement) {
+                factionChartsElement.remove();  // This will remove the entire element
+            }
+            return;  // Exit the function if no scorecards are found
         }
         // console.log("Still in Function")
         // Line Chart Data Processing for the Scorecard Data
@@ -372,6 +373,7 @@
     .catch(error => {
         console.error('Error fetching data:', error);
     });
+}
 </script>
 
 {% endblock scripts %}

@@ -127,18 +127,34 @@ class GameListView(ListView):
 def game_detail_view(request, id=None):
     # hx_url = reverse("game-hx-detail", kwargs={"id": id})
     participants = []
+    efforts = []
+    scorecard_count = 0
+    show_detail = False
     try:
         obj = Game.objects.get(id=id)
         for effort in obj.efforts.all():
             participants.append(effort.player)
+        if obj.recorder:
+            participants.append(obj.recorder)
+        # Add efforts directly to context to get the available_scorecard field
+        efforts = obj.efforts.all().prefetch_related('faction', 'player', 'vagabond', 'scorecard')
+        # Count the total number of scorecards linked to efforts
+        scorecard_count = ScoreCard.objects.filter(effort__in=obj.efforts.all()).distinct().count()
+        if request.user.is_authenticated:
+            for effort in efforts:
+                effort.available_scorecard = effort.available_scorecard(request.user)
+
+            if obj.final and request.user.profile.tester and (request.user.profile in participants or scorecard_count != 0):
+                show_detail = True
+            # else:
+            #     print(f'Profile: {request.user.profile}')
+            #     print(obj.final)
+            #     print(f'Tester:{request.user.profile.tester}')
+            #     print(f'In Participants: {request.user.profile in participants}')
+
     except ObjectDoesNotExist:
         obj = None
 
-    # Add efforts directly to context to get the available_scorecard field
-    efforts = obj.efforts.all().prefetch_related('faction', 'player', 'vagabond')
-    if request.user.is_authenticated:
-        for effort in efforts:
-            effort.available_scorecard = effort.available_scorecard(request.user)
 
     commentform = GameCommentCreateForm()
     context=  {
@@ -147,6 +163,8 @@ def game_detail_view(request, id=None):
         'commentform': commentform,
         'participants': participants,
         'efforts': efforts,
+        'scorecard_count': scorecard_count,
+        'show_detail': show_detail,
     }
     return render(request, "the_warroom/game_detail_page.html", context)
 

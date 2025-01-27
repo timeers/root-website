@@ -68,13 +68,13 @@
 
 
 </td>
-{% if user.profile.tester and game.final %}
+{% if show_detail %}
 <td>   
     {% if effort.scorecard %}
         <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-zoom-in"></i></a>
     {% elif effort.available_scorecard %}
         {% if user.is_authenticated %}
-            {% if user.profile in participants or user.profile == game.recorder  %}
+            {% if user.profile in participants %}
                 <a class="btn btn-warning btn-sm" href="{% url 'assign-scorecard' id=effort.id %}"><i class="bi bi-link"></i></a>
             {% endif %}
         {% endif %}

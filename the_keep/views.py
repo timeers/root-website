@@ -22,7 +22,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
-from the_warroom.models import Game
+from the_warroom.models import Game, ScoreCard
 from the_gatehouse.models import Profile
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
@@ -442,7 +442,7 @@ def ultimate_component_view(request, slug):
     win_rate = 0
     tourney_points = 0
     total_efforts = 0
-
+    scorecard_count = None
     # On first load get faction and VB Stats
     page_number = request.GET.get('page')  # Get the page number from the request
     if not page_number:
@@ -454,6 +454,7 @@ def ultimate_component_view(request, slug):
                         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
                         coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
                     )
+            scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False).count()
         if object.component == "Vagabond":
             game_values = filtered_games.aggregate(
                         total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
@@ -505,10 +506,11 @@ def ultimate_component_view(request, slug):
         'testing_ready': testing_ready,
         'related_posts': related_posts,
         'links_count': links_count,
+        'scorecard_count': scorecard_count,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
-    return render(request, 'the_keep/component_detail_list.html', context)
+    return render(request, 'the_keep/post_detail.html', context)
 
 
 

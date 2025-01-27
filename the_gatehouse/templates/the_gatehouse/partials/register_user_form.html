@@ -1,0 +1,19 @@
+<div class="card card-body mb-1">
+    <h5>Register New User</h5>
+    <div id="player-form-container" style="display: block;">
+        <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
+            {% csrf_token %}
+
+                    {{ player_form.discord }}
+                    {{ player_form.display_name }}
+           
+                <button type="submit" class="btn btn-primary btn-sm mb-1">Register Player</button>
+        </form>
+    </div>
+    
+    <div id="player-form-errors">
+        <small>
+            If a user is missing you can add them here. Users do not need to be registered to log in. Accounts are created upon login.
+        </small>
+    </div>        
+</div>

@@ -29,8 +29,7 @@
                         {% if object.effort %}
 
                             <div>
-                            <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">View Game</a>
-
+                                <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">View Game</a>
                             </div>
 
                         {% endif %}
@@ -116,11 +115,7 @@ const factionEndpoint = `/api/scorecard/faction/${factionSlug}/`;  // API endpoi
 
 // Check if the element with id 'scorecardChart' exists before making the API calls
 const scorecardChartElement = document.getElementById('scorecardChart');
-if (!scorecardChartElement) {
-    // If the element doesn't exist, exit the function early and prevent the API calls
-    console.log('No Chart Found');
-} else {
-
+if (scorecardChartElement) {
 // Fetch both data endpoints in parallel using Promise.all
 Promise.all([
     fetch(scorecardEndpoint).then(res => res.json()),  // Fetch scorecard data

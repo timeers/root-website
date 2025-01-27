@@ -43,15 +43,16 @@
 
 
         {% if game.map.board_image %}
-        <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
+            <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
         {% endif %}
 
-
-        <div class='chart-container'>
-            <div class="chart">
-            <canvas id="scorecardChart" width="400" height="300"></canvas>
+        {% if scorecard_count %}
+            <div class='chart-container' id='game-chart-container'>
+                <div class="chart">
+                <canvas id="scorecardChart" width="400" height="300"></canvas>
+                </div>
             </div>
-        </div>
+        {% endif %}
 
 
         {% comment %} 
@@ -136,9 +137,9 @@
 
         // Define the endpoint to fetch data from
         const endpoint = `/api/scorecard/game/${gameId}/`;
-
+        const gameChartsElement = document.getElementById('game-chart-container');
       
-
+        if (gameChartsElement){
         // Fetch the data from the API
         fetch(endpoint)
             .then(response => response.json())  // Parse the JSON response
@@ -227,8 +228,10 @@
             .catch(error => {
                 console.error("Error fetching the data:", error);
             });
-
-        // Function to generate random colors for each faction's line
+        }else{
+            console.log('No Chart')
+        }
+            // Function to generate random colors for each faction's line
         function getRandomColor() {
             const letters = '0123456789ABCDEF';
             let color = '#';
