@@ -3,7 +3,6 @@
 
 {% block content %}
 
-
 {% include 'the_warroom/partials/game_detail.html' %}
 
 <article class="media content-section">
@@ -70,24 +69,27 @@
             {% endfor %}
             </div>
         {% endif %} {% endcomment %}
-        {% if game.notes %}
-        <div class='mb-1'>
-            <h4>Notes:</h4>
-            {{ game.notes }}
-        </div>
-        {% endif %}
-        {% if game.link %}
-        <div>
-            <a class='btn btn-primary' href="{{ game.link }}">
-                <i class="bi bi-link"></i>
-                Link to Game Thread
-            </a>
-        </div>
-        {% endif %}
-        {% if game.recorder %}
-        <small>
-            Recorded by: {{ game.recorder.name }}
-        </small>
+        {% if user.profile.player %}
+            {% if game.notes %}
+            <div class='mb-1'>
+                <h4>Notes:</h4>
+                {{ game.notes }}
+            </div>
+            {% endif %}
+            {% if game.link %}
+            <div>
+                <a class='btn btn-primary mt-1' href="{{ game.link }}">
+                    <i class="bi bi-link"></i>
+                    Link to Game Thread
+                </a>
+            </div>
+            {% endif %}
+        
+            {% if game.recorder %}
+            <small>
+                Recorded by: {{ game.recorder.name }}
+            </small>
+            {% endif %}
         {% endif %}
     </div>
 </article>

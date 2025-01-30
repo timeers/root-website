@@ -2,8 +2,13 @@
 
 
 <article class="media content-section" id="game-{{ game.id }}">
+    
 <div class="media-body">
+    {% if game.nickname %}
+        <h5>{{game.nickname}}</h5>
+    {% endif %}
     <div class="article-metadata" style="display: flex; justify-content: space-between; align-items: center;">
+        
         <small class="text-muted">
                 {% if not game.final %}
                     In Progress 
@@ -53,7 +58,9 @@
     <table>
         <thead>
             <tr>
+                {% if user.profile.player %}
                 <th>Player</th>
+                {% endif %}
                 <th>Faction</th>
                 <th>Score</th>
 

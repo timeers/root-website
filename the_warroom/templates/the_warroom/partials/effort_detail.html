@@ -1,5 +1,6 @@
 {% load static %}
 <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
+    {% if user.profile.player %}
     <td>
 
     {% if effort.player %}
@@ -16,6 +17,7 @@
         {% endif %}
     {% endif %}
 </td>
+{% endif %}
 <td>
     {% if effort.faction %}
         <a href="{% url 'faction-detail' effort.faction.slug %}">

@@ -37,7 +37,7 @@ class GameCreateForm(forms.ModelForm):
         fields = ['solo', 'coop', 'official', 'test_match', 'round', 
                   'platform', 'type', 'deck', 'map', 'random_clearing', 
                   'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
-                  'hirelings', 'link', 'tweaks', 'final', 'notes']
+                  'hirelings', 'link', 'tweaks', 'final', 'notes', 'nickname']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -56,6 +56,10 @@ class GameCreateForm(forms.ModelForm):
         })
         self.fields['link'].widget.attrs.update({
             'placeholder': 'Link to Game Thread',
+            'class': 'form-control full-width', 
+        })
+        self.fields['nickname'].widget.attrs.update({
+            'placeholder': 'Game Nickname (optional)',
             'class': 'form-control full-width', 
         })
 

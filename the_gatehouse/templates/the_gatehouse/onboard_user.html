@@ -14,7 +14,6 @@
 
 {% elif user_type == 'designer' and active_user.designer %}
     <div>Thank you for your interest in posting fan made Root content.</div>
-    <div>By accepting you agree to post only content that you intend to work on.</div>
     <div>Every post should be linked to a Discord or BGG thread for discussion.</div>
     <div>By accepting you agree to not over-post or post offensive material.</div>
     <div>Have fun creating and enjoy!</div>
@@ -22,7 +21,6 @@
 
 {% elif user_type == 'tester' and active_user.tester %}
     <div>Thank you for your interest in recording detailed game data.</div> 
-    <div>These stats are optional but might help give insite into a faction's scoring mechanisms.</div>
     <div>By accepting you agree to only submit accurate game data to the best of your knowledge.</div>
     <div>Have fun and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}

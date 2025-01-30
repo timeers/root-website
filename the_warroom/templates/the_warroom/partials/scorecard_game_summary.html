@@ -5,6 +5,9 @@
     
     <div class="media-body">
         <a href="{{ game.get_absolute_url }}">
+            {% if game.nickname %}
+                <h5>{{game.nickname}}</h5>
+            {% endif %}
         <div class="article-metadata">
             <small class="text-muted">
                     {% if game.round %}

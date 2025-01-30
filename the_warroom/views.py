@@ -14,6 +14,7 @@ from django.db import IntegrityError
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch
 from django.db.models.functions import Cast
 from django.utils import timezone 
+from urllib.parse import quote
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
 from .forms import (GameCreateForm, EffortCreateForm, 
@@ -436,13 +437,14 @@ def scorecard_manage_view(request, id=None):
             grouped_scorecards = ScoreCard.objects.filter(
                 game_group=game_group, effort=None, recorder=request.user.profile
                 ).order_by('date_posted')
-
+            # print(game_group)
             scorecard_list = list(grouped_scorecards)
-
-            # Get the next scorecard (always the first one)
-            next_scorecard = scorecard_list[0]
-            # Get the previous scorecard (always the last one)
-            previous_scorecard = scorecard_list[-1]
+            # print(scorecard_list)
+            if scorecard_list:
+                # Get the next scorecard (always the first one)
+                next_scorecard = scorecard_list[0]
+                # Get the previous scorecard (always the last one)
+                previous_scorecard = scorecard_list[-1]
 
 
 
@@ -543,7 +545,7 @@ def scorecard_manage_view(request, id=None):
 
         if parent.dominance != dominance:
             parent.dominance = dominance
-            print("dominance", dominance)
+            # print("dominance", dominance)
             parent.save()  # Save the new or updated Game Score instance
 
         # Check if the "next" button was clicked
@@ -558,7 +560,8 @@ def scorecard_manage_view(request, id=None):
         if request.POST.get('add_player'):
             # Redirect to the record page to record new
             game_group = parent.game_group
-            return redirect(f'{reverse("record-scorecard")}?game_group={game_group}')
+            encoded_game_group = quote(str(game_group))  # Encode the game_group value
+            return redirect(f'{reverse("record-scorecard")}?game_group={encoded_game_group}')
 
 
         context['message'] = "Scores Saved"

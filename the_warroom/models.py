@@ -193,8 +193,6 @@ class Game(models.Model):
     deck = models.ForeignKey(Deck, on_delete=models.PROTECT, null=True, related_name='games')
     map = models.ForeignKey(Map, on_delete=models.PROTECT, null=True, related_name='games')
 
-    # league = models.BooleanField(default=False)
-    # tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True)
     round = models.ForeignKey(Round, on_delete=models.PROTECT, null=True, blank=True, related_name='games')
     
     # Optional
@@ -204,7 +202,7 @@ class Game(models.Model):
     undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     link = models.CharField(max_length=300, null=True, blank=True)
-
+    nickname = models.CharField(max_length=50, null=True, blank=True)
     random_clearing = models.BooleanField(default=False)
     notes = models.TextField(null=True, blank=True)
 
