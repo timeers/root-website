@@ -317,8 +317,10 @@ def manage_game(request, id=None):
                 parent.final = False  # Save as draft
             else:
                 parent.final = True  # Finalize the game
-
-            parent.recorder = request.user.profile  # Set the recorder
+            if not parent.recorder:
+                parent.recorder = request.user.profile  # Set the recorder
+            parent.date_posted = timezone.now()
+            # print(parent.date_posted)
             parent.save()  # Save the new or updated Game instance
             form.save_m2m()
             seat = 0

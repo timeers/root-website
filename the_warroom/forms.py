@@ -389,7 +389,7 @@ class EffortCreateForm(forms.ModelForm):
                 # raise ValidationError({'captains': 'Please assign 3 Vagabonds as captains.'})
                 validation_errors_to_display.append('Please assign 3 Vagabonds as captains')
 
-        print(score)
+        # print(score)
         if not dominance and score is None and not coalition:
             # raise ValidationError(f"Score or Dominance required")
             validation_errors_to_display.append('Score or Dominance required')
