@@ -1,5 +1,15 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - {{ object.title }}{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{{ object.picture.url }}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ object.title }}">
+<meta property="og:description" content="{{ object.component }} by {{ object.designer.name }}">
+{% endblock meta%}
+
 {% block content %}
 
 

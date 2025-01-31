@@ -47,27 +47,6 @@ from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
 
-# #  A list of all the posts. Most recent update first
-# class PostListView(ListView):
-#     model = Post
-#     template_name = 'the_keep/home.html'
-#     context_object_name = 'posts'
-#     ordering = ['-date_updated']
-#     paginate_by = 20
-
-#     def get_queryset(self):
-#         # Filter posts to only include those where official is True
-#         if not self.request.user.is_authenticated:
-#             qs = Post.objects.filter(official=True)
-#         else:
-#             if self.request.user.profile.weird:
-#                 qs = Post.objects.all()
-#             else:
-#                 qs = Post.objects.filter(official=True)
-
-#         return qs
-
-
 
 
 class ExpansionDetailView(DetailView):

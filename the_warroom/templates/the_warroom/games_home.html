@@ -1,5 +1,15 @@
 {% extends 'the_keep/base.html' %}
+{% load static %}
 {% block title %} - Games{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/DB_Only.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="Root Database Games">
+<meta property="og:description" content="Record and view games of Root to track Faction and Player stats">
+{% endblock meta%}
 
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
