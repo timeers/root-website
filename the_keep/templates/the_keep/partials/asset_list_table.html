@@ -1,9 +1,9 @@
 <tbody id="asset-table" class="effort-rows">
     {% for obj in objects %}
-    <tr>
-        <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
+    <tr data-href="{{ obj.link }}">
+        <td>{{ obj.title }}</td>
         <td>{{ obj.category }}</td>
-        <td><a href="{{ obj.link }}">{{ obj.file_type }}</a></td>
+        <td>{{ obj.file_type }}</td>
         <td>{{ obj.date_updated|date:"m/d/y" }}</td>
 
         <td>

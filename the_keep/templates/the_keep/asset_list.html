@@ -1,4 +1,13 @@
 {% extends "the_keep/base.html" %}
+{% load static %}
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/DB_Only.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="Resources">
+<meta property="og:description" content="Assets for creating fan content for Root">
+{% endblock meta%}
 
 {% block content %}
 
@@ -46,10 +55,10 @@
                     
                         <tbody id="shared-asset-table" class="effort-rows">
                             {% for obj in shared_assets %}
-                            <tr>
-                                <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
+                            <tr data-href="{{ obj.link }}">
+                                <td>{{ obj.title }}</td>
                                 <td>{{ obj.category }}</td>
-                                <td><a href="{{ obj.link }}">{{ obj.file_type }}</a></td>
+                                <td>{{ obj.file_type }}</td>
                                 <td>{{ obj.date_updated|date:"m/d/y" }}</td>
                         
                                 <td>
@@ -129,10 +138,10 @@
             </thead>
             <tbody id="asset-table" class="effort-rows">
                 {% for obj in objects %}
-                <tr>
-                    <td><a href="{{ obj.link }}">{{ obj.title }}</a></td>
+                <tr data-href="{{ obj.link }}">
+                    <td>{{ obj.title }}</td>
                     <td>{{ obj.category }}</td>
-                    <td><a href="{{ obj.link }}">{{ obj.file_type }}</a></td>
+                    <td>{{ obj.file_type }}</td>
                     <td>{{ obj.date_updated|date:"m/d/y" }}</td>
 
                     <td>
@@ -207,7 +216,7 @@
     // Get the collapse element and button
 const collapseElement = document.getElementById('collapseRegister');
 const collapseToggleButton = document.getElementById('collapseToggleButton');
-
+if (collapseElement){
 // Add event listeners to the collapse element
 collapseElement.addEventListener('show.bs.collapse', function () {
     // Change button text to "Hide" when collapse is shown
@@ -218,5 +227,6 @@ collapseElement.addEventListener('hide.bs.collapse', function () {
     // Change button text to "View" when collapse is hidden
     collapseToggleButton.innerHTML = 'View';
 });
+}
 </script>
 {% endblock scripts %}
