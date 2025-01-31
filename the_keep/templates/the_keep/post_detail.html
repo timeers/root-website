@@ -4,10 +4,10 @@
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{{ object.picture.url }}">
+<meta property="og:image" content="{% if object.board_image %}{{object.board_image.url}}{% else %}{{ object.picture.url }}{% endif %}">
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ object.title }}">
-<meta property="og:description" content="{{ object.component }} by {{ object.designer.name }}">
+<meta property="og:description" content="{% if not object.official %}Fan {% endif %}{{ object.component }} by {{ object.designer.name }}">
 {% endblock meta%}
 
 {% block content %}
