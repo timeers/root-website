@@ -342,7 +342,8 @@ def manage_game(request, id=None):
             parent.save()
             context['message'] = "Game Saved"
             return redirect(parent.get_absolute_url())
-
+        else:
+            context['message'] = 'Game not Saved. Please correct errors below.'
     if request.htmx:
         return render(request, 'the_warroom/partials/forms.html', context)
     

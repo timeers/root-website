@@ -326,6 +326,14 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Landmark Art',  # Set the label for the picture field
         required=False
     )
+    card_image = forms.ImageField(
+        label='Card Front',  # Set the label for the card_image field
+        required=False
+    )
+    card_2_image = forms.ImageField(
+        label='Card Back',  # Set the label for the card_image field
+        required=False
+    )
     def __init__(self, *args, **kwargs):
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
@@ -340,7 +348,7 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Landmark
-        fields = top_fields + ['card_text', 'based_on'] + bottom_fields
+        fields = top_fields + ['card_text', 'based_on', 'card_image', 'card_2_image'] + bottom_fields
     def clean(self):
         cleaned_data = super().clean()
         title = cleaned_data.get('title')

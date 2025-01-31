@@ -343,7 +343,8 @@ class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
     score = forms.IntegerField(
         widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'min': 0, 'step': 1}),
-        required=False 
+        required=False,
+        initial=0 
     )
     class Meta:
         model = Effort
@@ -375,8 +376,8 @@ class EffortCreateForm(forms.ModelForm):
             validation_errors_to_display.append("Faction required")
         elif faction.type == "C" and player:
             validation_errors_to_display.append('This is a Clockwork faction and cannot have a "player"')
-        elif faction.type != "C" and not player:
-            validation_errors_to_display.append('Please select a player. If the player is missing add them using the "Register Player" form in the top right.')
+        # elif faction.type != "C" and not player:
+        #     validation_errors_to_display.append('Please select a player. If the player is missing add them using the "Register Player" form in the top right.')
         
         elif faction.title == 'Vagabond' and not vagabond:
             # raise ValidationError('Select a Vagabond.')
