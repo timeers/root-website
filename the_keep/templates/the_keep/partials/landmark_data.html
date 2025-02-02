@@ -20,9 +20,9 @@
     <p class="article-content">{{ object.card_text }}</p>
     {% if object.card_image %}
         <img class="adset-img" src="{{ object.card_image.url }}">
-    {% else %}
+    {% endif %}
     {% if object.card_2_image %}
         <img class="adset-img" src="{{ object.card_2_image.url }}">
-    {% else %}
+    {% endif %}
     </div>
 </article>
