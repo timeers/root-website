@@ -79,10 +79,10 @@ urlpatterns = [
     path('piece/delete/<int:id>', delete_piece, name='delete-piece'),
 
 
-    path('assets/', PNPAssetListView.as_view(), name='asset-list'),
-    path('assets/new/', PNPAssetCreateView.as_view(), name='asset-new'),
-    path('assets/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),
-    path('assets/delete/<int:pk>/', PNPAssetDeleteView.as_view(), name='asset-delete'),
-    path('assets/player/<slug:slug>/', PNPAssetListView.as_view(), name='asset-player'),
-    path('assets/pin/<int:id>/', pin_asset, name='pin-asset')
+    path('resources/', PNPAssetListView.as_view(), name='asset-list'),
+    path('resources/new/', PNPAssetCreateView.as_view(), name='asset-new'),
+    path('resources/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),
+    path('resources/delete/<int:pk>/', PNPAssetDeleteView.as_view(), name='asset-delete'),
+    path('resources/player/<slug:slug>/', PNPAssetListView.as_view(), name='asset-player'),
+    path('resources/pin/<int:id>/', pin_asset, name='pin-asset')
 ]

@@ -441,6 +441,10 @@ th.sortable:hover {
   /* border: 1px red solid; */
 }
 
+tr.resource-row:hover {
+  background-color: #f1f1f1;  /* Light gray background on hover */
+}
+
 .image2 {
   position: absolute;
   top: -4.5px;  /* Adjust as needed */

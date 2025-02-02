@@ -145,7 +145,7 @@ def game_detail_view(request, id=None):
             for effort in efforts:
                 effort.available_scorecard = effort.available_scorecard(request.user)
 
-            if obj.final and request.user.profile.tester and (request.user.profile in participants or scorecard_count != 0):
+            if obj.final and (request.user.profile in participants or scorecard_count != 0):
                 show_detail = True
             # else:
             #     print(f'Profile: {request.user.profile}')

@@ -887,14 +887,20 @@ class PNPAssetListView(ListView):
         
         # Get the search query from the GET parameters
         search_query = self.request.GET.get('search', '')
-        
+        search_type = self.request.GET.get('search_type', '')
+        file_type = self.request.GET.get('file_type', '')
+
         # If a search query is provided, filter the queryset based on title, category, and shared_by
         if search_query:
             queryset = queryset.filter(
                 Q(title__icontains=search_query) |
-                Q(category__icontains=search_query) |
                 Q(shared_by__discord__icontains=search_query)
             )
+        if search_type:
+            queryset = queryset.filter(category__icontains=search_type)
+            
+        if file_type:
+            queryset = queryset.filter(file_type__icontains=file_type)
 
         return queryset
 
@@ -914,10 +920,10 @@ class PNPAssetListView(ListView):
         # Check if it's an HTMX request
         if self.request.headers.get('HX-Request') == 'true':
             # Only return the part of the template that HTMX will update
-            print("HTMX")
-            print(context)
+            # print("HTMX")
+            # print(context)
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
-        print("NOT HTMX")
+        # print("NOT HTMX")
         return super().render_to_response(context, **response_kwargs)
     
 @player_required_class_based_view

@@ -1,6 +1,6 @@
 <tbody id="asset-table" class="effort-rows">
     {% for obj in objects %}
-    <tr data-href="{{ obj.link }}">
+    <tr class="resource-row" data-href="{{ obj.link }}">
         <td>{{ obj.title }}</td>
         <td>{{ obj.category }}</td>
         <td>{{ obj.file_type }}</td>
@@ -30,7 +30,7 @@
     </tr>
     {% empty %}
     <tr>
-        <td colspan="5">No assets found.</td>
+        <td colspan="5">No results found</td>
     </tr>
     {% endfor %}
 </tbody>

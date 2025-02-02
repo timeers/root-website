@@ -1,5 +1,16 @@
 {% extends 'the_keep/base.html' %}
+{% load static %}
 {% block title %} - {{ expansion.title }}{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ expansion.title }}">
+<meta property="og:description" content="{% if expansion.lore %}{{ expansion.lore }}{% elif expansion.description %}{{expansion.description}}{% else %}{{ expansion.title }}{% if expansion.designer %} by {{ expansion.designer.name }}{% endif %}{% endif %}">
+{% endblock meta%}
+
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
         <h1>{{ expansion.title }}</h1>

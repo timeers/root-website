@@ -116,19 +116,10 @@
             <div class="chart" id="lineChartContainer">
                 <h2>Point Breakdown</h2>
                 <div id='pieDescription'>
-                    Average points by category and per turn<br>
+                    Recorded average points by category.<br>
                     Faction points are scored with faction abilities, crafting points are from crafting items, battle points are from removing cardboard in battle, other points are anything else.
                 </div>
-                Based on:
-                <div id="titleGames">
-                    x Faction Games
-                </div>
-                <div id="typeGames">
-                    x Type Games
-                </div>
-                <div id="totalGames">
-                    x Total Games
-                </div>
+
                 
             </div>
             <div class="chart" id="pieChartContainer">
@@ -139,8 +130,19 @@
         <div class="chart-container">
             <div class="chart" id="lineChartContainer">
                 <canvas id="scorecardChart" width="400" height="300"></canvas>  <!-- Line Chart -->
-            </div>
+
         </div>
+    </div>
+    Based on:
+    <div id="titleGames">
+        x Faction Plays
+    </div>
+    <div id="typeGames">
+        x Type Plays
+    </div>
+    <div id="totalGames">
+        x Total Plays
+    </div>
     </div>
 </article>
 {% endif %}
@@ -227,9 +229,9 @@
             typeName = 'Insurgent';
         }
         // Replace the text content in the divs
-        document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} Games`;
-        document.getElementById('typeGames').innerHTML = `${typeData.count} ${typeName} Games`;
-        document.getElementById('totalGames').innerHTML = `${averageData.count} Total Games`;
+        document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} Plays`;
+        document.getElementById('typeGames').innerHTML = `${typeData.count} ${typeName} Plays`;
+        document.getElementById('totalGames').innerHTML = `${averageData.count} Total Plays`;
 
         // Initialize the Combined Line Chart (for both Scorecard and Faction Average Data)
         const lineCtx = document.getElementById('scorecardChart').getContext('2d');

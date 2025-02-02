@@ -51,12 +51,7 @@
                         <div class="coalition-field" style="display:none;">Coalition: {{ form.coalition_with }}</div>
                         <div class="dominance-field">Dominance: {{ form.dominance }}</div>
 
-                        {% if not form.instance.id %}
-                                <button class="btn btn-warning btn-sm" type="button"
-                                        onclick="clearForm(this)">
-                                        Remove
-                                </button>
-                        {% else %}
+                        {% if form.instance.id %}
                                 <div class="id-field" style="display:none;">{{ form.id }}</div>
                         {% endif %}
 
