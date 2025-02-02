@@ -690,11 +690,10 @@ class TournamentCreateForm(forms.ModelForm):
                 instance.decks.set(Deck.objects.filter(in_root_digital=True))
                 instance.vagabonds.set(Vagabond.objects.filter(in_root_digital=True))
             else:
-                instance.factions.set(Faction.objects.filter(official=True, status='Stable').exclude(type="C"))
-                instance.maps.set(Map.objects.filter(official=True, status='Stable'))
-                instance.decks.set(Deck.objects.filter(official=True, status='Stable'))
-                instance.vagabonds.set(Vagabond.objects.filter(official=True, status='Stable'))
-
+                instance.factions.set(Faction.objects.filter(official=True, status='1').exclude(type="C"))
+                instance.maps.set(Map.objects.filter(official=True, status='1'))
+                instance.decks.set(Deck.objects.filter(official=True, status='1'))
+                instance.vagabonds.set(Vagabond.objects.filter(official=True, status='1'))
 
         return instance
 

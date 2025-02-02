@@ -270,7 +270,14 @@
             <div class="collapse" id="collapseFactions">
                 <div class="card card-body">
                     {% for faction in object.factions.all %}
-                    <div>{{ faction.title }}</div>
+                    <a href="{% url 'faction-detail' faction.slug %}">
+                        <div>
+                        <img class="faction-icon" src="{{ faction.small_icon.url }}" alt="Faction Icon">
+                        {{ faction }}
+                        </div>
+                    </a>
+
+                    
                     {% endfor %}             
                 </div>
             </div>
@@ -283,7 +290,14 @@
             <div class="collapse" id="collapseDecks">
                 <div class="card card-body">
                     {% for deck in object.decks.all %}
-                    <div>{{ deck.title }}</div>
+                    <a href="{% url 'deck-detail' deck.slug %}">
+                        <div>
+                        {% if deck.card_image %}
+                        <img class="faction-icon" src="{{ deck.card_image.url }}" alt="Deck Image">
+                        {% endif %}
+                        {{ deck }}
+                        </div>
+                    </a>
                     {% endfor %}             
                 </div>
             </div>
@@ -296,7 +310,14 @@
             <div class="collapse" id="collapseMaps">
                 <div class="card card-body">
                     {% for map in object.maps.all %}
-                    <div>{{ map.title }}</div>
+                    <a href="{% url 'map-detail' map.slug %}">
+                        <div>
+                        {% if map.board_image %}
+                        <img class="faction-icon" src="{{ map.board_image.url }}" alt="Map Image">
+                        {% endif %}
+                        {{ map }}
+                        </div>
+                    </a>
                     {% endfor %}             
                 </div>
             </div>

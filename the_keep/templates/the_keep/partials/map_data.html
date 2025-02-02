@@ -1,3 +1,12 @@
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{{ object.picture.url }}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ object.title }}">
+<meta property="og:description" content="{{ object.clearings }} clearing {% if not object.official %}Fan {% endif %}Map by {{ object.designer.name }}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
+{% endblock meta%}
+
 <article class="media content-section">
     <div class="media-body">
         

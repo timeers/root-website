@@ -441,7 +441,7 @@ th.sortable:hover {
   /* border: 1px red solid; */
 }
 
-tr.resource-row:hover {
+tr.clickable-row:hover {
   background-color: #f1f1f1;  /* Light gray background on hover */
 }
 
