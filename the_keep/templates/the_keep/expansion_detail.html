@@ -8,7 +8,7 @@
 <meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ expansion.title }}">
-<meta property="og:description" content="{% if expansion.lore %}{{ expansion.lore }}{% elif expansion.description %}{{expansion.description}}{% else %}{{ expansion.title }}{% if expansion.designer %} by {{ expansion.designer.name }}{% endif %}{% endif %}">
+<meta property="og:description" content="{{ expansion.title }}{% if expansion.designer %} by {{ expansion.designer.name }} {% endif %}{% if expansion.lore %} - {{ expansion.lore }}{% elif expansion.description %} - {{expansion.description}}{% endif %}">
 {% endblock meta%}
 
 {% block content %}
