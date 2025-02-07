@@ -44,6 +44,7 @@ class Expansion(models.Model):
     description = models.TextField(null=True, blank=True)
     lore = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
+    image = models.ImageField(upload_to='boards', null=True, blank=True)
 
     # Get groups of components for selected expansion
     def get_posts(self):

@@ -20,7 +20,7 @@ class ExpansionCreateForm(forms.ModelForm):
     form_type = 'Expansion'
     class Meta:
         model = Expansion
-        fields = ['title', 'description', 'lore']
+        fields = ['title', 'image', 'description', 'lore']
     def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.fields['description'].widget.attrs.update({

@@ -5,7 +5,7 @@
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
+<meta property="og:image" content="{% if expansion.image %}{{ object.image.url }}{% else %}{% static 'images/RDB_Logo.png' %}{% endif %}">
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ expansion.title }}">
 <meta property="og:description" content="{{ expansion.title }}{% if expansion.designer %} by {{ expansion.designer.name }} {% endif %}{% if expansion.lore %} - {{ expansion.lore }}{% elif expansion.description %} - {{expansion.description}}{% endif %}">
@@ -22,8 +22,11 @@
         {% endif %}
 </div>
         {% if expansion.designer %}
-            by: 
+            by 
             <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
+        {% endif %}
+        {% if expansion.image %}
+        <div><img class="rounded-corner-img responsive-img mb-1" src="{{ expansion.image.url }}"></div>
         {% endif %}
         {% if expansion.lore %}
             <p class="lore-content mt-2">{{ expansion.lore }}</p>
