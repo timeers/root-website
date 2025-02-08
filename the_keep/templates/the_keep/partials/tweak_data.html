@@ -12,11 +12,26 @@
         
     <h2>Tweak Details</h2>
 
-
-    {% if object.description %}
-        <h3>Description</h3>
-        <p class="article-content">{{ object.description }}</p>
-    {% endif %}
     <p class="article-content">{{ object.card_text }}</p>
+
+
+    {% if object.card_image %}
+        <img class="adset-img" src="{{ object.card_image.url }}">
+    {% endif %}
+
+    {% if object.card_2_image %}
+        <img class="adset-img" src="{{ object.card_2_image.url }}">
+    {% endif %}
+
+    {% if object.board_image %}
+        <img class="rounded-corner-img responsive-img" src="{{ object.board_image.url }}">
+    {% endif %}
+
+    {% if object.board_2_image %}
+        <img class="rounded-corner-img responsive-img" src="{{ object.board_2_image.url }}">
+    {% endif %}
+
+
+
     </div>
 </article>

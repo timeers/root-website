@@ -104,7 +104,9 @@
                 {% endif %}
             </div>
 
-
+            {% if object.description %}
+                <p class="article-content">{{ object.description }}</p>
+            {% endif %}
 
 
 </article>

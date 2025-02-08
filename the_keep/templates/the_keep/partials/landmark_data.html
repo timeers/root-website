@@ -13,10 +13,6 @@
     <h2>Landmark Details</h2>
 
 
-    {% if object.description %}
-        <h3>Description</h3>
-        <p class="article-content">{{ object.description }}</p>
-    {% endif %}
     <p class="article-content">{{ object.card_text }}</p>
     {% if object.card_image %}
         <img class="adset-img" src="{{ object.card_image.url }}">

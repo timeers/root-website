@@ -13,11 +13,6 @@
     <h2>Map Details</h2>
     {{ object.clearings }} Clearings
 
-    {% if object.description %}
-        <h3>Description</h3>
-        <p class="article-content">{{ object.description }}</p>
-    {% endif %}
-
     {% if object.board_image %}
     <div><img class="rounded-corner-img responsive-img mb-1" src="{{ object.board_image.url }}"></div>
     {% endif %}
