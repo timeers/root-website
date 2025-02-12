@@ -452,3 +452,72 @@ tr.clickable-row:hover {
   /* border: 1px green solid; */
   z-index: 10; /* Make sure this image appears on top */
 }
+
+
+
+.search-popup {
+  position: absolute;
+  top: 100%;  /* Position below the search input */
+  left: 0;
+  right: 0;
+  background-color: white;
+  border: 1px solid #ccc;
+  max-height: 300px;
+  overflow-y: auto;
+  width: 100%;
+  z-index: 1000;
+  display: none;  /* Initially hidden */
+}
+
+/* Show search popup when results are present */
+#universal-search-results {
+  display: block;
+}
+
+
+.search-bar {
+  border: 0;
+  display: flex;
+  border-radius: 100vh;
+  background: #fafafa;
+  width: 27px;
+  position: relative;
+  transition: width 300ms cubic-bezier(0.2, 0.75, 0.42, 1.10);
+  overflow: hidden;
+}
+
+.search-bar:focus-within {
+  width: 200px;
+  .search-bar-input {
+    opacity: 1;
+    cursor: initial;
+  }
+}
+
+.search-bar-input {
+  flex-grow: 1;
+  padding: 0 0.5em;
+  border: 0;
+  background: transparent;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  line-height: 30px;
+  opacity: 0;
+  cursor: pointer;
+}
+.search-bar-input:focus {
+  outline: 0;
+}
+
+.search-bar-submit {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  border-radius: 100vh;
+  background: transparent;
+  margin-left: auto;
+  transition: background 300ms ease-in-out;
+  color: #5f788a;
+}

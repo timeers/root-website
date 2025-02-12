@@ -86,19 +86,44 @@ class GameListView(ListView):
         self._cached_queryset = self.filterset.qs
 
         return self.filterset.qs
-    
+        
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        # Create a dictionary to collect context values
+        context_data = {}
+
         if self.request.user.is_authenticated:
             profile = self.request.user.profile
         else:
             profile = None
+        
         in_progress = Game.objects.filter(final=False, recorder=profile)
+        
         # Reuse the cached queryset here instead of calling get_queryset again
         games = self._cached_queryset  # Use the already-evaluated queryset
-        # print("got queryset")
-        # Get the total count of games (total number of records in the queryset)
+        # Get the total count of games
         games_count = games.count()
+        efforts = Effort.objects.filter(game__in=games)
+        if games_count > 50:
+            leaderboard_threshold = 5
+        elif games_count > 20:
+            leaderboard_threshold = 3
+        elif games_count > 10:
+            leaderboard_threshold = 2
+        else:
+            leaderboard_threshold = 1
+
+        # Get leaderboard data
+        context_data.update({
+            'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+            'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+            'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+            'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+            'leaderboard_threshold': leaderboard_threshold,
+        })
+        
+
 
         # Paginate games
         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
@@ -108,19 +133,24 @@ class GameListView(ListView):
             page_obj = paginator.get_page(page_number)  # Get the specific page of games
         except EmptyPage:
             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
-        context['in_progress'] = in_progress
-        context['games'] = page_obj  # Pass the paginated page object to the context
-        context['is_paginated'] = paginator.num_pages > 1  # Set is_paginated boolean
-        context['page_obj'] = page_obj  # Pass the page_obj to the context
-
-        context['form'] = self.filterset.form
-        context['filterset'] = self.filterset
-
-        context['games_count'] = games_count
         
+        # Add paginated data to the context dictionary
+        context_data.update({
+            'in_progress': in_progress,
+            'games': page_obj,  # Pass the paginated page object to the context
+            'is_paginated': paginator.num_pages > 1,  # Set is_paginated boolean
+            'page_obj': page_obj,  # Pass the page_obj to the context
+            'games_count': games_count,
+            'form': self.filterset.form,
+            'filterset': self.filterset,
+        })
+
+        # Update the main context with the collected context data
+        context.update(context_data)
+
         return context
-    
+
+        
 
 
 
@@ -796,16 +826,18 @@ def tournament_detail_view(request, tournament_slug):
         )
     future_rounds = all_rounds.filter(start_date__gt=timezone.now())
    
+    efforts = Effort.objects.filter(game__round__tournament=tournament)
 
     top_players = []
     most_players = []
     top_factions = []
     most_factions = []
     # 4 queries
-    top_players = Profile.top_players(limit=tournament.leaderboard_positions, tournament=tournament, game_threshold=tournament.game_threshold)
-    most_players = Profile.top_players(limit=tournament.leaderboard_positions, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
-    top_factions = Faction.top_factions(limit=20, tournament=tournament, game_threshold=tournament.game_threshold)
-    most_factions = Faction.top_factions(limit=20, tournament=tournament, top_quantity=True, game_threshold=tournament.game_threshold)
+    top_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, game_threshold=tournament.game_threshold)
+    most_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, top_quantity=True, game_threshold=tournament.game_threshold)
+    top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=tournament.game_threshold)
+    most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=tournament.game_threshold)
+
     context = {
         'object': tournament,
         'active': active_rounds,
@@ -1096,23 +1128,22 @@ def round_detail_view(request, tournament_slug, round_slug):
     # Fetch the round using its slug, and filter it by the related tournament
     round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
 
+    efforts = Effort.objects.filter(game__round=round)
     
     threshold = round.game_threshold
 
 
     top_players = []
     most_players = []
-    top_players = Profile.top_players(limit=tournament.leaderboard_positions, round=round, game_threshold=threshold)
-    most_players = Profile.top_players(limit=tournament.leaderboard_positions, round=round, top_quantity=True, game_threshold=threshold)
     top_factions = []
     most_factions = []
-    top_factions = Faction.top_factions(limit=20, round=round, game_threshold=threshold)
-    most_factions = Faction.top_factions(limit=20, round=round, top_quantity=True, game_threshold=threshold)
+
+    top_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, game_threshold=threshold)
+    most_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
+    top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=threshold)
+    most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
+
     # players = round.current_player_queryset()
-
-
-
-
     # players = players.annotate(
     #     total_efforts=Count('efforts', filter=Q(efforts__game__round=round)),
     #     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round)),

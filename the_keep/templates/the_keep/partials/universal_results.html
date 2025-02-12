@@ -1,0 +1,71 @@
+{% if no_results and query %}
+<ul>No results found for your search.</ul>
+{% else %}
+
+<ul>
+    {% if factions %}
+        Factions
+        {% for result in factions %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if decks %}
+        Decks
+        {% for result in decks %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if maps %}
+        Maps
+        {% for result in maps %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if vagabonds %}
+        Vagabonds
+        {% for result in vagabonds %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if landmarks %}
+        Landmarks
+        {% for result in landmarks %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if hirelings %}
+        Hirelings
+        {% for result in hirelings %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if expansions %}
+        Expansions
+        {% for result in expansions %}
+            <li>{{ result.title }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if players %}
+        Profiles
+        {% for result in players %}
+            <li>{{ result.name }}</li>
+        {% endfor %}
+    {% endif %}
+
+    {% if games %}
+        Games
+        {% for result in games %}
+            <li>{{ result.nickname }}</li>
+        {% endfor %}
+    {% endif %}
+
+</ul>
+
+{% endif %}

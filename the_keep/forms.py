@@ -20,7 +20,15 @@ class ExpansionCreateForm(forms.ModelForm):
     form_type = 'Expansion'
     class Meta:
         model = Expansion
-        fields = ['title', 'image', 'description', 'lore']
+        fields = ['title', 'image', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link']
+        labels = {
+            'bgg_link': "Board Game Geek Post", 
+            'tts_link': "Tabletop Simulator", 
+            'ww_link': "Woodland Warriors Thread", 
+            'wr_link': "Weird Root Thread", 
+            'pnp_link': "Link to Print and Play Files",
+            'stl_link': "Link to STL Files (if not in PNP)"
+        }
     def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.fields['description'].widget.attrs.update({

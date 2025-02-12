@@ -154,6 +154,15 @@
   
     
         </article>
+        {% else %}
+        <article class="media content-section">
+            <div class="media-body">
+            <div>No Players above Leaderboard Threshold</div>
+            {% if object.game_threshold > 0 %}
+            <small class="mb-2">*Leaderboard Threshold of {{ object.game_threshold }}</small>
+            {% endif %}
+        </div>
+        </article>
         {% endif %}
 
 
@@ -181,7 +190,7 @@
         {% else %}
         <article class="media content-section">
             <div class="media-body">
-            <div>No Players above Game Threshold</div>
+            <div>No Factions above Leaderboard Threshold</div>
             {% if object.game_threshold > 0 %}
             <small class="mb-2">*Leaderboard Threshold of {{ object.game_threshold }}</small>
             {% endif %}

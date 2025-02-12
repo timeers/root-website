@@ -22,6 +22,7 @@ from .views import (
     confirm_stable,
     confirm_testing,
     pin_asset,
+    universal_search,
 )
 from .api_views import search_posts
 from . import views
@@ -31,6 +32,7 @@ urlpatterns = [
     # path("new/", activity_list, name='activity-list'),
  
     path("search/", search_view, name='search'),
+    path('universal-search/', universal_search, name='universal-search'),
     path('api/search/', search_posts, name='api-search-posts'),
 
     path('new/faction/', FactionCreateView.as_view(), name='faction-create'),

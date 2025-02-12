@@ -1,0 +1,20 @@
+<div class="navbar-nav mr-auto">
+    <div class="search-bar">
+        <input 
+            type="text" 
+            class="search-bar-input"
+            id="universal-search-bar" 
+            name="query" 
+            placeholder="Search..." 
+            hx-get="{% url 'universal-search' %}" 
+            hx-target="#universal-search-results" 
+            hx-trigger="keyup changed delay:500ms" 
+            autocomplete="off"
+            aria-label='search'
+        />
+        <button class="search-bar-submit">
+            <i class="bi bi-search"></i>
+        </button>
+    </div>
+    <div id="universal-search-results" class="search-popup"></div>
+</div>

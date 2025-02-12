@@ -45,6 +45,13 @@ class Expansion(models.Model):
     lore = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     image = models.ImageField(upload_to='boards', null=True, blank=True)
+    bgg_link = models.CharField(max_length=400, null=True, blank=True)
+    tts_link = models.CharField(max_length=400, null=True, blank=True)
+    ww_link = models.CharField(max_length=400, null=True, blank=True)
+    wr_link = models.CharField(max_length=400, null=True, blank=True)
+    pnp_link = models.CharField(max_length=400, null=True, blank=True)
+    stl_link = models.CharField(max_length=400, null=True, blank=True)
+    leder_games_link = models.CharField(max_length=400, null=True, blank=True)
 
     # Get groups of components for selected expansion
     def get_posts(self):
@@ -68,7 +75,24 @@ class Expansion(models.Model):
         return reverse('expansion-detail', kwargs={'slug': self.slug})
     def __str__(self):
         return self.title
-
+    
+    def count_links(self, user):
+        # List of link field names you want to check
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'leder_games_link']
+        
+        # Count how many of these fields are not None or empty
+        count = 0
+        for field in link_fields:
+            # Special handling for 'wr_link' if the user is authenticated and a member of WR
+            if field == 'wr_link':
+                if user.is_authenticated:
+                    if user.profile.in_weird_root:
+                        if getattr(self, field):  # Checks if the field value is not None or empty string
+                            count += 1
+            else:
+                if getattr(self, field):  # Checks if the field value is not None or empty string
+                    count += 1
+        return count
 
 class Post(models.Model):
     
@@ -606,9 +630,71 @@ class Faction(Post):
 
         total_plays = self.get_plays_queryset().filter(game__test_match=False, game__final=True).count()
         return points / total_plays * 100 if total_plays > 0 else 0
+    # Functionality moved to leaderboard
+    # @classmethod
+    # def top_factions(cls, player_id=None, top_quantity=False, tournament=None, round=None, limit=5, game_threshold=10):
+    #     """
+    #     Get the top factions based on their win rate (default) or total efforts.
+    #     If player_id is provided, get the top factions for that faction.
+    #     Otherwise, get the top factions across all factions.
+    #     The `limit` parameter controls how many factions to return.
+    #     """
+    #     # Start with the base queryset for factions
+    #     queryset = cls.objects.all()
+
+    #     # If a tournament is provided, filter efforts that are related to that tournament
+    #     if tournament:
+    #         queryset = queryset.filter(
+    #             efforts__game__round__tournament=tournament  # Filter efforts linked to a specific tournament
+    #         )
+
+    #     # If a round is provided, filter efforts that are related to that round
+    #     if round:
+    #         queryset = queryset.filter(
+    #             efforts__game__round=round  # Filter efforts linked to a specific round
+    #         )
+    #     # Now, annotate with the total efforts and win counts
+    #     queryset = queryset.annotate(
+    #         total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__game__final=True, efforts__game__test_match=False)),
+    #         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
+    #         coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
+    #     )
+        
+    #     # Filter factions who have enough efforts (before doing the annotation)
+
+    #     queryset = queryset.filter(total_efforts__gte=game_threshold)
+
+    #     # Annotate with win_rate after filtering
+    #     queryset = queryset.annotate(
+    #         win_rate=Case(
+    #             When(total_efforts=0, then=Value(0)),
+    #             default=ExpressionWrapper(
+    #                 (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+    #                 output_field=FloatField()
+    #             ),
+    #             output_field=FloatField()
+    #         ),
+    #         tourney_points=Case(
+    #             When(total_efforts=0, then=Value(0)),
+    #             default=ExpressionWrapper(
+    #                 Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Win rate as percentage
+    #                 output_field=FloatField()
+    #             ),
+    #             output_field=FloatField()
+    #         )
+    #     )
+    #     # Now we can order the queryset
+    #     if top_quantity:
+    #         # If top_quantity is True, order by total_efforts (most efforts) first
+    #         return queryset.order_by('-tourney_points', '-win_rate')[:limit]
+    #     else:
+    #         # Otherwise, order by win_rate (highest win rate) first
+    #         return queryset.order_by('-win_rate', '-total_efforts')[:limit]
+
+
 
     @classmethod
-    def top_factions(cls, player_id=None, top_quantity=False, tournament=None, round=None, limit=5, game_threshold=10):
+    def leaderboard(cls, effort_qs=None, top_quantity=False, limit=5, game_threshold=10):
         """
         Get the top factions based on their win rate (default) or total efforts.
         If player_id is provided, get the top factions for that faction.
@@ -619,21 +705,19 @@ class Faction(Post):
         queryset = cls.objects.all()
 
         # If a tournament is provided, filter efforts that are related to that tournament
-        if tournament:
-            queryset = queryset.filter(
-                efforts__game__round__tournament=tournament  # Filter efforts linked to a specific tournament
+        if effort_qs:
+            queryset = queryset.filter(efforts__in=effort_qs)
+            queryset = queryset.annotate(
+                total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
+                win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
+                coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
             )
 
-        # If a round is provided, filter efforts that are related to that round
-        if round:
-            queryset = queryset.filter(
-                efforts__game__round=round  # Filter efforts linked to a specific round
-            )
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
-            total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__game__final=True, efforts__game__test_match=False)),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
+            total_efforts=Count('efforts', filter=Q(efforts__game__final=True, efforts__game__test_match=False)),
+            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
+            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
         )
         
         # Filter factions who have enough efforts (before doing the annotation)
@@ -666,6 +750,8 @@ class Faction(Post):
         else:
             # Otherwise, order by win_rate (highest win rate) first
             return queryset.order_by('-win_rate', '-total_efforts')[:limit]
+
+
 
     def stable_check(self):
         stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()

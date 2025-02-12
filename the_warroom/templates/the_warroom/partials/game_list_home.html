@@ -7,6 +7,76 @@
     <h3>Total Games ({{ games_count }})</h3> 
         </div>
     </article>
+
+    {% if user.profile.player %}
+        {% if top_players or most_players %}
+        <article class="media content-section">
+            <div class="media-body">
+
+            <h2>Player Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+            {% if top_players %}
+                <h4>By Winrate</h4>
+                {% with top_players as leaderboard_players %}
+                    {% include 'the_gatehouse/partials/leaderboard.html' %}
+                {% endwith %}
+            {% endif %}
+            <h4>By Games Won</h4>
+            {% with most_players as leaderboard_players %}
+                {% include 'the_gatehouse/partials/leaderboard.html' %}
+            {% endwith %}
+            {% if leaderboard_threshold > 0 %}
+            <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+            {% endif %}
+            </div>
+
+
+
+        </article>
+        {% else %}
+        <article class="media content-section">
+            <div class="media-body">
+            <div>No Players above Leaderboard Threshold</div>
+            {% if leaderboard_threshold > 0 %}
+            <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+            {% endif %}
+        </div>
+        </article>
+        {% endif %}
+    {% endif %}
+
+    {% if top_factions or most_factions %}
+    <article class="media content-section">
+        <div class="media-body">
+
+        <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+        {% if top_factions %}
+            <h4>By Winrate</h4>
+            {% with top_factions as leaderboard_factions %}
+                {% include 'the_keep/partials/leaderboard.html' %}
+            {% endwith %}
+        {% endif %}
+        <h4>By Games Won</h4>
+        {% with most_factions as leaderboard_factions %}
+            {% include 'the_keep/partials/leaderboard.html' %}
+        {% endwith %}
+        {% if leaderboard_threshold > 0 %}
+        <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+        {% endif %}
+        </div>
+
+    </article>
+    {% else %}
+    <article class="media content-section">
+        <div class="media-body">
+        <div>No Factions above Leaderboard Threshold</div>
+        {% if leaderboard_threshold > 0 %}
+        <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+        {% endif %}
+    </div>
+    </article>
+    {% endif %}
+
+
     {% endif %}
 {% for game in games %}
 

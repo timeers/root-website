@@ -22,7 +22,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
-from the_warroom.models import Game, ScoreCard
+from the_warroom.models import Game, ScoreCard, Effort
 from the_gatehouse.models import Profile
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
@@ -51,6 +51,15 @@ from the_tavern.views import bookmark_toggle
 
 class ExpansionDetailView(DetailView):
     model = Expansion
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        links_count = self.object.count_links(self.request.user)
+        # Add links_count to context
+        context['links_count'] = links_count
+
+        return context
 
 class ExpansionFactionsListView(ListView):
     model = Faction
@@ -408,11 +417,20 @@ def ultimate_component_view(request, slug):
     games = games.distinct().prefetch_related(*prefetch_values)
 
 
+
     commentform = PostCommentCreateForm()
     game_filter = GameFilter(request.GET, user=request.user, queryset=games)
 
     # Get the filtered queryset
     filtered_games = game_filter.qs.distinct()
+
+    
+    if post.component == "Faction" or post.component == "Clockwork":
+        efforts = Effort.objects.filter(game__in=filtered_games, faction=post)
+    elif post.component == "Vagabond":
+        efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
+    else:
+        efforts = Effort.objects.filter(game__in=filtered_games)
     # Get top players for factions
     top_players = []
     most_players = []
@@ -426,8 +444,10 @@ def ultimate_component_view(request, slug):
     page_number = request.GET.get('page')  # Get the page number from the request
     if not page_number:
         if object.component == "Faction":
-            top_players = Profile.top_players(faction_id=object.id, limit=10, game_threshold=5)
-            most_players = Profile.top_players(faction_id=object.id, limit=10, top_quantity=True, game_threshold=1)
+            # top_players = Profile.top_players(faction_id=object.id, limit=10, game_threshold=5)
+            # most_players = Profile.top_players(faction_id=object.id, limit=10, top_quantity=True, game_threshold=1)
+            top_players = Profile.leaderboard(effort_qs=efforts, limit=10, game_threshold=5)
+            most_players = Profile.leaderboard(effort_qs=efforts, limit=10, top_quantity=True, game_threshold=1)
             game_values = filtered_games.aggregate(
                         total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
                         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
@@ -823,11 +843,14 @@ class PNPAssetCreateView(CreateView):
 
     def form_valid(self, form):
         # Set the shared_by field to the current user's profile
-        if not self.request.user.profile.admin:
-            form.instance.shared_by = self.request.user.profile
-        else:
-            form.instance.pinned = True
-        
+        # if not self.request.user.profile.admin:
+        #     form.instance.shared_by = self.request.user.profile
+        # else:
+        #     form.instance.pinned = True
+
+        # Unpin resource
+
+        form.instance.pinned = False
         return super().form_valid(form)
 
     def get_form_kwargs(self):
@@ -898,7 +921,7 @@ class PNPAssetListView(ListView):
             )
         if search_type:
             queryset = queryset.filter(category__icontains=search_type)
-            
+
         if file_type:
             queryset = queryset.filter(file_type__icontains=file_type)
 
@@ -970,3 +993,54 @@ def pin_asset(request, id):
     object.save()
 
     return render(request, 'the_keep/partials/asset_pins.html', {'obj': object })
+
+def universal_search(request):
+    query = request.GET.get('query', '')
+    result_count = 3
+
+    # If the query is empty, set all results to empty QuerySets
+    players = Profile.objects.none()
+    if not query:
+        factions = Faction.objects.none()
+        maps = Map.objects.none()
+        decks = Deck.objects.none()
+        vagabonds = Vagabond.objects.none()
+        landmarks = Landmark.objects.none()
+        hirelings = Hireling.objects.none()
+        expansions = Expansion.objects.none()
+        games = Game.objects.none()
+    else:
+        # If the query is not empty, perform the search as usual
+        factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        maps = Map.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        decks = Deck.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        expansions = Expansion.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        if request.user.is_authenticated:
+            if request.user.profile.player:
+                players = Profile.objects.filter(Q(display_name__icontains=query)|Q(discord__icontains=query)|Q(dwd__icontains=query))
+        games = Game.objects.filter(nickname__icontains=query)        
+
+    # Check if all results are empty
+    no_results = not (factions.exists() or maps.exists() or decks.exists() or vagabonds.exists() or 
+                      landmarks.exists() or hirelings.exists() or expansions.exists() or 
+                      players.exists() or games.exists())
+
+    # Limit the results
+    context = {
+        'factions': factions[:result_count],
+        'maps': maps[:result_count],
+        'decks': decks[:result_count],
+        'vagabonds': vagabonds[:result_count],
+        'landmarks': landmarks[:result_count],
+        'hirelings': hirelings[:result_count],
+        'expansions': expansions[:result_count],
+        'players': players[:result_count],
+        'games': games[:result_count],
+        'no_results': no_results,
+        'query': query,
+    }
+
+    return render(request, 'the_keep/partials/universal_results.html', context)

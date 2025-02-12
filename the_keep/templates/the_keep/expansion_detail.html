@@ -35,7 +35,9 @@
         <div>{{ expansion.description }}</div>
         {% endif %}
 
-
+        {% if links_count != 0 %}
+            {% include 'the_keep/partials/links.html' %}
+        {% endif %}
 
 
         {% if expansion.get_posts %}

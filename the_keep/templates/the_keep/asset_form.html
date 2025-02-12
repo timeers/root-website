@@ -14,11 +14,13 @@
             {% csrf_token %}
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">{% if object.id %}Update{% else %}Post{% endif %} Link to Resource</legend>
-                {% if user.profile.admin %}
-                    Resources will be publicly posted to your profile and added to the Pinned Resource page
+                <div class='mb-4'>
+                {% if object.id and object.pinned %}
+                Edited resource will no longer be pinned.
                 {% else %}
-                    Resources will be publicly posted to your profile
+                Resources will be publicly posted to your profile.
                 {% endif %}
+                </div>
                 {{ form | crispy }}
             </fieldset>
 

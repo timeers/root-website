@@ -19,6 +19,8 @@ from .models import Profile
 from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort
 
+from the_keep.models import Faction
+
 
 
 def register(request):
@@ -607,9 +609,11 @@ def player_stats(request, slug):
     win_rate = win_points / all_games if all_games > 0 else 0
 
     # print("Stat Lookup", f'tournament-{tournament}', f'round-{round}', f'game threshold-{game_threshold}')
-    top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
-    most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
-    print(top_factions)
+    # top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
+    # most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
+    top_factions = Faction.leaderboard(effort_qs=efforts, game_threshold=game_threshold)
+    most_factions = Faction.leaderboard(top_quantity=True, effort_qs=efforts, game_threshold=1)
+
     context = {
         'player': player,
         'selected_tournament': tournament,
