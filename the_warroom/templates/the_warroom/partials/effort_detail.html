@@ -36,6 +36,9 @@
         {% if effort.vagabond %}
             (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
         {% endif %}
+        {% if effort.captains %}
+            (<a href="{% url 'vagabond-detail' effort.captains.slug %}">{{ effort.captains }}</a>)
+        {% endif %}
     {% else %}
         Faction N/A
     {% endif %}

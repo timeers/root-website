@@ -366,6 +366,7 @@ class EffortCreateForm(forms.ModelForm):
         dominance = cleaned_data.get('dominance')
         score = cleaned_data.get('score', None)
         vagabond = cleaned_data.get('vagabond')
+        captains = cleaned_data.get('captains')
         coalition = cleaned_data.get('coalition_with')
         if score is None or score == "":
             cleaned_data['score'] = 0 
@@ -383,11 +384,8 @@ class EffortCreateForm(forms.ModelForm):
             # raise ValidationError('Select a Vagabond.')
             validation_errors_to_display.append('Select a Vagabond')
                 # If captains are assigned ensure no more than 3 captains are assigned
-        elif faction.title == "Knaves of the Deepwood":
-            captains = cleaned_data.get('captains')
-            if captains.count() != 3 and captains.count() != 0:
-                # raise ValidationError({'captains': 'Please assign 3 Vagabonds as captains.'})
-                validation_errors_to_display.append('Please assign 3 Vagabonds as captains')
+        elif faction.title == "Knaves of the Deepwood" and not captains:
+            validation_errors_to_display.append('Please select a Captain')
 
         # print(score)
         if not dominance and score is None and not coalition:

@@ -348,7 +348,7 @@ class Effort(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
     faction = models.ForeignKey(Faction, on_delete=models.PROTECT, related_name='efforts')
     vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts')
-    captains = models.ManyToManyField(Vagabond, blank=True, related_name='efforts_as_captain')
+    captains = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts_as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
     dominance = models.CharField(max_length=10, choices=DominanceChoices.choices, null=True, blank=True)
     win = models.BooleanField(default=False)

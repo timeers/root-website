@@ -33,7 +33,7 @@ class Profile(models.Model):
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
-    tester = models.BooleanField(default=False)
+    tester = models.BooleanField(default=True)
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
     view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)

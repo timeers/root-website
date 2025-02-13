@@ -103,7 +103,46 @@
     });
 </script>
     {% block scripts %}{% endblock %}
+<script>
+    // Wait until the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchBar = document.getElementById('universal-search-bar');
+        const searchResults = document.getElementById('universal-search-results');
+        const searchButton = document.querySelector('.search-bar-submit');
 
+        // Function to hide the search results
+        function hideSearchResults() {
+            searchResults.style.display = 'none';
+        }
+
+        // Function to show search results
+        function showSearchResults() {
+            searchResults.style.display = 'block';
+        }
+
+        // Event listener for the search input to show the results when typing
+        searchBar.addEventListener('focus', function() {
+            showSearchResults();
+        });
+
+        // Close the search results when clicking outside
+        document.addEventListener('click', function(event) {
+            // Check if the click is outside the search bar or search results
+            if (!searchBar.contains(event.target) && !searchButton.contains(event.target) && !searchResults.contains(event.target)) {
+                hideSearchResults();
+            }
+        });
+
+        // Prevent the click event on the search bar or button from closing the results
+        searchBar.addEventListener('click', function(event) {
+            event.stopPropagation();
+        });
+
+        searchButton.addEventListener('click', function(event) {
+            event.stopPropagation();
+        });
+    });
+</script>
 
   </body>
 </html>

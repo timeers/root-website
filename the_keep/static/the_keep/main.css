@@ -487,7 +487,7 @@ tr.clickable-row:hover {
 }
 
 .search-bar:focus-within {
-  width: 200px;
+  width: 125px;
   .search-bar-input {
     opacity: 1;
     cursor: initial;
@@ -506,7 +506,14 @@ tr.clickable-row:hover {
   line-height: 30px;
   opacity: 0;
   cursor: pointer;
+
+  max-width: 110px;  /* Limit the width of the input */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+
 .search-bar-input:focus {
   outline: 0;
 }

@@ -22,7 +22,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
-from the_warroom.models import Game, ScoreCard, Effort
+from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
 from the_gatehouse.models import Profile
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
@@ -1000,6 +1000,7 @@ def universal_search(request):
 
     # If the query is empty, set all results to empty QuerySets
     players = Profile.objects.none()
+    scorecards = ScoreCard.objects.none()
     if not query:
         factions = Faction.objects.none()
         maps = Map.objects.none()
@@ -1007,8 +1008,12 @@ def universal_search(request):
         vagabonds = Vagabond.objects.none()
         landmarks = Landmark.objects.none()
         hirelings = Hireling.objects.none()
+        tweaks = Tweak.objects.none()
         expansions = Expansion.objects.none()
         games = Game.objects.none()
+        tournaments = Tournament.objects.none()
+        rounds = Round.objects.none()
+        resources = PNPAsset.objects.none()
     else:
         # If the query is not empty, perform the search as usual
         factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
@@ -1017,16 +1022,22 @@ def universal_search(request):
         vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         expansions = Expansion.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         if request.user.is_authenticated:
             if request.user.profile.player:
                 players = Profile.objects.filter(Q(display_name__icontains=query)|Q(discord__icontains=query)|Q(dwd__icontains=query))
-        games = Game.objects.filter(nickname__icontains=query)        
+                scorecards = ScoreCard.objects.filter(game_group__icontains=query, effort=None, recorder=request.user.profile)
+        games = Game.objects.filter(nickname__icontains=query)     
+        tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  
+        rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
+        resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
 
     # Check if all results are empty
     no_results = not (factions.exists() or maps.exists() or decks.exists() or vagabonds.exists() or 
                       landmarks.exists() or hirelings.exists() or expansions.exists() or 
-                      players.exists() or games.exists())
+                      players.exists() or games.exists() or scorecards.exists() or tournaments.exists() or
+                      rounds.exists() or tweaks.exists() or resources.exists())
 
     # Limit the results
     context = {
@@ -1039,6 +1050,10 @@ def universal_search(request):
         'expansions': expansions[:result_count],
         'players': players[:result_count],
         'games': games[:result_count],
+        'scorecards': scorecards[:result_count],
+        'tournaments': tournaments[:result_count],
+        'rounds': rounds[:result_count],
+        'resources': resources[:result_count],
         'no_results': no_results,
         'query': query,
     }
