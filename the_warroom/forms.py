@@ -312,18 +312,20 @@ class GameCreateForm(forms.ModelForm):
                     validation_errors_to_display.append(f'Under {round.tournament} minimum player count') 
 
                 # Check each player in the player_roster
-                for player in player_roster:
-                    if player not in current_players:
-                        # if player in eliminated_players:
-                        #     validation_errors_to_display.append(f'{player} was previously eliminated from {round.tournament}')
-                        # else:
-                        validation_errors_to_display.append(f'{player} is not registered for {round.tournament}')
-                for faction in faction_roster:
-                    if faction not in tournament_factions:
-                        validation_errors_to_display.append(f'The Faction {faction} is not playable in {round.tournament}')
-                for vagabond in vagabond_roster:
-                    if vagabond not in tournament_vagabonds:
-                        validation_errors_to_display.append(f'The Vagabond {vagabond} is not playable in {round.tournament}')
+                if not round.tournament.open_roster:
+                    for player in player_roster:
+                        if player not in current_players:
+                            # if player in eliminated_players:
+                            #     validation_errors_to_display.append(f'{player} was previously eliminated from {round.tournament}')
+                            # else:
+                            validation_errors_to_display.append(f'{player} is not registered for {round.tournament}')
+                if not round.tournament.open_assets:
+                    for faction in faction_roster:
+                        if faction not in tournament_factions:
+                            validation_errors_to_display.append(f'The Faction {faction} is not playable in {round.tournament}')
+                    for vagabond in vagabond_roster:
+                        if vagabond not in tournament_vagabonds:
+                            validation_errors_to_display.append(f'The Vagabond {vagabond} is not playable in {round.tournament}')
 
         if not final:
             if not deck:
@@ -645,7 +647,7 @@ class TournamentCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Tournament
-        fields = ['name', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'leaderboard_positions', 'game_threshold', 'platform', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams']
+        fields = ['name', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'open_assets', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams']
         labels = {
             'name': 'Tournament Name',
             'start_date': 'Start Date',
@@ -655,6 +657,10 @@ class TournamentCreateForm(forms.ModelForm):
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
+            'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
+            'open_assets': 'Allow all Official and Fan Content',
+            'include_fan_content': 'Include Fan Content',
+            'include_clockwork': 'Include Clockwork Factions'
         }
     def __init__(self, *args, **kwargs):
         super(TournamentCreateForm, self).__init__(*args, **kwargs)

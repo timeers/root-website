@@ -5,6 +5,7 @@
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ object.title }}">
 <meta property="og:description" content="{% if not object.official %}Fan {% endif %}Vagabond by {{ object.designer.name }} - {{ object.ability }}: {{ object.ability_description }}">
+<meta name="description" content="{% if not object.official %}Fan {% endif %}Vagabond by {{ object.designer.name }} - {{ object.ability }}: {{ object.ability_description }}">
 {% endblock meta%}
 
 {% load custom_filters %}
@@ -60,6 +61,11 @@
 
     {% include 'the_keep/partials/pieces.html' %}
 
+    {% if object.card_image %}
+    <div class="article-content">
+            <img class="adset-img" src="{{ object.card_image.url }}">
+    </div> 
+    {% endif %}
 
     <h2>Ability</h2>
     <h4>{{ object.ability }}</h4>

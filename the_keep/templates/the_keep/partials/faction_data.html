@@ -5,6 +5,7 @@
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ object.title }}">
 <meta property="og:description" content="{% if object.reach > 0 %}{{ object.reach }} Reach {% endif %}{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}{{ object.component }} by {{ object.designer.name }}{% if object.based_on %} based on {{ object.based_on.title }}{% endif %}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
+<meta name="description" content="{% if object.reach > 0 %}{{ object.reach }} Reach {% endif %}{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}{{ object.component }} by {{ object.designer.name }}{% if object.based_on %} based on {{ object.based_on.title }}{% endif %}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
 {% endblock meta%}
 
 <article class="media content-section">
@@ -40,16 +41,15 @@
             </tr>
         </tbody>
     </table>
-
+        {% if object.card_image or object.reach > 0 %}
         <div class="article-content">
             {% if object.card_image %}
                 <img class="adset-img" src="{{ object.card_image.url }}">
-            {% else %}
-                {% if object.reach > 0 %}
+            {% elif object.reach > 0 %}
                 {{ object.get_type_display }} ({{ object.reach }} Reach)
-                {% endif %}
             {% endif %}
         </div> 
+        {% endif %}
         {% if object.board_image %}
             <img class="rounded-corner-img responsive-img" src="{{ object.board_image.url }}">
         {% endif %}

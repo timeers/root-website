@@ -75,6 +75,9 @@ class Tournament(models.Model):
     
     slug = models.SlugField(unique=True, null=True, blank=True)
 
+    open_roster = models.BooleanField(default=False)
+    open_assets = models.BooleanField(default=False)
+
     def __str__(self):
         return self.name
     

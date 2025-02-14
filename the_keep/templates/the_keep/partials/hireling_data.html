@@ -5,6 +5,7 @@
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ object.title }}">
 <meta property="og:description" content="{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}Hireling by {{ object.designer.name }}{% if object.based_on %} for {{ object.based_on.title }} by {{ object.based_on.designer.name }}{% endif %}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
+<meta name="description" content="{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}Hireling by {{ object.designer.name }}{% if object.based_on %} for {{ object.based_on.title }} by {{ object.based_on.designer.name }}{% endif %}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
 {% endblock meta%}
 
 <article class="media content-section">

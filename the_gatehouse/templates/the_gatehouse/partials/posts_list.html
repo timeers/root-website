@@ -1,9 +1,7 @@
 <div id="search-results">
     {% if posts %}
         {% for object in posts %}
-            <article class="media content-section">
                 {% include 'the_keep/partials/post.html' %}
-            </article>
         {% endfor %} 
     {% else %}
         <h3>No results</h3>

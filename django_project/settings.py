@@ -226,6 +226,7 @@ ACCOUNT_EMAIL_VERIFICATION = 'none'
 # AUTH_USER_MODEL = "users.User"
 
 SOCIALACCOUNT_STORE_TOKENS = True # This on the other hand is important!
+
 # SOCIALACCOUNT_ONLY = True
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -286,3 +287,64 @@ INTERNAL_IPS = [
     "127.0.0.1",
     "localhost",
 ]
+
+ADMINS = [('Admin', EMAIL_HOST_USER)]
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': '{asctime}: {levelname} {message}',
+            'style': '{',
+        },
+        'verbose': {
+            'format': '{asctime}: {levelname} {name} {module}.py (line {lineno:d}). {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'general.log',
+            'formatter': 'verbose',
+        },
+        'mail_admins': {
+            'level': 'WARNING',
+            'class': 'django.utils.log.AdminEmailHandler',  # Automatically uses email settings from Django
+            'formatter': 'verbose',
+        },
+        'smtp': {
+            'level': 'INFO',
+            'class': 'logging.handlers.SMTPHandler',
+            'mailhost': (EMAIL_HOST, 587),  # SMTP server and port
+            'fromaddr': EMAIL_HOST_USER,  # Sender email
+            'toaddrs': [EMAIL_HOST_USER],  # List of email addresses to send logs to
+            'subject': 'User Activity',  # Subject of the email
+            'credentials': (EMAIL_HOST_USER, EMAIL_HOST_PASSWORD),  # Email login credentials
+            'secure': (),  # This can be left as an empty tuple for TLS/SSL connection
+        },
+        # 'discord': {
+        #     'level': 'ERROR',
+        #     'class': 'the_gatehouse.discordservice.DiscordWebhookHandler',
+        #     'webhook_url': config["DISCORD_USER_EVENTS_WEBHOOK_URL"],  # Replace with your Discord webhook URL
+        #     'username': 'Django Logger',  # Optional: Name that will appear in Discord
+        # },
+    },
+    'loggers': {
+        "" : {
+            "level": "INFO",
+            "handlers": ["file"],
+        },
+        "" : {
+            "level": "WARNING",
+            "handlers": ["mail_admins"],
+        },
+        "user_activity": {
+            "level": "INFO",
+            "handlers": ["smtp"],
+        }
+    },
+}
+ 

@@ -5,102 +5,109 @@
         {% if factions %}
             <strong>Factions</strong>
             {% for result in factions %}
-                <li>
-                    <a href="{{ result.get_absolute_url }}">
-                    <img class="faction-icon image1" src="{{ result.small_icon.url }}" alt="{{ result.title }} Icon">
-                    {{ result.title }} by {{ result.designer }}
-                    </a>
-                </li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if decks %}
             <strong>Decks</strong>
             {% for result in decks %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }} by {{ result.designer }}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if maps %}
             <strong>Maps</strong>
             {% for result in maps %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }} by {{ result.designer }}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if vagabonds %}
             <strong>Vagabonds</strong>
             {% for result in vagabonds %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }} by {{ result.designer }}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if landmarks %}
             <strong>Landmarks</strong>
             {% for result in landmarks %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }} by {{ result.designer }}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if hirelings %}
             <strong>Hirelings</strong>
             {% for result in hirelings %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }} by {{ result.designer }}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if tweaks %}
             <strong>House Rules</strong>
             {% for result in tweaks %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }} by {{ result.designer }}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if expansions %}
             <strong>Expansions</strong>
             {% for result in expansions %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.title }}{% if result.designer %} by {{ result.designer }}{% endif %}</a></li>
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if games %}
             <strong>Games</strong>
             {% for result in games %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.nickname }} ({{ result.platform }})</a></li>
+                <div>
+                    <a href="{{ result.get_absolute_url }}">{{ result.nickname }} ({{ result.platform }})</a>
+                </div>
             {% endfor %}
         {% endif %}
 
         {% if tournaments or rounds %}
             <strong>Tournaments</strong>
             {% for result in tournaments %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.name }}</a></li>
+                <div>
+                    <a href="{{ result.get_absolute_url }}">{{ result.name }}</a>
+                </div>
             {% endfor %}
             {% for result in rounds %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.name }}</a></li>
+                <div>
+                    <a href="{{ result.get_absolute_url }}">{{ result.name }}</a>
+                </div>
             {% endfor %}
         {% endif %}
 
         {% if scorecards %}
             <strong>Scorecards</strong>
             {% for result in scorecards %}
-                <li><a href="{{ result.get_absolute_url }}">{{ result.game_group }} - {{ result.faction.title }}</a></li>
+            <div>
+                <a href="{{ result.get_absolute_url }}">{{ result.game_group }} - {{ result.faction.title }}</a>
+            </div>
             {% endfor %}
         {% endif %}
 
         {% if players %}
             <strong>Profiles</strong>
             {% for result in players %}
-                <li><a href="{{ result.get_absolute_url }}">
+            <div>
+                <a href="{{ result.get_absolute_url }}">
                     <img class="faction-icon image1" src="{{ result.image.url }}" alt="{{ result.name }} Picture">
                     {{ result.name }}
-                </a></li>
+                </a>
+            </div>
             {% endfor %}
         {% endif %}
 
         {% if resources %}
             <strong>Resources</strong>
             {% for result in resources %}
-                <li><a href="{{ result.link }}">{{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":50" }}{% if result.link|length > 50 %}...{% endif %})</a></li>
+                <div>
+                <a href="{{ result.link }}">{{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":50" }}{% if result.link|length > 50 %}...{% endif %})</a>
+                </div>
             {% endfor %}
         {% endif %}
 

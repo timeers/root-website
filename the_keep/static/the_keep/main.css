@@ -207,6 +207,11 @@ th, td {
   padding-right: 15px; /* Space between columns */
 }
 
+.extra-rows {
+  display: none;
+}
+
+
 .adset-img {
   max-height: 300px;
   max-width: 225px;
@@ -528,3 +533,6 @@ tr.clickable-row:hover {
   transition: background 300ms ease-in-out;
   color: #5f788a;
 }
+
+
+

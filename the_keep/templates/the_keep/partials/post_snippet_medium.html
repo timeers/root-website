@@ -1,0 +1,33 @@
+<div class="d-flex align-items-center mb-2">
+    <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
+        {% if result.picture %}
+        <div class="d-flex align-items-center mr-1">
+            <img class="lg-faction-icon" src="{{ result.picture.url }}" alt="{{ result.title }}">
+        </div>
+        {% endif %}
+        <div>
+            <div>
+                {{ result.title }}
+                {% if result.status %}
+                <i class="bi 
+                {% if result.status == '1' %}bi-check-circle-fill text-success
+                {% elif result.status == '2' %}bi-play-circle-fill text-primary
+                {% elif result.status == '3' %}bi-wrench-adjustable-circle-fill text-warning
+                {% elif result.status == '4' %}bi-dash-circle-fill text-secondary
+                {% else %}bi-x-circle-fill text-dark
+                {% endif %}
+                ml-1"></i>
+                {% endif %}
+            </div>
+            <div>
+                {% if result.component %}
+                {% if result.official %}Official{% else %}Fan Made{% endif %}
+                {{ result.component }}
+                {% endif %}
+                {% if result.designer %}
+                by {{ result.designer.display_name }}
+                {% endif %}
+            </div>
+        </div>
+    </a>
+</div>

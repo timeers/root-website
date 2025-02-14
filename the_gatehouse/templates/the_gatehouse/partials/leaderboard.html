@@ -10,7 +10,7 @@
     </thead>
     <tbody class="effort-rows">
         {% for player in leaderboard_players %}
-        <tr>
+        <tr class="{% if forloop.counter > 10 %} extra-rows {% endif %}">
             <td>{{ forloop.counter }}</td>
             <td>
                 <a href="{% url 'player-detail' player.slug %}">

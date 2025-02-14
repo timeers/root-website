@@ -335,7 +335,7 @@ class Profile(models.Model):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs=None, top_quantity=False, limit=5, game_threshold=10):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10):
         """
         Get the top factions based on their win rate (default) or total efforts.
         If player_id is provided, get the top factions for that faction.
@@ -346,13 +346,13 @@ class Profile(models.Model):
         queryset = cls.objects.all()
 
         # If a tournament is provided, filter efforts that are related to that tournament
-        if effort_qs:
-            queryset = queryset.filter(efforts__in=effort_qs)
-            queryset = queryset.annotate(
-                total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
-                win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-                coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
-            )
+
+        queryset = queryset.filter(efforts__in=effort_qs)
+        queryset = queryset.annotate(
+            total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
+            win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
+            coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
+        )
 
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(

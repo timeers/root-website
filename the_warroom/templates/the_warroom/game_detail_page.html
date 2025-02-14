@@ -13,6 +13,7 @@
 <meta property="og:title" content="{{game.platform}} Game">
 {% endif %}
 <meta property="og:description" content="{{game.platform}} game with {% for effort in efforts %}{% if forloop.last and not forloop.first %}and {% endif %}{% if effort.player %}{{ effort.player.name }} as {% endif %}{{ effort.faction.title }}{% if not forloop.last %}, {% endif %}{% endfor %} - {{ game.date_posted|date:"F j, Y" }}">
+<meta name="description" content="{{game.platform}} game with {% for effort in efforts %}{% if forloop.last and not forloop.first %}and {% endif %}{% if effort.player %}{{ effort.player.name }} as {% endif %}{{ effort.faction.title }}{% if not forloop.last %}, {% endif %}{% endfor %} - {{ game.date_posted|date:"F j, Y" }}">
 {% endblock meta%}
 
 

@@ -20,7 +20,7 @@ class ExpansionCreateForm(forms.ModelForm):
     form_type = 'Expansion'
     class Meta:
         model = Expansion
-        fields = ['title', 'image', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link']
+        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 

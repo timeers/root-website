@@ -14,7 +14,7 @@
 
       
         <div class="collapse navbar-collapse" id="navbarToggle">
-          <div class="navbar-nav mr-auto">
+          <div class="navbar-nav align-items-center mr-auto">
             <a class="nav-item nav-link" href="{% url 'keep-home' %}">Home</a>
             
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
@@ -47,7 +47,7 @@
 
 
           <!-- Navbar Right Side -->
-          <div class="navbar-nav"> 
+          <div class="navbar-nav ms-auto align-items-center"> 
               {% if user.profile.designer %}
 
                   <!-- Dropdownn for new content -->
@@ -72,16 +72,31 @@
               {% endif %}
 
               {% if user.is_authenticated %}
-                <div class="d-flex align-items-center">
-                    <img class="user-icon img-fluid mr-2" src="{{ user.profile.image.url }}">
-                    <a class="nav-item nav-link" href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a>
-                </div>
 
-                  <a class="nav-item nav-link" href="{% url 'account_logout' %}">Logout</a>
+
+
+                  <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                      <img class="user-icon img-fluid mr-1" src="{{ user.profile.image.url }}">
+                      {{ user.profile.name }}
+                    </a>
+                    <ul class="dropdown-menu">
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}">Profile</a></li>
+                      <li><a class="dropdown-item" href="{% url 'profile' %}">Settings</a></li>
+                      <li><hr class="dropdown-divider"></li>
+                      <li><a class="dropdown-item" href="{% url 'account_logout' %}">Logout</a></li>
+                    </ul>
+                  </li>
+
+
+
+
               {% else %}
                   <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">Login</a>
               {% endif %}
-              <a class="nav-item nav-link" href="{% url 'keep-about' %}">About</a>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'keep-about' %}">About</a>
+                </li>
           </div>
         </div>
       </div>

@@ -105,7 +105,9 @@ class GameListView(ListView):
         # Get the total count of games
         games_count = games.count()
         efforts = Effort.objects.filter(game__in=games)
-        if games_count > 50:
+        if games_count > 100:
+            leaderboard_threshold = 10
+        elif games_count > 50:
             leaderboard_threshold = 5
         elif games_count > 20:
             leaderboard_threshold = 3
@@ -403,7 +405,7 @@ def bookmark_game(request, object):
 # ============================
 
 # Create and edit a scorecard
-@tester_required
+@player_onboard_required
 def scorecard_manage_view(request, id=None):
     existing_scorecard = False
     faction = request.GET.get('faction', None)
@@ -640,7 +642,7 @@ def scorecard_detail_view(request, id=None):
 
 
 # Choose from available scorecards to link to a game
-@tester_required
+@player_required
 def scorecard_assign_view(request, id):
     effort_link = get_object_or_404(Effort, id=id)
 
@@ -676,7 +678,7 @@ def scorecard_assign_view(request, id):
     return render(request, 'the_warroom/assign_scorecard.html', context)
 
 # Choose from available games to link a scorecard
-@tester_required
+@player_required
 def effort_assign_view(request, id):
 
     scorecard = get_object_or_404(ScoreCard, id=id)
@@ -729,7 +731,7 @@ def effort_assign_view(request, id):
     return render(request, 'the_warroom/assign_effort.html', context)
 
 
-@tester_required
+@player_required
 def scorecard_delete_view(request, id=None):
     try:
         obj = ScoreCard.objects.get(id=id, recorder=request.user.profile)
@@ -832,11 +834,12 @@ def tournament_detail_view(request, tournament_slug):
     most_players = []
     top_factions = []
     most_factions = []
+    leaderboard_threshold = tournament.game_threshold
     # 4 queries
-    top_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, game_threshold=tournament.game_threshold)
-    most_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, top_quantity=True, game_threshold=tournament.game_threshold)
-    top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=tournament.game_threshold)
-    most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=tournament.game_threshold)
+    top_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, game_threshold=leaderboard_threshold)
+    most_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold)
+    top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=leaderboard_threshold)
+    most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold)
 
     context = {
         'object': tournament,
@@ -847,6 +850,7 @@ def tournament_detail_view(request, tournament_slug):
         'most_players': most_players,
         'top_factions': top_factions,
         'most_factions': most_factions,
+        'leaderboard_threshold': leaderboard_threshold,
         # 'players': players,
         # 'games': games,
     }
@@ -861,7 +865,8 @@ def tournament_players_pagination(request, id):
         return HttpResponse(status=404)
     tournament = get_object_or_404(Tournament, id=id)
 
-    players = Profile.objects.filter(current_tournaments=tournament)
+    players = Profile.objects.filter(Q(efforts__game__round__tournament=tournament)|Q(current_tournaments=tournament))
+    
     players = players.annotate(
         total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
@@ -1181,6 +1186,7 @@ def round_detail_view(request, tournament_slug, round_slug):
         'most_players': most_players,
         'top_factions': top_factions,
         'most_factions': most_factions,
+        'leaderboard_threshold': threshold,
         # 'players': players,
         # 'games': games,
     }
@@ -1195,7 +1201,16 @@ def round_players_pagination(request, id):
         return HttpResponse(status=404)
     round = get_object_or_404(Round, id=id)
 
-    players = round.current_player_queryset()
+    if round.players.count() == 0:
+        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(current_tournaments=round.tournament))
+    else:
+        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(rounds=round))
+
+    # participants = Profile.objects.filter(efforts__game__round=round)
+    # roster = round.current_player_queryset()
+    # players = participants.union(roster)
+    print(players)
+
 
     # print(players.count())
     # print("Players")

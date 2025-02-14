@@ -1,4 +1,5 @@
 import random
+import logging
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse
@@ -46,7 +47,9 @@ from .forms import (PostCreateForm, MapCreateForm,
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
+logger = logging.getLogger(__name__)
 
+activity_logger = logging.getLogger("user_activity")
 
 
 class ExpansionDetailView(DetailView):
@@ -371,6 +374,7 @@ def about(request, *args, **kwargs):
 
 
 def ultimate_component_view(request, slug):
+    
     post = get_object_or_404(Post, slug=slug)
     component_mapping = {
             "Map": Map,
@@ -384,7 +388,7 @@ def ultimate_component_view(request, slug):
         }
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
-
+    logger.info(f'{object.title} viewed by {request.user}')
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
     if request.user.is_authenticated:
@@ -431,6 +435,7 @@ def ultimate_component_view(request, slug):
         efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
     else:
         efforts = Effort.objects.filter(game__in=filtered_games)
+    
     # Get top players for factions
     top_players = []
     most_players = []
@@ -640,7 +645,7 @@ def _search_components(request, slug=None):
         posts = posts.filter(designer=player)
     if search:
         # posts = posts.filter(title__icontains=search)
-        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search)|Q(expansion__title__icontains=search))
+        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search))
         
     if search_type:
         posts = posts.filter(component__icontains=search_type)
@@ -996,7 +1001,7 @@ def pin_asset(request, id):
 
 def universal_search(request):
     query = request.GET.get('query', '')
-    result_count = 3
+    
 
     # If the query is empty, set all results to empty QuerySets
     players = Profile.objects.none()
@@ -1033,13 +1038,25 @@ def universal_search(request):
         rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
 
-    # Check if all results are empty
-    no_results = not (factions.exists() or maps.exists() or decks.exists() or vagabonds.exists() or 
-                      landmarks.exists() or hirelings.exists() or expansions.exists() or 
-                      players.exists() or games.exists() or scorecards.exists() or tournaments.exists() or
-                      rounds.exists() or tweaks.exists() or resources.exists())
 
-    # Limit the results
+    total_results = (factions.count() + maps.count() + decks.count() + vagabonds.count() +
+                     landmarks.count() + hirelings.count() + expansions.count() + 
+                     players.count() + games.count() + scorecards.count() + 
+                     tournaments.count() + rounds.count() + tweaks.count() + 
+                     resources.count())
+    
+    if total_results == 0:
+        no_results = True
+    else:
+        no_results = False
+
+    if total_results < 10:
+        result_count = total_results
+    elif total_results < 16:
+        result_count = 4
+    else:
+        result_count = 3
+
     context = {
         'factions': factions[:result_count],
         'maps': maps[:result_count],

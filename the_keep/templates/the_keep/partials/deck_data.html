@@ -5,6 +5,7 @@
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ object.title }}">
 <meta property="og:description" content="{{ object.card_total }} Card {% if not object.official %}Fan {% endif %}Deck by {{ object.designer.name }}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
+<meta name="description" content="{{ object.card_total }} Card {% if not object.official %}Fan {% endif %}Deck by {{ object.designer.name }}{% if object.lore %} - {{ object.lore }}{% elif object.description %} - {{ object.description }}{% endif %}">
 {% endblock meta%}
 
 <article class="media content-section">

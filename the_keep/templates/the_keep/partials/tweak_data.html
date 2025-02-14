@@ -5,6 +5,7 @@
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ object.title }}">
 <meta property="og:description" content="{% if object.description %}{{ object.description }}{% else %}{% if not object.official %}Fan {% endif %}Rule Change by {{ object.designer.name }}{% endif %}">
+<meta name="description" content="{% if object.description %}{{ object.description }}{% else %}{% if not object.official %}Fan {% endif %}Rule Change by {{ object.designer.name }}{% endif %}">
 {% endblock meta%}
 
 <article class="media content-section">

@@ -73,8 +73,14 @@
                 {% endif %}
                 {% if object.based_on %}
                     Based on: <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a>
-                    by <a class="mr-2" href="{% url 'player-detail' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
-                {% endif %}
+                    by 
+                    {% if user.profile.player %}
+                        <a class="mr-2" href="{% url 'player-detail' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
+                    {% else %}
+                        {{ object.based_on.designer.name }}
+                    {% endif %}
+                
+                    {% endif %}
 
 
             
