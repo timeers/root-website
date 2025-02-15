@@ -304,12 +304,12 @@ LOGGING = {
         },
     },
     'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'general.log',
-            'formatter': 'verbose',
-        },
+        # 'file': {
+        #     'level': 'INFO',
+        #     'class': 'logging.FileHandler',
+        #     'filename': 'general.log',
+        #     'formatter': 'verbose',
+        # },
         'mail_admins': {
             'level': 'WARNING',
             'class': 'django.utils.log.AdminEmailHandler',  # Automatically uses email settings from Django
@@ -333,10 +333,6 @@ LOGGING = {
         # },
     },
     'loggers': {
-        "" : {
-            "level": "INFO",
-            "handlers": ["file"],
-        },
         "" : {
             "level": "WARNING",
             "handlers": ["mail_admins"],
