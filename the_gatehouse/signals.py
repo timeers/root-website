@@ -5,7 +5,7 @@ from django.shortcuts import redirect
 from django.dispatch import receiver
 from django.contrib.auth.models import User
 from .models import Profile  # Adjust the import based on your project structure
-from .discordservice import get_discord_display_name, check_user_guilds
+from .discordservice import get_discord_display_name, check_user_guilds, send_discord_message
 from django.contrib.auth.models import Group
 
 logger = logging.getLogger("user_activity")
@@ -16,6 +16,7 @@ def manage_profile(sender, instance, created, **kwargs):
         profile, _ = Profile.objects.get_or_create(discord=instance.username, defaults={'user': instance})
         print(f'Profile created/linked: {profile.discord}')
         logger.info(f'Profile created/linked: {profile.discord}')
+        send_discord_message(f'Profile created/linked: {profile.discord}')
     else:
         try:
             profile = instance.profile
@@ -72,8 +73,8 @@ def manage_profile(sender, instance, created, **kwargs):
 @receiver(user_logged_in)
 def user_logged_in_handler(request, user, **kwargs):
 
-    print(f'{user} logged in')
     logger.info(f'{user} logged in')
+    send_discord_message(f'{user} logged in')
 
     if not hasattr(user, 'profile'):
         user.save()

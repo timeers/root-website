@@ -139,3 +139,19 @@ class DiscordWebhookHandler(logging.Handler):
 
 
 
+def send_discord_message(message):
+    # Check if DEBUG is False in the config
+    if config["DEBUG_VALUE"] == "True":
+        return  # Do nothing if DEBUG is True
+    webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
+    
+    # Define the payload (message) to be sent
+    payload = {
+        'content': message,  # Message to be sent
+    }
+
+    # Send POST request to Discord webhook URL
+    response = requests.post(webhook_url, json=payload)
+    
+    if response.status_code != 204:
+        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")

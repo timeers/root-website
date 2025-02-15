@@ -106,7 +106,7 @@
             <strong>Resources</strong>
             {% for result in resources %}
                 <div>
-                <a href="{{ result.link }}">{{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":50" }}{% if result.link|length > 50 %}...{% endif %})</a>
+                <a href="{{ result.link }}">{{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":30" }}{% if result.link|length > 30 %}...{% endif %})</a>
                 </div>
             {% endfor %}
         {% endif %}

@@ -28,6 +28,7 @@ from the_gatehouse.models import Profile
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required)
+from the_gatehouse.discordservice import send_discord_message
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -389,6 +390,7 @@ def ultimate_component_view(request, slug):
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
     logger.info(f'{object.title} viewed by {request.user}')
+    send_discord_message(f'{object.title} viewed by {request.user}')
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
     if request.user.is_authenticated:
