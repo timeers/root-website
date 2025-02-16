@@ -489,6 +489,8 @@ tr.clickable-row:hover {
   position: relative;
   transition: width 300ms cubic-bezier(0.2, 0.75, 0.42, 1.10);
   overflow: hidden;
+  justify-content: center;  /* Center the content when collapsed */
+  align-items: center; 
 }
 
 .search-bar:focus-within {
