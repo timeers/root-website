@@ -1,5 +1,5 @@
 import random
-import logging
+# import logging
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse
@@ -48,9 +48,9 @@ from .forms import (PostCreateForm, MapCreateForm,
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
-activity_logger = logging.getLogger("user_activity")
+# activity_logger = logging.getLogger("user_activity")
 
 
 class ExpansionDetailView(DetailView):
@@ -389,8 +389,9 @@ def ultimate_component_view(request, slug):
         }
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
-    logger.info(f'{object.title} viewed by {request.user}')
-    send_discord_message(f'{object.title} viewed by {request.user}')
+
+    if request.user.is_authenticated:
+        send_discord_message(f'{object.title} viewed by {request.user}')
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
     if request.user.is_authenticated:

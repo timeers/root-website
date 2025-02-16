@@ -31,6 +31,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  admin_required_class_based_view, player_required_class_based_view,
                                  tester_required, player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
+from the_gatehouse.discordservice import send_discord_message
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -349,6 +350,7 @@ def manage_game(request, id=None):
                 parent.final = False  # Save as draft
             else:
                 parent.final = True  # Finalize the game
+                send_discord_message(f'{user} Recorded a Game')
             if not parent.recorder:
                 parent.recorder = request.user.profile  # Set the recorder
             parent.date_posted = timezone.now()

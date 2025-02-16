@@ -1,7 +1,8 @@
 import os
-import logging
+# import logging
 import requests
 import json
+from django.utils import timezone 
 
 # from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -11,7 +12,7 @@ from django.core.exceptions import PermissionDenied
 
 from allauth.socialaccount.models import SocialAccount
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -99,43 +100,43 @@ def woodland_warriors_required():
 
 
 
-class DiscordWebhookHandler(logging.Handler):
-    def __init__(self, webhook_url, username="RDB Logger", avatar_url=None):
-        super().__init__()
-        self.webhook_url = webhook_url
-        self.username = username
-        self.avatar_url = avatar_url  # Optional avatar URL (can be an image URL)
+# class DiscordWebhookHandler(logging.Handler):
+#     def __init__(self, webhook_url, username="RDB Logger", avatar_url=None):
+#         super().__init__()
+#         self.webhook_url = webhook_url
+#         self.username = username
+#         self.avatar_url = avatar_url  # Optional avatar URL (can be an image URL)
  
-    def emit(self, record):
-        # Format the log message
-        log_message = self.format(record)
+#     def emit(self, record):
+#         # Format the log message
+#         log_message = self.format(record)
        
-        # Define the embed structure
-        embed = {
-            "title": "Error Notification",
-            "description": log_message,  # Include the formatted log message in the embed
-            "color": 16711680  # Color code for red (for errors)
-        }
+#         # Define the embed structure
+#         embed = {
+#             "title": "Error Notification",
+#             "description": log_message,  # Include the formatted log message in the embed
+#             "color": 16711680  # Color code for red (for errors)
+#         }
  
-        # Build the payload
-        payload = {
-            "username": self.username,  # Custom username for the webhook message
-            "avatar_url": self.avatar_url,  # Custom avatar URL (optional)
-            "embeds": [embed]  # Embed content for richer display
-        }
+#         # Build the payload
+#         payload = {
+#             "username": self.username,  # Custom username for the webhook message
+#             "avatar_url": self.avatar_url,  # Custom avatar URL (optional)
+#             "embeds": [embed]  # Embed content for richer display
+#         }
  
-        # Define the headers for the request
-        headers = {
-            "Content-Type": "application/json"
-        }
+#         # Define the headers for the request
+#         headers = {
+#             "Content-Type": "application/json"
+#         }
  
-        # Send the request to the Discord webhook URL
-        try:
-            response = requests.post(self.webhook_url, data=json.dumps(payload), headers=headers)
-            response.raise_for_status()  # Raise an error if the request failed
-        except requests.exceptions.RequestException as e:
-            print(f"Error sending log to Discord: {e}")
-            logger.error(f"Error sending log to Discord: {e}")
+#         # Send the request to the Discord webhook URL
+#         try:
+#             response = requests.post(self.webhook_url, data=json.dumps(payload), headers=headers)
+#             response.raise_for_status()  # Raise an error if the request failed
+#         except requests.exceptions.RequestException as e:
+#             print(f"Error sending log to Discord: {e}")
+#             # logger.error(f"Error sending log to Discord: {e}")
 
 
 

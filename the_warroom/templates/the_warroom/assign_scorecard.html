@@ -27,6 +27,11 @@
 {% for scorecard in form.scorecard.field.queryset %}
 <div class="game-option my-2 d-flex" data-scorecard-id="{{ scorecard.id }}">
     <div>
+        {% if scorecard.game_group %}
+        <div>
+            {{scorecard.game_group}}
+        </div>
+        {% endif %}
         {% with scorecard as object %}
         {% include 'the_warroom/partials/scorecard.html' %}
         {% endwith %}

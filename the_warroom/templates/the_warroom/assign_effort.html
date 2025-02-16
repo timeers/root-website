@@ -13,9 +13,9 @@
 {% else %}
 <h3>for {{ scorecard.total_points }} point {{ scorecard.faction.title }} Scorecard</h3>
 {% endif %}
-
-
-
+{% if scorecard.game_group %}
+    {{ scorecard.game_group }}
+{% endif %}
 <form class="hidden" method="POST" id="link-game-form">
     {% csrf_token %}
     {{ form }}
