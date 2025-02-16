@@ -497,6 +497,10 @@ tr.clickable-row:hover {
     opacity: 1;
     cursor: initial;
   }
+  .search-bar-submit {
+    margin-left: auto;
+    margin-right: 0;
+  }
 }
 
 .search-bar-input {
@@ -530,6 +534,7 @@ tr.clickable-row:hover {
   border-radius: 100vh;
   background: transparent;
   margin-left: auto;
+  margin-right: auto;
   transition: background 300ms ease-in-out;
   color: #5f788a;
 }
