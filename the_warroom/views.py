@@ -32,6 +32,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  tester_required, player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.discordservice import send_discord_message
+from the_gatehouse.utils import get_uuid
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -58,6 +59,11 @@ class GameListView(ListView):
     def get_template_names(self):
         if self.request.htmx:
             return 'the_warroom/partials/game_list_home.html'
+        
+        if self.request.user.is_authenticated:
+            send_discord_message(f'{self.request.user} on Game Page')
+        else:
+            send_discord_message(f'{get_uuid(self.request)} on Game Page')
         return 'the_warroom/games_home.html'
     
     def get_queryset(self):

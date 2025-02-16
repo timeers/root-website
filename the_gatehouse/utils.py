@@ -1,5 +1,6 @@
 import random
 from django.utils.text import slugify
+import uuid
 
 
 def slugify_instance_discord(instance, save=False, new_slug=None):
@@ -23,3 +24,21 @@ def slugify_instance_discord(instance, save=False, new_slug=None):
     if save:
         instance.save()
     return instance
+
+
+
+def get_uuid(request):
+    # Check if the 'visitor_uuid' is already in the session
+    if 'visitor_uuid' not in request.session:
+        # If not, create a new UUID and store it in the session
+        # Generate a UUID
+        original_uuid = uuid.uuid4()
+        # Take the first 8 characters
+        shortened_uuid = str(original_uuid).replace('-', '')[:8]
+        request.session['visitor_uuid'] = shortened_uuid
+
+    # Retrieve the UUID from the session
+    visitor_uuid = request.session['visitor_uuid']
+
+    # Pass the UUID
+    return visitor_uuid

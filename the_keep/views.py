@@ -29,6 +29,7 @@ from the_gatehouse.views import (designer_required_class_based_view, designer_re
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required)
 from the_gatehouse.discordservice import send_discord_message
+from the_gatehouse.utils import get_uuid
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -391,7 +392,9 @@ def ultimate_component_view(request, slug):
     object = get_object_or_404(Klass, slug=slug)
 
     if request.user.is_authenticated:
-        send_discord_message(f'{object.title} viewed by {request.user}')
+        send_discord_message(f'{request.user} viewed {object.title}')
+    else:
+        send_discord_message(f'{get_uuid(request)} viewed {object.title}')
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
     if request.user.is_authenticated:
@@ -530,6 +533,13 @@ def bookmark_post(request, object):
 
 # Search Page
 def list_view(request, slug=None):
+
+    if request.user.is_authenticated:
+        send_discord_message(f'{request.user} on Home Page')
+    else:
+        send_discord_message(f'{get_uuid(request)} on Home Page')
+
+
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
     view_status = 4
@@ -948,6 +958,7 @@ class PNPAssetListView(ListView):
         return context
     
     def render_to_response(self, context, **response_kwargs):
+
         # Check if it's an HTMX request
         if self.request.headers.get('HX-Request') == 'true':
             # Only return the part of the template that HTMX will update
@@ -955,6 +966,10 @@ class PNPAssetListView(ListView):
             # print(context)
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
         # print("NOT HTMX")
+        if self.request.user.is_authenticated:
+            send_discord_message(f'{self.request.user} on Resource Page')
+        else:
+            send_discord_message(f'{get_uuid(self.request)} on Resource Page')
         return super().render_to_response(context, **response_kwargs)
     
 @player_required_class_based_view
