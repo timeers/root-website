@@ -152,6 +152,7 @@ class Post(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
+    component_snippet = models.CharField(max_length=100, null=True, blank=True)
 
 
     objects = PostManager()
@@ -366,6 +367,8 @@ class Deck(Post):
         self.sorting = 3
         if not self.picture:
             self.picture = 'default_images/deck.png'
+        self.component_snippet = f"{self.card_total} Card"
+
         super().save(*args, **kwargs)  # Call the parent save method
 
 
@@ -455,6 +458,8 @@ class Map(Post):
         self.sorting = 2
         if not self.picture:
             self.picture = 'default_images/map.png'
+
+        self.component_snippet = f"{self.clearings} Clearing"
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -557,14 +562,14 @@ class Vagabond(Post):
 
 class Faction(Post):
     class TypeChoices(models.TextChoices):
-        MILITANT = 'M'
-        INSURGENT = 'I'
-        CLOCKWORK = 'C'
+        MILITANT = 'M', 'Militant'
+        INSURGENT = 'I', 'Insurgent'
+        CLOCKWORK = 'C', 'Clockwork'
     class StyleChoices(models.TextChoices):
-        NONE = 'N'
-        LOW = 'L'
-        MODERATE = 'M'
-        HIGH = 'H'                
+        NONE = 'N', 'None'
+        LOW = 'L', 'Low'
+        MODERATE = 'M', 'Moderate'
+        HIGH = 'H', 'High' 
 
     type = models.CharField(max_length=10, choices=TypeChoices.choices)
     reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)], default=0)
@@ -602,6 +607,11 @@ class Faction(Post):
         else:
             self.component = 'Faction'  # Set the component type
             self.sorting = 1
+            if self.reach > 0:
+                self.component_snippet = f"{self.get_type_display()} ({self.reach} Reach)"
+            else:
+                self.component_snippet = f"{self.get_type_display()}"
+
         super().save(*args, **kwargs)  # Call the parent save method
 
     # def get_absolute_url(self):
@@ -778,8 +788,8 @@ class Faction(Post):
 
 class Hireling(Post):
     class TypeChoices(models.TextChoices):
-        PROMOTED = 'P'
-        DEMOTED = 'D'
+        PROMOTED = 'P', 'Promoted'
+        DEMOTED = 'D', 'Demoted'
 
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     # promoted = models.ForeignKey('self', on_delete=models.SET_NULL, related_name='demoted_side', blank=True, null=True)
@@ -791,7 +801,7 @@ class Hireling(Post):
         self.sorting = 6
         if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
-
+        self.component_snippet = f"{self.get_type_display()}"
         # Call the parent class's save() method (this saves self to the database)
         super().save(*args, **kwargs)
 

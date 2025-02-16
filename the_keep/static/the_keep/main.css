@@ -79,8 +79,66 @@ em, i {
     white-space: pre-line;
   }
 
+  
+  .post-card {
+    position: relative;
+    transition: transform 0.5s ease-out, padding-bottom 0.8s ease-out; /* Smooth transition for padding and transform */
+    overflow: hidden; /* Hide anything that overflows (like the hidden div) */
+  }
+  
+  .post-card:hover {
+    transform: scale(1.05); /* Slightly scale up the post-card */
+  }
+
+
+  .hidden-content {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 1s ease-out, visibility 0s 0s;
+  }
+  .post-card:hover .hidden-content {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 1s ease-out, visibility 0s 0s;
+  }
+
+  .hidden-description {
+    border-top: 1px solid #e3e3e3;
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition: grid-template-rows 500ms, opacity 500ms ease-in-out;
+  }
+  
+  .hidden-description > div {
+    overflow: hidden;
+  }
+
+  .post-card:hover .hidden-description {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+
+  .hidden-snippet {
+    display: grid;
+    grid-template-columns: 0fr;
+    opacity: 0;  /* Start with hidden opacity */
+    transition: grid-template-columns 500ms, opacity 500ms ease-in-out; /* Add opacity transition */
+    white-space: nowrap;
+  }
+  
+  .hidden-snippet > div {
+    overflow: hidden;
+  }
+  
+  .post-card:hover .hidden-snippet {
+    grid-template-columns: 1fr;
+    opacity: 1;  /* Fade in the content when hovered */
+  }
+  
+
   .lore-content {
-    white-space: pre-line;
+ 
     font-style: italic;
   }
 
@@ -96,7 +154,7 @@ em, i {
   .article-metadata {
     padding-bottom: 1px;
     margin-bottom: 4px;
-    border-bottom: 1px solid #e3e3e3
+    /* border-bottom: 1px solid #e3e3e3 */
   }
   
   .article-metadata a:hover {

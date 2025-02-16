@@ -1,25 +1,50 @@
-<article class="media content-section article-card">
+<article class="media content-section post-card">
     <div class="article-img-container">
         <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
         </div>
         <a href="{{ object.get_absolute_url }}" class="media-body">
            
             <div class="article-metadata d-flex flex-wrap justify-content-between">
-                <div>
+                <div class='d-flex'>
+                    {% if object.component_snippet %}
+                    <div class="hidden-snippet">
+                        <div>
+                        {{ object.component_snippet }}&nbsp;
+                        </div>
+                    </div>
+                    {% endif %}
                 {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
-                
-                {% comment %} <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small> {% endcomment %}
+                {% if object.component == "Faction" %}
+                <div class='hidden-content ml-2'>
+                    <!-- Compoenent Specific Content -->
                 </div>
-                <div>
+                {% endif %}
+                </div>
+                <div class='d-flex'>
                 {% if object.status == '1' %}
+                    <div class='hidden-content text-success mr-2'>
+                        Stable
+                    </div>
                     <i class="bi bi-check-circle-fill text-success"></i>
                 {% elif object.status == '2' %}
+                    <div class='hidden-content text-primary mr-2'>
+                        Testing
+                    </div>
                     <i class="bi bi-play-circle-fill text-primary"></i>
                 {% elif object.status == '3' %}
+                <div class='hidden-content text-warning mr-2'>
+                    Development
+                </div>
                     <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
                 {% elif object.status == '4' %}
+                <div class='hidden-content text-secondary mr-2'>
+                    Inactive
+                </div>
                     <i class="bi bi-dash-circle-fill text-secondary"></i>
                 {% else %}
+                <div class='hidden-content text-dark mr-2'>
+                    Abandoned
+                </div>
                     <i class="bi bi-x-circle-fill text-dark"></i>
                 {% endif %}
             </div>
@@ -34,5 +59,22 @@
                 Art by {{ object.artist.name }}
             </div>
             {% endif %}
+            
+            
+                {% if object.description %}
+                <div class="hidden-description">
+                    <div>
+                    {{object.description}}
+                    </div>
+                </div>
+                {% elif object.lore %}
+                <div class="lore-content hidden-description">
+                    <div>
+                    {{object.lore}}
+                    </div>
+                </div>
+                {% endif %}
+            
+            
         </a>
 </article>
