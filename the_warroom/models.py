@@ -67,7 +67,7 @@ class Tournament(models.Model):
         choices=CoalitionTypes.choices,
         default=CoalitionTypes.ONE
     )
-
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
     start_date = models.DateTimeField(default=timezone.now)
@@ -75,8 +75,8 @@ class Tournament(models.Model):
     
     slug = models.SlugField(unique=True, null=True, blank=True)
 
-    open_roster = models.BooleanField(default=False)
-    open_assets = models.BooleanField(default=False)
+    open_roster = models.BooleanField(default=True)
+    open_assets = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name

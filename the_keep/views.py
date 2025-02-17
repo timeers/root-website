@@ -64,6 +64,11 @@ class ExpansionDetailView(DetailView):
         # Add links_count to context
         context['links_count'] = links_count
 
+        if self.object.open_roster and (self.object.end_date > timezone.now() or not self.object.end_date):
+            context['open_expansion'] = True
+        else:
+            context['open_expansion'] = False
+
         return context
 
 class ExpansionFactionsListView(ListView):
@@ -74,9 +79,15 @@ class ExpansionFactionsListView(ListView):
 class ExpansionCreateView(LoginRequiredMixin, CreateView):
     model = Expansion
     form_class = ExpansionCreateForm
+
     def form_valid(self, form):
         form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
         return super().form_valid(form)
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user  # Pass the current user to the form
+        return kwargs
     
 @designer_required_class_based_view
 class ExpansionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
@@ -90,7 +101,11 @@ class ExpansionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         obj = self.get_object()
         # Only allow access if the logged-in user is the designer of the object
         return self.request.user.profile == obj.designer
-
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user  # Pass the current user to the form
+        return kwargs
 class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Expansion
     success_url = '/'  # The default success URL after the post is deleted

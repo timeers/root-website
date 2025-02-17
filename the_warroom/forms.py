@@ -42,7 +42,7 @@ class GameCreateForm(forms.ModelForm):
             'type': forms.RadioSelect,
         }
         labels = {
-            'round': "Tournament",
+            'round': "Series",
             }
 
     def __init__(self, *args, user=None, effort_formset=None, **kwargs):
@@ -647,9 +647,10 @@ class TournamentCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Tournament
-        fields = ['name', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'open_assets', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams']
+        fields = ['name', 'designer', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'open_assets', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams']
         labels = {
-            'name': 'Tournament Name',
+            'name': 'Series Name',
+            'designer': 'Owner (will be able to edit Rounds)',
             'start_date': 'Start Date',
             'end_date': 'End Date (Optional)',
             'leaderboard_positions': 'Leaderboard Positions',
@@ -662,7 +663,7 @@ class TournamentCreateForm(forms.ModelForm):
             'include_fan_content': 'Include Fan Content',
             'include_clockwork': 'Include Clockwork Factions'
         }
-    def __init__(self, *args, **kwargs):
+    def __init__(self, user=None, *args, **kwargs):
         super(TournamentCreateForm, self).__init__(*args, **kwargs)
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief description of the tournament.',
@@ -671,6 +672,13 @@ class TournamentCreateForm(forms.ModelForm):
         # Set the initial value for 'start_date' to the current time
         if not self.instance.pk:  # Only set this if the instance is new
             self.fields['start_date'].initial = timezone.now()
+
+        if not self.instance.pk:
+            self.fields['designer'].initial = user.profile.id
+            
+        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
+        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
+
             
     def save(self, commit=True):
         """
@@ -708,7 +716,7 @@ class RoundCreateForm(forms.ModelForm):
         model = Round
         fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'game_threshold']
         labels = {
-            'name': 'Tournament Round Name',
+            'name': 'Round Name',
             'round_number': 'Round #',
             'end_date': 'End Date (Optional)',
             'game_threshold': 'Leaderboard Threshold',
@@ -728,7 +736,8 @@ class RoundCreateForm(forms.ModelForm):
             'rows': '2'
             })
         self.fields['game_threshold'].initial = tournament.game_threshold
-
+        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
+        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
         # Set the initial value for 'start_date' to the current time
         if not self.instance.pk:  # Only set this if the instance is new
             self.fields['start_date'].initial = timezone.now()

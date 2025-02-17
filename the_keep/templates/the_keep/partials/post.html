@@ -55,8 +55,10 @@
             </div>
         
             </div>
-                
-                <h2 class='root-title'>{{ object.title }}</h2>
+                <h2 class='root-title'>
+                <span {% if object.color %}class="root-title-underlined" style="--underline-color: {{ object.color }};"{% elif object.based_on.color %}class="root-title-underlined" style="--underline-color: {{ object.based_on.color }};"{% else %}class="root-title"{% endif %}>{{ object.title }}</span>
+                </h2>
+                {% comment %} <h2 class='root-title'>{{ object.title }}</h2> {% endcomment %}
                 {% comment %} <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h2> {% endcomment %}
                 by {{ object.designer.name }}
              {% if object.artist %}

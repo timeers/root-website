@@ -10,6 +10,7 @@ from django.urls import reverse, reverse_lazy
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import IntegrityError
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch
 from django.db.models.functions import Cast
@@ -923,6 +924,11 @@ class TournamentCreateView(CreateView):
     model = Tournament
     form_class = TournamentCreateForm
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user  # Pass the current user to the form
+        return kwargs
+    
 @admin_required_class_based_view  
 class TournamentDeleteView(DeleteView):
     model = Tournament
@@ -1288,9 +1294,13 @@ def round_games_pagination(request, id):
 
 
 
-@admin_onboard_required
+@player_onboard_required
 def round_manage_view(request, tournament_slug, round_slug=None):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not request.user.profile == tournament.designer and not request.user.profile.admin:
+        raise PermissionDenied() 
+    
     current_round = 1
     for tournament_round in tournament.rounds.all():
         current_round = max(tournament_round.round_number, current_round)
@@ -1375,10 +1385,15 @@ def round_manage_players(request, round_slug, tournament_slug):
     return render(request, 'the_warroom/tournament_manage_players.html', context)
 
 
-@admin_required_class_based_view  
-class RoundDeleteView(DeleteView):
+@player_required_class_based_view
+class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Round
 
+    def test_func(self):
+        obj = self.get_object()
+        # Only allow access if the logged-in user is the designer of the object
+        return self.request.user.profile == obj.tournament.designer or self.request.user.profile.admin
+    
     # Dynamically set the success URL based on the round's tournament
     def get_success_url(self):
         # Redirect to the tournament detail page using the tournament slug

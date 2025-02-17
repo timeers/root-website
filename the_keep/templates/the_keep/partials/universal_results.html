@@ -68,7 +68,7 @@
         {% endif %}
 
         {% if tournaments or rounds %}
-            <strong>Tournaments</strong>
+            <strong>Series</strong>
             {% for result in tournaments %}
                 <div>
                     <a href="{{ result.get_absolute_url }}">{{ result.name }}</a>

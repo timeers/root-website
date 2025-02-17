@@ -19,7 +19,7 @@
             
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
             {% if user.profile.admin %}
-            <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Tournaments</a>
+            <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Series</a>
             {% endif %}
             {% if user.profile.tester %}
               <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>

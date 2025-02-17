@@ -35,6 +35,12 @@
         {% if expansion.description %}
         <div>{{ expansion.description }}</div>
         {% endif %}
+        
+        {% if open_expansion %}
+                <div>
+                        Open Until {{ expansion.end_date|date:"F j, Y" }}
+                </div>
+        {% endif %}
 
         {% if links_count != 0 %}
             {% include 'the_keep/partials/links.html' %}
@@ -99,7 +105,9 @@
             {% endfor %}
             {% endif %}
         {% else %}
+                <div>
                 Looks like nothing has been added to this expansion yet. Please check back later.
+                </div>
         {% endif %}
     
 {% endblock content %} 

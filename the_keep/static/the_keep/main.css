@@ -22,6 +22,36 @@ body {
     /* Use Luminari for titles */
   }
 
+
+  .root-title-underlined {
+    position: relative; /* Ensure that the pseudo-element is positioned correctly */
+    display: inline-block; /* Make sure it's inline for correct sizing */
+    z-index: 1;
+  }
+  
+  .root-title-underlined::after {
+    content: "";
+    position: absolute;
+    bottom: 0; /* Position the bar below the text */
+    left: 0;
+    width: 100%; /* Make it the same width as the text */
+    height: 5px; /* Thickness of the bar */
+    background-color: var(--underline-color, lightgrey); /* Default to light grey if no color is provided */
+    transform: scaleX(0); /* Start with the bar hidden */
+    transform-origin: bottom left; /* Start from the right for a smooth animation */
+    transition: transform 0.8s ease-out; /* Smooth transition for the appearance of the bar */
+    z-index: -1;
+  }
+  
+  .post-card:hover .root-title-underlined:after {
+    transform: scaleX(1); /* Reveal the bar on hover */
+    transform-origin: bottom left; /* Make the bar grow from left to right */
+  }
+  
+
+
+
+
 /* Italic body text */
 em, i {
   font-family: 'Baskerville', serif; /* Italicized text */
@@ -617,4 +647,6 @@ tr.clickable-row:hover {
 }
 
 
-
+.sub-data {
+  border-top: 1px solid #e3e3e3;
+}

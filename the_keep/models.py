@@ -52,6 +52,8 @@ class Expansion(models.Model):
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
     stl_link = models.CharField(max_length=400, null=True, blank=True)
     leder_games_link = models.CharField(max_length=400, null=True, blank=True)
+    end_date = models.DateTimeField(null=True, blank=True)
+    open_roster = models.BooleanField(default=False)
 
     # Get groups of components for selected expansion
     def get_posts(self):

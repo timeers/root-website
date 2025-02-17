@@ -1,10 +1,10 @@
 {% extends 'the_keep/base.html' %}
-{% block title %} - Tournaments{% endblock %}
+{% block title %} - Series{% endblock %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h1>Tournaments</h1>
+    <h1>Series</h1>
     {% if user.profile.admin %}
-    <a class="btn btn-success btn-sm ml-2 mt-1 mb-1" href="{% url 'tournament-create' %}">New Tournament +</a>
+    <a class="btn btn-success btn-sm ml-2 mt-1 mb-1" href="{% url 'tournament-create' %}">New Series +</a>
     {% endif %}
 </div>
 
@@ -29,7 +29,7 @@
         <div class="tab-content" id="tournamentTabsContent">
             <!-- Scheduled Tournaments -->
             <div class="tab-pane fade" id="scheduled" role="tabpanel" aria-labelledby="scheduled-tab">
-                <h3>Scheduled Tournaments</h3>
+                <h3>Scheduled Series</h3>
                 {% with scheduled as tournaments %}
                     {% include 'the_warroom/partials/tournament_list.html' %}
                 {% endwith %}
@@ -37,7 +37,7 @@
 
             <!-- Ongoing Tournaments -->
             <div class="tab-pane fade show active" id="ongoing" role="tabpanel" aria-labelledby="ongoing-tab">
-                <h3>Ongoing Tournaments</h3>
+                <h3>Ongoing Series</h3>
 
                 {% with ongoing as tournaments %}
                     {% include 'the_warroom/partials/tournament_list.html' %}
@@ -46,7 +46,7 @@
 
             <!-- Concluded Tournaments -->
             <div class="tab-pane fade" id="concluded" role="tabpanel" aria-labelledby="concluded-tab">
-                <h3>Concluded Tournaments</h3>
+                <h3>Concluded Series</h3>
                 {% with concluded as tournaments %}
                     {% include 'the_warroom/partials/tournament_list.html' %}
                 {% endwith %}
@@ -57,7 +57,7 @@
     
     <article class="media content-section">
         <div class="media-body">
-        <h3>Ongoing Tournaments</h3>
+        <h3>Ongoing Series</h3>
         {% with ongoing as tournaments %}
             {% include 'the_warroom/partials/tournament_list.html' %}
         {% endwith %}

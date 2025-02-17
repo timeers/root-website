@@ -20,16 +20,18 @@ class ExpansionCreateForm(forms.ModelForm):
     form_type = 'Expansion'
     class Meta:
         model = Expansion
-        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link']
+        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'open_roster', 'end_date']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
             'pnp_link': "Link to Print and Play Files",
-            'stl_link': "Link to STL Files (if not in PNP)"
+            'stl_link': "Link to STL Files (if not in PNP)",
+            'open_roster': "Allow Others to Contribute",
+            'end_date': "Close Date",
         }
-    def __init__(self, *args, **kwargs):
+    def __init__(self, user=None, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.fields['description'].widget.attrs.update({
                 'rows': '2'
@@ -38,6 +40,12 @@ class ExpansionCreateForm(forms.ModelForm):
                 'rows': '2',
                 'placeholder': 'Enter any thematic text here...'
                 })
+            # Add jQuery UI Datepicker for 'end_date'
+            self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
+            if not user.profile.admin:
+                self.fields.pop('open_roster', None)
+                self.fields.pop('end_date', None)
+
 
 class PostImportForm(forms.ModelForm):
     form_type = 'Component'
@@ -108,15 +116,16 @@ class PostCreateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # If a user is provided, filter the queryset for the `expansion` field
         if user:
-            self.fields['expansion'].queryset = Expansion.objects.filter(designer=user.profile)
+            self.fields['expansion'].queryset = Expansion.objects.filter(Q(designer=user.profile)|Q(open_roster=True, end_date__gte=timezone.now()))
 
         # If a specific expansion is provided, add it to the queryset
         if expansion:
             # Ensure expansion is a single object, otherwise handle accordingly
             if isinstance(expansion, Expansion):
                 self.fields['expansion'].queryset |= Expansion.objects.filter(id=expansion.id)
-                if expansion.designer != user.profile:
-                    self.fields['expansion'].disabled = True  # Disable the field
+        if expansion.designer != user.profile and (not expansion.open_roster or (expansion.end_date and expansion.end_date < timezone.now())):
+            self.fields['expansion'].disabled = True  # Disable the field
+
             
 
         # If no expansions exist in the queryset, hide the field
