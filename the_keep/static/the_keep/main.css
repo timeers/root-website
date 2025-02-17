@@ -107,7 +107,7 @@ em, i {
     display: grid;
     grid-template-rows: 0fr;
     opacity: 0;
-    transition: grid-template-rows 500ms, opacity 500ms ease-in-out;
+    transition: grid-template-rows 500ms, opacity 1s ease-in-out;
   }
   
   .hidden-description > div {
@@ -123,20 +123,37 @@ em, i {
     display: grid;
     grid-template-columns: 0fr;
     opacity: 0;  /* Start with hidden opacity */
-    transition: grid-template-columns 500ms, opacity 500ms ease-in-out; /* Add opacity transition */
+    transition: grid-template-columns 700ms, opacity 700ms ease-in-out; /* Add opacity transition */
     white-space: nowrap;
   }
   
   .hidden-snippet > div {
     overflow: hidden;
   }
+
   
   .post-card:hover .hidden-snippet {
     grid-template-columns: 1fr;
     opacity: 1;  /* Fade in the content when hovered */
   }
   
-
+  .hidden-status {
+    display: grid;
+    grid-template-columns: 0fr;
+    opacity: 0;  /* Start with hidden opacity */
+    transition: grid-template-columns 1s ease-out 1s, opacity 0.5s ease-in-out; /* Add opacity transition */
+    white-space: nowrap;
+  }
+  
+  .hidden-status > div {
+    overflow: hidden;
+  }
+  .post-card:hover .hidden-status {
+    grid-template-columns: 1fr;
+    opacity: 1;  /* Fade in the content when hovered */
+    transition: grid-template-columns 0s ease-out, opacity 0.5s ease-in-out; /* Fast in, slow fade */
+  }
+  
   .lore-content {
  
     font-style: italic;

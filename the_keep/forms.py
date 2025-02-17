@@ -624,11 +624,11 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     def clean_reach_and_type(self, cleaned_data):
         reach = cleaned_data.get('reach')
         type = cleaned_data.get('type')
-
-        if type == 'I' and reach > 6:
-            raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
-        elif type == 'M' and reach < 6:
-            raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
+        if reach != 0:
+            if type == 'I' and reach > 6:
+                raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
+            elif type == 'M' and reach < 6:
+                raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
 
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')
