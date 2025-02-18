@@ -208,3 +208,66 @@ class PlayerCreateForm(forms.ModelForm):
             raise forms.ValidationError('This Discord username is already registered.')
         
         return discord
+
+
+class FeedbackForm(forms.Form):
+    TITLE_CHOICES = [
+                ('general', 'General Feedback'),
+                ('bug', 'Bug Report'),
+                ('feature', 'Feature Request'),
+                ('usability', 'Usability Feedback'),
+                ('other', 'Other')
+    ]
+    
+    title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
+    message = forms.CharField(widget=forms.Textarea, label="Please Provide Details")
+    author = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Discord Username or Email'}),  # Max length handled here
+        label='Contact Info'
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+class ReportForm(forms.Form):
+    TITLE_CHOICES = [
+                ('incorrect', 'Incorrect Information'),
+                ('offensive', 'Offensive Image/Language'),
+                ('other', 'Other')
+    ]
+    
+    title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
+    message = forms.CharField(widget=forms.Textarea, label="Please Provide Details")
+    author = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'maxlength': '50', 
+            'placeholder': 'Discord Username or Email'}),  # Max length handled here
+        label='Contact Info'
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+class RequestForm(forms.Form):
+    TITLE_CHOICES = [
+                ('faction', 'Faction'),
+                ('map', 'Map'),
+                ('deck', 'Deck'),
+                ('other', 'Other')
+    ]
+    
+    title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
+    message = forms.CharField(widget=forms.Textarea, label="Please Provide Details")
+    author = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'maxlength': '50', 
+            'placeholder': 'Discord Username or Email'}),  # Max length handled here
+        label='Contact Info'
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        

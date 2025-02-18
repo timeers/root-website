@@ -61,53 +61,63 @@
         {% if games %}
             <strong>Games</strong>
             {% for result in games %}
-                <div>
-                    <a href="{{ result.get_absolute_url }}">{{ result.nickname }} ({{ result.platform }})</a>
+            <a href="{{ result.get_absolute_url }}">
+                <div class='clickable-segment'>
+                    {{ result.nickname }} ({{ result.platform }})
                 </div>
+            </a>
             {% endfor %}
         {% endif %}
 
         {% if tournaments or rounds %}
             <strong>Series</strong>
             {% for result in tournaments %}
-                <div>
-                    <a href="{{ result.get_absolute_url }}">{{ result.name }}</a>
+            <a href="{{ result.get_absolute_url }}">
+                <div class='clickable-segment'>
+                    {{ result.name }}
                 </div>
+            </a>
             {% endfor %}
             {% for result in rounds %}
-                <div>
-                    <a href="{{ result.get_absolute_url }}">{{ result.name }}</a>
+            <a href="{{ result.get_absolute_url }}">
+                <div class='clickable-segment'>
+                    {{ result.name }}
                 </div>
+            </a>
             {% endfor %}
         {% endif %}
 
         {% if scorecards %}
             <strong>Scorecards</strong>
             {% for result in scorecards %}
-            <div>
-                <a href="{{ result.get_absolute_url }}">{{ result.game_group }} - {{ result.faction.title }}</a>
-            </div>
+            <a href="{{ result.get_absolute_url }}">
+                <div class='clickable-segment'>
+                    {{ result.game_group }} - {{ result.faction.title }}
+                </div>
+            </a>
             {% endfor %}
         {% endif %}
 
         {% if players %}
             <strong>Profiles</strong>
             {% for result in players %}
-            <div>
-                <a href="{{ result.get_absolute_url }}">
-                    <img class="faction-icon image1" src="{{ result.image.url }}" alt="{{ result.name }} Picture">
-                    {{ result.name }}
-                </a>
-            </div>
+            <a href="{{ result.get_absolute_url }}">
+                <div class='clickable-segment'>
+                        <img class="faction-icon image1" src="{{ result.image.url }}" alt="{{ result.name }} Picture">
+                        {{ result.name }}
+                </div>
+            </a>
             {% endfor %}
         {% endif %}
 
         {% if resources %}
             <strong>Resources</strong>
             {% for result in resources %}
-                <div>
-                <a href="{{ result.link }}">{{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":30" }}{% if result.link|length > 30 %}...{% endif %})</a>
+            <a href="{{ result.link }}">
+                <div class='clickable-segment'>
+                {{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":30" }}{% if result.link|length > 30 %}...{% endif %})
                 </div>
+            </a>
             {% endfor %}
         {% endif %}
 

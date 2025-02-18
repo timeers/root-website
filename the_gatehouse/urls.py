@@ -3,7 +3,7 @@ from the_keep.views import list_view
 from .views import (profile, player_page_view, 
                     designer_component_view, post_bookmarks, game_bookmarks, player_games, 
                     onboard_user, player_stats, artist_component_view, manage_user,
-                    ProfileListView)
+                    ProfileListView, discord_feedback)
 
 urlpatterns = [
     
@@ -18,4 +18,5 @@ urlpatterns = [
     path('profile/<slug:slug>/game-bookmarks/', game_bookmarks, name='game-bookmarks'),
     path('profile/', profile, name='profile'),
     path('profiles/', ProfileListView.as_view(), name='players-list'),
+    path('feedback/', discord_feedback, name='discord-feedback')
 ]

@@ -408,6 +408,22 @@ def ultimate_component_view(request, slug):
 
     if request.user.is_authenticated:
         send_discord_message(f'{request.user} viewed {object.title}')
+        # send_discord_message(message="This is some feedback about the new feature.",
+        #     category="feedback",
+        #     author_name=request.user.profile.name,
+        #     fields=[
+        #         {'name': 'Feature', 'value': 'New search functionality'},
+        #         {'name': 'Rating', 'value': '5/5', 'inline': True}
+        #     ])
+        # send_discord_message(
+        #     message="There was an issue with the payment system.",
+        #     category="report",
+        #     author_name="Admin",
+        #     fields=[
+        #         {'name': 'Issue', 'value': 'Payment gateway failure'},
+        #         {'name': 'Priority', 'value': 'High', 'inline': True}
+        #     ]
+        # )
     else:
         send_discord_message(f'{get_uuid(request)} viewed {object.title}')
     # print(f'Stable Ready: {stable_ready}')

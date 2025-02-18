@@ -12,8 +12,10 @@ from functools import wraps
 from django.urls import reverse
 from django.db.models import Count, Q
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm
+from .forms import (UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, 
+                    FeedbackForm, ReportForm, RequestForm)
 from .models import Profile
+from .discordservice import send_rich_discord_message, send_discord_message
 
 
 from the_tavern.views import bookmark_toggle
@@ -751,3 +753,77 @@ def manage_user(request, slug):
         'form': form,
     }
     return render(request, 'the_gatehouse/manage_user.html', context)
+
+
+def discord_feedback(request):
+
+    message_category = request.GET.get('category', 'feedback')  # Default to 'feedback' if not provided
+    report_subject = request.GET.get('report_subject', None)  # Default to None if not provided
+
+    if message_category:
+        page_title = f"Submit {message_category.title()}"
+    else:
+        page_title = "Submit Feedback"
+
+    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'report'):
+        raise PermissionDenied() 
+
+    form_mapping = {
+        "feedback": FeedbackForm,
+        "request": RequestForm,
+        "report": ReportForm
+    }
+    response_mapping = {
+        "feedback": 'Your feedback has been sent!',
+        "request": 'Your request has been sent',
+        "report": 'Your report has been received'
+    }
+    title_mapping = {
+        'general': 'General Feedback',
+        'bug': 'Bug Report',
+        'feature': 'Feature Request',
+        'usability': 'Usability Feedback',
+        'incorrect': 'Incorrect Information',
+        'offensive': 'Offensive Image/Language',
+        'faction': 'Faction Request',
+        'map': 'Map Request',
+        'deck': 'Deck Request',
+        'other': 'Other'
+    }
+
+
+    form_class = form_mapping.get(message_category, FeedbackForm)
+
+    if request.method == 'POST':
+        form = form_class(request.POST)
+        if form.is_valid():
+            # Get form data
+            title = form.cleaned_data['title']
+            message_title = title_mapping.get(title, "General")
+
+            message = form.cleaned_data['message']
+
+            if not request.user.is_authenticated:
+                author = form.cleaned_data['author']
+            else:
+                author = request.user.profile.discord
+            
+            # Call the function to send the message to Discord
+            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title)
+            
+            # Redirect and return a success message
+            response_message = response_mapping.get(message_category, 'Your message has been sent!')
+            messages.success(request, response_message)
+            return redirect('keep-home')
+        else:
+            print('form not valid')
+    else:
+        form = form_class()
+
+
+    context = {
+        'form': form,
+        'title': page_title
+    }
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)

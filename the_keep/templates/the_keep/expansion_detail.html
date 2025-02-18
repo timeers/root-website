@@ -24,7 +24,11 @@
 </div>
         {% if expansion.designer %}
             by 
-            <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
+                {% if user.profile.player %}
+                        <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
+                {% else %}
+                        {{ expansion.designer.name }}
+                {% endif %}
         {% endif %}
         {% if expansion.picture %}
         <div><img class="rounded-corner-img responsive-img mb-1" src="{{ expansion.picture.url }}"></div>

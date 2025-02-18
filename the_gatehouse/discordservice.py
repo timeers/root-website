@@ -141,15 +141,92 @@ def woodland_warriors_required():
 
 
 
-def send_discord_message(message):
+def send_discord_message(message, category=None):
     # Check if DEBUG is False in the config
     if config["DEBUG_VALUE"] == "True":
         return  # Do nothing if DEBUG is True
-    webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
+
+    # Set the webhook URL based on the category
+    if category == 'feedback':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+    elif category == 'report':
+        webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
+    elif category == 'request':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+    else:
+        webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
+
     
     # Define the payload (message) to be sent
     payload = {
         'content': message,  # Message to be sent
+    }
+
+    # Send POST request to Discord webhook URL
+    response = requests.post(webhook_url, json=payload)
+    
+    if response.status_code != 204:
+        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
+
+
+
+
+def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
+    # Check if DEBUG is False in the config (uncomment this if you want to use it)
+    # if config["DEBUG_VALUE"] == "True":
+    #     return  # Do nothing if DEBUG is True
+
+    # Set the webhook URL based on the category
+    if category == 'feedback':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+        embed_title = "Feedback Received"
+        embed_color = 0x00FF00  # Green color for feedback
+    elif category == 'report':
+        webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
+        embed_title = "Report Received"
+        embed_color = 0xFF0000  # Red color for report
+    elif category == 'request':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+        embed_title = "Request Received"
+        embed_color = 0x0000FF  # Blue color for request
+    else:
+        webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
+        embed_title = "Activity"
+        embed_color = 0x808080  # Grey color for unknown category
+
+    # Base embed structure
+    embed = {
+        'description': message,
+        'author': {
+            'name': author_name,
+            'icon_url': author_icon_url,
+        },
+        'title': embed_title,  # Title based on category
+        'color': embed_color,  # Color based on category
+    }
+
+    # Add the title if provided
+    if title:
+        embed['title'] = title
+
+    # Add the color if provided (to override the default category color)
+    if color:
+        embed['color'] = color
+
+    # Add fields if provided
+    if fields:
+        embed['fields'] = []
+        for field in fields:
+            embed['fields'].append({
+                'name': field.get('name', 'Field Name'),
+                'value': field.get('value', 'Field Value'),
+                'inline': field.get('inline', False),  # Whether to display inline or not
+            })
+
+    # Payload to send to Discord
+    payload = {
+        'content': message,  # Main message content
+        'embeds': [embed],  # Only one embed in this case
     }
 
     # Send POST request to Discord webhook URL

@@ -1,3 +1,4 @@
+import json
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
@@ -9,6 +10,8 @@ from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
 
+with open('/etc/config.json') as config_file:
+    config = json.load(config_file)
 top_fields = ['designer', 'title', 'expansion', 'picture', 'status']
 bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
 
@@ -123,8 +126,8 @@ class PostCreateForm(forms.ModelForm):
             # Ensure expansion is a single object, otherwise handle accordingly
             if isinstance(expansion, Expansion):
                 self.fields['expansion'].queryset |= Expansion.objects.filter(id=expansion.id)
-        if expansion.designer != user.profile and (not expansion.open_roster or (expansion.end_date and expansion.end_date < timezone.now())):
-            self.fields['expansion'].disabled = True  # Disable the field
+                if expansion.designer != user.profile and (not expansion.open_roster or (expansion.end_date and expansion.end_date < timezone.now())):
+                    self.fields['expansion'].disabled = True  # Disable the field
 
             
 
@@ -204,6 +207,15 @@ class PostCreateForm(forms.ModelForm):
                         url_validator(url)
                     except ValidationError:
                         raise ValidationError(f"The field '{url}' must be a valid URL.")
+            if ww_link and not f"discord.com/channels/{config['WW_GUILD_ID']}" in ww_link:
+                raise ValidationError(f"Please check and correct the link to Woodland Warriors")
+            if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
+                raise ValidationError(f"Please check and correct the link to Weird Root")
+            if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
+                raise ValidationError('Please check and correct the link to Board Game Geek')
+            if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
+                raise ValidationError('Please check and correct the link to Tabletop Simulator')
+            
             return cleaned_data
 
 
