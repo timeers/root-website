@@ -791,11 +791,15 @@ def discord_feedback(request):
         'other': 'Other'
     }
 
+    if not request.user.is_authenticated:
+        author = None
+    else:
+        author = request.user.profile.discord
 
     form_class = form_mapping.get(message_category, FeedbackForm)
 
     if request.method == 'POST':
-        form = form_class(request.POST)
+        form = form_class(request.POST, report_subject=report_subject, author=author)
         if form.is_valid():
             # Get form data
             title = form.cleaned_data['title']
@@ -803,13 +807,22 @@ def discord_feedback(request):
 
             message = form.cleaned_data['message']
 
+            subject = form.cleaned_data['subject']
+
             if not request.user.is_authenticated:
                 author = form.cleaned_data['author']
             else:
                 author = request.user.profile.discord
-            
-            # Call the function to send the message to Discord
-            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title)
+
+            if subject:
+                fields=[
+                {'name': 'Subject', 'value': subject}
+                ]
+                # Call the function to send the message to Discord
+                send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
+            else:
+                # Call the function to send the message to Discord
+                send_rich_discord_message(message, author_name=author, category=message_category, title=message_title)
             
             # Redirect and return a success message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
@@ -818,7 +831,7 @@ def discord_feedback(request):
         else:
             print('form not valid')
     else:
-        form = form_class()
+        form = form_class(report_subject=report_subject, author=author)
 
 
     context = {

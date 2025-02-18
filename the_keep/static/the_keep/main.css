@@ -559,6 +559,18 @@ tr.clickable-row:hover {
   background-color: #f1f1f1;  /* Light gray background on hover */
 }
 
+.clickable-link {
+  color: #007bff; /* Link color */
+  text-decoration: underline; /* Underline the text */
+  cursor: pointer; /* Make the cursor a hand when hovering */
+  transition: color 0.3s ease; /* Smooth transition for hover color */
+}
+
+.clickable-link:hover {
+  color: #0056b3; /* Darker blue on hover */
+  text-decoration: underline; /* Keep underline on hover */
+}
+
 .image2 {
   position: absolute;
   top: -4.5px;  /* Adjust as needed */

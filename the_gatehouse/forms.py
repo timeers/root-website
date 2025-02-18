@@ -210,25 +210,44 @@ class PlayerCreateForm(forms.ModelForm):
         return discord
 
 
+
+
 class FeedbackForm(forms.Form):
     TITLE_CHOICES = [
                 ('general', 'General Feedback'),
+                ('usability', 'Usability Feedback'),
                 ('bug', 'Bug Report'),
                 ('feature', 'Feature Request'),
-                ('usability', 'Usability Feedback'),
                 ('other', 'Other')
     ]
     
     title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
     message = forms.CharField(widget=forms.Textarea, label="Please Provide Details")
+    # Initially make the author field hidden
     author = forms.CharField(
         required=False,
-        widget=forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Discord Username or Email'}),  # Max length handled here
-        label='Contact Info'
+        widget=forms.HiddenInput(),  # Default to hidden
+        label='Contact Info (Optional)'
     )
-
-    def __init__(self, *args, **kwargs):
+    subject = forms.CharField(
+        widget=forms.HiddenInput(),  # Makes the field hidden
+        required=False
+    )
+    def __init__(self, *args, report_subject=None, author=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['message'].widget.attrs.update({
+            'rows': '4'
+            })
+        # If report_subject is provided, set it as the value for the subject field
+        if report_subject:
+            self.fields['subject'].initial = report_subject
+
+        # If author is provided, set it as the value for the author field
+        if author:
+            self.fields['author'].initial = author
+        else:
+            # If no author is passed in, change the widget to a visible TextInput
+            self.fields['author'].widget = forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Discord Username or Email'})
 
 class ReportForm(forms.Form):
     TITLE_CHOICES = [
@@ -240,15 +259,32 @@ class ReportForm(forms.Form):
     title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
     message = forms.CharField(widget=forms.Textarea, label="Please Provide Details")
     author = forms.CharField(
-        required=False,
-        widget=forms.TextInput(attrs={
-            'maxlength': '50', 
-            'placeholder': 'Discord Username or Email'}),  # Max length handled here
+        required=True,
+        widget=forms.HiddenInput(),  # Default to hidden
         label='Contact Info'
     )
+    subject = forms.CharField(
+        widget=forms.HiddenInput(),  # Makes the field hidden
+        required=False
+    )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, report_subject=None, author=None, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # If report_subject is provided, set it as the value for the subject field
+        if report_subject:
+            self.fields['subject'].initial = report_subject
+
+        self.fields['message'].widget.attrs.update({
+            'rows': '4'
+        })
+        # If author is provided, set it as the value for the author field
+        if author:
+            self.fields['author'].initial = author
+        else:
+            # If no author is passed in, change the widget to a visible TextInput
+            self.fields['author'].widget = forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Discord Username or Email'})
+
 
 class RequestForm(forms.Form):
     TITLE_CHOICES = [
@@ -260,14 +296,28 @@ class RequestForm(forms.Form):
     
     title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
     message = forms.CharField(widget=forms.Textarea, label="Please Provide Details")
+
     author = forms.CharField(
-        required=False,
-        widget=forms.TextInput(attrs={
-            'maxlength': '50', 
-            'placeholder': 'Discord Username or Email'}),  # Max length handled here
+        required=True,
+        widget=forms.HiddenInput(),  # Default to hidden
         label='Contact Info'
     )
-
-    def __init__(self, *args, **kwargs):
+    subject = forms.CharField(
+        widget=forms.HiddenInput(),  # Makes the field hidden
+        required=False
+    )
+    def __init__(self, *args, report_subject=None, author=None, **kwargs):
         super().__init__(*args, **kwargs)
-        
+        # If report_subject is provided, set it as the value for the subject field
+        if report_subject:
+            self.fields['subject'].initial = report_subject
+
+        self.fields['message'].widget.attrs.update({
+            'rows': '4'
+        })
+        # If author is provided, set it as the value for the author field
+        if author:
+            self.fields['author'].initial = author
+        else:
+            # If no author is passed in, change the widget to a visible TextInput
+            self.fields['author'].widget = forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Discord Username or Email'})

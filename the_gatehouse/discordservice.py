@@ -153,6 +153,8 @@ def send_discord_message(message, category=None):
         webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
     elif category == 'request':
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+    elif category == 'new_user':
+        webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
     else:
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
 
@@ -189,6 +191,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Request Received"
         embed_color = 0x0000FF  # Blue color for request
+    # elif category == 'new_user':
+    #     webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
+    #     embed_title = 'New User Registered'
+    #     embed_color = 0xed3eed # Pink for new users
     else:
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
         embed_title = "Activity"

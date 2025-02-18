@@ -20,8 +20,12 @@
 
     {% if user.profile.player %}
         <h2 class="mt-2">Feedback and FAQ</h2>
-        <div>For suggestions, requests or bugs as well as a more detailed FAQ, visit <a href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.</div>
+        <div>Feedback, bug reports and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>. You can also find a more detailed FAQ at the <a mclass='clickable-link' href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.</div>
+    {% else %}
+        Feedback, bug reports and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>.
     {% endif %}
+{% else %}
+Feedback, bug reports and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>.
 {% endif %}
 {% endblock content %}
 
