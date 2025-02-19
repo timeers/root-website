@@ -43,12 +43,22 @@ body {
     z-index: -1;
   }
   
+
+  
   .post-card:hover .root-title-underlined:after {
     transform: scaleX(1); /* Reveal the bar on hover */
     transform-origin: bottom left; /* Make the bar grow from left to right */
   }
   
+/* Disable transitions on touch devices and keep content hidden */
+@media (pointer: coarse) {
 
+  /* No hover effect for touch devices */
+  .post-card:hover .root-title-underlined:after {
+    transform: scaleX(0); /* Reveal the bar on hover */
+    transform-origin: bottom left; /* Make the bar grow from left to right */
+  }
+}
 
 
 

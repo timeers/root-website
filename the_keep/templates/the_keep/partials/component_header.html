@@ -53,11 +53,8 @@
                     {{ object.animal }}
                 {% endif %}
                 {{ object.component }} by 
-                {% if user.profile.player %}
-                    <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
-                {% else %}
-                    {{ object.designer.name }}
-                {% endif %}
+                <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
+
             </div>
                 <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
 </div>
@@ -72,13 +69,7 @@
                 {% if object.artist %}
                 <div>
                     Art by 
-                    {% if user.profile.player %}
-                        <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
-                    {% else %}
-                        {{ object.artist.name }}
-                    {% endif %}
-
-
+                    <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
                 </div>
                 {% endif %}
                 {% if object.based_on %}
