@@ -5,36 +5,46 @@
         <div class="article-img-container">
         <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
         </div>
+        <div class='d-flex flex-nowrap'>
         <h1 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h1>
+                    <!-- Bookmarks -->
+                    {% if user.is_authenticated %}
+                    {% include 'the_keep/partials/bookmarks.html' %}
+                {% endif %}
+        </div>
     </div>
     <div class="d-flex flex-nowrap">
 
 
-            {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
-                    <div>
-                        <a class="btn btn-warning btn-sm mt-1 mb-1 mr-2" href="{% url object.component|lower|add:'-update' object.slug %}">
-                            <i class="bi bi-pencil-square"></i>
-                        </a>
-                        
-                    </div>
-            {% endif %}
+
             
             {% if stable_ready %}
                 {% if stable_ready|first %}
                 <div>
-                    <a class="btn btn-success btn-sm mt-1 mb-1 mr-2" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> Stable</a>
+                    <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> Stable</a>
                 </div>
                 {% endif %}
             {% endif %}
             {% if testing_ready %}
                 <div>
-                    <a class="btn btn-primary btn-sm mt-1 mb-1 mr-2" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> Testing</a>
+                    <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> Testing</a>
                 </div>
             {% endif %}
-            <!-- Bookmarks -->
-            {% if user.is_authenticated %}
-                {% include 'the_keep/partials/bookmarks.html' %}
+            {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
+                    <div>
+                        <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url object.component|lower|add:'-update' object.slug %}">
+                            <i class="bi bi-pencil-square"></i>
+                        </a>
+                        
+                    </div>
+            {% else %}
+                <div>
+                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject={{ object.component }}: {{ object.title }}">
+                        <i class="bi bi-tools"></i>
+                    </a>
+                </div>
             {% endif %}
+
         </div>
 </div>
 <div>

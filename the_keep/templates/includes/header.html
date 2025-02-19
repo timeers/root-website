@@ -93,6 +93,7 @@
 
               {% else %}
                   <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">Login</a>
+                  <a class="nav-item nav-link" href="{% url 'discord-feedback' %}">Feedback</a>
               {% endif %}
                 <li class="nav-item">
                     <a class="nav-link" href="{% url 'keep-about' %}">About</a>

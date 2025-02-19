@@ -112,12 +112,13 @@ em, i {
   
   .post-card {
     position: relative;
-    transition: transform 0.5s ease-out, padding-bottom 0.8s ease-out; /* Smooth transition for padding and transform */
+    transition: transform 0.5s ease-out, box-shadow 0.3s ease-out; /* Smooth transition for padding and transform */
     overflow: hidden; /* Hide anything that overflows (like the hidden div) */
   }
   
   .post-card:hover {
     transform: scale(1.05); /* Slightly scale up the post-card */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add a subtle drop shadow */
   }
 
 
@@ -160,7 +161,6 @@ em, i {
   .hidden-snippet > div {
     overflow: hidden;
   }
-
   
   .post-card:hover .hidden-snippet {
     grid-template-columns: 1fr;
@@ -184,6 +184,29 @@ em, i {
     transition: grid-template-columns 0s ease-out, opacity 0.5s ease-in-out; /* Fast in, slow fade */
   }
   
+/* Disable transitions on touch devices and keep content hidden */
+@media (pointer: coarse) {
+
+  /* No hover effect for touch devices */
+  .post-card:hover .hidden-content {
+    opacity: 0;  /* Keep content hidden even on hover */
+    visibility: hidden; /* Keep visibility hidden */
+  }
+  .post-card:hover .hidden-description {
+    grid-template-rows: 0fr;
+    opacity: 0;  /* Keep content hidden even on hover */
+  }
+
+    .post-card:hover .hidden-snippet,
+    .post-card:hover .hidden-status {
+      grid-template-columns: 0fr;
+      opacity: 0;  /* Keep content hidden even on hover */
+    }
+}
+
+
+
+
   .lore-content {
  
     font-style: italic;
@@ -515,7 +538,7 @@ th.sortable:hover {
 
 .form-control-num {
   width: 60px;  /* Adjust the width for a 3-digit number */
-  text-align: center;  /* Optional: Center the text inside the input box */
+  text-align: center;  /* Center the text inside the input box */
 }
 
 .compact-file-input {

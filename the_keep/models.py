@@ -989,6 +989,7 @@ class PNPAsset(models.Model):
         LANDMARK = 'Landmark'
         HIRELING = 'Hireling'
         ICONS = 'Icons'
+        GUIDE = 'Guide'
         OTHER = 'Other'
     class FileChoices(models.TextChoices):
         PDF = 'PDF', 'PDF'
@@ -997,6 +998,7 @@ class PNPAsset(models.Model):
         JPEG = 'JPEG', 'JPEG'
         DOC = 'DOC', 'DOC'
         PSD = 'PSD', 'PSD'
+        VIDEO = 'Video', 'Video'
         OTHER = 'Other'
 
     date_updated = models.DateTimeField(default=timezone.now)

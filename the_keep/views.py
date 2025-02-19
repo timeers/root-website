@@ -29,7 +29,7 @@ from the_gatehouse.views import (designer_required_class_based_view, designer_re
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required)
 from the_gatehouse.discordservice import send_discord_message
-from the_gatehouse.utils import get_uuid
+from the_gatehouse.utils import get_uuid, build_absolute_uri
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -387,6 +387,25 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 def about(request, *args, **kwargs):
     return render(request, 'the_keep/about.html', {'title': 'About'})
 
+@admin_onboard_required
+def home(request, *args, **kwargs):
+
+    faction_count = Faction.objects.filter(status__lte=4).count()
+    deck_count = Deck.objects.filter(status__lte=4).count()
+    map_count = Map.objects.filter(status__lte=4).count()
+    game_count = Game.objects.filter(final=True).count()
+
+
+    context = {
+        'title': 'Home',
+        'faction_count': faction_count,
+        'deck_count': deck_count,
+        'map_count': map_count,
+        'game_count': game_count
+    }
+
+    return render(request, 'the_keep/home.html', context)
+
 
 
 
@@ -405,27 +424,11 @@ def ultimate_component_view(request, slug):
         }
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
-
+    full_url = request.build_absolute_uri()
     if request.user.is_authenticated:
-        send_discord_message(f'{request.user} viewed {object.title}')
-        # send_discord_message(message="This is some feedback about the new feature.",
-        #     category="feedback",
-        #     author_name=request.user.profile.name,
-        #     fields=[
-        #         {'name': 'Feature', 'value': 'New search functionality'},
-        #         {'name': 'Rating', 'value': '5/5', 'inline': True}
-        #     ])
-        # send_discord_message(
-        #     message="There was an issue with the payment system.",
-        #     category="report",
-        #     author_name="Admin",
-        #     fields=[
-        #         {'name': 'Issue', 'value': 'Payment gateway failure'},
-        #         {'name': 'Priority', 'value': 'High', 'inline': True}
-        #     ]
-        # )
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed [{object.title}]({full_url})')
     else:
-        send_discord_message(f'{get_uuid(request)} viewed {object.title}')
+        send_discord_message(f'{get_uuid(request)} viewed [{object.title}]({full_url})')
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
     if request.user.is_authenticated:
@@ -566,7 +569,7 @@ def bookmark_post(request, object):
 def list_view(request, slug=None):
 
     if request.user.is_authenticated:
-        send_discord_message(f'{request.user} on Home Page')
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
     else:
         send_discord_message(f'{get_uuid(request)} on Home Page')
 
@@ -891,14 +894,10 @@ class PNPAssetCreateView(CreateView):
     template_name = 'the_keep/asset_form.html'
 
     def form_valid(self, form):
-        # Set the shared_by field to the current user's profile
-        # if not self.request.user.profile.admin:
-        #     form.instance.shared_by = self.request.user.profile
-        # else:
-        #     form.instance.pinned = True
-
-        # Unpin resource
-
+        # Set the 'shared_by' field to the current user's profile
+        if not self.request.user.profile.admin:
+            form.instance.shared_by = self.request.user.profile
+         # Unpin resource
         form.instance.pinned = False
         return super().form_valid(form)
 

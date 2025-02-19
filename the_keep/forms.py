@@ -825,10 +825,13 @@ class PNPAssetCreateForm(forms.ModelForm):
         #     self.fields.pop('shared_by', None)  # Remove shared by field entirely
 
 
+
         # Check if an instance is being updated (i.e., it's an existing object)
         if self.instance and self.instance.pk and self.instance.shared_by or self.profile.admin == False:
             # If the object exists (it's being updated), remove 'shared_by' field
             self.fields.pop('shared_by')
+            
+        
 
 
 

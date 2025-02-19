@@ -26,7 +26,17 @@
             <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
             <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
         </small>
+        <div class="d-flex flex-nowrap">
+
         {% include 'the_warroom/partials/bookmarks.html' %}
+        {% if user.profile.player %}
+        <div>
+            <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject=Game: {{ game.id }}">
+                <i class="bi bi-tools"></i>
+            </a>
+        </div>
+        {% endif %}
+        </div>
     </div>
 
     {% if game.landmarks.count > 0 or game.hirelings.count > 0 or game.tweaks.count > 0 %}

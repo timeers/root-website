@@ -8,7 +8,10 @@
             <img class="article-img" src="{{ player.image.url }}">
         </div>
             <div class="media-body">
+                <div class='d-flex flex-nowrap'>
                 <h1 class="account-heading root-title">{{ player.name }}</h1>
+
+                </div>
                 {% if user.profile.player or player == user.profile %}
                 {% if player.discord %}
                     <span class="text-secondary">Discord: {{ player.discord }}</span><br>
@@ -19,15 +22,26 @@
                 {% endif %}
                 
             </div>
+            <div class="d-flex flex-column justify-content-between">
+            {% comment %} {% if user.profile.player and player != user.profile  %}
+                <!-- Bookmarks -->
+                {% include 'the_gatehouse/partials/bookmarks.html' %}
+            {% endif %} {% endcomment %}
+            
+            <div class='mt-auto'>
             {% if player == user.profile %}
                 <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-gear-wide-connected"></i></a> 
             {% elif user.profile.admin %}
                     <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'manage-user' player.slug %}"><i class="bi bi-pencil-square"></i></a>
             {% elif user.profile.player %}
-            <!-- Bookmarks -->
-                {% include 'the_gatehouse/partials/bookmarks.html' %}
+                <div>
+                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject=User: {{ player.discord }}">
+                        <i class="bi bi-tools"></i>
+                    </a>
+                </div>
             {% endif %}
-
+            </div>
+            </div>
     </div>
     
 {% if user.profile.player or user.profile == player %}

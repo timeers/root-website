@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.db.models import Count, Q
 
 from .forms import (UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, 
-                    FeedbackForm, ReportForm, RequestForm)
+                    MessageForm)
 from .models import Profile
 from .discordservice import send_rich_discord_message, send_discord_message
 
@@ -758,24 +758,26 @@ def manage_user(request, slug):
 def discord_feedback(request):
 
     message_category = request.GET.get('category', 'feedback')  # Default to 'feedback' if not provided
-    report_subject = request.GET.get('report_subject', None)  # Default to None if not provided
+    feedback_subject = request.GET.get('feedback_subject', None)  # Default to None if not provided
 
-    if message_category:
-        page_title = f"Submit {message_category.title()}"
+    if message_category == 'report':
+        page_title = f'Report {feedback_subject}'
+    elif message_category:
+        page_title = f"Send {message_category.title()}"
     else:
-        page_title = "Submit Feedback"
+        page_title = "Send Feedback"
 
-    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'report'):
+    if not request.user.is_authenticated and (message_category == 'request'):
         raise PermissionDenied() 
 
-    form_mapping = {
-        "feedback": FeedbackForm,
-        "request": RequestForm,
-        "report": ReportForm
-    }
+    # form_mapping = {
+    #     "feedback": FeedbackForm,
+    #     "request": RequestForm,
+    #     "report": ReportForm
+    # }
     response_mapping = {
-        "feedback": 'Your feedback has been sent!',
-        "request": 'Your request has been sent',
+        "feedback": 'Thank you for your feedback!',
+        "request": 'Your request has been received',
         "report": 'Your report has been received'
     }
     title_mapping = {
@@ -783,6 +785,7 @@ def discord_feedback(request):
         'bug': 'Bug Report',
         'feature': 'Feature Request',
         'usability': 'Usability Feedback',
+        'outdated': 'Outdated Information',
         'incorrect': 'Incorrect Information',
         'offensive': 'Offensive Image/Language',
         'faction': 'Faction Request',
@@ -796,27 +799,25 @@ def discord_feedback(request):
     else:
         author = request.user.profile.discord
 
-    form_class = form_mapping.get(message_category, FeedbackForm)
+    # form_class = form_mapping.get(message_category, FeedbackForm)
 
     if request.method == 'POST':
-        form = form_class(request.POST, report_subject=report_subject, author=author)
+        form = MessageForm(request.POST, author=author, message_category=message_category)
         if form.is_valid():
             # Get form data
             title = form.cleaned_data['title']
             message_title = title_mapping.get(title, "General")
-
+            
             message = form.cleaned_data['message']
-
-            subject = form.cleaned_data['subject']
 
             if not request.user.is_authenticated:
                 author = form.cleaned_data['author']
             else:
                 author = request.user.profile.discord
 
-            if subject:
+            if feedback_subject:
                 fields=[
-                {'name': 'Subject', 'value': subject}
+                {'name': 'Subject', 'value': feedback_subject}
                 ]
                 # Call the function to send the message to Discord
                 send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
@@ -828,10 +829,8 @@ def discord_feedback(request):
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
             messages.success(request, response_message)
             return redirect('keep-home')
-        else:
-            print('form not valid')
     else:
-        form = form_class(report_subject=report_subject, author=author)
+        form = MessageForm(author=author, message_category=message_category)
 
 
     context = {

@@ -29,6 +29,7 @@ from . import views
 
 urlpatterns = [
     path("", list_view, name='keep-home'),
+    path("home/", list_view, name='keep-home'),
     # path("new/", activity_list, name='activity-list'),
  
     path("search/", search_view, name='search'),
@@ -76,6 +77,8 @@ urlpatterns = [
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),
+    path('newhome/', views.home, name='site-home'),
+
     path('piece/add/', add_piece, name='add-piece'),
     path('piece/update/<int:id>', add_piece, name='update-piece'),
     path('piece/delete/<int:id>', delete_piece, name='delete-piece'),
