@@ -770,11 +770,6 @@ def discord_feedback(request):
     if not request.user.is_authenticated and (message_category == 'request'):
         raise PermissionDenied() 
 
-    # form_mapping = {
-    #     "feedback": FeedbackForm,
-    #     "request": RequestForm,
-    #     "report": ReportForm
-    # }
     response_mapping = {
         "feedback": 'Thank you for your feedback!',
         "request": 'Your request has been received',
@@ -788,6 +783,7 @@ def discord_feedback(request):
         'outdated': 'Outdated Information',
         'incorrect': 'Incorrect Information',
         'offensive': 'Offensive Image/Language',
+        'spam': 'Spam',
         'faction': 'Faction Request',
         'map': 'Map Request',
         'deck': 'Deck Request',

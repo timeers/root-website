@@ -9,7 +9,18 @@ body {
     color: #444444;
     font-family: 'Luminari', serif; 
   } */
-  
+  @font-face {
+    font-family: 'Luminari';
+    src: url('../fonts/luminari.eot'); /* IE9 Compatibility */
+    src: url('../fonts/luminari.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
+         url('../fonts/luminari.woff2') format('woff2'), /* Modern browsers */
+         url('../fonts/luminari.woff') format('woff'), /* Older browsers */
+         url('../fonts/luminari.ttf') format('truetype'); /* iOS */
+    font-weight: normal;
+    font-style: normal;
+  }
+
+
   legend {
     color: #444444;
     font-family: 'Luminari', serif; 
@@ -42,9 +53,7 @@ body {
     transition: transform 0.8s ease-out; /* Smooth transition for the appearance of the bar */
     z-index: -1;
   }
-  
-
-  
+    
   .post-card:hover .root-title-underlined:after {
     transform: scaleX(1); /* Reveal the bar on hover */
     transform-origin: bottom left; /* Make the bar grow from left to right */
@@ -60,7 +69,9 @@ body {
   }
 }
 
-
+.root-menu-title {
+  border: #0056b3;
+}
 
 /* Italic body text */
 em, i {
@@ -132,16 +143,16 @@ em, i {
   }
 
 
-  .hidden-content {
+  /* .hidden-content {
     opacity: 0;
     visibility: hidden;
-    transition: opacity 1s ease-out, visibility 0s 0s;
+    transition: opacity 10s ease-out, visibility 0s 0s;
   }
   .post-card:hover .hidden-content {
     opacity: 1;
     visibility: visible;
     transition: opacity 1s ease-out, visibility 0s 0s;
-  }
+  } */
 
   .hidden-description {
     border-top: 1px solid #e3e3e3;
@@ -194,6 +205,28 @@ em, i {
     transition: grid-template-columns 0s ease-out, opacity 0.5s ease-in-out; /* Fast in, slow fade */
   }
   
+@media (prefers-reduced-motion) {
+  .post-card {
+    transition: none;
+  }
+  .hidden-description {
+    transition: none;
+  }
+  .hidden-snippet {
+    transition: none;
+  }
+  .hidden-status {
+    transition: none;
+  }
+  .post-card:hover .hidden-status {
+    transition: none;
+  }
+  .root-title-underlined::after {
+    transition: none;
+  }
+}
+
+
 /* Disable transitions on touch devices and keep content hidden */
 @media (pointer: coarse) {
 

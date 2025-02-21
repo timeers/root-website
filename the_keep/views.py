@@ -426,7 +426,7 @@ def ultimate_component_view(request, slug):
     object = get_object_or_404(Klass, slug=slug)
     full_url = request.build_absolute_uri()
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {object.component}: {object.title})')
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {object.component}: {object.title}')
     else:
         send_discord_message(f'{get_uuid(request)} viewed {object.component}: {object.title}')
     print('Request received')

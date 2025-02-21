@@ -44,6 +44,18 @@ def get_uuid(request):
     # Pass the UUID
     return visitor_uuid
 
+def incriment_session_pages(request):
+    # Check if the 'session_pages' is already in the session
+    if 'session_pages' not in request.session:
+        # If not, create a new UUID and store it in the session
+        request.session['session_pages'] = 0
+
+    # Retrieve the session_pages from the session
+    session_pages = request.session['session_pages']+1
+    request.session['session_pages'] = session_pages
+    # Pass the session_pages
+    return session_pages
+
 def get_base_url(request):
     # Get the scheme (http or https)
     scheme = request.scheme  # 'http' or 'https'

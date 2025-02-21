@@ -13,7 +13,17 @@
 {% endblock meta%}
 
 {% block content %}
-
+<div class='d-flex'>
+    <div class='root-menu-title'>
+        <a href='{% url 'keep-home' %}'>Components</a>
+    </div>
+    <div class='root-menu-title'>
+        <a href='{% url 'games-home' %}'>Games</a>
+    </div>
+    <div class='root-menu-title'>
+        <a href='{% url 'asset-list' %}'>Resources</a>
+    </div>
+</div>
 Factions:{{faction_count}}
 Maps:{{map_count}}
 Decks:{{deck_count}}

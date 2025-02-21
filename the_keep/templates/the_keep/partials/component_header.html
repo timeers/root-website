@@ -39,7 +39,7 @@
                     </div>
             {% else %}
                 <div>
-                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject={{ object.component }}: {{ object.title }}">
+                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject={{ object.component }}: {{ object.title|urlencode }}">
                         <i class="bi bi-tools"></i>
                     </a>
                 </div>
