@@ -11,11 +11,11 @@ body {
   } */
   @font-face {
     font-family: 'Luminari';
-    src: url('../fonts/luminari.eot'); /* IE9 Compatibility */
-    src: url('../fonts/luminari.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
-         url('../fonts/luminari.woff2') format('woff2'), /* Modern browsers */
-         url('../fonts/luminari.woff') format('woff'), /* Older browsers */
-         url('../fonts/luminari.ttf') format('truetype'); /* iOS */
+    src: url('../fonts/Luminari.eot'); /* IE9 Compatibility */
+    src: url('../fonts/Luminari.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
+         url('../fonts/Luminari.woff2') format('woff2'), /* Modern browsers */
+         url('../fonts/Luminari.woff') format('woff'), /* Older browsers */
+         url('../fonts/Luminari.ttf') format('truetype'); /* iOS */
     font-weight: normal;
     font-style: normal;
   }
