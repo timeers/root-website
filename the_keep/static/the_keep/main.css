@@ -13,9 +13,9 @@ body {
     font-family: 'Luminari';
     src: url('../fonts/Luminari.eot'); /* IE9 Compatibility */
     src: url('../fonts/Luminari.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
-         url('../fonts/Luminari.woff2') format('woff2'), /* Modern browsers */
-         url('../fonts/Luminari.woff') format('woff'), /* Older browsers */
-         url('../fonts/Luminari.ttf') format('truetype'); /* iOS */
+         url('../fonts/Luminari_edit.woff2') format('woff2'), /* Modern browsers */
+         url('../fonts/Luminari_edit.woff') format('woff'), /* Older browsers */
+         url('../fonts/Luminari_edit.ttf') format('truetype'); /* iOS */
     font-weight: normal;
     font-style: normal;
   }
@@ -24,12 +24,15 @@ body {
   legend {
     color: #444444;
     font-family: 'Luminari', serif; 
+    /* font-feature-settings: "salt" 1; */
     /* Use Luminari for titles */
   }
 
   .root-title {
     color: #444444;
     font-family: 'Luminari', serif; 
+    /* font-feature-settings: "ss01" 1;  */
+    /* font-feature-settings: "salt" 1; */
     /* Use Luminari for titles */
   }
 
