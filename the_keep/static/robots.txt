@@ -1,0 +1,12 @@
+User-agent: *
+Disallow: /profile/
+Disallow: /profiles/
+Disallow: /feedback/
+Disallow: /accounts/
+Disallow: /game/
+Disallow: /hx/
+Disallow: /onboard/
+Disallow: /api/
+Disallow: /piece/
+Disallow: /new/
+Disallow: /scorecard/

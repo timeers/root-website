@@ -13,6 +13,8 @@
 {% endblock meta%}
 
 {% block content %}
+<div>
+<img class="test-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
 <div class='d-flex'>
     <div class='root-menu-title'>
         <a href='{% url 'keep-home' %}'>Components</a>
@@ -27,5 +29,11 @@
 Factions:{{faction_count}}
 Maps:{{map_count}}
 Decks:{{deck_count}}
+{% lorem 2 b random %}
+</div>
+<h1>END</h1>
+<div>
+    {% lorem 20 b random %}
+</div>
 
 {% endblock content %}

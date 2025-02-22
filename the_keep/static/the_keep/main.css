@@ -52,6 +52,7 @@ body {
     transform-origin: bottom left; /* Start from the right for a smooth animation */
     transition: transform 0.8s ease-out; /* Smooth transition for the appearance of the bar */
     z-index: -1;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
   }
     
   .post-card:hover .root-title-underlined:after {
@@ -732,3 +733,30 @@ tr.clickable-row:hover {
 .sub-data {
   border-top: 1px solid #e3e3e3;
 }
+
+.test-img{
+  grid-column: 1 / -1;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 50%;
+  opacity: 0.8;
+  object-fit: cover;
+  z-index: -1;
+  animation: fade-out linear;
+  animation-timeline: view();
+}
+
+@keyframes fade-out {
+  to {opacity: 0;}
+}
+
+/* .test-img {
+  transition: transform 0.5s ease; 
+}
+
+
+.test-img:hover {
+  transform: translateX(50px); 
+} */
+
