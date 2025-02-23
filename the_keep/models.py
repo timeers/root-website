@@ -888,7 +888,7 @@ class Piece(models.Model):
         super().save(*args, **kwargs)
         # Resize images before saving
         if self.small_icon:
-            resize_image(self.small_icon, 40)  # Resize small_icon
+            resize_image(self.small_icon, 80)  # Resize small_icon
 
     def delete(self, *args, **kwargs):
         # Delete the old image file from storage before deleting the instance

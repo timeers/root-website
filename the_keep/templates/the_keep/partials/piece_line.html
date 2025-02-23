@@ -1,30 +1,28 @@
 <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
-    <div class="d-flex">
-    {% if piece.small_icon %}
-        <img class="faction-icon mr-2" src="{{ piece.small_icon.url }}">x
-    {% endif %}
-    {{ piece.quantity }}
-    {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}
-    {{ piece.name }}
+    <div class="d-flex align-items-center">
+        {% if piece.small_icon %}
+            <img class="lg-faction-icon mr-2" src="{{ piece.small_icon.url }}">x
+        {% endif %}
+        {{ piece.quantity }}
+        {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}
+        {{ piece.name }}
     </div>
     {% if object.designer == user.profile and user.profile.designer %}
-    <div class="d-flex">
-        <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons"
-            hx-get="{% url 'update-piece' piece.id %}?piece={{ piece.type }}&slug={{ object.slug }}"
-            hx-target="#piece-{{ piece.id }}"
-            hx-swap="outerHTML">
-            <i class="bi bi-pencil-square"></i>
-        </button>
-        <!-- Delete Button with hx-delete -->
-        <button class="btn btn-outline-danger btn-sm ml-1 mb-1 hidden-buttons"
-                hx-delete="{% url 'delete-piece' piece.id %}"
+        <div class="d-flex">
+            <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons"
+                hx-get="{% url 'update-piece' piece.id %}?piece={{ piece.type }}&slug={{ object.slug }}"
                 hx-target="#piece-{{ piece.id }}"
-                hx-confirm="Are you sure you want to delete {{ piece.name }}?"
-                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
-            <i class="bi bi-trash3"></i>
-        </button>
-    </div>
+                hx-swap="outerHTML">
+                <i class="bi bi-pencil-square"></i>
+            </button>
+            <!-- Delete Button with hx-delete -->
+            <button class="btn btn-outline-danger btn-sm ml-1 mb-1 hidden-buttons"
+                    hx-delete="{% url 'delete-piece' piece.id %}"
+                    hx-target="#piece-{{ piece.id }}"
+                    hx-confirm="Are you sure you want to delete {{ piece.name }}?"
+                    hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+                <i class="bi bi-trash3"></i>
+            </button>
+        </div>
     {% endif %}
-
-
 </div>
