@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>About the Database</h1>
-<div>This is a collection of components for Root, the board game by Leder Games.</div>
+<div>This is an unofficial collection of components for Root, the board game by Leder Games.</div>
 <div>Thank you for checking out the site!</div>
 <div>All art credit, unless otherwise stated, goes to the amazing Kyle Ferrin at Leder Games.</div>
 {% if user.is_authenticated %}
@@ -17,15 +17,12 @@
     <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
 
     <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
+{% endif %}
 
-    {% if user.profile.player %}
-        <h2 class="mt-2">Feedback and FAQ</h2>
-        <div>Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>. You can also find a more detailed FAQ at the <a mclass='clickable-link' href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.</div>
-    {% else %}
-        Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>.
-    {% endif %}
-{% else %}
+<h2 class="mt-2">Feedback{% if user.profile.player %} and FAQ{% endif %}</h2>
 Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>.
+{% if user.profile.player %}
+ You can also find a more detailed FAQ at the <a mclass='clickable-link' href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.
 {% endif %}
 {% endblock content %}
 

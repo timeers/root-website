@@ -1,6 +1,6 @@
 
 {% if object.pieces.count or object.designer == user.profile %}
-<p class="article-content">
+
 {% if object.component != "Vagabond" %}
 <div class="d-flex flex-wrap justify-content-between">
 <h3>Pieces</h3>
@@ -117,7 +117,7 @@
     {% if object.designer == user.profile and user.profile.designer %}
     <button type="button" id="save-all" class="btn btn-success mt-1 hidden-buttons">Save All</button>
     {% endif %}
-</p>
+
 {% endif %}
 
 

@@ -12,35 +12,37 @@
     <div class="media-body">
 
     <h2>Faction Data</h2>
-
-
-
-    <table>
-        <thead>
-            <tr>
-                <th>Complexity</th>
-                <th>Card Wealth</th>
-                <th>Aggression</th>
-                <th>Crafting Ability</th>
-            </tr>
-        </thead>
-        <tbody class="effort-rows">
-            <tr>
-                <td>
-                    {{ object.get_complexity_display }}
-                </td>
-                <td>
-                    {{ object.get_card_wealth_display }}
-                </td>
-                <td>
-                    {{ object.get_aggression_display }}
-                </td>
-                <td>
-                    {{ object.get_crafting_ability_display }}
-                </td>
-            </tr>
-        </tbody>
-    </table>
+    <div class="row">
+        <div class="col-12 col-md-6">
+            <div class="bar-container">
+                <div class="bar-label">Complexity</div> 
+                <div class="bar-background bar-background-{{ object.get_complexity_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_complexity_display == 'None' %} bar-black-text{% endif %}">{{ object.get_complexity_display }}</div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">Agression</div> 
+                <div class="bar-background bar-background-{{ object.get_aggression_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_aggression_display == 'None' %} bar-black-text{% endif %}">{{ object.get_aggression_display }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="bar-container">
+                <div class="bar-label">Card Wealth</div> 
+                <div class="bar-background bar-background-{{ object.get_card_wealth_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_card_wealth_display == 'None' %} bar-black-text{% endif %}">{{ object.get_card_wealth_display }}</div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">Crafting Ability</div> 
+                <div class="bar-background bar-background-{{ object.get_crafting_ability_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_crafting_ability_display == 'None' %} bar-black-text{% endif %}">{{ object.get_crafting_ability_display }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
         {% if object.card_image or object.reach > 0 %}
         <div class="article-content">
             {% if object.card_image %}
@@ -49,13 +51,14 @@
                 {{ object.get_type_display }} ({{ object.reach }} Reach)
             {% endif %}
         </div> 
+
         {% endif %}
         {% if object.board_image %}
             <img class="rounded-corner-img responsive-img" src="{{ object.board_image.url }}">
         {% endif %}
-        
+
         {% include 'the_keep/partials/pieces.html' %}
-        
+
         {% if object.board_2_image %}
             <img class="rounded-corner-img responsive-img" src="{{ object.board_2_image.url }}">
         {% endif %}
@@ -442,9 +445,19 @@ function isWhiteTextLegible(colorHex, isLargeText = true) {
 const color = '{{ object.color }}'; // Example background color (hex)
 const result = isWhiteTextLegible(color);
 
-console.log(result ? "White text is legible" : "White text is not legible");
+// Find all elements with the class 'bar-text'
+const barTextElements = document.querySelectorAll('.bar-text');
 
-
+// If the white text is not legible, change the class to 'bar-black-text'
+if (!result) {
+    barTextElements.forEach(function (element) {
+        {% comment %} element.classList.remove('bar-text'); {% endcomment %}
+        element.classList.add('bar-black-text');
+    });
+    console.log("White text is not legible, changed to black text.");
+} else {
+    console.log("White text is legible.");
+}
 
 </script>
 

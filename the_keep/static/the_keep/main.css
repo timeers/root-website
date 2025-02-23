@@ -778,3 +778,50 @@ tr.clickable-row:hover {
   transform: translateX(50px); 
 } */
 
+.bar-container {
+  width: 100%; /* Full-width of the container */
+  padding: 10px 0;
+  border-left: 2px solid black;
+}
+
+.bar-background {
+  background-color: var(--bar-color, darkgrey); /* Dynamic background color of the bar */
+  height: 30px; /* Height of the bar */
+  /*width: 20%; /* Width of the bar (can be dynamic or fixed) */
+  position: relative; /* Positioning the label */
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2); /* Horizontal, vertical, blur radius, color */
+  /* border: 1px solid black; */
+  /*border-radius: 5px; /* Optional: for rounded corners */
+}
+.bar-background-low {
+  width: 25%; /* Width of the bar (can be dynamic or fixed) */
+}
+.bar-background-moderate {
+  width: 55%; /* Width of the bar (can be dynamic or fixed) */
+}
+.bar-background-high {
+  width: 90%; /* Width of the bar (can be dynamic or fixed) */
+}
+.bar-background-none {
+  width: 2%; /* Width of the bar (can be dynamic or fixed) */
+}
+
+.bar-text {
+  position: absolute; /* Absolutely position the text inside the bar */
+  top: 50%; /* Vertically center the text */
+  left: 11px; /* Adjust the left position to control text spacing */
+  transform: translateY(-50%); /* To fine-tune vertical centering */
+  color: #fff; /* Text color */
+  font-weight: bold; /* Optional: make the text bold */
+  text-transform: uppercase;
+}
+
+.bar-black-text {
+  color: black; /* Text color */
+}
+
+.bar-label {
+  padding-left: 3px;
+  font-style: italic;
+  font-size: 22px;
+}
