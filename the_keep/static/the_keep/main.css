@@ -736,6 +736,21 @@ tr.clickable-row:hover {
 .sub-data {
   border-top: 1px solid #e3e3e3;
 }
+.htmx-indicator{
+  display: none;
+}
+.htmx-request .htmx-indicator{
+  display: inline;
+}
+.htmx-inverted-indicator{
+  display: inline;
+}
+.htmx-request .htmx-inverted-indicator{
+  display: none;
+}
+
+
+
 
 .test-img{
   grid-column: 1 / -1;

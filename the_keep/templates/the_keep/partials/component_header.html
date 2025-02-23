@@ -1,4 +1,41 @@
+<div class="d-flex justify-content-between align-items-top">
 
+    <div class="d-flex flex-nowrap ml-auto">
+
+            
+        {% if stable_ready %}
+            {% if stable_ready|first %}
+            <!-- Show option to Mark Stable -->
+            <div>
+                <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> Stable</a>
+            </div>
+            {% endif %}
+        {% endif %}
+        {% if testing_ready %}
+        <!-- Show option to Mark Testing -->
+            <div>
+                <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> Testing</a>
+            </div>
+        {% endif %}
+        {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
+                <!-- Show option to Edit -->
+                <div>
+                    <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url object.component|lower|add:'-update' object.slug %}">
+                        <i class="bi bi-pencil-square"></i>
+                    </a>
+                </div>
+        {% else %}
+            <!-- Show option to send Feedback -->
+            <div>
+                <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject={{ object.component }}: {{ object.title|urlencode }}">
+                    <i class="bi bi-tools"></i>
+                </a>
+            </div>
+        {% endif %}
+
+    </div>
+  
+</div>
 <article class="content-section">
     <div class="d-flex justify-content-between align-items-top">
     <div class="d-flex">
@@ -7,43 +44,15 @@
         </div>
         <div class='d-flex flex-nowrap'>
         <h1 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h1>
-                    <!-- Bookmarks -->
-                    {% if user.is_authenticated %}
-                    {% include 'the_keep/partials/bookmarks.html' %}
-                {% endif %}
+
         </div>
     </div>
     <div class="d-flex flex-nowrap">
 
-
-
-            
-            {% if stable_ready %}
-                {% if stable_ready|first %}
-                <div>
-                    <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> Stable</a>
-                </div>
+                <!-- Bookmarks -->
+                {% if user.is_authenticated %}
+                    {% include 'the_keep/partials/bookmarks.html' %}
                 {% endif %}
-            {% endif %}
-            {% if testing_ready %}
-                <div>
-                    <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> Testing</a>
-                </div>
-            {% endif %}
-            {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
-                    <div>
-                        <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url object.component|lower|add:'-update' object.slug %}">
-                            <i class="bi bi-pencil-square"></i>
-                        </a>
-                        
-                    </div>
-            {% else %}
-                <div>
-                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject={{ object.component }}: {{ object.title|urlencode }}">
-                        <i class="bi bi-tools"></i>
-                    </a>
-                </div>
-            {% endif %}
 
         </div>
 </div>
