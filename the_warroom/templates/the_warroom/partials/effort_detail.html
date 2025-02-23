@@ -20,6 +20,7 @@
 {% endif %}
 <td>
     {% if effort.faction %}
+        <span class='root-title'>
         <a href="{% url 'faction-detail' effort.faction.slug %}">
             <div class="parent mr-2 mb-1">
                 <!-- The first image -->
@@ -39,6 +40,7 @@
         {% if effort.captains %}
             (<a href="{% url 'vagabond-detail' effort.captains.slug %}">{{ effort.captains }}</a>)
         {% endif %}
+    </span>
     {% else %}
         Faction N/A
     {% endif %}

@@ -191,6 +191,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Request Received"
         embed_color = 0x0000FF  # Blue color for request
+    elif category == 'weird-root':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+        embed_title = "Invite Requested"
+        embed_color = 0x9746c7  # Purple color for invite
     # elif category == 'new_user':
     #     webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
     #     embed_title = 'New User Registered'
@@ -231,7 +235,7 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
 
     # Payload to send to Discord
     payload = {
-        'content': message,  # Main message content
+        # 'content': message,  # Removed because content is already in embed
         'embeds': [embed],  # Only one embed in this case
     }
 

@@ -14,7 +14,7 @@
 
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h1>{{ expansion.title }}</h1>
+        <h1 class='root-title'>{{ expansion.title }}</h1>
         {% if expansion.designer == user.profile and user.profile.designer %}
                 <div>
                     <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}"><i class="bi bi-pencil-square"></i></a>

@@ -16,7 +16,7 @@ from .forms import (UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserM
                     MessageForm)
 from .models import Profile
 from .discordservice import send_rich_discord_message, send_discord_message
-
+from .utils import build_absolute_uri
 
 from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort
@@ -762,18 +762,21 @@ def discord_feedback(request):
 
     if message_category == 'report':
         page_title = f'Report {feedback_subject}'
+    elif message_category == 'weird-root':
+        page_title = f'Request Invite to Weird Root'
     elif message_category:
         page_title = f"Send {message_category.title()}"
     else:
         page_title = "Send Feedback"
 
-    if not request.user.is_authenticated and (message_category == 'request'):
+    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root'):
         raise PermissionDenied() 
 
     response_mapping = {
         "feedback": 'Thank you for your feedback!',
         "request": 'Your request has been received',
-        "report": 'Your report has been received'
+        "report": 'Your report has been received',
+        "weird-root": 'Your request has been received',
     }
     title_mapping = {
         'general': 'General Feedback',
@@ -787,7 +790,8 @@ def discord_feedback(request):
         'faction': 'Faction Request',
         'map': 'Map Request',
         'deck': 'Deck Request',
-        'other': 'Other'
+        'other': 'Other',
+        'weird-root': 'Weird Root'
     }
 
     if not request.user.is_authenticated:
@@ -805,22 +809,29 @@ def discord_feedback(request):
             message_title = title_mapping.get(title, "General")
             
             message = form.cleaned_data['message']
-
+            fields = []
+            author = None
             if not request.user.is_authenticated:
-                author = form.cleaned_data['author']
+                # author = form.cleaned_data['author']
+                from_user = form.cleaned_data['author']
+                if not from_user:
+                    from_user = "Anonymous User"
             else:
-                author = request.user.profile.discord
+                # author = request.user.profile.discord
+                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())})'
 
+            fields.append({
+                    'name': 'From',
+                    'value': from_user
+                })
+            # Add in subject
             if feedback_subject:
-                fields=[
-                {'name': 'Subject', 'value': feedback_subject}
-                ]
-                # Call the function to send the message to Discord
-                send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
-            else:
-                # Call the function to send the message to Discord
-                send_rich_discord_message(message, author_name=author, category=message_category, title=message_title)
-            
+                fields.append({
+                    'name': 'Subject', 'value': feedback_subject
+                    })
+                
+            # Call the function to send the message to Discord
+            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
             # Redirect and return a success message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
             messages.success(request, response_message)

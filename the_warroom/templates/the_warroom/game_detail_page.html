@@ -38,6 +38,7 @@
         {% if game.undrafted_faction %}
         <div>
             Undrafted Faction: 
+            <span class='root-title'>
             <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">
                 <img class="faction-icon" src="{{ game.undrafted_faction.small_icon.url }}">
             </a>
@@ -45,6 +46,7 @@
             {% if game.undrafted_vagabond %}
                 (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
             {% endif %}
+        </span>
         </div>
         {% endif %}
 

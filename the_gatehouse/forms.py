@@ -223,7 +223,8 @@ class MessageForm(forms.Form):
                 ('incorrect', 'Incorrect Information'),
                 ('offensive', 'Offensive Image/Language'),
                 ('spam', 'Spam'),
-                ('other', 'Other')
+                ('other', 'Other'),
+                ('weird-root', 'Weird Root')
     ]
     
     title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
@@ -241,7 +242,7 @@ class MessageForm(forms.Form):
     def __init__(self, *args, author=None, message_category='feedback', **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['message'].widget.attrs.update({
-            'rows': '4'
+            'rows': '5'
             })
 
         # If author is provided, set it as the value for the author field
@@ -270,6 +271,13 @@ class MessageForm(forms.Form):
                 ('deck', 'Deck'),
                 ('other', 'Other')
             ]
+        elif message_category == 'weird-root':
+            self.fields['title'].choices = [
+                ('weird-root', 'Weird Root')
+            ]
+            self.fields['message'].widget.attrs.update({
+            'placeholder': 'Weird Root is a private server for posting and discussing fan made content for Root. To reduce bot attacks, invites to the server cannot be posted publicly. The fastest way to join is to message someone you know who is already a member. This site is not managed by Weird Root, but if you submit a request here we will do our best to contact you soon to confirm you are not a robot. Include a short message here to confirm.'
+                })
         elif message_category == 'report':
             self.fields['title'].choices = [
                 ('outdated', 'Outdated Information'),

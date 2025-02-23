@@ -29,6 +29,7 @@
                     <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Win">
                 {% endif %}
             </div>
+            <span class='root-title'>
             {{ effort.faction }}
             {% if effort.vagabond %}
                 ({{ effort.vagabond }})
@@ -36,6 +37,7 @@
             {% if effort.captains %}
                 ({{ effort.captains }})
             {% endif %}
+            </span>
         {% else %}
             Faction N/A
         {% endif %}

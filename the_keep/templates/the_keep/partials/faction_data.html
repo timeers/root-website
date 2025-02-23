@@ -382,6 +382,70 @@
         console.error('Error fetching data:', error);
     });
 }
+
+
+
+function hexToRgb(hex) {
+    // Remove the hash symbol if it exists
+    hex = hex.replace(/^#/, '');
+
+    // Convert 3-character hex to 6-character hex if necessary
+    if (hex.length === 3) {
+        hex = hex.split('').map(function (char) {
+            return char + char;
+        }).join('');
+    }
+
+    // Parse the hex values and return RGB object
+    return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+    };
+}
+
+function luminance(r, g, b) {
+    // Normalize the RGB values to [0, 1] range and apply gamma correction
+    let a = [r, g, b].map(function (value) {
+        value = value / 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+
+    // Calculate the luminance based on the formula
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+}
+
+function contrastRatio(colorHex) {
+    // Convert hex color to RGB
+    const { r, g, b } = hexToRgb(colorHex);
+
+    // Calculate luminance of the background color
+    const L2 = luminance(r, g, b);
+
+    // Luminance of white text (always 1)
+    const L1 = 1;
+
+    // Calculate the contrast ratio
+    return (L1 + 0.05) / (L2 + 0.05);
+}
+
+function isWhiteTextLegible(colorHex, isLargeText = true) {
+    // Calculate the contrast ratio for white text
+    const ratio = contrastRatio(colorHex);
+    console.log(ratio)
+    // Use 4.5:1 for normal text and 3:1 for large text
+    // Using 2 for a little less contrast required
+    return ratio >= (isLargeText ? 2 : 4.5);
+}
+
+// Check if faction color is legible
+const color = '{{ object.color }}'; // Example background color (hex)
+const result = isWhiteTextLegible(color);
+
+console.log(result ? "White text is legible" : "White text is not legible");
+
+
+
 </script>
 
 {% endblock scripts %}

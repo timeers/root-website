@@ -115,7 +115,7 @@ class Post(models.Model):
         ABANDONED = '5', 'Abandoned'
 
     title = models.CharField(max_length=40)
-    animal = models.CharField(max_length=25, null=True, blank=True)
+    animal = models.CharField(max_length=25, null=True, blank=True, default="None")
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)

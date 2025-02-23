@@ -1,4 +1,6 @@
 {% load static %}
+{% load allauth socialaccount %}
+{% get_providers as socialaccount_providers %}
 
 <article class="media content-section">
     
@@ -29,21 +31,33 @@
             Woodland Warriors Thread
         </a>
     {% endif %}
-    {% if user.profile.in_weird_root %}
-        {% if object.wr_link %}
+
+    {% if object.wr_link %}
+        {% if user.is_authenticated %}
             {% if user.profile.in_weird_root %}
             <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
                 Weird Root Thread
             </a>
+            {% elif user.profile.player %}
+                <a class="mr-2 mt-1" href="{% url 'discord-feedback' %}?category=weird-root&feedback_subject={{ object.component }}: {{ object.title|urlencode }}" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
+                    Request Invite
+                </a>
             {% else %}
                 <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-                    Join Weird Root Discord for more
+                    Join on Discord for Link
                 </span>
             {% endif %}
+        {% else %}
+            <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
+                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
+                Log In for Link
+            </a>
         {% endif %}
     {% endif %}
+
     {% if object.pnp_link  %}
         <a class="mr-2 mt-1" href="{{ object.pnp_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/PNP.jpg' %}" alt="Print & Play">
