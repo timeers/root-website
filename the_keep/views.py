@@ -435,7 +435,9 @@ def ultimate_component_view(request, slug):
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
     related_posts = Post.objects.filter(based_on=object, status__lte=view_status)
-
+    # Add the post that the current object is based on (if it exists)
+    if object.based_on:
+        related_posts |= Post.objects.filter(id=object.based_on.id, status__lte=view_status)
     # Start with the base queryset
     games = object.get_games_queryset()
 

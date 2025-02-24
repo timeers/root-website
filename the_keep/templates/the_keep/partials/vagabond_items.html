@@ -1,0 +1,80 @@
+{% load custom_filters %}
+{% load static %}
+<div class="p-2 flex-fill piece-box">
+    <h5 class='root-title'>Starting Items</h5>
+    <div id="V-pieces">
+        {% if object.starting_torch %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}torch.png" alt="Torch">x
+                    {{ object.starting_torch }}
+                    Torch
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_tea %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}tea.png" alt="Tea">x
+                    {{ object.starting_tea }}
+                    Tea
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_bag %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}bag.png" alt="Bag">x
+                    {{ object.starting_bag }}
+                    Bag
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_boots %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}boots.png" alt="Boots">x
+                    {{ object.starting_boots }}
+                    Boots
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_coins %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}coins.png" alt="Coins">x
+                    {{ object.starting_coins }}
+                    Coins
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_hammer %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}hammer.png" alt="Hammer">x
+                    {{ object.starting_hammer }}
+                    Hammer
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_sword %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}sword.png" alt="Sword">x
+                    {{ object.starting_sword }}
+                    Sword
+                </div>
+            </div>
+        {% endif %}
+        {% if object.starting_crossbow %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img class="lg-faction-icon mr-2" src="{% static 'items/' %}crossbow.png" alt="Crossbow">x
+                    {{ object.starting_crossbow }}
+                    Crossbow
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+        

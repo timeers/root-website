@@ -96,6 +96,24 @@ class Expansion(models.Model):
                     count += 1
         return count
 
+    def save(self, *args, **kwargs):
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Expansion.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            field_name = 'picture'
+
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image:
+                delete_old_image(old_image)
+        
+        super().save(*args, **kwargs)
+        # Resize images before saving
+        if self.picture:
+            resize_image(self.picture, 950)  # Resize small_icon
+
 class Post(models.Model):
     
     class ComponentChoices(models.TextChoices):

@@ -42,7 +42,62 @@ body {
     display: inline-block; /* Make sure it's inline for correct sizing */
     z-index: 1;
   }
+ 
+
   
+
+  .manifest-box {
+    position: relative;
+    border-left: 1px solid black;
+    border-right: 1px solid black;
+    border-bottom: 1px solid black;
+  }
+  
+  .manifest-box::before {
+    content: '';
+    position: absolute;
+    top: 0; 
+    left: -1px;
+    right: -1px;
+    height: 17px; /* Creates the space for the left and right borders to start */
+    background-color: white; /* This hides the top part of the left and right borders */
+    overflow: visible;
+  }
+  
+  .manifest-box::after {
+    content: '';
+    position: absolute;
+    top: 17px; /* Starts after the 17px space */
+    left: 0;
+    right: 0;
+    height: 1px; /* Thin line to represent the top part of the left and right borders */
+    background-color: black; /* Border color */
+  }
+  
+
+  .manifest-title {
+    position: relative;
+    background: white;
+    z-index: 1;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .piece-box {
+    position: relative; /* Make sure each .piece-box is the reference point for the pseudo-element */
+}
+  .piece-box::before {
+    content: '';
+    position: absolute;
+    left: -1px; /* Align it to the left side */
+    top: 25px; /* Start 10% from the top to center it */
+    bottom: 5px; /* Stop 10% from the bottom to make the height 80% of the element */
+    width: 1px;
+    background-color: black; /* The color of the vertical line */
+}
+
+
+
   .root-title-underlined::after {
     content: "";
     position: absolute;
@@ -321,8 +376,10 @@ em, i {
   }
 
 .lg-faction-icon {
-  width: 40px;       /* Fixed width */
-  height: auto;      /* Scales the height proportionally */
+  max-height: 40px;
+  max-width: 40px; 
+  height: auto;  
+  width: auto;  
   margin-right: 2px;
   margin-bottom: 2px;
   border-radius: 3px;
@@ -752,6 +809,76 @@ tr.clickable-row:hover {
 
 
 
+
+.bar-container {
+  width: 100%; /* Full-width of the container */
+  padding: 10px 0;
+  border-left: 2px solid black;
+}
+
+.bar-background {
+  background-color: var(--bar-color, darkgrey); /* Dynamic background color of the bar */
+  height: 30px; /* Height of the bar */
+  /*width: 20%; /* Width of the bar (can be dynamic or fixed) */
+  position: relative; /* Positioning the label */
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2); /* Horizontal, vertical, blur radius, color */
+  /* border: 1px solid black; */
+  /*border-radius: 5px; /* Optional: for rounded corners */
+}
+.bar-background-low {
+  width: 25%; /* Width of the bar (can be dynamic or fixed) */
+}
+.bar-background-moderate {
+  width: 55%; /* Width of the bar (can be dynamic or fixed) */
+}
+.bar-background-high {
+  width: 95%; /* Width of the bar (can be dynamic or fixed) */
+}
+.bar-background-none {
+  width: 2%; /* Width of the bar (can be dynamic or fixed) */
+}
+
+.bar-text {
+  position: absolute; /* Absolutely position the text inside the bar */
+  top: 50%; /* Vertically center the text */
+  left: 11px; /* Adjust the left position to control text spacing */
+  transform: translateY(-50%); /* To fine-tune vertical centering */
+  color: #fff; /* Text color */
+  font-weight: bold; /* Optional: make the text bold */
+  text-transform: uppercase;
+}
+
+.bar-black-text {
+  color: black; /* Text color */
+}
+
+.bar-label {
+  padding-left: 3px;
+  font-style: italic;
+  font-size: 22px;
+}
+
+
+.background-images {
+  position: absolute;
+  width: 100%;
+  height: calc(100vh - 60px);
+  overflow: hidden; /* Ensures images don't overflow outside the container */
+  top: 60px;
+  background-attachment: fixed;
+}
+
+.background-image {
+  position: fixed;
+  top: 60px;
+  left: 0;
+  z-index: -1; /* Places images behind the content */
+  opacity: 0.5; /* Optional: controls transparency */
+  width: 100%; /* You can set specific width/height for each image if needed */
+  height: auto;
+
+}
+
 .test-img{
   grid-column: 1 / -1;
   position: absolute;
@@ -777,51 +904,3 @@ tr.clickable-row:hover {
 .test-img:hover {
   transform: translateX(50px); 
 } */
-
-.bar-container {
-  width: 100%; /* Full-width of the container */
-  padding: 10px 0;
-  border-left: 2px solid black;
-}
-
-.bar-background {
-  background-color: var(--bar-color, darkgrey); /* Dynamic background color of the bar */
-  height: 30px; /* Height of the bar */
-  /*width: 20%; /* Width of the bar (can be dynamic or fixed) */
-  position: relative; /* Positioning the label */
-  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2); /* Horizontal, vertical, blur radius, color */
-  /* border: 1px solid black; */
-  /*border-radius: 5px; /* Optional: for rounded corners */
-}
-.bar-background-low {
-  width: 25%; /* Width of the bar (can be dynamic or fixed) */
-}
-.bar-background-moderate {
-  width: 55%; /* Width of the bar (can be dynamic or fixed) */
-}
-.bar-background-high {
-  width: 90%; /* Width of the bar (can be dynamic or fixed) */
-}
-.bar-background-none {
-  width: 2%; /* Width of the bar (can be dynamic or fixed) */
-}
-
-.bar-text {
-  position: absolute; /* Absolutely position the text inside the bar */
-  top: 50%; /* Vertically center the text */
-  left: 11px; /* Adjust the left position to control text spacing */
-  transform: translateY(-50%); /* To fine-tune vertical centering */
-  color: #fff; /* Text color */
-  font-weight: bold; /* Optional: make the text bold */
-  text-transform: uppercase;
-}
-
-.bar-black-text {
-  color: black; /* Text color */
-}
-
-.bar-label {
-  padding-left: 3px;
-  font-style: italic;
-  font-size: 22px;
-}

@@ -12,6 +12,7 @@
     <div class="media-body">
 
     <h2>Faction Data</h2>
+    {% if object.complexity != 'N' or object.aggression != 'N' or object.card_wealth != 'N' or object.crafting_ability != 'N' %}
     <div class="row">
         <div class="col-12 col-md-6">
             <div class="bar-container">
@@ -42,22 +43,24 @@
             </div>
         </div>
     </div>
-    
+    {% endif %}
+    {% include 'the_keep/partials/pieces.html' %}
+
         {% if object.card_image or object.reach > 0 %}
-        <div class="article-content">
+        <div class='mb-1'>
             {% if object.card_image %}
                 <img class="adset-img" src="{{ object.card_image.url }}">
             {% elif object.reach > 0 %}
                 {{ object.get_type_display }} ({{ object.reach }} Reach)
             {% endif %}
-        </div> 
+        </div>
 
         {% endif %}
         {% if object.board_image %}
-            <img class="rounded-corner-img responsive-img" src="{{ object.board_image.url }}">
+            <img class="rounded-corner-img responsive-img mb-1" src="{{ object.board_image.url }}">
         {% endif %}
 
-        {% include 'the_keep/partials/pieces.html' %}
+
 
         {% if object.board_2_image %}
             <img class="rounded-corner-img responsive-img" src="{{ object.board_2_image.url }}">

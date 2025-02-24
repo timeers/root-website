@@ -56,8 +56,8 @@
                 {% endif %}
 
         </div>
-</div>
-<div>
+    </div>
+    <div>
             <div>
                 {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
                     {{ object.animal }}
@@ -67,11 +67,16 @@
 
             </div>
                 <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
-</div>
-<div>
+    </div>
+    <div>
                 {% if object.expansion %}
                     <div>
-                        <a class="mr-2" href="{% url 'expansion-detail' object.expansion.slug %}">{{ object.expansion.title }}</a>
+                        <a class="mr-2" href="{% url 'expansion-detail' object.expansion.slug %}">
+                            {% if object.expansion.picture %}
+                                <img class="lg-faction-icon" src="{{ object.expansion.picture.url }}">
+                            {% endif %}
+                            {{ object.expansion.title }}
+                        </a>
                     </div>
                 {% endif %}
 

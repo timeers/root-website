@@ -14,51 +14,6 @@
 <article class="media content-section">
     <div class="media-body">
 
-
-    <h2>Starting Items:</h2>
-        
-    {% if object.starting_torch %}
-        {% for i in object.starting_torch|times %}
-            <img src="{% static 'items/' %}torch.png" alt="Torch">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_tea %}
-        {% for i in object.starting_tea|times %}
-            <img src="{% static 'items/' %}tea.png" alt="Tea">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_bag %}
-        {% for i in object.starting_bag|times %}
-            <img src="{% static 'items/' %}bag.png" alt="Bag">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_boots %}
-        {% for i in object.starting_boots|times %}
-            <img src="{% static 'items/' %}boots.png" alt="Boots">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_coins %}
-        {% for i in object.starting_coins|times %}
-            <img src="{% static 'items/' %}coins.png" alt="Coins">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_hammer %}
-        {% for i in object.starting_hammer|times %}
-            <img src="{% static 'items/' %}hammer.png" alt="Hammer">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_sword %}
-        {% for i in object.starting_sword|times %}
-            <img src="{% static 'items/' %}sword.png" alt="Sword">
-        {% endfor %}
-    {% endif %}
-    {% if object.starting_crossbow %}
-        {% for i in object.starting_crossbow|times %}
-            <img src="{% static 'items/' %}crossbow.png" alt="Crossbow">
-        {% endfor %}
-    {% endif %}
-
-
     {% include 'the_keep/partials/pieces.html' %}
 
     {% if object.card_image %}
