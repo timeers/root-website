@@ -445,8 +445,32 @@ function updateDominance(dominanceName = '', addDominance = True){
                         if (addDominance){
                                 // Check if 'dominanceName' option already exists
                                 if (!$(dominanceField).find(`option[value="${dominanceName}"]`).length) {
-                                        const dominanceNameOption = new Option(dominanceName, dominanceName);
-                                        $(dominanceField).append(dominanceNameOption);
+                                        // Check for Mountain King and Crumbling Court
+                                        console.log("Checking For Court")
+                                        if (dominanceName === 'Mountain King'){
+                                                // Find the nearest parent or container that might contain the faction field
+                                                const parentContainer = dominanceField.closest('.effort-form');
+                                                // If we find the parent container, then try to find the corresponding faction field inside it
+                                                if (parentContainer) {
+                                                        const factionField = parentContainer.querySelector('[id$="-faction"]');
+                                             
+                                                        if (factionField){
+                                                                const selectedOption = factionField.options[factionField.selectedIndex]; // Get the selected option
+                                                                if (selectedOption){
+                                                                        const currentFactionSelection = selectedOption.text;
+                                                                        //const currentFactionSelection = factionField.value;
+                                                                        console.log(currentFactionSelection)
+                                                                        if (currentFactionSelection === 'The Crumbling Court'){
+                                                                                const dominanceNameOption = new Option(dominanceName, dominanceName);
+                                                                                $(dominanceField).append(dominanceNameOption);
+                                                                        }
+                                                                }
+                                                        }
+                                                }
+                                        }else{
+                                                const dominanceNameOption = new Option(dominanceName, dominanceName);
+                                                $(dominanceField).append(dominanceNameOption);
+                                        }
                                 }
                         }else{
                                 // Remove the 'dominanceName' option if it exists
@@ -660,6 +684,7 @@ document.addEventListener('htmx:afterRequest', function(event) {
                 let coalitionObjectList = [];
                 let vbFound = false
                 let frogFound = false
+                let bearFound = false
                 $('.effort-form').each((index, element) => {
                         var selector = "#id_form-" + index.toString() + "-faction";  // Dynamically generate the selector
                         var selectedOption = $(selector + ' option:selected');  // Get the selected option
@@ -686,6 +711,8 @@ document.addEventListener('htmx:afterRequest', function(event) {
 
                         if (selectedText === 'Lilypad Diaspora'){frogFound = true}
 
+                        if (selectedText === 'The Crumbling Court'){bearFound = true}
+
 
 
                         });
@@ -694,7 +721,11 @@ document.addEventListener('htmx:afterRequest', function(event) {
                 }else{
                         updateDominance(dominanceName="Frog", addDominance=false)
                 }
-                
+                if (bearFound){
+                        updateDominance(dominanceName="Mountain King", addDominance=true)
+                }else{
+                        updateDominance(dominanceName="Mountain King", addDominance=false)
+                }
                 const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
                 coalitionFields.forEach(coalitionField => {
                         updateSelectOptions(coalitionField, coalitionObjectList, '----------')

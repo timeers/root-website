@@ -18,7 +18,7 @@
     <div class="d-flex flex-wrap justify-content-evenly">
         {% if object.component != "Vagabond" %}
             {% if object.warriors.all or object.designer == user.profile and user.profile.designer  %}
-                <div class="p-2 flex-fill piece-box">
+                <div class="p-2 flex-fill">
                     <h5 class='root-title'>Warriors</h5>
                     <div id="W-pieces">
                         {% for piece in object.warriors.all %}

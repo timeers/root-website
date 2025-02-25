@@ -343,6 +343,7 @@ class Effort(models.Model):
         BIRD = 'Bird'
         DARK = 'Dark'
         FROG = 'Frog'
+        BEAR = 'Mountain King'
     class StatusChoices(models.TextChoices):
         ACTIVE = 'Active'
         ELIMINATED = 'Eliminated'
@@ -353,7 +354,7 @@ class Effort(models.Model):
     vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts')
     captains = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts_as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
-    dominance = models.CharField(max_length=10, choices=DominanceChoices.choices, null=True, blank=True)
+    dominance = models.CharField(max_length=20, choices=DominanceChoices.choices, null=True, blank=True)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')
