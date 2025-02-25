@@ -460,7 +460,7 @@ function updateDominance(dominanceName = '', addDominance = True){
                                                                         const currentFactionSelection = selectedOption.text;
                                                                         //const currentFactionSelection = factionField.value;
                                                                         console.log(currentFactionSelection)
-                                                                        if (currentFactionSelection === 'The Crumbling Court'){
+                                                                        if (currentFactionSelection === 'Crumbling Court'){
                                                                                 const dominanceNameOption = new Option(dominanceName, dominanceName);
                                                                                 $(dominanceField).append(dominanceNameOption);
                                                                         }
@@ -711,7 +711,7 @@ document.addEventListener('htmx:afterRequest', function(event) {
 
                         if (selectedText === 'Lilypad Diaspora'){frogFound = true}
 
-                        if (selectedText === 'The Crumbling Court'){bearFound = true}
+                        if (selectedText === 'Crumbling Court'){bearFound = true}
 
 
 
