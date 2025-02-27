@@ -25,6 +25,7 @@ class MapAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'clearings')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
+    inlines = [PieceInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -140,7 +141,7 @@ class DeckAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'card_total')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-
+    inlines = [PieceInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -242,11 +243,13 @@ class TweakAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'based_on', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
+    inlines = [PieceInline]
 
 class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
+    inlines = [PieceInline]
 
     def get_urls(self):
         urls = super().get_urls()
