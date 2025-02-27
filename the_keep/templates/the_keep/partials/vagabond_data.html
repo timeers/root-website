@@ -1,3 +1,4 @@
+<!-- DONE -->
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
@@ -25,7 +26,7 @@
     <h2>Ability</h2>
     <h4>{{ object.ability }}</h4>
     {% if object.ability_item != 'None' %}
-    <div><img src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}"></div>
+    <div><img class='lg-faction-icon' src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}"></div>
     {% endif %}
     <div>{{ object.ability_description }}</div>
 

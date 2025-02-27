@@ -63,7 +63,7 @@
             {% for result in games %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
-                    {{ result.nickname }} ({{ result.platform }})
+                    {{ result.nickname }} ({{ result.platform }}) Recorded by {{ result.recorder.name }}
                 </div>
             </a>
             {% endfor %}

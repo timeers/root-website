@@ -1,0 +1,9 @@
+{% if object.component == 'Vagabond' %}
+{% load static %}
+<h2>Ability</h2>
+<h4>{{ object.ability }}</h4>
+{% if object.ability_item != 'None' %}
+<div><img class='lg-faction-icon' src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}"></div>
+{% endif %}
+<div>{{ object.ability_description }}</div>
+{% endif %}

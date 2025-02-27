@@ -665,6 +665,9 @@ th.sortable:hover {
 .hidden-buttons {
   display: none;  /* Hide the buttons initially */
 }
+.hidden-pieces {
+  display: none;  /* Hide the buttons initially */
+}
 
 .parent {
   position: relative;

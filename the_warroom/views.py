@@ -1299,6 +1299,7 @@ def round_manage_view(request, tournament_slug, round_slug=None):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
 
     if not request.user.profile == tournament.designer and not request.user.profile.admin:
+        messages.error(request, "You do not have permission to view this page.")
         raise PermissionDenied() 
     
     current_round = 1

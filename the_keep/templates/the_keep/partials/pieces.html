@@ -1,6 +1,6 @@
-
-{% if object.pieces.count or object.designer == user.profile or object.component == 'Vagabond' %}
-<div class='mt-3 mb-3'>
+<!-- Component Manifest -->
+{% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.designer %}
+<div class='mt-2 mb-2'>
 
     {% if object.designer == user.profile and user.profile.designer %}
         <div class="d-flex justify-content-end">
@@ -18,7 +18,7 @@
     <div class="d-flex flex-wrap justify-content-evenly">
         {% if object.component != "Vagabond" %}
             {% if object.warriors.all or object.designer == user.profile and user.profile.designer  %}
-                <div class="p-2 flex-fill">
+                <div class="p-2 flex-fill{% if not object.warriors.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Warriors</h5>
                     <div id="W-pieces">
                         {% for piece in object.warriors.all %}
@@ -38,7 +38,7 @@
             {% endif %}
 
             {% if object.buildings.all or object.designer == user.profile and user.profile.designer %}
-                <div class="p-2 flex-fill piece-box">
+                <div class="p-2 flex-fill piece-box{% if not object.buildings.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Buildings</h5>
                     <div id="B-pieces">
                         {% for piece in object.buildings.all %}
@@ -58,7 +58,7 @@
             {% endif %}
 
             {% if object.tokens.all or object.designer == user.profile and user.profile.designer %}
-                <div class="p-2 flex-fill piece-box">
+                <div class="p-2 flex-fill piece-box{% if not object.tokens.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Tokens</h5>
                     <div id="T-pieces">
                         {% for piece in object.tokens.all %}
@@ -77,10 +77,22 @@
                 </div>
             {% endif %}
 
-            {% if object.cards.all or object.designer == user.profile and user.profile.designer %}
-                <div class="p-2 flex-fill piece-box">
+            {% if object.cards.all or object.component == 'Deck' or object.designer == user.profile and user.profile.designer %}
+                <div class="p-2 flex-fill piece-box{% if not object.cards.all and object.component != 'Deck' %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Cards</h5>
                     <div id="C-pieces">
+                        {% if object.component == 'Deck' %}
+
+                            <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
+                                <div class="d-flex align-items-center">
+                                    {% if object.card_image %}
+                                        <img class="lg-faction-icon mr-2" src="{{ object.card_image.url }}">x
+                                    {% endif %}
+                                    {{ object.card_total }} Cards
+                                </div>
+                            </div>
+
+                        {% endif %}
                         {% for piece in object.cards.all %}
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
@@ -100,7 +112,7 @@
             {% include 'the_keep/partials/vagabond_items.html' %}
         {% endif %}
         {% if object.component == "Vagabond" or object.otherpieces.all or object.designer == user.profile and user.profile.designer %}
-            <div class="p-2 flex-fill piece-box">
+            <div class="p-2 flex-fill piece-box{% if not object.otherpieces.all and object.component != "Vagabond" %} hidden-pieces{% endif %}">
                 <h5 class='root-title'>Other Pieces</h5>
                 <div id="O-pieces">
                     {% if object.component == "Vagabond" %}
@@ -201,37 +213,37 @@
 
 
         var editButton = document.getElementById('edit-button');
+        var isVisible = false; 
         if (editButton) {
             document.getElementById('edit-button').addEventListener('click', function() {
             var buttons = document.querySelectorAll('.hidden-buttons'); // Select all buttons with class 'hidden-buttons'
-
+            var pieces = document.querySelectorAll('.hidden-pieces'); // Select all categories with class 'hidden-pieces'
+            isVisible = !isVisible;
             // Loop through the buttons and toggle their visibility
             buttons.forEach(function(button) {
 
-                if (button.style.display === "none" || button.style.display === "") {
+                if (isVisible) {
                     button.style.display = "inline-block";  // Show the button
                 } else {
                     button.style.display = "none";  // Hide the button
                 }
             });
+            // Loop through the piece categories and toggle their visibility
+            pieces.forEach(function(piece) {
+
+                if (isVisible) {
+                    piece.style.display = "inline-block";  // Show the piece
+                } else {
+                    const componentPiece = piece.querySelector('div.component-piece');
+                    if (!componentPiece){
+                        piece.style.display = "none";  // Hide the piece
+                    }
+                }
+            });
+            
         });
         }
-        var saveButton = document.getElementById('save-all');
-        if (saveButton) {
-            document.getElementById('save-all').addEventListener('click', function() {
-                var buttons = document.querySelectorAll('.hidden-buttons'); // Select all buttons with class 'hidden-buttons'
-
-                // Loop through the buttons and toggle their visibility
-                buttons.forEach(function(button) {
-
-                    if (button.style.display === "none" || button.style.display === "") {
-                        button.style.display = "inline-block";  // Show the button
-                    } else {
-                        button.style.display = "none";  // Hide the button
-                    }
-                });
-            });
-        }
+       
 </script>
 
 {% endblock scripts %}

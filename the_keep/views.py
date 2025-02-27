@@ -561,6 +561,115 @@ def ultimate_component_view(request, slug):
 
 
 
+
+def component_games(request, slug):
+    
+    post = get_object_or_404(Post, slug=slug)
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=slug)
+
+    # Start with the base queryset
+    games = object.get_games_queryset()
+
+    # Apply the conditional filter if needed
+    if request.user.is_authenticated:
+        if not request.user.profile.weird:
+            games = games.filter(official=True)
+
+    # Apply distinct and prefetch_related to all cases  
+    prefetch_values = [
+        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+        'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    ]
+    games = games.distinct().prefetch_related(*prefetch_values)
+
+    game_filter = GameFilter(request.GET, user=request.user, queryset=games)
+
+    # Get the filtered queryset
+    filtered_games = game_filter.qs.distinct()
+
+    if post.component == "Faction" or post.component == "Clockwork":
+        efforts = Effort.objects.filter(game__in=filtered_games, faction=post)
+    elif post.component == "Vagabond":
+        efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
+    else:
+        efforts = Effort.objects.filter(game__in=filtered_games)
+    
+    # Get top players for factions
+    win_count = 0
+    coalition_count = 0
+    win_rate = 0
+    tourney_points = 0
+    total_efforts = 0
+    # On first load get faction and VB Stats
+    page_number = request.GET.get('page')  # Get the page number from the request
+    page_number = request.GET.get('page')  # Get the page number from the request
+    if not page_number:
+        if object.component == "Faction":
+            game_values = filtered_games.aggregate(
+                        total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
+                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
+                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
+                    )
+        if object.component == "Vagabond":
+            game_values = filtered_games.aggregate(
+                        total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
+                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__vagabond=object)),
+                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__vagabond=object))
+                    )
+        if object.component == "Faction" or object.component == "Vagabond":
+            # Access the aggregated values from the dictionary returned by .aggregate()
+            total_efforts = game_values['total_efforts']
+            win_count = game_values['win_count']
+            coalition_count = game_values['coalition_count']
+        if total_efforts > 0:
+            win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
+        else:
+            win_rate = 0
+        tourney_points = win_count - (coalition_count / 2)
+    # Paginate games
+    paginate_by = settings.PAGE_SIZE
+    paginator = Paginator(filtered_games, paginate_by)  # Use the queryset directly
+    try:
+        page_obj = paginator.get_page(page_number)  # Get the specific page of games
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+
+
+
+    context = {
+       'object': object,
+        'games_total': games.count(),
+        'filtered_games': filtered_games.count(),
+        'games': page_obj,  # Pagination applied here
+        'is_paginated': len(filtered_games) > paginate_by,
+        # 'page_obj': page_obj,  # Pass the paginated page object to the context
+        'form': game_filter.form,
+        'filterset': game_filter,
+        'win_count': win_count,
+        'coalition_count': coalition_count,
+        'win_rate': win_rate,
+        'tourney_points': tourney_points,
+        'total_efforts': total_efforts,
+    }
+    if request.htmx:
+            return render(request, 'the_keep/partials/game_list.html', context)
+    return render(request, 'the_keep/post_games.html', context)
+
+
+
+
 @login_required
 @bookmark_toggle(Post)
 def bookmark_post(request, object):
@@ -1053,6 +1162,11 @@ def pin_asset(request, id):
 def universal_search(request):
     query = request.GET.get('query', '')
     
+    
+    if request.user.is_authenticated:
+        view_status = request.user.profile.view_status
+    else:
+        view_status = 4
 
     # If the query is empty, set all results to empty QuerySets
     players = Profile.objects.none()
@@ -1072,13 +1186,13 @@ def universal_search(request):
         resources = PNPAsset.objects.none()
     else:
         # If the query is not empty, perform the search as usual
-        factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
-        maps = Map.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
-        decks = Deck.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
-        vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
-        landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
-        hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
-        tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        maps = Map.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        decks = Deck.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
         expansions = Expansion.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         if request.user.is_authenticated:
             if request.user.profile.player:

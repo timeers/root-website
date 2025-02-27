@@ -1,0 +1,113 @@
+{% if object.component == 'Faction' %}
+    {% if object.complexity != 'N' or object.aggression != 'N' or object.card_wealth != 'N' or object.crafting_ability != 'N' %}
+    <div class="row">
+        <div class="col-12 col-md-6">
+            <div class="bar-container">
+                <div class="bar-label">Complexity</div> 
+                <div class="bar-background bar-background-{{ object.get_complexity_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_complexity_display == 'None' %} bar-black-text{% endif %}">{{ object.get_complexity_display }}</div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">Aggression</div> 
+                <div class="bar-background bar-background-{{ object.get_aggression_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_aggression_display == 'None' %} bar-black-text{% endif %}">{{ object.get_aggression_display }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="bar-container">
+                <div class="bar-label">Card Wealth</div> 
+                <div class="bar-background bar-background-{{ object.get_card_wealth_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_card_wealth_display == 'None' %} bar-black-text{% endif %}">{{ object.get_card_wealth_display }}</div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">Crafting Ability</div> 
+                <div class="bar-background bar-background-{{ object.get_crafting_ability_display|lower }}" style="--bar-color: {{ object.color }};">
+                    <div class="bar-text{% if object.get_crafting_ability_display == 'None' %} bar-black-text{% endif %}">{{ object.get_crafting_ability_display }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{% endif %}
+
+{% block scripts %}
+
+ <script>
+
+function hexToRgb(hex) {
+    // Remove the hash symbol if it exists
+    hex = hex.replace(/^#/, '');
+
+    // Convert 3-character hex to 6-character hex if necessary
+    if (hex.length === 3) {
+        hex = hex.split('').map(function (char) {
+            return char + char;
+        }).join('');
+    }
+
+    // Parse the hex values and return RGB object
+    return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+    };
+}
+
+function luminance(r, g, b) {
+    // Normalize the RGB values to [0, 1] range and apply gamma correction
+    let a = [r, g, b].map(function (value) {
+        value = value / 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+
+    // Calculate the luminance based on the formula
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+}
+
+function contrastRatio(colorHex) {
+    // Convert hex color to RGB
+    const { r, g, b } = hexToRgb(colorHex);
+
+    // Calculate luminance of the background color
+    const L2 = luminance(r, g, b);
+
+    // Luminance of white text (always 1)
+    const L1 = 1;
+
+    // Calculate the contrast ratio
+    return (L1 + 0.05) / (L2 + 0.05);
+}
+
+function isWhiteTextLegible(colorHex, isLargeText = true) {
+    // Calculate the contrast ratio for white text
+    const ratio = contrastRatio(colorHex);
+    console.log(ratio)
+    // Use 4.5:1 for normal text and 3:1 for large text
+    // Using 2 for a little less contrast required
+    return ratio >= (isLargeText ? 1.9 : 4.5);
+}
+
+// Check if faction color is legible
+const color = '{{ object.color }}';
+const result = isWhiteTextLegible(color);
+
+// Find all elements with the class 'bar-text'
+const barTextElements = document.querySelectorAll('.bar-text');
+
+// If the white text is not legible, change the class to 'bar-black-text'
+if (!result) {
+    barTextElements.forEach(function (element) {
+        {% comment %} element.classList.remove('bar-text'); {% endcomment %}
+        element.classList.add('bar-black-text');
+    });
+    console.log("White text is not legible, changed to black text.");
+} else {
+    console.log("White text is legible.");
+}
+
+</script>
+
+{% endblock scripts %}

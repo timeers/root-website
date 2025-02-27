@@ -92,6 +92,7 @@ def designer_required(view_func):
         if profile.designer:
             return view_func(request, *args, **kwargs)  # Proceed with the original view
         else:
+            messages.error(request, "You do not have full permissions to view this page.")
             raise PermissionDenied() 
     return wrapper
 
@@ -113,6 +114,7 @@ def designer_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs)  # Proceed with the original view
         else:
+            messages.error(request, "You do not have full permissions to view this page.")
             raise PermissionDenied() 
     return wrapper
 
@@ -128,6 +130,7 @@ def player_required(view_func):
         if request.user.profile.player:
             return view_func(request, *args, **kwargs) 
         else:
+            messages.error(request, "Please join the Woodland Warriors Discord Server and try again.")
             raise PermissionDenied() 
     return wrapper
 
@@ -148,6 +151,7 @@ def player_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs) 
         else:
+            messages.error(request, "Please join the Woodland Warriors Discord Server and try again.")
             raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
@@ -190,6 +194,7 @@ def admin_required(view_func):
         if request.user.profile.admin:
             return view_func(request, *args, **kwargs)  # Continue to the view
         else:
+            messages.error(request, "You must be a site admin to view this page.")
             raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
@@ -210,6 +215,7 @@ def admin_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs)  # Continue to the view
         else:
+            messages.error(request, "You must be a site admin to view this page.")
             raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
@@ -770,6 +776,7 @@ def discord_feedback(request):
         page_title = "Send Feedback"
 
     if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root'):
+        messages.error(request, "You must be logged in to view this page.")
         raise PermissionDenied() 
 
     response_mapping = {

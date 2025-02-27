@@ -14,9 +14,7 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1>Resources</h1>
-            {% if profile.player %}
             <a class="btn btn-sm btn-success mb-3" href="{% url 'asset-new' %}">New Resource +</a>
-            {% endif %}
         </div>
 
         {% if shared_assets %}

@@ -1,0 +1,23 @@
+<!-- Component Images-->
+{% if object.card_image or object.card_2_image %}
+<div class='mb-1 d-flex justify-content-around align-items-center gap-3'>
+    {% if object.card_image %}
+    <div>
+        <img class="adset-img" src="{{ object.card_image.url }}">
+    </div>
+    {% endif %}
+    {% if object.card_2_image %}
+    <div>
+        <img class="adset-img" src="{{ object.card_2_image.url }}">
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if object.board_image %}
+    <img class="rounded-corner-img responsive-img mb-1" src="{{ object.board_image.url }}">
+{% endif %}
+
+{% if object.board_2_image %}
+    <img class="rounded-corner-img responsive-img" src="{{ object.board_2_image.url }}">
+{% endif %}

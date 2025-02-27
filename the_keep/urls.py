@@ -18,6 +18,7 @@ from .views import (
     search_view,
     add_piece, delete_piece,
     ultimate_component_view,
+    component_games,
 
     confirm_stable,
     confirm_testing,
@@ -61,6 +62,15 @@ urlpatterns = [
     path('vagabond/<slug:slug>/', ultimate_component_view, name='vagabond-detail'),
     path('faction/<slug:slug>/', ultimate_component_view, name='faction-detail'),
     path('clockwork/<slug:slug>/', ultimate_component_view, name='clockwork-detail'),
+    # Games
+    path('map/<slug:slug>/games/', component_games, name='map-games'),
+    path('deck/<slug:slug>/games/', component_games, name='deck-games'),
+    path('hireling/<slug:slug>/games/', component_games, name='hireling-games'),
+    path('landmark/<slug:slug>/games/', component_games, name='landmark-games'),
+    path('tweak/<slug:slug>/games/', component_games, name='tweak-games'),
+    path('vagabond/<slug:slug>/games/', component_games, name='vagabond-games'),
+    path('faction/<slug:slug>/games/', component_games, name='faction-games'),
+    path('clockwork/<slug:slug>/games/', component_games, name='clockwork-games'),
 
     path('map/<slug:slug>/update/', MapUpdateView.as_view(), name='map-update'),
     path('deck/<slug:slug>/update/', DeckUpdateView.as_view(), name='deck-update'),

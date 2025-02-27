@@ -1,6 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - {{ object.title }}{% endblock %}
 
+{% include 'the_keep/partials/component_meta.html' %}
 
 
 {% block content %}
@@ -12,41 +13,19 @@
         {% include 'the_keep/partials/links.html' %}
     {% endif %}
     <!-- Component Specific Details -->
-    {% include 'the_keep/partials/'|add:object.component|lower|add:'_data.html' %}
+    {% include 'the_keep/partials/component_data.html' %}
 
+    {% include 'the_keep/partials/component_leaderboard.html' %}
+
+    {% if object.component == 'Faction' %}
+        {% include 'the_keep/partials/faction_stats.html' %}
+    {% endif %}
 
    {% include 'the_keep/partials/related_posts.html' %}
 
     <!-- /partials/comments.html -->
 
-{% if games %}
 
-    {% include 'the_warroom/partials/game_filter_form.html' %}
-
-    <div id="games-container">
-        
-
-        {% include 'the_keep/partials/game_list.html' %}
-
-    </div>
-
-{% endif %}
 
 {% endblock content %} 
 
-{% block scripts %}
-        <script>
-                $('#id_faction').select2({
-                    placeholder: "Select an option",
-                    allowClear: true
-                });
-                $('#id_player').select2({
-                    placeholder: "Select an option",
-                    allowClear: true
-                });
-                $('#id_vagabond').select2({
-                    placeholder: "Select an option",
-                    allowClear: true
-                });
-        </script>
-{% endblock %}
