@@ -10,3 +10,4 @@ Disallow: /api/
 Disallow: /piece/
 Disallow: /new/
 Disallow: /scorecard/
+Disallow: /status/

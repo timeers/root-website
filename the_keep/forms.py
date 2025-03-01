@@ -12,8 +12,8 @@ from django.utils import timezone
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'title', 'expansion', 'picture', 'status']
-bottom_fields = ['lore', 'description', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
+top_fields = ['designer', 'title', 'expansion', 'picture', 'status', 'official', 'in_root_digital']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -49,6 +49,34 @@ class ExpansionCreateForm(forms.ModelForm):
                 self.fields.pop('open_roster', None)
                 self.fields.pop('end_date', None)
 
+    def clean(self):
+            cleaned_data = super().clean()
+            bgg_link = cleaned_data.get('bgg_link')
+            tts_link = cleaned_data.get('tts_link')
+            ww_link = cleaned_data.get('ww_link')
+            wr_link = cleaned_data.get('wr_link')
+            pnp_link = cleaned_data.get('pnp_link')
+            leder_games_link = cleaned_data.get('leder_games_link')
+            # Validate URLs
+            url_validator = URLValidator()
+            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]:
+                if url:  # Only validate if the field is filled
+                    try:
+                        url_validator(url)
+                    except ValidationError:
+                        raise ValidationError(f"The field '{url}' must be a valid URL.")
+            if ww_link and not f"discord.com/channels/{config['WW_GUILD_ID']}" in ww_link:
+                raise ValidationError(f"Link to Woodland Warriors is not a valid thread")
+            if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
+                raise ValidationError(f"Link to Weird Root is not a valid thread")
+            if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
+                raise ValidationError('Link to Board Game Geek is not a valid thread')
+            if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
+                raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
+            if leder_games_link and not "ledergames.com/products" in leder_games_link:
+                    raise ValidationError('Link to Leder Games is not a valid product')
+            
+            return cleaned_data
 
 class PostImportForm(forms.ModelForm):
     form_type = 'Component'
@@ -112,7 +140,8 @@ class PostCreateForm(forms.ModelForm):
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
             'pnp_link': "Link to Print and Play Files",
-            'stl_link': "Link to STL Files (if not in PNP)"
+            'stl_link': "Link to STL Files (if not in PNP)",
+            'leder_games_link': "Link to Leder Games",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
         
@@ -159,10 +188,18 @@ class PostCreateForm(forms.ModelForm):
             self.fields['designer'].initial = user.profile.id
 
         self.fields['designer'].label = "Designer (Admin Only)"
+
         # Hide the designer field for non-admin users
 
         if not user.profile.admin or post_instance:
             self.fields.pop('designer', None)  # Remove designer field entirely
+        if not user.profile.admin:
+            self.fields.pop('official', None)  # Remove official field entirely
+            self.fields.pop('in_root_digital', None)  # Remove designer field entirely
+            self.fields.pop('leder_games_link', None)
+        else:
+            self.fields['official'].label = "Official (Admin Only)"
+            self.fields['in_root_digital'].label = "Playable In DWD Root Digital (Admin Only)"
         
         # Remove Weird Root link option if not in Weird Root
         if not user.profile.in_weird_root:
@@ -190,6 +227,9 @@ class PostCreateForm(forms.ModelForm):
             ww_link = cleaned_data.get('ww_link')
             wr_link = cleaned_data.get('wr_link')
             pnp_link = cleaned_data.get('pnp_link')
+            leder_games_link = cleaned_data.get('leder_games_link')
+            official = cleaned_data.get('official')
+            in_root_digital = cleaned_data.get('in_root_digital')
             # designer = cleaned_data.get('designer')
 
             # # # If designer is None, set it to the current user's profile
@@ -197,24 +237,31 @@ class PostCreateForm(forms.ModelForm):
             # #     designer = self.user.profile
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, tts_link, ww_link, wr_link, pnp_link]):
+            if not any([bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]):
                 raise ValidationError("Please include a link to one of the following: a Board Game Geek post, a Tabletop Simulator Mod, a Woodland Warriors Discord Thread, a Weird Root Discord Thread, or Print and Play Files.")
             # Validate URLs
             url_validator = URLValidator()
-            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link]:
+            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]:
                 if url:  # Only validate if the field is filled
                     try:
                         url_validator(url)
                     except ValidationError:
                         raise ValidationError(f"The field '{url}' must be a valid URL.")
             if ww_link and not f"discord.com/channels/{config['WW_GUILD_ID']}" in ww_link:
-                raise ValidationError(f"Please check and correct the link to Woodland Warriors")
+                raise ValidationError(f"Link to Woodland Warriors is not a valid thread")
             if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
-                raise ValidationError(f"Please check and correct the link to Weird Root")
+                raise ValidationError(f"Link to Weird Root is not a valid thread")
             if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
-                raise ValidationError('Please check and correct the link to Board Game Geek')
+                raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
-                raise ValidationError('Please check and correct the link to Tabletop Simulator')
+                raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
+            if leder_games_link:
+                if not "ledergames.com/products" in leder_games_link:
+                    raise ValidationError('Link to Leder Games is not a valid product')
+                if not official:
+                    raise ValidationError('Only Official products can be linked to Leder Games')
+            if in_root_digital and not official:
+                raise ValidationError('Only official products can be included in Root Digital')
             
             return cleaned_data
 

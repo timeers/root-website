@@ -20,7 +20,7 @@
 {% endif %}
 
 <h2 class="mt-2">Feedback{% if user.profile.player %} and FAQ{% endif %}</h2>
-Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url 'discord-feedback' %}'>here</a>.
+Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
 {% if user.profile.player %}
  You can also find a more detailed FAQ at the <a mclass='clickable-link' href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.
 {% endif %}

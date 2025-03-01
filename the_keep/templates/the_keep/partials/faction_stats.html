@@ -6,17 +6,20 @@
     <div class="media-body">
         <div class="chart-container">
             <div class="chart" id="lineChartContainer">
-                <h2>Point Breakdown</h2>
+                <h2 class='root-title'>Points Breakdown</h2>
+                {% if detail_scorecard_count %}
                 <div id='pieDescription'>
-                    Recorded average points by category.<br>
+                    Point categories for this faction are based on {{ detail_scorecard_count }} user submitted scorecard{% if detail_scorecard_count != 1 %}s{% endif %}.<br>
                     Faction points are scored with faction abilities, crafting points are from crafting items, battle points are from removing cardboard in battle, other points are anything else.
                 </div>
-
+                {% endif %}
                 
             </div>
+            {% if detail_scorecard_count %}
             <div class="chart" id="pieChartContainer">
                 <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
             </div>
+            {% endif %}
 
         </div>
         <div class="chart-container">
@@ -25,7 +28,7 @@
 
         </div>
     </div>
-    Based on:
+    Chart based on:
     <div id="titleGames">
         x Faction Plays
     </div>
@@ -115,10 +118,10 @@
 
         if (factionType === "M") {
             typeColor = '#FE0000';
-            typeName = 'Militant';
+            typeName = 'Militant Faction';
         } else {
             typeColor = '#9D9A9A';
-            typeName = 'Insurgent';
+            typeName = 'Insurgent Faction';
         }
         // Replace the text content in the divs
         document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} Plays`;
@@ -253,14 +256,6 @@
             }
         });
 
-    }else{
-        if (pieChartContainer) {
-            pieChartContainer.remove();
-        }
-        const pieDescriptionElement = document.getElementById('pieDescription');
-        if (pieDescriptionElement) {
-            pieDescriptionElement.remove();  // This will remove the entire element
-        }
     }
 
     })

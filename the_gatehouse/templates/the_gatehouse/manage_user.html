@@ -12,7 +12,7 @@
         <div class="media-body">
             
 
-            <h2 class="account-heading root-title"><a href="{% url 'player-detail' user_to_edit.slug %}">{{ user_to_edit.name }}</a></h2>
+            <h1 class="account-heading root-title"><a href="{% url 'player-detail' user_to_edit.slug %}">{{ user_to_edit.name }}</a></h1>
 
             {% if user_to_edit.discord %}
                 <span class="text-secondary">Discord: {{ user_to_edit.discord }}</span><br>

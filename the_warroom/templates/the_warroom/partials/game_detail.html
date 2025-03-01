@@ -31,7 +31,7 @@
         {% include 'the_warroom/partials/bookmarks.html' %}
         {% if user.profile.player %}
         <div>
-            <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'discord-feedback' %}?category=report&feedback_subject=Game: {{ game.id }}">
+            <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'game-feedback' game.id %}">
                 <i class="bi bi-tools"></i>
             </a>
         </div>

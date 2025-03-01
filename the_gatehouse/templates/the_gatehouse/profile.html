@@ -10,9 +10,9 @@
             <div class="media-body">
                 
                 {% if user.profile.player %}
-                    <h2 class="account-heading root-title"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h2>
+                    <h1 class="account-heading root-title"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h1>
                 {% else %}
-                    <h2 class="account-heading root-title">{{ user.profile.name }}</h2>
+                    <h1 class="account-heading root-title">{{ user.profile.name }}</h1>
                 {% endif %}
                 {% if user.profile.discord %}
                     <span class="text-secondary">Discord: {{ user.profile.discord }}</span><br>

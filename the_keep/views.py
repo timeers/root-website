@@ -488,6 +488,7 @@ def ultimate_component_view(request, slug):
     tourney_points = 0
     total_efforts = 0
     scorecard_count = None
+    detail_scorecard_count = None
     # On first load get faction and VB Stats
     page_number = request.GET.get('page')  # Get the page number from the request
     if not page_number:
@@ -502,6 +503,7 @@ def ultimate_component_view(request, slug):
                         coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
                     )
             scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False).count()
+            detail_scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False, total_generic_points=0).count()
         if object.component == "Vagabond":
             game_values = filtered_games.aggregate(
                         total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
@@ -554,6 +556,7 @@ def ultimate_component_view(request, slug):
         'related_posts': related_posts,
         'links_count': links_count,
         'scorecard_count': scorecard_count,
+        'detail_scorecard_count': detail_scorecard_count,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -1186,13 +1189,13 @@ def universal_search(request):
         resources = PNPAsset.objects.none()
     else:
         # If the query is not empty, perform the search as usual
-        factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
-        maps = Map.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
-        decks = Deck.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
-        vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
-        landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
-        hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
-        tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status)
+        factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
+        maps = Map.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
+        decks = Deck.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
+        vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
+        landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
+        hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
+        tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
         expansions = Expansion.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         if request.user.is_authenticated:
             if request.user.profile.player:

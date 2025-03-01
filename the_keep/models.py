@@ -370,6 +370,24 @@ class Post(models.Model):
             case _:
                 return reverse('faction-update', kwargs={'slug': self.slug})
 
+    def get_games_url(self):
+        match self.component:
+            case "Map":
+                return reverse('map-games', kwargs={'slug': self.slug})
+            case "Deck":
+                return reverse('deck-games', kwargs={'slug': self.slug})
+            case "Landmark":
+                return reverse('landmark-games', kwargs={'slug': self.slug})
+            case "Tweak":
+                return reverse('tweak-games', kwargs={'slug': self.slug})
+            case "Hireling":
+                return reverse('hireling-games', kwargs={'slug': self.slug})        
+            case "Vagabond":
+                return reverse('vagabond-games', kwargs={'slug': self.slug})
+            case "Clockwork":
+                return reverse('clockwork-games', kwargs={'slug': self.slug})
+            case _:
+                return reverse('faction-games', kwargs={'slug': self.slug})
 
     def add_change(self, note):
         changes = json.loads(self.change_log)

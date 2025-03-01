@@ -3,7 +3,6 @@ from django.utils.text import slugify
 import uuid
 from urllib.parse import urljoin
 
-
 def slugify_instance_discord(instance, save=False, new_slug=None):
     if new_slug is not None:
         slug = new_slug
@@ -72,3 +71,4 @@ def get_base_url(request):
 def build_absolute_uri(request, relative_url):
     full_url = urljoin(get_base_url(request), relative_url)
     return full_url
+

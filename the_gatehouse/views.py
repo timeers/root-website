@@ -1,6 +1,8 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.http import JsonResponse, Http404
+from django.db import connection
+from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.views.generic import ListView, UpdateView, CreateView
@@ -19,9 +21,10 @@ from .discordservice import send_rich_discord_message, send_discord_message
 from .utils import build_absolute_uri
 
 from the_tavern.views import bookmark_toggle
-from the_warroom.models import Tournament, Round, Effort
+from the_warroom.models import Tournament, Round, Effort, Game
 
-from the_keep.models import Faction
+from the_keep.models import Faction, Post
+
 
 
 
@@ -766,6 +769,90 @@ def manage_user(request, slug):
     return render(request, 'the_gatehouse/manage_user.html', context)
 
 
+def get_feedback_context(request, message_category, feedback_subject=None):
+    # Title Mapping for message categories
+    title_mapping = {
+        'general': 'General Feedback',
+        'bug': 'Bug Report',
+        'feature': 'Feature Request',
+        'usability': 'Usability Feedback',
+        'outdated': 'Outdated Information',
+        'incorrect': 'Incorrect Information',
+        'offensive': 'Offensive Image/Language',
+        'spam': 'Spam',
+        'faction': 'Faction Request',
+        'map': 'Map Request',
+        'deck': 'Deck Request',
+        'other': 'Other',
+        'weird-root': 'Weird Root'
+    }
+
+    response_mapping = {
+        "feedback": 'Thank you for your feedback!',
+        "request": 'Your request has been received',
+        "report": 'Your report has been received',
+        "weird-root": 'Your request has been received',
+    }
+
+    # Page Title Logic
+    if message_category == 'report':
+        page_title = f'Report {feedback_subject}'
+    elif message_category == 'weird-root':
+        page_title = f'Request Invite to Weird Root'
+    elif message_category:
+        page_title = f"Send {message_category.title()}"
+    else:
+        page_title = "Send Feedback"
+
+    # Authentication Check
+    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root'):
+        messages.error(request, "You must be logged in to view this page.")
+        raise PermissionDenied()
+
+    # Author determination logic
+    if not request.user.is_authenticated:
+        author = None
+    else:
+        author = request.user.profile.discord
+
+    # Form processing
+    if request.method == 'POST':
+        form = MessageForm(request.POST, author=author, message_category=message_category)
+        if form.is_valid():
+            title = form.cleaned_data['title']
+            message_title = title_mapping.get(title, "General")
+
+            message = form.cleaned_data['message']
+            fields = []
+            if not request.user.is_authenticated:
+                from_user = form.cleaned_data['author']
+                if not from_user:
+                    from_user = "Anonymous User"
+            else:
+                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())})'
+
+            fields.append({'name': 'From', 'value': from_user})
+
+            # Add subject if provided
+            if feedback_subject:
+                fields.append({'name': 'Subject', 'value': feedback_subject})
+
+            # Send Discord message
+            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
+
+            # Set success response message
+            response_message = response_mapping.get(message_category, 'Your message has been sent!')
+            messages.success(request, response_message)
+            # return redirect('keep-home')
+    else:
+        form = MessageForm(author=author, message_category=message_category)
+
+    return {
+        'form': form,
+        'title': page_title
+    }
+
+
 def discord_feedback(request):
 
     message_category = request.GET.get('category', 'feedback')  # Default to 'feedback' if not provided
@@ -858,3 +945,107 @@ def discord_feedback(request):
     }
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+
+
+def general_feedback(request):
+
+    message_category = 'feedback'
+    feedback_subject = None
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        # Redirect to home (you can replace 'home' with the actual name of your home URL)
+        return redirect('keep-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+def post_feedback(request, slug):
+
+    post = get_object_or_404(Post, slug=slug)
+
+    message_category = 'report'
+    feedback_subject = f'{post.component}: {post.title}'
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        # Redirect to home (you can replace 'home' with the actual name of your home URL)
+        return redirect('keep-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+@player_required
+def player_feedback(request, slug):
+
+    player = get_object_or_404(Profile, slug=slug.lower())
+
+    message_category = 'report'
+    feedback_subject = f'User: {player.discord}'
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        # Redirect to home (you can replace 'home' with the actual name of your home URL)
+        return redirect('keep-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+def game_feedback(request, id):
+
+    # game = get_object_or_404(Game, id=id)
+
+    message_category = 'report'
+    feedback_subject = f'Game: {id}'
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        # Redirect to home (you can replace 'home' with the actual name of your home URL)
+        return redirect('keep-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+@player_required
+def weird_root_invite(request, slug):
+    
+    post = get_object_or_404(Post, slug=slug)
+
+    message_category = 'weird-root'
+    feedback_subject = f'{post.component}: {post.title}'
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        # Redirect to home (you can replace 'home' with the actual name of your home URL)
+        return redirect('keep-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+
+
+def status_check(request):
+    # Check database connection
+    try:
+        # Run a simple database query to check if it's responding
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': f'Database error: {str(e)}'}, status=500)
+
+    # Check if the cache is working (optional, if you're using Django caching)
+    try:
+        cache.set('status_check', 'ok', timeout=1)
+        if cache.get('status_check') != 'ok':
+            raise Exception('Cache check failed')
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': f'Cache error: {str(e)}'}, status=500)
+
+    # Return a successful status
+    return JsonResponse({'status': 'ok'}, status=200)

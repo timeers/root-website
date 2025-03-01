@@ -40,7 +40,7 @@
                 Weird Root Thread
             </a>
             {% elif user.profile.player %}
-                <a class="mr-2 mt-1" href="{% url 'discord-feedback' %}?category=weird-root&feedback_subject={{ object.component }}: {{ object.title|urlencode }}" style="display: inline-flex; align-items: center;">
+                <a class="mr-2 mt-1" href="{% url 'weird-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
                     Request Invite
                 </a>
