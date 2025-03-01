@@ -585,6 +585,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     def create_style_choice_field(field_name):
         STYLE_CHOICES = [
+            ('N', 'None'),
             ('L', 'Low'),
             ('M', 'Moderate'),
             ('H', 'High'),
@@ -603,10 +604,6 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     card_wealth = create_style_choice_field('Card Wealth')
     aggression = create_style_choice_field('Aggression')
     crafting_ability = create_style_choice_field('Crafting Ability')
-    # complexity = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
-    # card_wealth = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
-    # aggression = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
-    # crafting_ability = forms.ChoiceField(choices=STYLE_CHOICES, initial="M", widget=STYLE_WIDGET, required=True)
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Faction']),
         required=False

@@ -83,6 +83,13 @@
                 </div>
             </div>
         {% endif %}
+        {% if object.designer == user.profile and user.profile.designer %}
+            <div class="d-flex">
+                <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons" id="saveAndGo-button">
+                    Edit Items <i class="bi bi-pencil-square"></i>
+                </button>
+            </div>
+        {% endif %}
     </div>
 </div>
         

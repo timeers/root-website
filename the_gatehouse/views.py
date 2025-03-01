@@ -307,9 +307,10 @@ def designer_component_view(request, slug):
 
 
     if request.htmx:
-        return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
-    return render(request, "the_gatehouse/partials/profile_post_list.html", context)  
-    return redirect('player-detail', slug=slug)
+        return render(request, "the_gatehouse/partials/profile_post_list.html", context)  
+    raise Http404("Object not found") 
+    # return render(request, "the_gatehouse/partials/profile_post_list.html", context)  
+    # return redirect('player-detail', slug=slug)
 
 
 
@@ -349,9 +350,10 @@ def artist_component_view(request, slug):
 
 
     if request.htmx:
-        return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
-    return render(request, "the_gatehouse/partials/profile_post_list.html", context) 
-    return redirect('player-detail', slug=slug)
+        return render(request, "the_gatehouse/partials/profile_post_list.html", context)  
+    raise Http404("Object not found")
+    # return render(request, "the_gatehouse/partials/profile_post_list.html", context) 
+    # return redirect('player-detail', slug=slug)
 
 
 
@@ -383,8 +385,9 @@ def post_bookmarks(request, slug):
     }
     if request.htmx:
         return render(request, "the_gatehouse/partials/profile_post_list.html", context)   
-    return render(request, "the_gatehouse/partials/profile_post_list.html", context)
-    return redirect('player-detail', slug=slug)
+    raise Http404("Object not found")
+    # return render(request, "the_gatehouse/partials/profile_post_list.html", context)
+    # return redirect('player-detail', slug=slug)
 
 @login_required
 def game_bookmarks(request, slug):
@@ -412,8 +415,9 @@ def game_bookmarks(request, slug):
     }
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-    return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-    return redirect('player-detail', slug=slug)
+    raise Http404("Object not found")
+    # return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
+    # return redirect('player-detail', slug=slug)
 
 
 @login_required
@@ -467,7 +471,8 @@ def player_games(request, slug):
     }
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-    return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
+    raise Http404("Object not found")
+    # return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
 
 @login_required
 def onboard_user(request, user_type=None):

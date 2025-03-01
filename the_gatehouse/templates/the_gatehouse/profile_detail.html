@@ -30,7 +30,7 @@
             
             <div class='mt-auto'>
             {% if player == user.profile %}
-                <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-gear-wide-connected"></i></a> 
+                <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'profile' %}"><i class="bi bi-gear-wide-connected"> Settings</i></a> 
             {% elif user.profile.admin %}
                     <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'manage-user' player.slug %}"><i class="bi bi-pencil-square"></i></a>
             {% elif user.profile.player %}
@@ -64,7 +64,7 @@
         {% endif %}
         {% if user.profile.weird and player.posts.count %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false">Components ({{ posts_count }})</a>
+            <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false">Posts ({{ posts_count }})</a>
         </li>
         {% endif %}
         {% if player.artist_posts.count %}

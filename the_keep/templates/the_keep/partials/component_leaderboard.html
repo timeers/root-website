@@ -51,8 +51,16 @@
         {% endif %}
 
         {% if games %}
-            <h3 class='root-title'>Games</h3>
-            <a class='clickable-segment' href="{{ object.get_absolute_url }}games">View {{ games_total }} Game{% if games_total != 1 %}s{% endif %}</a>
+        <div class='clickable-segment'>
+            <a href="{{ object.get_absolute_url }}games" class="w-100">
+                <div>
+                    <h3 class='root-title'>Games</h3>
+                </div>
+                <div>
+                    View {{ games_total }} Game{% if games_total != 1 %}s{% endif %}
+                </div>
+            </a>
+        </div>
         {% endif %}
         </div>
     </article>

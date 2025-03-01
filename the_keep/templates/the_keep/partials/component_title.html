@@ -4,7 +4,7 @@
 {% elif object.component == 'Hireling' %}
     <h2 class='root-title mx-auto'>{{ object.get_type_display }} Hireling</h2>
 {% elif object.component == 'Faction' %}
-    <h2 class='root-title mx-auto'>{{ object.get_type_display }} Faction{% if object.reach != 0 %} ({{ object.reach }} Reach){% endif %}</h2>
+    <h2 class='root-title mx-auto'>{% if object.reach != 0 %}{{ object.get_type_display }} Faction ({{ object.reach }} Reach){% else %}Faction{% endif %}</h2>
 {% elif object.component == 'Tweak' %}
     <h2 class='root-title mx-auto'>House Rule</h2>
 {% elif object.component == 'Clockwork' %}

@@ -18,5 +18,7 @@ urlpatterns = [
     path('profile/<slug:slug>/game-bookmarks/', game_bookmarks, name='game-bookmarks'),
     path('profile/', profile, name='profile'),
     path('profiles/', ProfileListView.as_view(), name='players-list'),
-    path('feedback/', discord_feedback, name='discord-feedback')
+    path('feedback/', discord_feedback, name='discord-feedback'),
+    path('bookmarks/', profile, name='profile-bookmarks'),
+
 ]

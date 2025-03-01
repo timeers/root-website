@@ -5,7 +5,7 @@
     {% if object.designer == user.profile and user.profile.designer %}
         <div class="d-flex justify-content-end">
             <button id="edit-button" class="btn btn-warning btn-sm mt-1 mb-1 ml-2">
-                <i class="bi bi-pencil-square"></i>
+                Edit Components <i class="bi bi-pencil-square"></i>
             </button>
         </div>    
     {% endif %}
@@ -90,8 +90,15 @@
                                     {% endif %}
                                     {{ object.card_total }} Cards
                                 </div>
-                            </div>
 
+                            </div>
+                            {% if object.designer == user.profile and user.profile.designer %}
+                            <div class="d-flex">
+                                <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons" id="saveAndGo-button">
+                                    Edit Cards <i class="bi bi-pencil-square"></i>
+                                </button>
+                            </div>
+                        {% endif %}
                         {% endif %}
                         {% for piece in object.cards.all %}
                             {% include 'the_keep/partials/piece_line.html' %}
@@ -243,7 +250,17 @@
             
         });
         }
-       
+        var saveAndGoButton = document.getElementById('saveAndGo-button');
+        if (saveAndGoButton){
+            document.getElementById('saveAndGo-button').addEventListener('click', function() {
+                // Trigger the 'save-all' button's click event
+                document.getElementById('save-all').click();
+            
+                // Redirect to a new link
+                window.location.href = "{{ object.get_edit_url }}";
+            });
+        }
+
 </script>
 
 {% endblock scripts %}

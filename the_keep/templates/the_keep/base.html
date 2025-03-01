@@ -41,7 +41,7 @@
     <!-- Header -->
     {% include 'includes/header.html' %}
     {% block background %}{% endblock %}
-    <main role="main" class="container">
+    <main role="main" class="container main-content">
         
       <div class="row">
         <div class="col-md-9">
@@ -53,18 +53,12 @@
                 {% endfor %}
             {% endif %}
           
-            <!-- <div class="alert alert-info">
-                Welcome! There's more than what you see here. Log in using Discord to see fan content, game details and more!
-            </div> -->
-          
             {% block content %}{% endblock %}
         </div>
-        
-        <!-- Sidebar -->
-        
-
       </div>
     </main>
+    <!--Footer-->
+    
 
     <!-- Optional JavaScript -->
     <!-- jQuery first, then Popper.js, then Bootstrap JS -->

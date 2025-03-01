@@ -1,4 +1,5 @@
 import os
+import uuid
 from django.db import models
 from django.db.models.signals import pre_save, post_save
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
@@ -9,6 +10,7 @@ from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 import json
 from PIL import Image
+from io import BytesIO
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
@@ -112,7 +114,7 @@ class Expansion(models.Model):
         super().save(*args, **kwargs)
         # Resize images before saving
         if self.picture:
-            resize_image(self.picture, 950)  # Resize small_icon
+            resize_image(self.picture, 950)  # Resize expansion image
 
 class Post(models.Model):
     
@@ -253,7 +255,7 @@ class Post(models.Model):
 
         super().save(*args, **kwargs)
         # if self.small_icon:
-        resize_image(self.small_icon, 40)
+        resize_image(self.small_icon, 80)
         # if self.board_image:
         resize_image(self.board_image, 950)  # Resize board_image
         # if self.board_2_image:
@@ -300,6 +302,35 @@ class Post(models.Model):
         except Exception as e:
             print(f"Error resizing image: {e}")
 
+    def process_and_save_small_icon(self, image_field_name):
+        """
+        Process the image field, resize it, and save it to the `small_icon` field.
+        This method can be used by any subclass of Post to reuse the image processing logic.
+        """
+        # Get the image from the specified field
+        image = getattr(self, image_field_name)
+
+        if image:
+            # Open the image from the ImageFieldFile
+            img = Image.open(image)
+                # Convert the image to RGB if it's in a mode like 'P' (palette-based)
+            # if img.mode != 'RGB':
+            #     img = img.convert('RGB')
+            # Create a copy of the image
+            small_icon_copy = img.copy()
+
+            # Optionally, save the image to a new BytesIO buffer
+            img_io = BytesIO()
+            small_icon_copy.save(img_io, format='PNG')  # Save as a JPEG, or another format as needed
+            img_io.seek(0)
+            # Now you can assign the img_io to your model field or save it to a new ImageField
+            # Generate a unique filename using UUID
+            unique_filename = f"{uuid.uuid4().hex}.png"
+
+            # Save to small_icon field with unique filename
+            self.small_icon.save(unique_filename, img_io, save=False)
+
+
     def get_absolute_url(self):
         match self.component:
             case "Map":
@@ -319,6 +350,25 @@ class Post(models.Model):
             case _:
                 return reverse('faction-detail', kwargs={'slug': self.slug})
 
+
+    def get_edit_url(self):
+        match self.component:
+            case "Map":
+                return reverse('map-update', kwargs={'slug': self.slug})
+            case "Deck":
+                return reverse('deck-update', kwargs={'slug': self.slug})
+            case "Landmark":
+                return reverse('landmark-update', kwargs={'slug': self.slug})
+            case "Tweak":
+                return reverse('tweak-update', kwargs={'slug': self.slug})
+            case "Hireling":
+                return reverse('hireling-update', kwargs={'slug': self.slug})        
+            case "Vagabond":
+                return reverse('vagabond-update', kwargs={'slug': self.slug})
+            case "Clockwork":
+                return reverse('clockwork-update', kwargs={'slug': self.slug})
+            case _:
+                return reverse('faction-update', kwargs={'slug': self.slug})
 
 
     def add_change(self, note):
@@ -389,6 +439,26 @@ class Deck(Post):
             self.picture = 'default_images/deck.png'
         self.component_snippet = f"{self.card_total} Card"
 
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+           
+            if self.card_image:
+                field_name = 'card_image'
+            else:
+                field_name = 'picture'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image or not self.small_icon:
+                delete_old_image(getattr(old_instance,'small_icon'))
+                self.process_and_save_small_icon(field_name)
+        else:
+            if self.card_image:
+                field_name = 'card_image'
+            else:
+                field_name = 'picture'
+            self.process_and_save_small_icon(field_name)
+
         super().save(*args, **kwargs)  # Call the parent save method
 
 
@@ -422,6 +492,22 @@ class Landmark(Post):
         self.sorting = 5
         if not self.picture:
             self.picture = 'default_images/landmark.png'
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+           
+
+            field_name = 'picture'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image or not self.small_icon:
+                delete_old_image(getattr(old_instance,'small_icon'))
+                self.process_and_save_small_icon(field_name)
+        else:
+            field_name = 'picture'
+            self.process_and_save_small_icon(field_name)
+    
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -448,6 +534,19 @@ class Tweak(Post):
         self.sorting = 8
         if not self.picture:
             self.picture = 'default_images/tweak.png'
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+
+            field_name = 'picture'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image or not self.small_icon:
+                delete_old_image(getattr(old_instance,'small_icon'))
+                self.process_and_save_small_icon(field_name)
+        else:
+            field_name = 'picture'
+            self.process_and_save_small_icon(field_name)
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -480,7 +579,36 @@ class Map(Post):
             self.picture = 'default_images/map.png'
 
         self.component_snippet = f"{self.clearings} Clearing"
-        super().save(*args, **kwargs)  # Call the parent save method
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+           
+            if self.board_image:
+                field_name = 'board_image'
+            else:
+                field_name = 'picture'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image or not self.small_icon:
+                delete_old_image(getattr(old_instance,'small_icon'))
+                self.process_and_save_small_icon(field_name)
+        else:
+            if self.board_image:
+                field_name = 'board_image'
+            else:
+                field_name = 'picture'
+            self.process_and_save_small_icon(field_name)
+            
+
+        super().save(*args, **kwargs)
+
+
+
+
+
+
+
 
     def stable_check(self):
         stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
@@ -536,6 +664,22 @@ class Vagabond(Post):
         self.sorting = 4
         if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+
+            field_name = 'picture'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image or not self.small_icon:
+                delete_old_image(getattr(old_instance,'small_icon'))
+                self.process_and_save_small_icon(field_name)
+        else:
+
+            field_name = 'picture'
+            self.process_and_save_small_icon(field_name)
+
         super().save(*args, **kwargs)  # Call the parent save method
 
     
@@ -823,6 +967,23 @@ class Hireling(Post):
             self.picture = animal_default_picture(self)
         self.component_snippet = f"{self.get_type_display()}"
         # Call the parent class's save() method (this saves self to the database)
+
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Post.objects.get(pk=self.pk)
+
+            field_name = 'picture'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image or not self.small_icon:
+                delete_old_image(getattr(old_instance,'small_icon'))
+                self.process_and_save_small_icon(field_name)
+        else:
+            field_name = 'picture'
+            self.process_and_save_small_icon(field_name)
+
+
+
         super().save(*args, **kwargs)
 
         # # Handle the reverse relationship for `other_side` before saving
@@ -910,12 +1071,10 @@ class Piece(models.Model):
 
     def delete(self, *args, **kwargs):
         # Delete the old image file from storage before deleting the instance
-        print('delete piece')
+
         if self.small_icon:
             # Check if the file exists
-            print('found small icon')
             if os.path.isfile(self.small_icon.path):
-                print('delete small icon')
                 os.remove(self.small_icon.path)
         
         # Now delete the Piece instance

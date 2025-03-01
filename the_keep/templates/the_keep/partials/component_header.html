@@ -20,8 +20,8 @@
         {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
                 <!-- Show option to Edit -->
                 <div>
-                    <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url object.component|lower|add:'-update' object.slug %}">
-                        <i class="bi bi-pencil-square"></i>
+                    <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ object.get_edit_url }}">
+                        Edit {{ object.component }} <i class="bi bi-pencil-square"></i>
                     </a>
                 </div>
         {% else %}

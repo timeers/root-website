@@ -81,10 +81,26 @@
                       {{ user.profile.name }}
                     </a>
                     <ul class="dropdown-menu">
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}">Profile</a></li>
-                      <li><a class="dropdown-item" href="{% url 'profile' %}">Settings</a></li>
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle"></i> Profile</a></li>
+                      {% if user_games_count %}
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection-play-fill"></i> My Games ({{ user_games_count }})</a></li>
+                      {% endif %}
+                      {% if user_posts_count %}
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection-fill"></i> My Posts ({{ user_posts_count }})</a></li>
+                      {% endif %}
+
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-bookmark-check-fill"></i> My Bookmarks ({{ user_bookmarks_count }})</a></li>
+                      {% if user_recent_posts %}
                       <li><hr class="dropdown-divider"></li>
-                      <li><a class="dropdown-item" href="{% url 'account_logout' %}">Logout</a></li>
+                      <h6 class="dropdown-header">My Recent Posts</h6>
+                        {% for user_post in user_recent_posts %}
+                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
+                        {% endfor %}
+                        
+                      {% endif %}
+                      <li><hr class="dropdown-divider"></li>
+                      <li><a class="dropdown-item" href="{% url 'profile' %}"><i class="bi bi-gear-wide-connected"></i> Settings</a></li>
+                      <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open"></i> Logout</a></li>
                     </ul>
                   </li>
 
