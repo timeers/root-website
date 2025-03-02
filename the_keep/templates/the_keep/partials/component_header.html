@@ -60,6 +60,9 @@
     <div>
             <div>
                 {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
+                    {% if object.component == 'Faction' %}
+                        <img class="faction-icon" src="{{ object.small_icon.url }}">
+                    {% endif %}
                     {{ object.animal }}
                 {% endif %}
                 {{ object.component }} by 

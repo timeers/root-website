@@ -1,0 +1,103 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+{% block title %} - Games{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ player }}'s Games">
+<meta property="og:description" content="{{ player }}'s Recorded Games on the Root Database">
+<meta name="description" content="{{ player }}'s Recorded Games on the Root Database">
+{% endblock meta%}
+
+{% block content %}
+<div style="display: flex; align-items: center;">
+    <a href="{% url 'player-detail' player.slug %}">{{ player }}'s Profile</a>
+    <i class="bi bi-chevron-right"></i>
+    Games
+</div>
+
+<div class="media content-section">
+    <div class="article-img-container">
+        <img class="article-img" src="{{ player.image.url }}">
+    </div>
+        <div class="media-body">
+            <div class='d-flex flex-nowrap'>
+            <h1 class="account-heading root-title">{{ player }}'s Games</h1>
+
+            </div>
+
+            
+        </div>
+
+</div>
+
+
+<article class="media content-section">
+    <div class="media-body">
+
+
+    <h3>Filters</h3>
+
+
+
+    <form hx-get="{% url 'player-games' player.slug %}" 
+            hx-target="#games-container"
+            hx-swap="outerHTML"
+            id="gamefilterform">
+        <div class="mb-1">
+            {{ player }} Playing as:
+            {{ form.faction }}
+        </div>   
+        <div class="mb-1">
+            Map:
+            {{ form.map }}
+        </div>    
+        <div class="mb-1">
+        Deck:
+        {{ form.deck }}
+        </div>
+        <div class="mb-1">
+        Factions:
+        {{ form.factions }}
+        Vagabonds:
+        {{ form.vagabonds }}
+        </div>
+        <div class="mb-1">
+        Players:
+        {{ form.players }}
+        </div>
+
+        <button class="btn btn-primary mb-3">Filter</button>
+    </form>
+
+
+    </div>
+</article>
+    
+        {% include 'the_warroom/partials/game_list_home.html' %}
+    
+    
+
+    
+{% endblock content %} 
+
+
+{% block scripts %}
+    <script>
+        const selectIds = ['#id_faction', '#id_factions', '#id_players', '#id_vagabonds', '#id_map', '#id_deck'];
+
+        // Apply select2 to all select elements in the list
+        selectIds.forEach(id => {
+            $(id).select2({
+                placeholder: "Select an option",
+                allowClear: true
+            });
+        });
+
+
+
+    </script>
+{% endblock %}

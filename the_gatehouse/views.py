@@ -43,7 +43,7 @@ def register(request):
     return render(request, 'the_gatehouse/register.html', {'form': form})
 
 @login_required
-def profile(request):
+def user_settings(request):
     league_status = request.user.profile.league
     if request.method == 'POST':
         # u_form = UserUpdateForm(request.POST, instance=request.user)
@@ -80,7 +80,7 @@ def profile(request):
         'p_form': p_form
     }
 
-    return render(request, 'the_gatehouse/profile.html', context)
+    return render(request, 'the_gatehouse/user_settings.html', context)
 
 
 
@@ -360,7 +360,13 @@ def artist_component_view(request, slug):
 
 
 
-
+@login_required
+def user_bookmarks(request):
+    player = request.user.profile
+    context = {
+        'player': player,
+        }
+    return render(request, 'the_gatehouse/user_bookmarks.html', context=context)
 
 
 @login_required
@@ -419,8 +425,7 @@ def game_bookmarks(request, slug):
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
     raise Http404("Object not found")
-    # return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-    # return redirect('player-detail', slug=slug)
+
 
 
 @login_required
@@ -475,7 +480,7 @@ def player_games(request, slug):
     if request.htmx:
         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
     raise Http404("Object not found")
-    # return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
+
 
 @login_required
 def onboard_user(request, user_type=None):

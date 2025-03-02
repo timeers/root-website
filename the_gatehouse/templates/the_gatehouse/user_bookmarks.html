@@ -1,0 +1,170 @@
+{% extends 'the_keep/base.html' %}
+{% block title %} - Bookmarks{% endblock %}
+{% block content %}
+
+    <div style="display: flex; align-items: center;">
+        <a href="{% url 'player-detail' player.slug %}">Profile</a>
+        <i class="bi bi-chevron-right"></i>
+        Bookmarks
+    </div>
+
+
+<div class="media content-section">
+    <div class="article-img-container">
+        <img class="article-img" src="{{ player.image.url }}">
+    </div>
+        <div class="media-body">
+            <div class='d-flex flex-nowrap'>
+            <h1 class="account-heading root-title">My Bookmarks</h1>
+
+            </div>
+
+            
+        </div>
+
+</div>
+
+<div class="container mt-4">
+<!-- Tab navigation -->
+
+<ul class="nav nav-tabs" id="profileTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="post-bookmarks-tab" data-bs-toggle="tab" href="#post-bookmarks" role="tab" aria-controls="post-bookmarks" aria-selected="false"><i class="bi bi-bookmark-check-fill"></i> Bookmarks ({{ player.bookmarkedposts.count }})</a>
+    </li>
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="game-bookmarks-tab" data-bs-toggle="tab" href="#game-bookmarks" role="tab" aria-controls="game-bookmarks" aria-selected="false"><i class="bi bi-bookmark-check-fill"></i> Saved Games ({{ player.bookmarkedgames.count }})</a>
+    </li>
+    
+
+
+</ul>
+
+
+<!-- Tab content -->
+<div class="tab-content" id="tab-contents">
+
+    
+
+
+
+
+    <!-- post-bookmarks -->
+    <div class="tab-pane fade" id="post-bookmarks" role="tabpanel" aria-labelledby="post-bookmarks-tab">
+
+        {% if player.bookmarkedposts.count %}
+    
+        <div hx-trigger="revealed" 
+        hx-get="{% url 'post-bookmarks' user.profile.slug %}" 
+        hx-swap="outerHTML"></div>
+        
+        {% else %}
+        <article class="content-section">
+            You have no bookmarked Posts.<br>
+            Click the <i class="bi bi-bookmark-plus"></i> at the top right of the post you want to save to add it to your Bookmarks.
+        </article>
+        {% endif %}
+    </div>
+
+        <!-- game-bookmarks -->
+        <div class="tab-pane fade" id="game-bookmarks" role="tabpanel" aria-labelledby="game-bookmarks-tab">
+            {% if player.bookmarkedgames.count %}
+                
+                <div hx-trigger="revealed" 
+                hx-get="{% url 'game-bookmarks' user.profile.slug %}" 
+                hx-swap="outerHTML"></div>
+            {% else %}
+            <article class="content-section">
+                You have no bookmarked Games.<br>
+                Click the <i class="bi bi-bookmark-plus"></i> at the top right of the game you want to save to add it to your Bookmarks.
+            </article>
+            {% endif %}
+        </div>
+   
+
+
+</div>
+</div>
+
+{% endblock content %}
+
+
+{% block scripts %}
+<script>
+let isDomReady = false;
+
+// Function to update the hx-trigger of elements in all tabs
+function updateHxTriggers() {
+    // console.log("update triggers")
+    // Find all tab panes (both active and inactive)
+    var tabPanes = document.querySelectorAll('.tab-pane');
+
+    // Iterate through each tab pane
+    tabPanes.forEach(function (tabPane) {
+        // Find all elements with hx-trigger inside the current tab
+        var hxElements = tabPane.querySelectorAll('[hx-trigger]');
+        // console.log("In Tab")
+        // Check if this tab is active
+        if (tabPane.classList.contains('active')) {
+            // If the tab is active, set 'hx-trigger' to 'revealed'
+            hxElements.forEach(function (el) {
+                el.setAttribute('hx-trigger', 'revealed');
+            });
+        } else {
+            // If the tab is inactive, set 'hx-trigger' to 'click'
+            hxElements.forEach(function (el) {
+                el.setAttribute('hx-trigger', 'click');
+            });
+        }
+    });
+}
+
+// Listen for Bootstrap's shown.bs.tab event
+$('#profileTabs a').on('shown.bs.tab', function (e) {
+    // Call the function to update hx-trigger for elements in the active tab
+    updateHxTriggers();
+});
+
+
+
+// Wait until the DOM is fully loaded
+document.addEventListener('DOMContentLoaded', function () {
+    // Check if there's a fragment identifier in the URL (after #)
+    // updateHxTriggers();
+    var currentTab = window.location.hash;
+    isDomReady = true;
+    // console.log("Ready")
+
+    // If a hash exists in the URL, activate the corresponding tab
+    if (currentTab) {
+        // Find the tab link matching the hash
+        var tabTrigger = document.querySelector(`a[href="${currentTab}"]`);
+
+        // If a matching tab is found, show it and set it as active
+        if (tabTrigger) {
+            // Activate the tab
+            new bootstrap.Tab(tabTrigger).show();
+        }
+    } else {
+        // If no hash, set the first tab as active by default
+        var firstTab = document.querySelector('#profileTabs a');
+        // console.log(firstTab)
+        if (firstTab) {
+            new bootstrap.Tab(firstTab).show();
+        }
+    }
+
+//    // Update the URL hash when a tab is changed without causing a scroll jump
+//     var tabList = document.querySelectorAll('#profileTabs a');
+//     tabList.forEach(function (tab) {
+//         tab.addEventListener('shown.bs.tab', function (event) {
+//             // Update the browser's URL fragment to reflect the active tab
+//             var newHash = event.target.getAttribute('href');
+            
+//             // Use history.pushState to update the URL without jumping
+//             history.pushState(null, null, newHash);
+//         });
+//     });
+    updateHxTriggers();
+});
+</script>
+{% endblock scripts%}

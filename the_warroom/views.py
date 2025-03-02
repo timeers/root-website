@@ -23,7 +23,7 @@ from .forms import (GameCreateForm, EffortCreateForm,
                     TournamentCreateForm, RoundCreateForm, 
                     TournamentManagePlayersForm, TournamentManageAssetsForm,
                     RoundManagePlayersForm)
-from .filters import GameFilter
+from .filters import GameFilter, PlayerGameFilter
 
 from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak
 
@@ -161,6 +161,120 @@ class GameListView(ListView):
         return context
 
         
+class PlayerGameListView(ListView):
+    # queryset = Game.objects.all().prefetch_related('efforts')
+    model = Game
+    # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
+    context_object_name = 'games'
+    ordering = ['-date_posted']
+    paginate_by = settings.PAGE_SIZE
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return 'the_warroom/partials/game_list_home.html'
+        
+        if self.request.user.is_authenticated:
+            send_discord_message(f'{self.request.user} on Game Page')
+        else:
+            send_discord_message(f'{get_uuid(self.request)} on Game Page')
+        return 'the_warroom/player_games.html'
+    
+    def get_queryset(self):
+        # Fetch player based on slug if present in URL
+        player_slug = self.kwargs.get('slug')
+        player = None
+        if player_slug:
+            # Use get_object_or_404 to ensure player exists
+            player = get_object_or_404(Profile, slug=player_slug)
+        if self.request.user.is_authenticated:
+            if self.request.user.profile.weird:
+                queryset = Game.objects.filter(final=True).prefetch_related(
+                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                    'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                    )
+                # queryset = super().get_queryset()
+            else:
+                queryset = Game.objects.filter(official=True, final=True).prefetch_related(
+                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                    'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                    )
+                # queryset = super().get_queryset().only_official_components()
+        else:
+            queryset = Game.objects.filter(final=True).prefetch_related(
+                'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+                'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+                )
+            # queryset = super().get_queryset()
+        self.filterset = PlayerGameFilter(self.request.GET, queryset=queryset, player=player)
+
+        # # Store the filtered queryset in an instance variable to avoid re-evaluating it
+        self._cached_queryset = self.filterset.qs
+        self._player = player 
+
+        return self.filterset.qs
+        
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Create a dictionary to collect context values
+        context_data = {}
+    
+        
+        # Reuse the cached queryset here instead of calling get_queryset again
+        games = self._cached_queryset  # Use the already-evaluated queryset
+        # Get the total count of games
+        games_count = games.count()
+        efforts = Effort.objects.filter(game__in=games)
+        if games_count > 100:
+            leaderboard_threshold = 10
+        elif games_count > 50:
+            leaderboard_threshold = 5
+        elif games_count > 20:
+            leaderboard_threshold = 3
+        elif games_count > 10:
+            leaderboard_threshold = 2
+        else:
+            leaderboard_threshold = 1
+
+        # Get leaderboard data
+        context_data.update({
+            'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+            'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+            'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+            'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+            'leaderboard_threshold': leaderboard_threshold,
+        })
+        
+        # Use the player stored in self._player
+        player = self._player
+        # Only pass player to context if it exists
+        if player:
+            context_data['player'] = player  # Add the player to context
+
+        # Paginate games
+        paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
+        page_number = self.request.GET.get('page')  # Get the page number from the request
+
+        try:
+            page_obj = paginator.get_page(page_number)  # Get the specific page of games
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+        
+        # Add paginated data to the context dictionary
+        context_data.update({
+            'games': page_obj,  # Pass the paginated page object to the context
+            'is_paginated': paginator.num_pages > 1,  # Set is_paginated boolean
+            'page_obj': page_obj,  # Pass the page_obj to the context
+            'games_count': games_count,
+            'form': self.filterset.form,
+            'filterset': self.filterset,
+        })
+
+        # Update the main context with the collected context data
+        context.update(context_data)
+
+        return context
+
 
 
 

@@ -24,17 +24,10 @@
 {% for game in games %}
 
     {% if forloop.last and games.has_next %}
-        {% if bookmark_page %}
             <div hx-trigger="revealed" 
             hx-get="{% url 'game-bookmarks' player.slug %}?page={{ page_obj.number|add:1 }}"
             hx-swap="afterend">
             <!-- hx-include="#gamefilterform"> -->
-        {% else %}
-            <div hx-trigger="revealed" 
-            hx-get="{% url 'player-games' player.slug %}?page={{ page_obj.number|add:1 }}"
-            hx-swap="afterend">
-            <!-- hx-include="#gamefilterform"> -->
-        {% endif %}
     {% else %}
         <div>
     {% endif %}
