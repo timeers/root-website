@@ -428,58 +428,58 @@ def game_bookmarks(request, slug):
 
 
 
-@login_required
-def player_games(request, slug):
-    player = get_object_or_404(Profile, slug=slug.lower())
-    if request.user.is_authenticated:
-        if request.user.profile.weird :
-            games = player.get_games_queryset()
-        else:
-            games = player.get_games_queryset().filter(official=True)
-    else:
-        games = player.get_games_queryset()
+# @login_required
+# def player_games(request, slug):
+#     player = get_object_or_404(Profile, slug=slug.lower())
+#     if request.user.is_authenticated:
+#         if request.user.profile.weird :
+#             games = player.get_games_queryset()
+#         else:
+#             games = player.get_games_queryset().filter(official=True)
+#     else:
+#         games = player.get_games_queryset()
     
-    # print(f'games: {games.count()}')
-    # Get the total count of games (total posts matching the filter)
-    total_count = games.count()
+#     # print(f'games: {games.count()}')
+#     # Get the total count of games (total posts matching the filter)
+#     total_count = games.count()
  
-    # Pagination
-    paginator = Paginator(games, settings.PAGE_SIZE)  # Show 10 posts per page
+#     # Pagination
+#     paginator = Paginator(games, settings.PAGE_SIZE)  # Show 10 posts per page
  
-    # Get the current page number from the request (default to 1)
-    page_number = request.GET.get('page')  # e.g., ?page=2
+#     # Get the current page number from the request (default to 1)
+#     page_number = request.GET.get('page')  # e.g., ?page=2
 
 
-    quantity_faction = None
-    quality_faction = None
-    quality_winrate = None
-    quality_count = None
-    quantity_count = None
-    if not page_number:
-            quantity_faction = player.most_used_faction()
-            quantity_count = player.games_played(quantity_faction)
+#     quantity_faction = None
+#     quality_faction = None
+#     quality_winrate = None
+#     quality_count = None
+#     quantity_count = None
+#     if not page_number:
+#             quantity_faction = player.most_used_faction()
+#             quantity_count = player.games_played(quantity_faction)
 
-            quality_faction = player.most_successful_faction()
-            quality_winrate = player.winrate(faction=quality_faction)
-            quality_count = player.games_won(quality_faction)
+#             quality_faction = player.most_successful_faction()
+#             quality_winrate = player.winrate(faction=quality_faction)
+#             quality_count = player.games_won(quality_faction)
             
-    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
-    # print(f'Page: {page_number}')
-    context = {
-        'games': page_obj,
-        'total_count': total_count,  # Pass the total count to the template
-        'page_obj': page_obj,
-        'player': player,
-        'bookmark_page': False,
-        'quality_faction': quality_faction,
-        'quality_winrate': quality_winrate,
-        'quality_count': quality_count,
-        'quantity_faction': quantity_faction,
-        'quantity_count': quantity_count,
-    }
-    if request.htmx:
-        return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-    raise Http404("Object not found")
+#     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+#     # print(f'Page: {page_number}')
+#     context = {
+#         'games': page_obj,
+#         'total_count': total_count,  # Pass the total count to the template
+#         'page_obj': page_obj,
+#         'player': player,
+#         'bookmark_page': False,
+#         'quality_faction': quality_faction,
+#         'quality_winrate': quality_winrate,
+#         'quality_count': quality_count,
+#         'quantity_faction': quantity_faction,
+#         'quantity_count': quantity_count,
+#     }
+#     if request.htmx:
+#         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
+#     raise Http404("Object not found")
 
 
 @login_required

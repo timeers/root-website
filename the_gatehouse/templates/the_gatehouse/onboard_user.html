@@ -13,9 +13,10 @@
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
 {% elif user_type == 'designer' and active_user.designer %}
-    <div>Thank you for your interest in posting fan made Root content.</div>
+    <div>Thank you for your interest in posting your own fan-made Root content.</div>
     <div>Every post should be linked to a Discord or BGG thread for discussion.</div>
-    <div>By accepting you agree to not over-post or post offensive material.</div>
+    <div>By accepting, you agree to not over-post or post offensive material.</div>
+    <div>If you would prefer to have an admin update your material on your behalf, click "Decline".</div>
     <div>Have fun creating and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
@@ -26,8 +27,10 @@
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
 {% elif user_type == 'player' and active_user.player %}
-    <div>Thank you for logging in.</div> 
-    <div>By accepting you agree to post only games that are accurate to the best of your knoledge.</div>
+    <div>Thank you for logging in. We're happy to have you here.</div> 
+    <div>By accepting you agree to not post spam or offensive material.</div>
+    <div>You also agree to post only games that are accurate to the best of your knoledge.</div>
+    <div>If you see anything that does not align with this agreement please report it.</div>
     <div>Please be respectful and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 

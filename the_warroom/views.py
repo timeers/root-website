@@ -160,7 +160,7 @@ class GameListView(ListView):
 
         return context
 
-        
+@player_required_class_based_view  
 class PlayerGameListView(ListView):
     # queryset = Game.objects.all().prefetch_related('efforts')
     model = Game
@@ -173,10 +173,6 @@ class PlayerGameListView(ListView):
         if self.request.htmx:
             return 'the_warroom/partials/game_list_home.html'
         
-        if self.request.user.is_authenticated:
-            send_discord_message(f'{self.request.user} on Game Page')
-        else:
-            send_discord_message(f'{get_uuid(self.request)} on Game Page')
         return 'the_warroom/player_games.html'
     
     def get_queryset(self):

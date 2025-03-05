@@ -38,7 +38,7 @@ from .models import (
     Piece, Tweak,
     PNPAsset,
     )
-from .forms import (PostCreateForm, MapCreateForm, 
+from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
                     HirelingCreateForm, VagabondCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
@@ -685,8 +685,8 @@ def list_view(request, slug=None):
 
     if request.user.is_authenticated:
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
-    else:
-        send_discord_message(f'{get_uuid(request)} on Home Page')
+    # else:
+    #     send_discord_message(f'{get_uuid(request)} on Home Page')
 
 
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
@@ -1112,9 +1112,10 @@ class PNPAssetListView(ListView):
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
         # print("NOT HTMX")
         if self.request.user.is_authenticated:
-            send_discord_message(f'{self.request.user} on Resource Page')
+            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) on Resource Page')
         else:
             send_discord_message(f'{get_uuid(self.request)} on Resource Page')
+
         return super().render_to_response(context, **response_kwargs)
     
 @player_required_class_based_view

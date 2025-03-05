@@ -1,7 +1,7 @@
 from django.urls import path
 from the_keep.views import list_view
 from .views import (user_settings, player_page_view, 
-                    designer_component_view, post_bookmarks, game_bookmarks, player_games, 
+                    designer_component_view, post_bookmarks, game_bookmarks,
                     onboard_user, player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks,
                     status_check, general_feedback, post_feedback, player_feedback, game_feedback, weird_root_invite)
