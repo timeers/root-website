@@ -25,19 +25,7 @@
               <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>
             {% endif %}
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">Resources</a>
-            {% if user.profile.admin %}
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                  Moderator
-                </a>
-                <ul class="dropdown-menu">
-                  <li><a class="dropdown-item" href="{% url 'admin:index' %}">Admin Site</a></li>
-                  <li><a class="dropdown-item" href="{% url 'players-list' %}">Users</a></li>
-                </ul>
-              </li>
 
-
-            {% endif %}
 
           </div>
 
@@ -100,6 +88,14 @@
                         
                       {% endif %}
                       <li><hr class="dropdown-divider"></li>
+
+                      {% if user.is_superuser %}
+                          <li><a class="dropdown-item" href="{% url 'admin:index' %}"><i class="bi bi-shield-lock-fill"></i> Admin Site</a></li>
+                      {% endif %}
+                      {% if user.profile.admin %}
+                          <li><a class="dropdown-item" href="{% url 'players-list' %}"><i class="bi bi-people-fill"></i> Users</a></li>
+                      {% endif %}
+
                       <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected"></i> Settings</a></li>
                       <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open"></i> Sign Out</a></li>
                     </ul>

@@ -964,8 +964,8 @@ class Faction(Post):
         print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
         return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
 
-    class Meta:
-        ordering = ['-component', '-official', '-status', '-date_posted']
+    # class Meta:
+    #     ordering = ['sorting', '-official', 'status', '-date_posted']
 
 
 class Hireling(Post):
