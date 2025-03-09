@@ -18,7 +18,7 @@ from django.utils import timezone
 from urllib.parse import quote
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
-from .forms import (GameCreateForm, EffortCreateForm, 
+from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm, 
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     TournamentCreateForm, RoundCreateForm, 
                     TournamentManagePlayersForm, TournamentManageAssetsForm,
@@ -411,6 +411,26 @@ def game_detail_hx_view(request, id=None):
 
 
 
+class GameUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = Game
+    form_class = GameInfoUpdateForm
+    template_name = 'the_warroom/game_update.html'  # Customize this as needed
+    context_object_name = 'game'  # Optional, if you want to use it in your template
+    
+    def get_object(self, queryset=None):
+        """
+        Override get_object to ensure the logged-in user is the recorder of the game.
+        """
+        game = super().get_object(queryset)
+        
+        return game
+    
+    def test_func(self):
+        obj = self.get_object()
+        # Only allow access if the logged-in user is the designer of the object
+        return self.request.user.profile == obj.recorder
+
+
 @player_onboard_required
 def manage_game(request, id=None):
     if id:
@@ -421,8 +441,11 @@ def manage_game(request, id=None):
 
     if id:
         if obj.final and not user.profile.admin:
+
             messages.error(request, "Game cannot be edited.")
             return redirect(obj.get_absolute_url())
+
+
         elif not user.profile.admin and user.profile != obj.recorder:
             messages.error(request, "You do not have permission to edit this game.")
             return redirect(obj.get_absolute_url())

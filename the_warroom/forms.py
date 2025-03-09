@@ -7,6 +7,41 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 
 
+class GameInfoUpdateForm(forms.ModelForm):  
+    required_css_class = 'required-field'
+    link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)
+    class Meta:
+        model = Game
+        fields = ['nickname', 'notes', 'link']
+
+    def __init__(self, *args, **kwargs):
+        # Call the parent constructor
+        super(GameInfoUpdateForm, self).__init__(*args, **kwargs)
+
+        self.fields['notes'].widget.attrs.update({
+            'rows': '2',
+            'placeholder': 'Game Notes...',
+            'class': 'form-control full-width', 
+        })
+        self.fields['link'].widget.attrs.update({
+            'placeholder': 'Link to Game Thread',
+            'class': 'form-control full-width', 
+        })
+        self.fields['nickname'].widget.attrs.update({
+            'placeholder': 'Game Nickname (optional)',
+            'class': 'form-control full-width', 
+        })
+
+
+
+
+
+
+
+
+
+
+
 class GameCreateForm(forms.ModelForm):  
     required_css_class = 'required-field'
     link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)

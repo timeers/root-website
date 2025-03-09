@@ -1,6 +1,6 @@
 from django.urls import path
 # from .views import 
-from .views import (GameListView, #GameListViewHX,
+from .views import (GameListView, GameUpdateView, #GameListViewHX,
                     game_detail_hx_view, game_detail_view, 
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game, scorecard_manage_view, scorecard_detail_view,
@@ -16,6 +16,7 @@ urlpatterns = [
     path('record/game/', manage_game, name='record-game'),
     path("game/<int:id>/delete/", game_delete_view, name='game-delete'),
     path("game/<int:id>/edit/", manage_game, name='game-update'),
+    path("game/<int:pk>/update/", GameUpdateView.as_view(), name='game-update-info'),
     path("game/<int:id>/", game_detail_view, name='game-detail'),
 
     path('games/', GameListView.as_view(), name='games-home'),

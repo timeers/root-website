@@ -26,7 +26,13 @@ class Profile(models.Model):
         INACTIVE = '4', 'Inactive'
         ABANDONED = '5', 'Abandoned'
 
+    class Theme(models.TextChoices):
+        LIGHT = 'light', 'Light Theme'
+        DARK = 'dark', 'Dark Theme'
+        TINFOIL = 'tinfoil', 'Tinfoil Theme'
+
     component = 'Profile'
+    theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices)
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
@@ -37,6 +43,7 @@ class Profile(models.Model):
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
     view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)
+
     display_name = models.CharField(max_length=100, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')

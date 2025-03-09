@@ -5,7 +5,7 @@
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% static 'images/DB_Only.png' %}">
+<meta property="og:image" content="{% if game.map.board_image %}{{ game.map.board_image.url }}{% else %}{% static 'images/DB_Only.png' %}{% endif %}">
 <meta property="og:site_name" content="Root Database">
 {% if game.nickname %}
 <meta property="og:title" content="{{game.nickname}}">
@@ -105,7 +105,7 @@
         {% if user.profile.player %}
             {% if game.notes %}
             <div class='mb-1'>
-                <h4>Notes:</h4>
+                {% comment %} <h4>Notes:</h4> {% endcomment %}
                 {{ game.notes }}
             </div>
             {% endif %}
@@ -156,6 +156,18 @@
     </small>
     </div>
     </article>
+{% elif user.profile == game.recorder %}
+<article class="media content-section">
+    <div class="media-body">
+    {% comment %} <h2>Update Details</h2> {% endcomment %}
+    <div>
+        Change the Nickname, Notes or Discord Link for this game.
+    </div>
+<small>
+    <a class="btn btn-secondary" href="{% url 'game-update-info' game.pk %}">Update</a>
+</small>
+</div>
+</article>
 {% endif %}
 
 {% endblock content %}
