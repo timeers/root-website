@@ -18,6 +18,8 @@ from .utils import validate_hex_color, resize_image, delete_old_image
 import boto3
 import random
 from django.conf import settings
+from the_gatehouse.discordservice import send_rich_discord_message
+from the_gatehouse.utils import build_absolute_uri
 
 
 # Stable requirements
@@ -250,10 +252,23 @@ class Post(models.Model):
                     else:
                         # Ignore any files in the default_images folder
                         print(f"Default image saved: {old_image}")
+            new_post = False
+        else:
+            new_post = True
+
         
 
 
         super().save(*args, **kwargs)
+
+        if new_post:
+            fields = []
+            fields.append({
+                    'name': 'By:',
+                    'value': self.designer.discord
+                })
+            send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
+
         # if self.small_icon:
         resize_image(self.small_icon, 80)
         # if self.board_image:

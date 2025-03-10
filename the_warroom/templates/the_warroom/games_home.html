@@ -14,12 +14,26 @@
 
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div class='d-flex'>
     <h1>Games</h1>
-
-        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mb-3" id="recordgame">
+    </div>
+    <div class='d-flex'>
+        
+        {% if user.profile.admin %}
+        <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">
+            Series
+        </a>
+        {% endif %}
+      
+        {% if user.profile.player %}
+        <a href="{% url 'scorecard-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="scorecards">
+            Scorecards
+        </a>
+        {% endif %}
+        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
             New Game +
         </a>
-
+    </div>
 </div>
 {% if in_progress %}
 <div style="display: flex; justify-content: space-between; align-items: center;">

@@ -14,6 +14,7 @@ def active_user_data(request):
         bookmarked_games = profile.bookmarkedgames.count()
         bookmarked_posts = profile.bookmarkedposts.count()
         bookmarks = bookmarked_posts + bookmarked_games
+        theme = profile.theme
         return {
             'user_posts_count': post_count,
             'user_recent_posts': recent_posts,
@@ -21,6 +22,7 @@ def active_user_data(request):
             'user_games_count': game_count,
             'user_unassigned_scorecards_count': unassigned_scorecards,
             'user_bookmarks_count': bookmarks,
+            'theme': theme,
         }
     return {
         'user_posts_count': 0,
@@ -29,4 +31,5 @@ def active_user_data(request):
         'user_games_count': 0,
         'user_unassigned_scorecards_count': 0,
         'user_bookmarks_count': 0,
+        'theme': 'tinfoil',
     }

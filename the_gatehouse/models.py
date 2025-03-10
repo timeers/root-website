@@ -32,8 +32,9 @@ class Profile(models.Model):
         TINFOIL = 'tinfoil', 'Tinfoil Theme'
 
     component = 'Profile'
-    theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices)
+
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
+    theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added

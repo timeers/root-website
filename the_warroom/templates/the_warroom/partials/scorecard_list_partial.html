@@ -1,7 +1,7 @@
 {% for object in complete_scorecards %}
 
     {% if forloop.last and complete_scorecards.has_next %}
-    <tr data-href="{{ object.get_absolute_url }}" id="load-more-row" hx-get="{% url 'list-scorecard' %}?page={{ complete_scorecards.number|add:1 }}"
+    <tr data-href="{{ object.get_absolute_url }}" id="load-more-row" hx-get="{% url 'scorecard-home' %}?page={{ complete_scorecards.number|add:1 }}"
     hx-trigger="revealed" 
     hx-target="this" 
     hx-swap="afterend">

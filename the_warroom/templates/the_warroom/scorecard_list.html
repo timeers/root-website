@@ -4,12 +4,28 @@
 
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h1>Scorecards</h1>
-    {% if user.profile.tester %}
-        <a class="btn btn-sm btn-success mb-3" href="{% url 'record-scorecard' %}">New Scorecard +</a>
-    {% endif %}
-</div>
+        
+    <div class='d-flex'>
+        <h1>Scorecards</h1>
 
+    </div>  
+    <div class='d-flex'>
+        {% if user.profile.admin %}
+        <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">
+            Series
+        </a>
+        {% endif %}
+
+        <a href="{% url 'games-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="games">
+            Games
+        </a>
+
+
+        {% if user.profile.player %}
+            <a class="btn btn-sm btn-success mb-3 ml-1" href="{% url 'record-scorecard' %}">New Scorecard +</a>
+        {% endif %}
+    </div>
+</div>
 
 {% if unassigned_scorecards %}
 

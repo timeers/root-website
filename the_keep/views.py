@@ -390,18 +390,35 @@ def about(request, *args, **kwargs):
 @admin_onboard_required
 def home(request, *args, **kwargs):
 
-    faction_count = Faction.objects.filter(status__lte=4).count()
-    deck_count = Deck.objects.filter(status__lte=4).count()
-    map_count = Map.objects.filter(status__lte=4).count()
+    faction_count = Faction.objects.filter(status__lte=4, official=False).count()
+    deck_count = Deck.objects.filter(status__lte=4, official=False).count()
+    map_count = Map.objects.filter(status__lte=4, official=False).count()
+    official_faction_count = Faction.objects.filter(status__lte=4, official=True).count()
+    official_deck_count = Deck.objects.filter(status__lte=4, official=True).count()
+    official_map_count = Map.objects.filter(status__lte=4, official=True).count()
     game_count = Game.objects.filter(final=True).count()
 
+    background_path = f'themes/{request.user.profile.theme}/backgrounds/archive_background.png'
+    background_left_path = f'themes/{request.user.profile.theme}/images/Vagabond_Trace3.png'
+    background_right_path = f'themes/{request.user.profile.theme}/images/Goose_Trace3.png'
+    foreground_left_path = f'themes/{request.user.profile.theme}/images/Vagabond_Trace3.png'
+    foreground_right_path = f'themes/{request.user.profile.theme}/images/Goose_Trace3.png'
 
     context = {
         'title': 'Home',
         'faction_count': faction_count,
         'deck_count': deck_count,
         'map_count': map_count,
-        'game_count': game_count
+        'official_faction_count': official_faction_count,
+        'official_deck_count': official_deck_count,
+        'official_map_count': official_map_count,
+        'game_count': game_count,
+        'background_path': background_path,
+        'background_left_path': background_left_path,
+        'background_right_path': background_right_path,
+        'foreground_left_path': foreground_left_path,
+        'foreground_right_path': foreground_right_path,
+
     }
 
     return render(request, 'the_keep/home.html', context)

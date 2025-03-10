@@ -11,15 +11,28 @@
 <meta property="og:description" content="The Root Database is a site for posting and finding fan created content for the woodland war game Root by Leder Games">
 <meta name="description" content="The Root Database is a site for posting and finding fan created content for the woodland war game Root by Leder Games">
 {% endblock meta%}
-{% block background %}
 
-    <img class="background-image" src="{% static 'images/theme/archive/tinfoil/background.png'  %}" alt="Join Woodland Warriors">
+{% block background %}
+    <div class='background-image-wrapper'>
+    <img id='progress-left' src="{% static foreground_right_path %}" alt="Background">
+    </div>
+    <div class='background-image-wrapper'>
+    <img id='progress-right' src="{% static foreground_left_path %}" alt="Background">
+    </div>
+    <div class='background-image-wrapper'>
+    <img id='progress-background-left' src="{% static background_left_path %}" alt="Background">
+    </div>
+    <div class='background-image-wrapper'>
+    <img id='progress-background-right' src="{% static background_right_path %}" alt="Background">
+    </div>
+    <img class="background-image" src="{% static background_path %}" alt="Background">
 
 {% endblock background %}
+
 {% block content %}
-<div>
-    
-    <div class='d-flex'>
+<div style="margin-top: 375px;">
+    {% comment %} <article class="media content-section"> {% endcomment %}
+    <div class='d-flex media-body'>
         <div class='root-menu-title'>
             <a href='{% url 'keep-home' %}'>Components</a>
         </div>
@@ -30,14 +43,17 @@
             <a href='{% url 'asset-list' %}'>Resources</a>
         </div>
     </div>
-    Factions:{{faction_count}}
-    Maps:{{map_count}}
-    Decks:{{deck_count}}
+    {{faction_count}} Fan Made Factions
+    {{map_count}} Fan Made Maps
+    {{deck_count}} Fan Made Decks
     {% lorem 2 b random %}
+{% comment %} </article> {% endcomment %}
 </div>
+{% comment %} <article class="media content-section"> {% endcomment %}
 <h1>END</h1>
 <div>
     {% lorem 20 b random %}
-</div>
 
+</div>
+{% comment %} </article> {% endcomment %}
 {% endblock content %}

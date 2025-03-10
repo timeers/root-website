@@ -297,11 +297,6 @@ def game_detail_view(request, id=None):
 
             if obj.final and (request.user.profile in participants or scorecard_count != 0):
                 show_detail = True
-            # else:
-            #     print(f'Profile: {request.user.profile}')
-            #     print(obj.final)
-            #     print(f'Tester:{request.user.profile.tester}')
-            #     print(f'In Participants: {request.user.profile in participants}')
 
     except ObjectDoesNotExist:
         obj = None
@@ -887,7 +882,7 @@ def scorecard_delete_view(request, id=None):
         if obj.effort:
             success_url = obj.effort.game.get_absolute_url()
         else:
-            success_url = reverse('list-scorecard')
+            success_url = reverse('scorecard-home')
         obj.delete()
         if request.htmx:
             headers = {
@@ -901,7 +896,7 @@ def scorecard_delete_view(request, id=None):
     return render(request, "the_warroom/score_delete.html", context)
 
 
-
+@player_required
 def scorecard_list_view(request):
     active_profile = request.user.profile
 

@@ -2,7 +2,7 @@
 {% get_providers as socialaccount_providers %}
 
 <header class="site-header">
-    <nav class="navbar navbar-expand-md navbar-dark bg-steel fixed-top">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-steel fixed-top">
       <div class="container">
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
@@ -15,18 +15,9 @@
       
         <div class="collapse navbar-collapse" id="navbarToggle">
           <div class="navbar-nav align-items-center mr-auto">
-            <a class="nav-item nav-link" href="{% url 'keep-home' %}">Home</a>
-            
+            <a class="nav-item nav-link" href="{% url 'keep-home' %}">Library</a>
             <a class="nav-item nav-link" href="{% url 'games-home' %}">Games</a>
-            {% if user.profile.admin %}
-            <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">Series</a>
-            {% endif %}
-            {% if user.profile.tester %}
-              <a class="nav-item nav-link" href="{% url 'list-scorecard' %}">Scorecards</a>
-            {% endif %}
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">Resources</a>
-
-
           </div>
 
 

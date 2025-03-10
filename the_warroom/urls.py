@@ -27,7 +27,7 @@ urlpatterns = [
     path("scorecard/<int:id>/delete", scorecard_delete_view, name='delete-scorecard'),
     path('scorecard/assign/<int:id>/', scorecard_assign_view, name='assign-scorecard'),
     path('scorecard/<int:id>/assign/', effort_assign_view, name='assign-effort'),
-    path('scorecard/list/', scorecard_list_view, name='list-scorecard'),
+    path('scorecards/', scorecard_list_view, name='scorecard-home'),
 
     path('new/series/', TournamentCreateView.as_view(), name='tournament-create'),
     path('series/<slug:tournament_slug>/', tournament_detail_view, name='tournament-detail'),

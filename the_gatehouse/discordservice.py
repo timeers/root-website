@@ -175,8 +175,8 @@ def send_discord_message(message, category=None):
 
 def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
     # Check if DEBUG is False in the config (uncomment this if you want to use it)
-    # if config["DEBUG_VALUE"] == "True":
-    #     return  # Do nothing if DEBUG is True
+    if config["DEBUG_VALUE"] == "True":
+        return  # Do nothing if DEBUG is True
 
     # Set the webhook URL based on the category
     if category == 'feedback':
@@ -199,6 +199,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
     #     webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
     #     embed_title = 'New User Registered'
     #     embed_color = 0xed3eed # Pink for new users
+    elif category == 'New Post':
+        webhook_url = config['DISCORD_NEW_POST_WEBHOOK_URL']
+        embed_title = "Report Received"
+        embed_color = 0x00FF00  # Green color for new
     else:
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
         embed_title = "Activity"

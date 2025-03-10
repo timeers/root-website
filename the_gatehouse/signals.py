@@ -94,7 +94,6 @@ def user_logged_in_handler(request, user, **kwargs):
     # If user is a member of WW but in group O (add to group P)
     if current_group == 'O' and in_ww:
         profile.group = 'P'
-        profile.tester = True
         profile_updated = True
 
     # If user is a member of WR but does not have the weird view (add view)
@@ -102,11 +101,6 @@ def user_logged_in_handler(request, user, **kwargs):
         profile.in_weird_root = True
         profile.weird = True
         profile_updated = True
-
-    # if profile.designer and not profile.in_weird_root:
-    #     profile.in_weird_root = True
-    #     profile.weird = True
-    #     profile_updated = True
 
     if profile_updated:
         profile.save()

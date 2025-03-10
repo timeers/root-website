@@ -93,7 +93,6 @@ urlpatterns = [
     path('piece/update/<int:id>', add_piece, name='update-piece'),
     path('piece/delete/<int:id>', delete_piece, name='delete-piece'),
 
-
     path('resources/', PNPAssetListView.as_view(), name='asset-list'),
     path('resources/new/', PNPAssetCreateView.as_view(), name='asset-new'),
     path('resources/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),

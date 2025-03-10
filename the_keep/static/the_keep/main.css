@@ -4,7 +4,10 @@ body {
     margin-top: 5rem;
     font-family: 'Baskerville', serif; /* Use Baskerville for body text */
   }
-
+  :root {
+    --header-padding: 75px;
+    --scale-factor: 3.555;
+  }
 
   /* h1, h2, h3, h4, h5, h6 {
     color: #444444;
@@ -50,9 +53,7 @@ body {
     display: inline-block; /* Make sure it's inline for correct sizing */
     z-index: 1;
   }
- 
 
-  
 
   .manifest-box {
     position: relative;
@@ -209,17 +210,6 @@ em, i {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add a subtle drop shadow */
   }
 
-
-  /* .hidden-content {
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 10s ease-out, visibility 0s 0s;
-  }
-  .post-card:hover .hidden-content {
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 1s ease-out, visibility 0s 0s;
-  } */
 
   .hidden-description {
     border-top: 1px solid #e3e3e3;
@@ -401,13 +391,7 @@ a:hover {
   color: black;
   text-decoration: none; 
 }
-/* a {
-  color: black;
-  text-decoration: none;
-} */
-/* a:hover {
-  text-decoration: none; 
-} */
+
 
 
 
@@ -514,19 +498,6 @@ tr[data-href] {
 }
 
 
-/* @font-face {
-  font-family: 'Baskerville';
-  src: url('fonts/Baskerville-Regular.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Baskerville';
-  src: url('fonts/Baskerville-Italic.ttf') format('truetype');
-  font-weight: normal;
-  font-style: italic;
-} */
 .turn-form {
   border-bottom: 1px solid black;
 }
@@ -570,9 +541,6 @@ font-weight: bold;
   display: flex;
   align-items: center;
 }
-
-
-
 
 
 
@@ -869,43 +837,185 @@ tr.clickable-row:hover {
   font-size: 22px;
 }
 
-
-.background-images {
-  position: absolute;
-  width: 100%;
-  height: calc(100vh - 60px);
-  overflow: hidden; /* Ensures images don't overflow outside the container */
-  top: 60px;
-  background-attachment: fixed;
-}
-
+/* Background Banner */
 .background-image {
   position: fixed;
-  top: 60px;
+  top: var(--header-padding); /* moves image down for header */
+  left: 50%;               /* Position it at 50% of the viewport width */
+  transform: translateX(-50%);
+  z-index: -5; /* Furthest Back */
+  width: auto; /* You can set specific width/height for each image if needed */
+  height: 60vh; /* 60% of the viewport height */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw;
+  border: pink;
+}
+
+/* Make the parent container a flex container */
+.background-image-wrapper {
+  position: fixed; /* Keep the wrapper fixed on the screen */
+  top: calc(var(--header-padding)); /* Adjust for header space */
+  left: 50%; /* Center horizontally */
+  transform: translateX(-50%); /* Adjust to center the image correctly */
+  z-index: -3; /* Put behind the content */
+  display: flex; /* Turn the parent into a flex container */
+  justify-content: center; /* Centers items horizontally */
+  align-items: center; /* Centers items vertically */
+  width: auto; /* Full viewport width */
+  height: 60vh; /* You can adjust based on your needs */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw; /* Minimum width of 100vw */
+  overflow: visible;
+}
+
+.background-image-wrapper img {
+  width: 100%; /* Ensures the image doesn't overflow the container */
+  height: 100%; /* Maintain the aspect ratio */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw;
+  object-fit: cover; /* Makes sure the image covers the container area */
+}
+
+
+/* Media Query for Small Screens */
+@media (max-width: 600px) {
+  .background-image {
+    height: 35vh; /* Reduce height for small screens */
+    min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
+  }
+
+  .background-image-wrapper {
+    height: 35vh; /* Reduce height for small screens */
+  }
+  
+}
+
+
+/* This next portion isn't used anymore  */
+/* Left Movable Background */
+.background-image-left {
+  position: fixed;
+  top: var(--header-padding); /* moves image down for header */
+  left: 50%;               /* Position it at 50% of the viewport width */
+  transform: translateX(-50%);
+  z-index: -3; /* Furthest Back */
+  width: auto; /* You can set specific width/height for each image if needed */
+  height: 60vh; /* 60% of the viewport height */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw;
+  border: pink;
+}
+
+/* Right Movable Background */
+.background-image-right {
+  position: fixed;
+  top: var(--header-padding); /* moves image down for header */
+  left: 50%;               /* Position it at 50% of the viewport width */
+  transform: translateX(-50%);
+  z-index: -3; /* Furthest Back */
+  width: auto; /* You can set specific width/height for each image if needed */
+  height: 60vh; /* 60% of the viewport height */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw;
+  border: pink;
+}
+
+/* Left Movable Foreground */
+.foreground-image-left {
+  position: fixed;
+  top: calc(var(--header-padding));
   left: 0;
-  z-index: -1; /* Places images behind the content */
-  opacity: 0.5; /* Optional: controls transparency */
-  width: 100%; /* You can set specific width/height for each image if needed */
-  height: auto;
-
+  z-index: -3; /* Places images behind the content */
+  width: auto;
+  height: 60vh; /* You can set specific width/height for each image if needed */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw;
 }
 
-.test-img{
-  grid-column: 1 / -1;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 50%;
-  opacity: 0.8;
-  object-fit: cover;
+/* Right Movable Foreground */
+.foreground-image-right {
+  position: fixed;
+  top: calc(var(--header-padding) + 1vw);
+  right: 30vw;
   z-index: -1;
-  animation: fade-out linear;
-  animation-timeline: view();
+  width: 15%;
+  height: auto; /* You can set specific width/height for each image if needed */
+
+}
+/* End old classes */
+
+/* Apply animations only if "reduce motion" is set to "no-preference" */
+@media (prefers-reduced-motion: no-preference) {
+  /* Check if the browser supports scroll timelines */
+  @supports (--css: variables) {
+
+
+      /* Foreground animations */
+      @keyframes foreground-move-left {
+        from {
+          transform: translateX(0); 
+        }
+        to {
+          transform: translateX(-10%); 
+        }
+      }
+
+      @keyframes foreground-move-right {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(10%);
+        }
+      }
+
+      /* Background animations */
+      @keyframes background-move-left {
+        from {
+          transform: translateX(0); 
+        }
+        to {
+          transform: translateX(-30%); 
+        }
+      }
+
+      @keyframes background-move-right {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(20%);
+        }
+      }
+
+      /* Apply scroll-based animations */
+      #progress-left {
+        animation: foreground-move-left ease-in-out forwards;
+        animation-timeline: scroll();
+        animation-range: 3vh 120vh;
+      }
+
+      #progress-right {
+        animation: foreground-move-right ease-in-out forwards;
+        animation-timeline: scroll();
+        animation-range: 3vh 180vh;
+      }
+
+      #progress-background-left {
+        animation: background-move-left ease-in-out forwards;
+        animation-timeline: scroll();
+        animation-range: 0vh 120vh;
+      }
+
+      #progress-background-right {
+        animation: background-move-right ease-in-out forwards;
+        animation-timeline: scroll();
+        animation-range: 0vh 220vh;
+
+    }
+  }
 }
 
-@keyframes fade-out {
-  to {opacity: 0;}
-}
 
 
 
@@ -941,6 +1051,6 @@ footer a:hover {
 
 
 .main-content {
-  padding-bottom: 60px; /* Ensure there's space for footer */
+  padding-bottom: 60px;
 }
 
