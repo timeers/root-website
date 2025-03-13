@@ -30,7 +30,7 @@ from the_keep.models import Faction, Post
 
 def register(request):
     if request.user.is_authenticated:
-        return redirect('profile')
+        return redirect(request.user.profile.get_absolute_url())
     if request.method == 'POST':
         form = UserRegisterForm(request.POST)
         if form.is_valid():
@@ -69,7 +69,7 @@ def user_settings(request):
                     messages.error(request, 'Could not find the Root TTS League.')
 
             messages.success(request, f'Account updated!')
-            return redirect('profile')
+            return redirect(request.user.profile.get_absolute_url())
         
     else:
         # u_form = UserUpdateForm(instance=request.user)
@@ -259,8 +259,11 @@ def add_player(request):
 
 
 @login_required
-def player_page_view(request, slug):
-    player = get_object_or_404(Profile, slug=slug.lower())
+def player_page_view(request, slug=None):
+    if slug:
+        player = get_object_or_404(Profile, slug=slug.lower())
+    else:
+        player = request.user.profile
     games_played = player.games_played
     view_status = 4
     if request.user.is_authenticated:

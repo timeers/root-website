@@ -3,12 +3,31 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import Profile, PlayerBookmark
+from .models import Profile, PlayerBookmark, Theme, BackgroundImage, ForegroundImage
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
+
+class BackgroundInline(admin.StackedInline):
+    model = BackgroundImage
+    extra = 0
+class ForegroundInline(admin.StackedInline):
+    model = ForegroundImage
+    extra = 0
+
+class ThemeAdmin(admin.ModelAdmin):
+    list_display = ['name']
+    inlines = [BackgroundInline, ForegroundInline]
+
+class BackgroundImageAdmin(admin.ModelAdmin):
+    list_display = ['name', 'page', 'theme__name', 'image']
+    search_fields = ('name', 'page', 'theme__name')
+
+class ForegroundImageAdmin(admin.ModelAdmin):
+    list_display = ['name', 'page', 'theme__name', 'location', 'image']
+    search_fields = ('name', 'page', 'theme__name')
 
 
 class CsvImportForm(forms.Form):
@@ -201,3 +220,6 @@ admin.site.register(User, CustomUserAdmin)
 
 
 admin.site.register(Profile, ProfileAdmin)
+# admin.site.register(Theme, ThemeAdmin)
+admin.site.register(BackgroundImage, BackgroundImageAdmin)
+admin.site.register(ForegroundImage, ForegroundImageAdmin)

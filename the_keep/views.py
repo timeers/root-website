@@ -1,5 +1,6 @@
 import random
 # import logging
+from itertools import groupby
 from django.utils import timezone 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse
@@ -8,7 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
 from django.db.models.functions import Cast
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import ProtectedError, Count
@@ -24,7 +25,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
-from the_gatehouse.models import Profile
+from the_gatehouse.models import Profile, Theme, BackgroundImage, ForegroundImage
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required)
@@ -398,11 +399,22 @@ def home(request, *args, **kwargs):
     official_map_count = Map.objects.filter(status__lte=4, official=True).count()
     game_count = Game.objects.filter(final=True).count()
 
-    background_path = f'themes/{request.user.profile.theme}/backgrounds/archive_background.png'
-    background_left_path = f'themes/{request.user.profile.theme}/images/Vagabond_Trace3.png'
-    background_right_path = f'themes/{request.user.profile.theme}/images/Goose_Trace3.png'
-    foreground_left_path = f'themes/{request.user.profile.theme}/images/Vagabond_Trace3.png'
-    foreground_right_path = f'themes/{request.user.profile.theme}/images/Goose_Trace3.png'
+
+    if request.user.is_authenticated:
+        theme = request.user.profile.theme
+    else:
+        theme = None
+
+    background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # Group the images by location
+    grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+    # Select a random image from each location
+    foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+    # If using PostgreSQL or another database that supports 'distinct' on a field:
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
+
 
     context = {
         'title': 'Home',
@@ -413,11 +425,13 @@ def home(request, *args, **kwargs):
         'official_deck_count': official_deck_count,
         'official_map_count': official_map_count,
         'game_count': game_count,
-        'background_path': background_path,
-        'background_left_path': background_left_path,
-        'background_right_path': background_right_path,
-        'foreground_left_path': foreground_left_path,
-        'foreground_right_path': foreground_right_path,
+        'background_image': background_image,
+        'foreground_images': foreground_images,
+        # 'background_path': background_path,
+        # 'background_left_path': background_left_path,
+        # 'background_right_path': background_right_path,
+        # 'foreground_left_path': foreground_left_path,
+        # 'foreground_right_path': foreground_right_path,
 
     }
 
@@ -704,6 +718,21 @@ def list_view(request, slug=None):
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
     # else:
     #     send_discord_message(f'{get_uuid(request)} on Home Page')
+        theme = request.user.profile.theme
+    else:
+        theme = None
+
+    background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # Group the images by location
+    grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+    # Select a random image from each location
+    foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+    # If using PostgreSQL or another database that supports 'distinct' on a field:
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
+
+
 
 
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
@@ -739,6 +768,8 @@ def list_view(request, slug=None):
         'designer': designer,
         'is_search_view': False,
         'slug': slug,
+        'background_image': background_image,
+        'foreground_images': foreground_images,
         }
     # if request.htmx:
     #     return render(request, "the_keep/partials/search_body.html", context)    
@@ -1250,6 +1281,7 @@ def universal_search(request):
         'vagabonds': vagabonds[:result_count],
         'landmarks': landmarks[:result_count],
         'hirelings': hirelings[:result_count],
+        'tweaks': tweaks[:result_count],
         'expansions': expansions[:result_count],
         'players': players[:result_count],
         'games': games[:result_count],

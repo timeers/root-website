@@ -10,6 +10,7 @@ urlpatterns = [
 
     path('status/', status_check, name='status_check'),
 
+    path('profile/', player_page_view, name='profile'),
     path('profile/<slug:slug>/', player_page_view, name='player-detail'),
 
     path('profile/<slug:slug>/stats/', player_stats, name='player-stats'),

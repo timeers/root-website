@@ -228,6 +228,19 @@ em, i {
     opacity: 1;
   }
 
+  .limited-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 4; /* Limits to 4 lines */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    /* Standard line-clamp for compatibility (though support is limited) */
+    display: box;
+    line-clamp: 4; /* Limits to 4 lines (standard property) */
+    box-orient: vertical;
+}
+
   .hidden-snippet {
     display: grid;
     grid-template-columns: 0fr;
@@ -855,9 +868,9 @@ tr.clickable-row:hover {
 .background-image-wrapper {
   position: fixed; /* Keep the wrapper fixed on the screen */
   top: calc(var(--header-padding)); /* Adjust for header space */
-  left: 50%; /* Center horizontally */
+  left: calc(50% + var(--start-position)); /* Center horizontally */
   transform: translateX(-50%); /* Adjust to center the image correctly */
-  z-index: -3; /* Put behind the content */
+  z-index: var(--z-depth); /* Put behind the content */
   display: flex; /* Turn the parent into a flex container */
   justify-content: center; /* Centers items horizontally */
   align-items: center; /* Centers items vertically */
@@ -874,145 +887,85 @@ tr.clickable-row:hover {
   min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
   min-width: 100vw;
   object-fit: cover; /* Makes sure the image covers the container area */
+  overflow: visible;
 }
 
+.background-image-padding {
+  height: 60vh; /* You can adjust based on your needs */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+}
+
+/* Media Query for Very Small Screens */
+@media (max-width: 431px) {
+  .background-image {
+    height: 20vh; /* Reduce height for small screens */
+    min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
+  }
+
+  .background-image-wrapper {
+    left: calc(50% + var(--start-position) / 1); /* Center horizontally */
+    height: 20vh; /* Reduce height for small screens */
+  }
+  .background-image-padding {
+    height: 20vh; /* You can adjust based on your needs */
+  }
+}
 
 /* Media Query for Small Screens */
-@media (max-width: 600px) {
+@media (max-width: 550px) {
+  .background-image {
+    height: 30vh; /* Reduce height for small screens */
+    min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
+  }
+
+  .background-image-wrapper {
+    left: calc(50% + var(--start-position) / 1); /* Center horizontally */
+    height: 30vh; /* Reduce height for small screens */
+  }
+  .background-image-padding {
+    height: 30vh; /* You can adjust based on your needs */
+  }
+}
+/* Medium sceens */
+@media (max-width: 950px) {
+
   .background-image {
     height: 35vh; /* Reduce height for small screens */
     min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
   }
 
   .background-image-wrapper {
+    left: calc(50% + var(--start-position) / 1); /* Center horizontally */
     height: 35vh; /* Reduce height for small screens */
   }
-  
+  .background-image-padding {
+    height: 35vh; /* You can adjust based on your needs */
+  }
 }
 
-
-/* This next portion isn't used anymore  */
-/* Left Movable Background */
-.background-image-left {
-  position: fixed;
-  top: var(--header-padding); /* moves image down for header */
-  left: 50%;               /* Position it at 50% of the viewport width */
-  transform: translateX(-50%);
-  z-index: -3; /* Furthest Back */
-  width: auto; /* You can set specific width/height for each image if needed */
-  height: 60vh; /* 60% of the viewport height */
-  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
-  min-width: 100vw;
-  border: pink;
-}
-
-/* Right Movable Background */
-.background-image-right {
-  position: fixed;
-  top: var(--header-padding); /* moves image down for header */
-  left: 50%;               /* Position it at 50% of the viewport width */
-  transform: translateX(-50%);
-  z-index: -3; /* Furthest Back */
-  width: auto; /* You can set specific width/height for each image if needed */
-  height: 60vh; /* 60% of the viewport height */
-  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
-  min-width: 100vw;
-  border: pink;
-}
-
-/* Left Movable Foreground */
-.foreground-image-left {
-  position: fixed;
-  top: calc(var(--header-padding));
-  left: 0;
-  z-index: -3; /* Places images behind the content */
-  width: auto;
-  height: 60vh; /* You can set specific width/height for each image if needed */
-  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
-  min-width: 100vw;
-}
-
-/* Right Movable Foreground */
-.foreground-image-right {
-  position: fixed;
-  top: calc(var(--header-padding) + 1vw);
-  right: 30vw;
-  z-index: -1;
-  width: 15%;
-  height: auto; /* You can set specific width/height for each image if needed */
-
-}
-/* End old classes */
 
 /* Apply animations only if "reduce motion" is set to "no-preference" */
 @media (prefers-reduced-motion: no-preference) {
   /* Check if the browser supports scroll timelines */
   @supports (--css: variables) {
 
-
-      /* Foreground animations */
-      @keyframes foreground-move-left {
-        from {
-          transform: translateX(0); 
-        }
-        to {
-          transform: translateX(-10%); 
-        }
-      }
-
-      @keyframes foreground-move-right {
+      /* Start and End Position */
+      @keyframes foreground-right {
         from {
           transform: translateX(0);
         }
         to {
-          transform: translateX(10%);
+          transform: translateX(var(--offset-percent));
         }
       }
 
-      /* Background animations */
-      @keyframes background-move-left {
-        from {
-          transform: translateX(0); 
-        }
-        to {
-          transform: translateX(-30%); 
-        }
-      }
-
-      @keyframes background-move-right {
-        from {
-          transform: translateX(0);
-        }
-        to {
-          transform: translateX(20%);
-        }
-      }
-
-      /* Apply scroll-based animations */
-      #progress-left {
-        animation: foreground-move-left ease-in-out forwards;
-        animation-timeline: scroll();
-        animation-range: 3vh 120vh;
-      }
-
+      /* Scroll timing of animation */
       #progress-right {
-        animation: foreground-move-right ease-in-out forwards;
+        animation: foreground-right ease-in-out forwards;
         animation-timeline: scroll();
-        animation-range: 3vh 180vh;
+        animation-range: 3vh var(--slide-speed);
       }
 
-      #progress-background-left {
-        animation: background-move-left ease-in-out forwards;
-        animation-timeline: scroll();
-        animation-range: 0vh 120vh;
-      }
-
-      #progress-background-right {
-        animation: background-move-right ease-in-out forwards;
-        animation-timeline: scroll();
-        animation-range: 0vh 220vh;
-
-    }
   }
 }
 

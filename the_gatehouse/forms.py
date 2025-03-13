@@ -35,7 +35,7 @@ class ProfileUpdateForm(forms.ModelForm):
     )
     class Meta:
         model = Profile     
-        fields = ['image', 'dwd', 'weird', 'view_status'] # 'league' to add yourself to RDL tournament
+        fields = ['image', 'dwd', 'weird', 'view_status', 'theme'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root TTS League',
@@ -45,12 +45,6 @@ class ProfileUpdateForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        # # Only show the 'weird' field if 'in_weird_root' is True
-        # if self.instance and not self.instance.in_weird_root:
-        #     self.fields['weird'].label = "Join the Weird Root Discord to view Fan Content!"
-        #     self.fields['weird'].widget.attrs['disabled'] = 'disabled'
-        #     # self.fields.disable('weird')  # Remove the weird field from the form if the profile's in_weird_root is False
 
         # Check if the instance has a value for dwd
         if self.instance and self.instance.dwd and not self.instance.admin:
@@ -92,7 +86,7 @@ class UserManageForm(forms.ModelForm):
         choices=STATUS_CHOICES,
         required=False,
         label="User Status",
-        help_text="Users can record games, Designers can post new fan content, users should only be banned after being warned and repeatedly posting false data. User status is only visible to Moderators."
+        help_text="Users can record games, Designers can post new fan content, users should only be banned after being warned and repeat offenses. User status is only visible to Moderators."
     )
     # Adding a checkbox to the form
     nominate_admin = forms.BooleanField(

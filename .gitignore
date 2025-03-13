@@ -21,6 +21,8 @@ media/faction_icons/
 media/profile_pics/
 media/small_component_icons/
 media/cards/
+media/background_images/
+media/foreground_images/
 
 # Django stuff:
 *.log

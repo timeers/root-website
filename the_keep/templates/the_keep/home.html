@@ -13,24 +13,21 @@
 {% endblock meta%}
 
 {% block background %}
-    <div class='background-image-wrapper'>
-    <img id='progress-left' src="{% static foreground_right_path %}" alt="Background">
-    </div>
-    <div class='background-image-wrapper'>
-    <img id='progress-right' src="{% static foreground_left_path %}" alt="Background">
-    </div>
-    <div class='background-image-wrapper'>
-    <img id='progress-background-left' src="{% static background_left_path %}" alt="Background">
-    </div>
-    <div class='background-image-wrapper'>
-    <img id='progress-background-right' src="{% static background_right_path %}" alt="Background">
-    </div>
-    <img class="background-image" src="{% static background_path %}" alt="Background">
-
+    {% if background_image %}
+        <img class="background-image" src="{{ background_image.image.url }}" alt="Background">
+        {% for foreground_image in foreground_images %}
+            <div class='background-image-wrapper' style="{{ foreground_image.style }}">
+                <img id='progress-right' src="{{ foreground_image.image.url }}" alt="Background">
+            </div>
+        {% endfor %}
+    {% endif %}
 {% endblock background %}
 
 {% block content %}
-<div style="margin-top: 375px;">
+{% if background_image %}
+    <div class='background-image-padding' style="{{ background_image.style }}"></div>
+{% endif %}
+<div>
     {% comment %} <article class="media content-section"> {% endcomment %}
     <div class='d-flex media-body'>
         <div class='root-menu-title'>
