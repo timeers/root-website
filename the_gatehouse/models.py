@@ -74,15 +74,15 @@ class Profile(models.Model):
         INACTIVE = '4', 'Inactive'
         ABANDONED = '5', 'Abandoned'
 
-    # class Theme(models.TextChoices):
-    #     LIGHT = 'light', 'Light Theme'
-    #     DARK = 'dark', 'Dark Theme'
-    #     TINFOIL = 'tinfoil', 'Tinfoil Theme'
+    class Theme(models.TextChoices):
+        LIGHT = 'light', 'Light Theme'
+        DARK = 'dark', 'Dark Theme'
+        TINFOIL = 'tinfoil', 'Tinfoil Theme'
 
     component = 'Profile'
 
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
-    # theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices)
+    theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices)
     # user_theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
