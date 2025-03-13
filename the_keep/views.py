@@ -25,7 +25,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
-from the_gatehouse.models import Profile#, Theme, BackgroundImage, ForegroundImage
+from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required)
