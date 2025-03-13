@@ -38,6 +38,7 @@ class BackgroundImage(models.Model):
     height = models.TextField(default='60vh')
     def style(self):
         return f'--background-height: { self.height };'
+    
 class ForegroundImage(models.Model):
     class LocationChoices(models.IntegerChoices):
         FAR_LEFT = 1, 'Far Left'
@@ -82,7 +83,7 @@ class Profile(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     # theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices)
-    theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
+    user_theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added

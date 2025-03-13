@@ -35,7 +35,7 @@ class ProfileUpdateForm(forms.ModelForm):
     )
     class Meta:
         model = Profile     
-        fields = ['image', 'dwd', 'weird', 'view_status', 'theme'] # 'league' to add yourself to RDL tournament
+        fields = ['image', 'dwd', 'weird', 'view_status', 'user_theme'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root TTS League',
