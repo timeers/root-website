@@ -83,6 +83,7 @@ class Profile(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     theme = models.CharField(max_length=20, null=True, blank=True)
+    theme_id = models.CharField(max_length=10, null=True, blank=True)
     # theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices, null=True, blank=True)
     # user_theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
