@@ -400,20 +400,20 @@ def home(request, *args, **kwargs):
     game_count = Game.objects.filter(final=True).count()
 
 
-    # if request.user.is_authenticated:
-    #     theme = request.user.profile.theme
-    # else:
-    #     theme = None
+    if request.user.is_authenticated:
+        theme = request.user.profile.theme
+    else:
+        theme = None
 
-    # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # # Group the images by location
-    # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-    # # Select a random image from each location
-    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-    # # If using PostgreSQL or another database that supports 'distinct' on a field:
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
+    background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # Group the images by location
+    grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+    # Select a random image from each location
+    foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+    # If using PostgreSQL or another database that supports 'distinct' on a field:
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
 
 
     context = {
@@ -425,8 +425,8 @@ def home(request, *args, **kwargs):
         'official_deck_count': official_deck_count,
         'official_map_count': official_map_count,
         'game_count': game_count,
-        # 'background_image': background_image,
-        # 'foreground_images': foreground_images,
+        'background_image': background_image,
+        'foreground_images': foreground_images,
 
 
 
@@ -713,24 +713,19 @@ def list_view(request, slug=None):
 
     if request.user.is_authenticated:
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
-    # else:
-    #     send_discord_message(f'{get_uuid(request)} on Home Page')
+        theme = request.user.profile.theme
+    else:
+        theme = None
 
-
-
-    #     theme = request.user.profile.theme
-    # else:
-    #     theme = None
-
-    # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # # Group the images by location
-    # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-    # # Select a random image from each location
-    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-    # # If using PostgreSQL or another database that supports 'distinct' on a field:
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
+    background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # Group the images by location
+    grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+    # Select a random image from each location
+    foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+    # If using PostgreSQL or another database that supports 'distinct' on a field:
+    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
 
 
 

@@ -46,7 +46,7 @@ class ProfileAdmin(admin.ModelAdmin):
         is_superuser = request.user.is_superuser
         # These fields should not be changed
         form.base_fields['user'].disabled = True
-        form.base_fields['discord'].disabled = True
+        # form.base_fields['discord'].disabled = True
         if not is_superuser:
             form.base_fields['slug'].disabled = True
             if obj and obj.group == 'A':
@@ -220,6 +220,6 @@ admin.site.register(User, CustomUserAdmin)
 
 
 admin.site.register(Profile, ProfileAdmin)
-# admin.site.register(Theme, ThemeAdmin)
+admin.site.register(Theme, ThemeAdmin)
 admin.site.register(BackgroundImage, BackgroundImageAdmin)
 admin.site.register(ForegroundImage, ForegroundImageAdmin)
