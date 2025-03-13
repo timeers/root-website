@@ -14,51 +14,51 @@ from django.utils import timezone
 
 
 
-class Theme(models.Model):
-    name = models.CharField(max_length=100)
-    # primary_color = models.CharField(max_length=7)  # Hex color code
-    # secondary_color = models.CharField(max_length=7)
-    # font_family = models.CharField(max_length=100)
-    # background_image = models.URLField(blank=True, null=True)
-    # Add other theme properties as needed
+# class Theme(models.Model):
+#     name = models.CharField(max_length=100)
+#     # primary_color = models.CharField(max_length=7)  # Hex color code
+#     # secondary_color = models.CharField(max_length=7)
+#     # font_family = models.CharField(max_length=100)
+#     # background_image = models.URLField(blank=True, null=True)
+#     # Add other theme properties as needed
 
-    def __str__(self):
-        return self.name
+#     def __str__(self):
+#         return self.name
 
-class PageChoices(models.TextChoices):
-    LIBRARY = 'library','Library'
-    GAMES = 'games', 'Games'
-    RESOURCES = 'resources', 'Resources'
+# class PageChoices(models.TextChoices):
+#     LIBRARY = 'library','Library'
+#     GAMES = 'games', 'Games'
+#     RESOURCES = 'resources', 'Resources'
 
-class BackgroundImage(models.Model):
-    name = models.CharField(max_length=100)    
-    image = models.ImageField(upload_to='background_images')
-    theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
-    page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
-    height = models.TextField(default='60vh')
-    def style(self):
-        return f'--background-height: { self.height };'
+# class BackgroundImage(models.Model):
+#     name = models.CharField(max_length=100)    
+#     image = models.ImageField(upload_to='background_images')
+#     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
+#     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
+#     height = models.TextField(default='60vh')
+#     def style(self):
+#         return f'--background-height: { self.height };'
     
-class ForegroundImage(models.Model):
-    class LocationChoices(models.IntegerChoices):
-        FAR_LEFT = 1, 'Far Left'
-        LEFT = 3, 'Left'
-        CENTER = 5, 'Center'
-        RIGHT = 7, 'Right'
-        FAR_RIGHT = 9, 'Far Right'
-    name = models.CharField(max_length=100)
-    location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
-    image = models.ImageField(upload_to='foreground_images')
-    theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
-    page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
-    depth = models.IntegerField(default=-1)
-    start_position = models.TextField(default='0vw')
-    slide = models.TextField(default='0vw')
-    speed = models.TextField(default='50vh')
-    height = models.TextField(default='60vh')
+# class ForegroundImage(models.Model):
+#     class LocationChoices(models.IntegerChoices):
+#         FAR_LEFT = 1, 'Far Left'
+#         LEFT = 3, 'Left'
+#         CENTER = 5, 'Center'
+#         RIGHT = 7, 'Right'
+#         FAR_RIGHT = 9, 'Far Right'
+#     name = models.CharField(max_length=100)
+#     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
+#     image = models.ImageField(upload_to='foreground_images')
+#     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
+#     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
+#     depth = models.IntegerField(default=-1)
+#     start_position = models.TextField(default='0vw')
+#     slide = models.TextField(default='0vw')
+#     speed = models.TextField(default='50vh')
+#     height = models.TextField(default='60vh')
 
-    def style(self):
-        return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position }; --background-height: { self.height };'
+#     def style(self):
+#         return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position }; --background-height: { self.height };'
 
 class Profile(models.Model):
     class GroupChoices(models.TextChoices):
@@ -74,16 +74,14 @@ class Profile(models.Model):
         INACTIVE = '4', 'Inactive'
         ABANDONED = '5', 'Abandoned'
 
-    class Theme(models.TextChoices):
-        LIGHT = 'light', 'Light Theme'
-        DARK = 'dark', 'Dark Theme'
-        TINFOIL = 'tinfoil', 'Tinfoil Theme'
+    # class Theme(models.TextChoices):
+    #     LIGHT = 'light', 'Light Theme'
+    #     DARK = 'dark', 'Dark Theme'
+    #     TINFOIL = 'tinfoil', 'Tinfoil Theme'
 
     component = 'Profile'
 
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
-    # theme = models.CharField(max_length=20, null=True, blank=True)
-
     # theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices, null=True, blank=True)
     # user_theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
