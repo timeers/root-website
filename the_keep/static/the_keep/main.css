@@ -850,6 +850,11 @@ tr.clickable-row:hover {
   font-size: 22px;
 }
 
+/* @scroll-timeline scrollTimeline {
+  source: scroller;
+  time-range: 100%; 
+} */
+
 /* Background Banner */
 .background-image {
   position: fixed;
@@ -907,8 +912,39 @@ tr.clickable-row:hover {
   min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
 }
 
+/* @media (orientation: portrait) {
+  .background-image {
+    height: 20vh; 
+    min-height: calc(100vw / var(--scale-factor)); 
+  }
+
+  .background-image-wrapper {
+    left: calc(50% + var(--start-position) / 1);
+    height: 20vh; 
+  }
+  .background-image-padding {
+    height: 20vh; 
+  }
+} */
+
 /* Media Query for Very Small Screens */
 @media (max-width: 431px) {
+  .background-image {
+    height: 15vh; /* Reduce height for small screens */
+    min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
+  }
+
+  .background-image-wrapper {
+    left: calc(50% + var(--start-position) / 1); /* Center horizontally */
+    height: 15vh; /* Reduce height for small screens */
+  }
+  .background-image-padding {
+    height: 15vh; /* You can adjust based on your needs */
+  }
+}
+
+/* Media Query for Small Screens */
+@media (max-width: 550px) {
   .background-image {
     height: 20vh; /* Reduce height for small screens */
     min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
@@ -922,38 +958,24 @@ tr.clickable-row:hover {
     height: 20vh; /* You can adjust based on your needs */
   }
 }
-
-/* Media Query for Small Screens */
-@media (max-width: 550px) {
-  .background-image {
-    height: 30vh; /* Reduce height for small screens */
-    min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
-  }
-
-  .background-image-wrapper {
-    left: calc(50% + var(--start-position) / 1); /* Center horizontally */
-    height: 30vh; /* Reduce height for small screens */
-  }
-  .background-image-padding {
-    height: 30vh; /* You can adjust based on your needs */
-  }
-}
 /* Medium sceens */
-@media (max-width: 950px) {
+@media (max-width: 1300px) {
 
   .background-image {
-    height: 35vh; /* Reduce height for small screens */
+    height: 22vh; /* Reduce height for small screens */
     min-height: calc(100vw / var(--scale-factor)); /* Keep aspect ratio */
   }
 
   .background-image-wrapper {
     left: calc(50% + var(--start-position) / 1); /* Center horizontally */
-    height: 35vh; /* Reduce height for small screens */
+    height: 22vh; /* Reduce height for small screens */
   }
   .background-image-padding {
-    height: 35vh; /* You can adjust based on your needs */
+    height: 22vh; /* You can adjust based on your needs */
   }
 }
+
+
 
 
 /* Apply animations only if "reduce motion" is set to "no-preference" */
