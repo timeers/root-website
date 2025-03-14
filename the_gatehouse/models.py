@@ -19,7 +19,7 @@ class Theme(models.Model):
     name = models.CharField(max_length=100)
     artist = models.CharField(max_length=100)
     artist_link = models.CharField(max_length=400, null=True, blank=True)
-    
+
     def __str__(self):
         return self.name
 
@@ -86,7 +86,7 @@ class ForegroundImage(models.Model):
     def save(self, *args, **kwargs):
         # Check if the image field has changed (only works if the instance is already saved)
         if self.pk:  # If the object already exists in the database
-            old_instance = BackgroundImage.objects.get(pk=self.pk)
+            old_instance = ForegroundImage.objects.get(pk=self.pk)
             # List of fields to check and delete old images if necessary
             field_name = 'image'
             old_image = getattr(old_instance, field_name)

@@ -864,7 +864,7 @@ tr.clickable-row:hover {
   /* border: pink; */
 }
 
-.background-image::after {
+/* .background-image::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -874,7 +874,7 @@ tr.clickable-row:hover {
   background: linear-gradient(to bottom, transparent, red);
   pointer-events: none;
   z-index: 20;
-}
+} */
 
 /* Make the parent container a flex container */
 .background-image-wrapper {
