@@ -13,14 +13,7 @@
 {% endblock meta%}
 
 {% block background %}
-    {% if background_image %}
-        <img class="background-image" src="{{ background_image.image.url }}" alt="Background">
-        {% for foreground_image in foreground_images %}
-            <div class='background-image-wrapper' style="{{ foreground_image.style }}">
-                <img id='progress-right' src="{{ foreground_image.image.url }}" alt="Background">
-            </div>
-        {% endfor %}
-    {% endif %}
+    {% include 'the_gatehouse/partials/background.html' %}
 {% endblock background %}
 
 {% block content %}

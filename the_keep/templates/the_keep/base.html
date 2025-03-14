@@ -43,10 +43,10 @@
 
     {% block background %}{% endblock %}
     
-    <main role="main" class="container main-content">
+    <main role="main" class="container main-content" id="main-content">
         
       <div class="row">
-        <div class="col-md-9">
+        <div class="col-md-8">
             {% if messages %}
                 {% for message in messages %}
                 <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}">
@@ -81,6 +81,9 @@
 
     <!-- ChartJS -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Scroll Timeline Polyfill -->
+    <script src="https://flackr.github.io/scroll-timeline/dist/scroll-timeline.js"></script>
 
 <script>
     $(document).ready(function () {

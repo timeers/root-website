@@ -763,8 +763,8 @@ def list_view(request, slug=None):
         'designer': designer,
         'is_search_view': False,
         'slug': slug,
-        # 'background_image': background_image,
-        # 'foreground_images': foreground_images,
+        'background_image': background_image,
+        'foreground_images': foreground_images,
         }
     # if request.htmx:
     #     return render(request, "the_keep/partials/search_body.html", context)    

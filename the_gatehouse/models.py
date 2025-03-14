@@ -10,18 +10,16 @@ from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, W
 from django.db.models.functions import Cast
 from django.apps import apps
 from django.utils import timezone 
+from the_keep.utils import validate_hex_color, delete_old_image
 
 
 
 
 class Theme(models.Model):
     name = models.CharField(max_length=100)
-    # primary_color = models.CharField(max_length=7)  # Hex color code
-    # secondary_color = models.CharField(max_length=7)
-    # font_family = models.CharField(max_length=100)
-    # background_image = models.URLField(blank=True, null=True)
-    # Add other theme properties as needed
-
+    artist = models.CharField(max_length=100)
+    artist_link = models.CharField(max_length=400, null=True, blank=True)
+    
     def __str__(self):
         return self.name
 
@@ -36,9 +34,31 @@ class BackgroundImage(models.Model):
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     height = models.TextField(default='60vh')
+    background_color = models.CharField(
+        max_length=7,
+        default='#fafafa',
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
     def style(self):
         return f'--background-height: { self.height };'
     
+    def alt(self):
+        return f'{ self.name } Background by {self.theme.artist}'
+
+        
+    def save(self, *args, **kwargs):
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = BackgroundImage.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            field_name = 'image'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image:
+                delete_old_image(old_image)
+        super().save(*args, **kwargs)
+
 class ForegroundImage(models.Model):
     class LocationChoices(models.IntegerChoices):
         FAR_LEFT = 1, 'Far Left'
@@ -59,6 +79,21 @@ class ForegroundImage(models.Model):
 
     def style(self):
         return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position }; --background-height: { self.height };'
+    
+    def alt(self):
+        return f'{ self.name } in Background by {self.theme.artist}'
+        
+    def save(self, *args, **kwargs):
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = BackgroundImage.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            field_name = 'image'
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image:
+                delete_old_image(old_image)
+        super().save(*args, **kwargs)
 
 class Profile(models.Model):
     class GroupChoices(models.TextChoices):
