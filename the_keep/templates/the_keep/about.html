@@ -3,31 +3,32 @@
 {% load static %}
 
 {% block content %}
-<h1>About the Database</h1>
+<h1>About</h1>
 <div>This is an unofficial collection of components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.</div>
-<div>All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Leder Games.</div>
+<div class='mb-2'>All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Leder Games.</div>
 {% if user.is_authenticated %}
     {% if user.profile.player %}
-        <h2 class="mt-2">Weird Root</h2>
-        Much of the content here comes from the Weird Root Discord.
-        <div>Join the Discord community to see many more fan made creations.</div>
+        <div class='mb-2'>Much of the content here comes from the Weird Root Discord.
+            {% if not user.profile.in_weird_root %}
+            Request an invite to the <a class='clickable-link' href="{% url 'generic-weird-root-invite' %}">Discord</a> community to view links and see many more fan made creations over there.
+            {% endif %}
+        </div>
     {% endif %}
-    <h2 class="mt-2">Woodland Warriors</h2>
     <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
 
     <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
 {% endif %}
 
-<h2 class="mt-2">Feedback{% if user.profile.player %} and FAQ{% endif %}</h2>
+<div class='mb-2'>
 Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
 {% if user.profile.player %}
  You can also find a more detailed FAQ at the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj"><strong>RDB Feedback Discord</strong></a>.
 {% endif %}
-
-<h2 class="mt-2">Thank you</h2>
-<div>Thank you for checking out the Root Database!</div>
+</div>
+{% comment %} <h2 class="mt-2">Thank you</h2> {% endcomment %}
+<div>Thank you for checking out the Root Database</div>
 <div>
-A special thanks goes to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided input and encouragement to make the site what it is now.
+Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided input and encouragement to make the site what it is now.
 </div>
 <div>
 Thank you to Tin (the Foil) for providing original art for the site. Check out their wonderful work <a class='clickable-link' href='https://linktr.ee/tinthefoil'>here<a>.

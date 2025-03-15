@@ -1020,12 +1020,14 @@ def game_feedback(request, id):
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
 @player_required
-def weird_root_invite(request, slug):
-    
-    post = get_object_or_404(Post, slug=slug)
-
+def weird_root_invite(request, slug=None):
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+        feedback_subject = f'{post.component}: {post.title}'
+    else:
+        feedback_subject = "Generic Invite"
     message_category = 'weird-root'
-    feedback_subject = f'{post.component}: {post.title}'
+    
 
     context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
 

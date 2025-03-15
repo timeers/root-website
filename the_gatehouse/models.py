@@ -66,6 +66,9 @@ class ForegroundImage(models.Model):
         CENTER = 5, 'Center'
         RIGHT = 7, 'Right'
         FAR_RIGHT = 9, 'Far Right'
+        TITLE = 100, 'Title'
+        SECOND = 101, 'Second Title'
+        THIRD = 102, 'Third Title'
     name = models.CharField(max_length=100)
     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
     image = models.ImageField(upload_to='foreground_images')

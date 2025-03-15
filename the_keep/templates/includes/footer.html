@@ -1,6 +1,15 @@
 <footer class="footer">
-    <div class="container">
-        <p>2025 The Root Database. All rights reserved.</p>
-        <p><a href="{% url 'general-feedback' %}">Feedback</a> | <a href="{% url 'keep-about' %}">About</a></p>
+    <div class="footer-container">
+        <div>2025 The Root Database</div>
+        <div>
+            <a href="{% url 'keep-about' %}">About</a> |
+            {% if theme %}
+            <a href='{{ theme.artist_link }}'>Original Art by {{ theme.artist }}</a> |
+            {% endif %}
+            {% if user.profile.player %}
+                <a href="https://discord.gg/Aspf4tAbJj">Discord</a> |
+            {% endif %}
+            <a href="{% url 'general-feedback' %}">Feedback</a>
+        </div>
     </div>
 </footer>

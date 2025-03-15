@@ -32,6 +32,7 @@ urlpatterns = [
     path('feedback/post/<slug:slug>/', post_feedback, name='post-feedback'),
     path('feedback/profile/<slug:slug>/', player_feedback, name='player-feedback'),
     path('feedback/game/<int:id>/', game_feedback, name='game-feedback'),
+    path('feedback/request-invite/', weird_root_invite, name='generic-weird-root-invite'),
     path('feedback/request-invite/<slug:slug>/', weird_root_invite, name='weird-root-invite'),
 
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),

@@ -1,3 +1,5 @@
+
+
 body {
     background: #fafafa;
     color: #333333;
@@ -1008,7 +1010,7 @@ tr.clickable-row:hover {
 
 
 /* Basic Footer Styles */
-footer {
+/* footer {
   background-color: #333;
   color: white;
   padding: 15px 0;
@@ -1017,28 +1019,43 @@ footer {
   width: 100%;
   text-align: center;
   font-size: 14px;
+  margin-top: auto;
+} */
+.footer {
+  margin-top: auto; /* Pushes footer to the bottom */
+  background-color: #5f788a;
+  color: #ffffff;
+  padding: 15px;
+  text-align: center;
 }
 
+
 /* Container for footer content */
-footer .container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 15px;
+footer .footer-container {
+  display: flex;
+  flex-direction: column;
 }
+
+
 
 /* Links styling */
 footer a {
-  color: #ffffff;
+  color: #cbd5db;
   text-decoration: none;
   margin: 0 10px;
 }
 
 footer a:hover {
   text-decoration: underline;
+  color: #ffffff;
 }
-
 
 .main-content {
-  padding-bottom: 60px;
+  height: 100%; /* Full height of the viewport */
+
 }
+
+/* .main-content {
+  padding-bottom: 60px;
+} */
 
