@@ -1140,9 +1140,23 @@ class PNPAssetListView(ListView):
         if self.request.user.is_authenticated:
             context['profile'] = self.request.user.profile  # Adding the user to the context
             context['shared_assets'] = PNPAsset.objects.filter(shared_by__slug=self.request.user.profile.slug)
+            theme = self.request.user.profile.theme
         else:
             context['profile'] = None
             context['shared_assets'] = None
+            theme = None
+
+        # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+        # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+        # # Group the images by location
+        # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+        # # Select a random image from each location
+        # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+
+        # context['background_image'] = background_image
+        # context['foreground_images'] = foreground_images
+
+
         return context
     
     def render_to_response(self, context, **response_kwargs):

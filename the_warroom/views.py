@@ -1,3 +1,6 @@
+import random
+# import logging
+from itertools import groupby
 from django.shortcuts import render
 from django.views.generic import ListView, UpdateView, CreateView, DeleteView
 from django.views.decorators.http import require_http_methods
@@ -27,7 +30,7 @@ from .filters import GameFilter, PlayerGameFilter
 
 from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak
 
-from the_gatehouse.models import Profile
+from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  tester_required, player_onboard_required, admin_onboard_required)
@@ -103,9 +106,23 @@ class GameListView(ListView):
 
         if self.request.user.is_authenticated:
             profile = self.request.user.profile
+            theme = self.request.user.profile.theme
         else:
             profile = None
-        
+            theme = None
+
+        # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+        # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+        # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+        # # Group the images by location
+        # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+        # # Select a random image from each location
+        # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+        # context['background_image'] = background_image
+        # context['foreground_images'] = foreground_images
+
+
+
         in_progress = Game.objects.filter(final=False, recorder=profile)
         
         # Reuse the cached queryset here instead of calling get_queryset again

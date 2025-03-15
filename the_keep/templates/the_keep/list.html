@@ -13,14 +13,8 @@
 {% endblock meta%}
 
 
-{% block background %}
-    {% include 'the_gatehouse/partials/background.html' %}
-{% endblock background %}
-
 {% block content %}
-    {% if background_image %}
-        <div class='background-image-padding' style="{{ background_image.style }}"></div>
-    {% endif %}
+
        {% include 'the_keep/partials/search_body.html' %}
 {% endblock content %}
 

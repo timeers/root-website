@@ -1,9 +1,9 @@
 <!-- Background Images -->
 {% if background_image %}
-<img class="background-image" src="{{ background_image.image.url }}" alt="{{ background_image.alt }}" fetchpriority="high">
-{% for foreground_image in foreground_images %}
-    <div class='background-image-wrapper' style="{{ foreground_image.style }}">
-        <img id='progress-right' src="{{ foreground_image.image.url }}" alt="{{ background_image.alt }}">
-    </div>
-{% endfor %}
+    <img class="background-image" src="{{ background_image.image.url }}" alt="{{ background_image.alt }}" fetchpriority="high">
+    {% for foreground_image in foreground_images %}
+        <div class='background-image-wrapper' style="{{ foreground_image.style }}">
+            <img id='progress-right' src="{{ foreground_image.image.url }}" alt="{{ background_image.alt }}">
+        </div>
+    {% endfor %}
 {% endif %}

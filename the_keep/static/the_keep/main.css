@@ -1,3 +1,10 @@
+/* Ensure html and body elements take up the full height of the viewport */
+html, body {
+  height: 100%;
+
+  margin: 0;
+}
+
 
 
 body {
@@ -5,7 +12,55 @@ body {
     color: #333333;
     margin-top: 5rem;
     font-family: 'Baskerville', serif; /* Use Baskerville for body text */
+    display: flex;
+    flex-direction: column;
+    height: 100%;  /* Make sure the body takes up the entire height of the screen */
   }
+
+
+
+
+/* Make the main content area flexible so it can grow to fill available space */
+.main-content {
+  flex: 1;  /* Allow the content to grow and push the footer down */
+}
+
+.footer {
+  margin-top: auto; /* Pushes footer to the bottom */
+  background-color: #5f788a;
+  color: #ffffff;
+  padding: 15px;
+  text-align: center;
+}
+
+
+/* Container for footer content */
+footer .footer-container {
+  display: flex;
+  flex-direction: column;
+}
+
+
+
+/* Links styling */
+footer a {
+  color: #cbd5db;
+  text-decoration: none;
+  margin: 0 10px;
+}
+
+footer a:hover {
+  text-decoration: underline;
+  color: #ffffff;
+}
+
+/* .main-content {
+  height: 100%; 
+
+} */
+
+
+
   :root {
     --header-padding: 75px;
     --scale-factor: 3.555;
@@ -1008,54 +1063,4 @@ tr.clickable-row:hover {
 
 
 
-
-/* Basic Footer Styles */
-/* footer {
-  background-color: #333;
-  color: white;
-  padding: 15px 0;
-  position: absolute;
-  bottom: 0;
-  width: 100%;
-  text-align: center;
-  font-size: 14px;
-  margin-top: auto;
-} */
-.footer {
-  margin-top: auto; /* Pushes footer to the bottom */
-  background-color: #5f788a;
-  color: #ffffff;
-  padding: 15px;
-  text-align: center;
-}
-
-
-/* Container for footer content */
-footer .footer-container {
-  display: flex;
-  flex-direction: column;
-}
-
-
-
-/* Links styling */
-footer a {
-  color: #cbd5db;
-  text-decoration: none;
-  margin: 0 10px;
-}
-
-footer a:hover {
-  text-decoration: underline;
-  color: #ffffff;
-}
-
-.main-content {
-  height: 100%; /* Full height of the viewport */
-
-}
-
-/* .main-content {
-  padding-bottom: 60px;
-} */
 

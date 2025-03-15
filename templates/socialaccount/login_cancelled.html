@@ -1,15 +1,21 @@
 {% extends "socialaccount/base_entrance.html" %}
 {% load i18n %}
-{% load allauth %}
+{% load allauth socialaccount %}
+
+{% get_providers as socialaccount_providers %}
 {% block head_title %}
     {% trans "Login Cancelled" %}
 {% endblock head_title %}
 {% block content %}
+<article class="media content-section">
+    <div class="media-body">
     {% element h1 %}
         {% trans "Login Cancelled" %}
     {% endelement %}
     {% url 'account_login' as login_url %}
     {% element p %}
-        {% blocktrans %}You decided to cancel logging in to our site using one of your existing accounts. If this was a mistake, please proceed to <a href="{{login_url}}">sign in</a>.{% endblocktrans %}
+        You decided to cancel logging in using your Discord Account.<br> If this was a mistake, please proceed to <a class='clickable-link' href="{% provider_login_url 'discord' %}">sign in</a>.
     {% endelement %}
+    </div>
+</article>
 {% endblock content %}

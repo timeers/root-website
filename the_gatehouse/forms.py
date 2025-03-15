@@ -4,6 +4,10 @@ from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
 from .models import Profile
+from django_recaptcha.fields import ReCaptchaField
+from django_recaptcha.widgets import ReCaptchaV2Checkbox
+
+
 
 class UserRegisterForm(UserCreationForm):
     email = forms.EmailField(required=True)
@@ -233,6 +237,16 @@ class MessageForm(forms.Form):
         widget=forms.HiddenInput(),  # Makes the field hidden
         required=False
     )
+    captcha = ReCaptchaField(
+        label = "Does Clearing Priority fill you with a sense of urgency?",
+        widget=ReCaptchaV2Checkbox(
+            attrs={
+
+                'data-theme': 'light',        # Set a theme (light or dark)
+                'data-size': 'normal',       # Set the size to compact (normal is default)
+            }
+        )
+    )
     def __init__(self, *args, author=None, message_category='feedback', **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['message'].widget.attrs.update({
@@ -242,6 +256,7 @@ class MessageForm(forms.Form):
         # If author is provided, set it as the value for the author field
         if author:
             self.fields['author'].initial = author
+            del self.fields['captcha']
         else:
             if message_category in ['report', 'request']:
                 self.fields['author'].required = True  # Make the author field required

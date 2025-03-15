@@ -11,6 +11,7 @@ django-crispy-forms==2.3
 django-debug-toolbar==4.4.6
 django-filter==24.3
 django-htmx==1.21.0
+django-recaptcha==4.0.0
 django-select2==8.2.1
 django-storages==1.14.4
 djangorestframework==3.15.2
@@ -27,4 +28,5 @@ requests==2.32.3
 s3transfer==0.10.3
 six==1.16.0
 sqlparse==0.5.1
+typing_extensions==4.12.2
 urllib3==2.2.3

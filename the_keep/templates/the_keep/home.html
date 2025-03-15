@@ -12,14 +12,9 @@
 <meta name="description" content="The Root Database is a site for posting and finding fan created content for the woodland war game Root by Leder Games">
 {% endblock meta%}
 
-{% block background %}
-    {% include 'the_gatehouse/partials/background.html' %}
-{% endblock background %}
 
 {% block content %}
-{% if background_image %}
-    <div class='background-image-padding' style="{{ background_image.style }}"></div>
-{% endif %}
+
 <div>
     {% comment %} <article class="media content-section"> {% endcomment %}
     <div class='d-flex media-body'>

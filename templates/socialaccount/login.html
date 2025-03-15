@@ -9,10 +9,10 @@
     <div class="media-body">
 
     {% element h1 %}
-        {% blocktrans with provider.name as provider %}Sign In Via {{ provider }}{% endblocktrans %}
+        {% blocktrans with provider.name as provider %}Sign In{% endblocktrans %}
     {% endelement %}
     {% element p %}
-        {% blocktrans with provider.name as provider %}You are about to sign in using a third-party account from {{ provider }}.{% endblocktrans %}
+        {% blocktrans with provider.name as provider %}You are about to sign in using your existing {{ provider }} Account. You will be redirected to Discord to review these permissions.{% endblocktrans %}
     {% endelement %}
 
     {% element form method="post" no_visible_fields=True %}
@@ -20,7 +20,7 @@
             {% csrf_token %}
         <!-- Login with Discord Form -->
         <button type="submit" class="btn btn-primary">
-            <i class="fa fa-external-link"></i> Continue with {{ provider.name }}
+            <i class="fa fa-external-link"></i> Continue to {{ provider.name }}
         </button>
         {% endslot %}
     {% endelement %}

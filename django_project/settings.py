@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.discord',
     'rest_framework',
+    'django_recaptcha',
 
 ]
 
@@ -238,6 +239,10 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = config['ROOTDB_USER']
 EMAIL_HOST_PASSWORD = config['ROOTDB_PASS']
+
+RECAPTCHA_PUBLIC_KEY = '6Lc7hvUqAAAAANmlBnrLiaNbJswmFlOjwMaYo3aL'
+RECAPTCHA_PRIVATE_KEY = config['RECAPTCHA_SECRET']
+
 
 AWS_ACCESS_KEY_ID = config['AWS_ACCESS_KEY_ID']
 AWS_SECRET_ACCESS_KEY = config['AWS_SECRET_ACCESS_KEY']
