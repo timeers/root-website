@@ -53,7 +53,7 @@
 
         {% if expansion.get_posts %}
             {% if expansion.get_factions %}
-            <h2>Factions</h2>
+            <h2>Faction{% if expansion.get_factions.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_factions %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -61,7 +61,7 @@
             {% endfor %}
             {% endif %}
             {% if expansion.get_decks %}
-            <h2>Decks</h2>
+            <h2>Deck{% if expansion.get_decks.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_decks %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -69,7 +69,7 @@
             {% endfor %}
             {% endif %}
             {% if expansion.get_maps %}
-            <h2>Maps</h2>
+            <h2>Map{% if expansion.get_maps.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_maps %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -77,7 +77,7 @@
             {% endfor %}
             {% endif %}
             {% if expansion.get_vagabonds %}
-            <h2>Vagabonds</h2>
+            <h2>Vagabond{% if expansion.get_vagabonds.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_vagabonds %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -85,7 +85,7 @@
             {% endfor %}
             {% endif %}
             {% if expansion.get_hirelings %}
-            <h2>Hirelings</h2>
+            <h2>Hireling{% if expansion.get_hirelings.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_hirelings %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -93,7 +93,7 @@
             {% endfor %}
             {% endif %}
             {% if expansion.get_landmarks %}
-            <h2>Landmarks</h2>
+            <h2>Landmark{% if expansion.get_landmarks.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_landmarks %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -101,7 +101,7 @@
             {% endfor %}
             {% endif %}
             {% if expansion.get_clockwork %}
-            <h2>Clockwork Factions</h2>
+            <h2>Clockwork Faction{% if expansion.get_clockwork.count != 1 %}s{% endif %}</h2>
             {% for object in expansion.get_clockwork %}
                 
                     {% include 'the_keep/partials/post.html' %}

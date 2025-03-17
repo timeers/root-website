@@ -27,7 +27,7 @@
 
           <!-- Navbar Right Side -->
           <div class="navbar-nav ms-auto align-items-center"> 
-              {% if user.profile.designer %}
+              {% comment %} {% if user.profile.designer %}
 
                   <!-- Dropdownn for new content -->
                     <li class="nav-item dropdown">
@@ -48,7 +48,7 @@
                         <li><a class="dropdown-item" href="{% url 'tweak-create' %}">Tweak</a></li>
                       </ul>
                     </li>
-              {% endif %}
+              {% endif %} {% endcomment %}
 
               {% if user.is_authenticated %}
 
@@ -70,8 +70,13 @@
                       {% endif %}
 
                       
-                      {% if user_recent_posts %}
+                      {% if user_recent_posts or user.profile.designer %}
                       <li><hr class="dropdown-divider"></li>
+                      {% endif %}
+
+                      <li><a class="dropdown-item" href="{% url 'new-components' %}"><i class="bi bi-plus-square"></i> New Post</a></li>
+
+                      {% if user_recent_posts %}
                       <h6 class="dropdown-header">My Recent Posts</h6>
                         {% for user_post in user_recent_posts %}
                             <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>

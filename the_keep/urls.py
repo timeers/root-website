@@ -19,6 +19,7 @@ from .views import (
     add_piece, delete_piece,
     ultimate_component_view,
     component_games,
+    new_components,
 
     confirm_stable,
     confirm_testing,
@@ -37,6 +38,7 @@ urlpatterns = [
     path('universal-search/', universal_search, name='universal-search'),
     path('api/search/', search_posts, name='api-search-posts'),
 
+    path('new/', new_components, name='new-components'),
     path('new/faction/', FactionCreateView.as_view(), name='faction-create'),
     path('new/clockwork/', ClockworkCreateView.as_view(), name='clockwork-create'),
     path('new/map/', MapCreateView.as_view(), name='map-create'),

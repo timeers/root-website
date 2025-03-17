@@ -5,17 +5,26 @@
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
 <meta property="og:site_name" content="Root Database">
-<meta property="og:title" content="Resources">
-<meta property="og:description" content="Assets for creating Root fan content">
-<meta name="description" content="Assets for creating Root fan content">
+<meta property="og:title" content="The Workshop">
+<meta property="og:description" content="Assets and resources for creating Root fan content">
+<meta name="description" content="Assets and for creating Root fan content">
 {% endblock meta%}
 
 
 {% block content %}
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class='d-flex'>
             <h1>Resources</h1>
-            <a class="btn btn-sm btn-success mb-3" href="{% url 'asset-new' %}">New Resource +</a>
+            </div>
+            <div class='d-flex'>
+            {% if user.profile.designer %}
+            <a href="{% url 'new-components' %}" class="btn btn-sm btn-primary ml-1 mb-3">
+                New Post
+            </a>
+            {% endif %}
+            <a class="btn btn-sm btn-success ml-1 mb-3" href="{% url 'asset-new' %}">New Resource +</a>
+        </div>
         </div>
 
         {% if shared_assets %}

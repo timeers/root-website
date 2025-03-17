@@ -90,12 +90,12 @@ class Expansion(models.Model):
         count = 0
         for field in link_fields:
             # Special handling for 'wr_link' if the user is authenticated and a member of WR
-            if field == 'wr_link':
-                if user.is_authenticated:
-                    if user.profile.in_weird_root:
-                        if getattr(self, field):  # Checks if the field value is not None or empty string
-                            count += 1
-            else:
+            # if field == 'wr_link':
+            #     if user.is_authenticated:
+            #         if user.profile.in_weird_root:
+            #             if getattr(self, field):  # Checks if the field value is not None or empty string
+            #                 count += 1
+            # else:
                 if getattr(self, field):  # Checks if the field value is not None or empty string
                     count += 1
         return count
@@ -189,12 +189,12 @@ class Post(models.Model):
         count = 0
         for field in link_fields:
             # Special handling for 'wr_link' if the user is authenticated and a member of WR
-            if field == 'wr_link':
-                if user.is_authenticated:
-                    if user.profile.in_weird_root:
-                        if getattr(self, field):  # Checks if the field value is not None or empty string
-                            count += 1
-            else:
+            # if field == 'wr_link':
+            #     if user.is_authenticated:
+            #         if user.profile.in_weird_root:
+            #             if getattr(self, field):  # Checks if the field value is not None or empty string
+            #                 count += 1
+            # else:
                 if getattr(self, field):  # Checks if the field value is not None or empty string
                     count += 1
         return count

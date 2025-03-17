@@ -1,0 +1,55 @@
+<!-- Components -->
+{% extends "the_keep/base.html" %}
+
+{% block content %}
+<div class='root-title'>
+    <h1 class='d-flex justify-content-center'>
+        Post a New
+    </h1>
+    <a href="{% url 'faction-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Faction
+        </article>
+    </a>
+    <a href="{% url 'vagabond-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Vagabond
+        </article>
+    </a>
+    <a href="{% url 'map-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Map
+        </article>
+    </a>
+    <a href="{% url 'deck-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Deck
+        </article>
+    </a>
+    <a href="{% url 'landmark-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Landmark
+        </article>
+    </a>
+    <a href="{% url 'clockwork-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Clockwork Faction
+        </article>
+    </a>
+    <a href="{% url 'hireling-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Hireling
+        </article>
+    </a>
+    <a href="{% url 'tweak-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                House Rule
+        </article>
+    </a>
+    <a href="{% url 'expansion-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+                Expansion
+        </article>
+    </a>
+</div>
+{% endblock %}

@@ -19,7 +19,12 @@ class Theme(models.Model):
     name = models.CharField(max_length=100)
     artist = models.CharField(max_length=100)
     artist_link = models.CharField(max_length=400, null=True, blank=True)
-
+    theme_color = models.CharField(
+        max_length=7,
+        default='#5f788a',
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
     def __str__(self):
         return self.name
 
@@ -27,24 +32,29 @@ class PageChoices(models.TextChoices):
     LIBRARY = 'library','Library'
     GAMES = 'games', 'Games'
     RESOURCES = 'resources', 'Resources'
+    FEEDBACK = 'feedback', 'Feedback'
+    ABOUT = 'about', 'About'
+    SETTINGS = 'settings', 'Settings'
 
 class BackgroundImage(models.Model):
     name = models.CharField(max_length=100)    
+    artist = models.CharField(max_length=100, blank=True, null=True)
     image = models.ImageField(upload_to='background_images')
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
-    height = models.TextField(default='60vh')
     background_color = models.CharField(
         max_length=7,
         default='#fafafa',
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
-    def style(self):
-        return f'--background-height: { self.height };'
     
     def alt(self):
-        return f'{ self.name } Background by {self.theme.artist}'
+        if self.artist:
+            alt = f'{ self.name } Background by {self.artist}'
+        else:
+            alt = f'{ self.name } Background by {self.theme.artist}'
+        return alt
 
         
     def save(self, *args, **kwargs):
@@ -70,6 +80,7 @@ class ForegroundImage(models.Model):
         SECOND = 101, 'Second Title'
         THIRD = 102, 'Third Title'
     name = models.CharField(max_length=100)
+    artist = models.CharField(max_length=100, blank=True, null=True)
     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
     image = models.ImageField(upload_to='foreground_images')
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
@@ -78,13 +89,16 @@ class ForegroundImage(models.Model):
     start_position = models.TextField(default='0vw')
     slide = models.TextField(default='0vw')
     speed = models.TextField(default='50vh')
-    height = models.TextField(default='60vh')
 
     def style(self):
-        return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position }; --background-height: { self.height };'
+        return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position };'
     
     def alt(self):
-        return f'{ self.name } in Background by {self.theme.artist}'
+        if self.artist:
+            alt = f'{ self.name } Background by {self.artist}'
+        else:
+            alt = f'{ self.name } Background by {self.theme.artist}'
+        return alt
         
     def save(self, *args, **kwargs):
         # Check if the image field has changed (only works if the instance is already saved)

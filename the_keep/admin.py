@@ -496,9 +496,12 @@ class PostAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer']
+
 class ExpansionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer')
-
+    search_fields = ['title']
+    raw_id_fields = ['designer']
+    
 class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'type', 'reach', 'animal')
     search_fields = ['title']

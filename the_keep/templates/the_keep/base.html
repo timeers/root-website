@@ -39,7 +39,7 @@
     <script src="https://flackr.github.io/scroll-timeline/dist/scroll-timeline.js"></script>
 
 </head>
-<body>
+<body{% if background_image %} style='--background-color: {{ background_image.background_color }};'{% endif %}>
     <!-- Header -->
     {% include 'includes/header.html' %}
 

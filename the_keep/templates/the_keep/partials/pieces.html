@@ -1,4 +1,5 @@
 <!-- Component Manifest -->
+{% load static %}
 {% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.designer %}
 <div class='mt-2 mb-2'>
 
@@ -125,6 +126,7 @@
                     {% if object.component == "Vagabond" %}
                     <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
                         <div class="d-flex align-items-center">
+                            <img class="lg-faction-icon mr-2" src="{% static 'items/Relationship Markers.png' %}" alt="Relationship Markers">
                             Relationship Markers
                         </div>
                     </div>

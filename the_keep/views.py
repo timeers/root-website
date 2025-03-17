@@ -69,7 +69,7 @@ class ExpansionDetailView(DetailView):
             context['open_expansion'] = True
         else:
             context['open_expansion'] = False
-
+        
         return context
 
 class ExpansionFactionsListView(ListView):
@@ -142,6 +142,13 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 
 # START CREATE VIEWS
+@designer_required
+def new_components(request):
+    context = {
+
+    }
+    return render(request, 'the_keep/new.html', context=context)
+
 
 
 class PostCreateView(LoginRequiredMixin, CreateView):
