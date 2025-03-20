@@ -598,6 +598,28 @@ def ultimate_component_view(request, slug):
     return render(request, 'the_keep/post_detail.html', context)
 
 
+def color_match_view(request, slug):
+    post = get_object_or_404(Post, slug=slug)
+    matching_colors = post.get_similar_colors()
+    context = {
+        'original_post': post,
+        'posts': matching_colors,
+        'match_title': 'Similar Colors (beta)',
+        'description': 'Color is similar to:'
+    }
+    return render(request, 'the_keep/similar_posts.html', context)
+
+def animal_match_view(request, slug):
+    post = get_object_or_404(Post, slug=slug)
+    matching_posts = post.matching_animals()
+    context = {
+        'original_post': post,
+        'posts': matching_posts,
+        'match_title': f'{post.animal} Components',
+        'description': f'Other { post.animal } Components:'
+    }
+    return render(request, 'the_keep/similar_posts.html', context)
+
 
 
 def component_games(request, slug):
@@ -1086,6 +1108,19 @@ class PNPAssetUpdateView(UpdateView):
     form_class = PNPAssetCreateForm  # Reusing the form
     template_name = 'the_keep/asset_form.html'
     success_url = reverse_lazy('asset-list')  # Redirect after successful update
+
+
+    def form_valid(self, form):
+        # Unpin resource
+        # Access the old link value from the model instance
+        old_link = form.instance.pk and PNPAsset.objects.get(pk=form.instance.pk).link
+
+        # Check if the link has changed
+        if old_link != form.cleaned_data['link']:
+            # If the link has changed, set pinned to False
+            form.instance.pinned = False
+         
+        return super().form_valid(form)
 
     # Optionally, override `get_object` to ensure permissions or ownership checks
     def get_object(self, queryset=None):

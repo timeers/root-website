@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 import re
 from PIL import Image
 import os
+import math
 
 def resize_image(image_field, max_size):
     """Helper function to resize the image if necessary."""
@@ -92,3 +93,36 @@ def slugify_expansion_title(instance, save=False, new_slug=None):
     if save:
         instance.save()
     return instance
+
+
+ 
+def color_distance(rgb1, rgb2):
+    """
+    Calculate the Euclidean distance between two RGB colors.
+    """
+    return math.sqrt(
+        (rgb1[0] - rgb2[0]) ** 2 +
+        (rgb1[1] - rgb2[1]) ** 2 +
+        (rgb1[2] - rgb2[2]) ** 2
+    )
+
+def hex_to_rgb(hex_code):
+    # Remove the '#' if present and convert hex to RGB
+    hex_code = hex_code.lstrip('#')
+    return tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
+ 
+def rgb_to_hex(r, g, b):
+    # Convert RGB back to hex format
+    return f'#{r:02x}{g:02x}{b:02x}'
+ 
+def complementary_color(hex_code):
+    # Convert hex to RGB
+    r, g, b = hex_to_rgb(hex_code)
+   
+    # Calculate the complementary color
+    r_complement = 255 - r
+    g_complement = 255 - g
+    b_complement = 255 - b
+   
+    # Convert back to hex and return
+    return rgb_to_hex(r_complement, g_complement, b_complement)

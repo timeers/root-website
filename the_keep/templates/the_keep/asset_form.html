@@ -13,10 +13,10 @@
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="form-group">
-                <legend class="border-bottom mb-4">{% if object.id %}Update{% else %}Post{% endif %} Link to Resource</legend>
+                <legend class="border-bottom mb-4">{% if object.id %}Update{% else %}Post{% endif %} Link to{% if object.pinned %} Pinned{% endif %} Resource</legend>
                 <div class='mb-4'>
                 {% if object.id and object.pinned %}
-                Edited resource will no longer be pinned.
+                If the link is updated, this resource will no longer be pinned. If an update is needed please contact an admin to have the resource repinned.
                 {% else %}
                 Resources will be publicly posted to your profile.
                 {% endif %}

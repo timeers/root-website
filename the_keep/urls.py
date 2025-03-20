@@ -25,13 +25,16 @@ from .views import (
     confirm_testing,
     pin_asset,
     universal_search,
+    color_match_view,
+    animal_match_view,
 )
 from .api_views import search_posts
 from . import views
 
 urlpatterns = [
-    path("", list_view, name='keep-home'),
-    path("home/", list_view, name='keep-home'),
+    path("", list_view),
+    path("home/", list_view),
+    path("archive/", list_view, name='keep-home'),
     # path("new/", activity_list, name='activity-list'),
  
     path("search/", search_view, name='search'),
@@ -86,16 +89,20 @@ urlpatterns = [
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
     path("post/<slug:slug>/stable/", confirm_stable, name='confirm-stable'),
     path("post/<slug:slug>/testing/", confirm_testing, name='confirm-testing'),
+    path("colors/<slug:slug>/", color_match_view, name='color-match'),
+    path("animals/<slug:slug>/", animal_match_view, name='animal-match'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),
+    
     path('newhome/', views.home, name='site-home'),
 
     path('piece/add/', add_piece, name='add-piece'),
     path('piece/update/<int:id>', add_piece, name='update-piece'),
     path('piece/delete/<int:id>', delete_piece, name='delete-piece'),
 
-    path('resources/', PNPAssetListView.as_view(), name='asset-list'),
+    path('workshop/', PNPAssetListView.as_view(), name='asset-list'),
+    path('resources/', PNPAssetListView.as_view()),
     path('resources/new/', PNPAssetCreateView.as_view(), name='asset-new'),
     path('resources/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),
     path('resources/delete/<int:pk>/', PNPAssetDeleteView.as_view(), name='asset-delete'),

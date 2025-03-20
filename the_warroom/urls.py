@@ -19,7 +19,8 @@ urlpatterns = [
     path("game/<int:pk>/update/", GameUpdateView.as_view(), name='game-update-info'),
     path("game/<int:id>/", game_detail_view, name='game-detail'),
 
-    path('games/', GameListView.as_view(), name='games-home'),
+    path('warroom/', GameListView.as_view(), name='games-home'),
+    path('games/', GameListView.as_view()),
 
     path('record/scorecard/', scorecard_manage_view, name='record-scorecard'),
     path("scorecard/<int:id>/", scorecard_detail_view, name='detail-scorecard'),

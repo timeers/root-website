@@ -754,6 +754,7 @@ def manage_user(request, slug):
             # Save the user if any change was made
             if update_user:
                 user_to_edit.save()
+                send_discord_message(f'{user_to_edit.discord} ({user_to_edit.group}) updated by {request.user.profile.discord}', category='user_updates')
 
             # Redirect with a success message
             messages.success(request, update_message)
@@ -807,6 +808,8 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         page_title = f'Report {feedback_subject}'
     elif message_category == 'weird-root':
         page_title = f'Request Invite to Weird Root'
+    elif message_category == 'request':
+        page_title = f'Request a New Post'
     elif message_category:
         page_title = f"Send {message_category.title()}"
     else:
@@ -982,9 +985,28 @@ def post_feedback(request, slug):
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
         # Redirect to home (you can replace 'home' with the actual name of your home URL)
+        return redirect(post.get_absolute_url())
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+@player_required
+def post_request(request):
+
+    if request.user.profile.designer:
+        return redirect('new-components')
+
+    message_category = 'request'
+    feedback_subject = "Test"
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        # Redirect to home (you can replace 'home' with the actual name of your home URL)
         return redirect('keep-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
+
 
 @player_required
 def player_feedback(request, slug):
@@ -999,13 +1021,13 @@ def player_feedback(request, slug):
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
         # Redirect to home (you can replace 'home' with the actual name of your home URL)
-        return redirect('keep-home')
+        return redirect(player.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
 def game_feedback(request, id):
 
-    # game = get_object_or_404(Game, id=id)
+    game = get_object_or_404(Game, id=id)
 
     message_category = 'report'
     feedback_subject = f'Game: {id}'
@@ -1015,7 +1037,7 @@ def game_feedback(request, id):
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
         # Redirect to home (you can replace 'home' with the actual name of your home URL)
-        return redirect('keep-home')
+        return redirect(game.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
@@ -1034,7 +1056,10 @@ def weird_root_invite(request, slug=None):
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
         # Redirect to home (you can replace 'home' with the actual name of your home URL)
-        return redirect('keep-home')
+        if slug:
+            return redirect(post.get_absolute_url())
+        else:
+            return redirect('keep-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 

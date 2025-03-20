@@ -16,7 +16,7 @@ def manage_profile(sender, instance, created, **kwargs):
         profile, _ = Profile.objects.get_or_create(discord=instance.username, defaults={'user': instance})
         # print(f'Profile created/linked: {profile.discord}')
         # logger.info(f'Profile created/linked: {profile.discord}')
-        send_discord_message(f'Profile created/linked: {profile.discord}', category='new_user')
+        send_discord_message(f'Profile created for {profile.discord}', category='user_updates')
     else:
         try:
             profile = instance.profile

@@ -29,6 +29,7 @@ media/foreground_images/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+datadump.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

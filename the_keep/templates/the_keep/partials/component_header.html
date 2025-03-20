@@ -60,12 +60,18 @@
     <div>
             <div>
                 {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
+                <a href='{% url 'animal-match' object.slug %}'>
                     {% if object.component == 'Faction' %}
                         <img class="faction-icon" src="{{ object.small_icon.url }}">
                     {% endif %}
                     {{ object.animal }}
+                
                 {% endif %}
-                {{ object.component }} by 
+                {{ object.component }}
+                {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
+                    </a>
+                {% endif %}
+                 by 
                 <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
             </div>

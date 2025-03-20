@@ -216,7 +216,10 @@ class MessageForm(forms.Form):
                 ('feature', 'Feature Request'),
                 ('faction', 'Faction'),
                 ('map', 'Map'),
+                ('vagabond', 'Vagabond'),
                 ('deck', 'Deck'),
+                ('landmark', 'Landmark'),
+                ('hireling', 'Hireling'),
                 ('outdated', 'Outdated Information'),
                 ('incorrect', 'Incorrect Information'),
                 ('offensive', 'Offensive Image/Language'),
@@ -278,15 +281,19 @@ class MessageForm(forms.Form):
                 ('faction', 'Faction'),
                 ('map', 'Map'),
                 ('deck', 'Deck'),
+                ('vagabond', 'Vagabond'),
+                ('landmark', 'Landmark'),
+                ('hireling', 'Hireling'),
                 ('other', 'Other')
             ]
+            self.fields['message'].help_text= "Please include details for the Fan Content you would like to be added. Each post must include at least one link to a Discord Thread, BGG Post, PNP Files or TTS Mod. You can make a request for something you did not create, but include the designer's discord username."
+
         elif message_category == 'weird-root':
             self.fields['title'].choices = [
                 ('weird-root', 'Weird Root')
             ]
-            self.fields['message'].widget.attrs.update({
-            'placeholder': 'Weird Root is a private server for posting and discussing fan made content for Root. To reduce bot attacks, invites to the server cannot be posted publicly. The fastest way to join is to message someone you know who is already a member. This site is not managed by Weird Root, but if you submit a request here we will do our best to contact you soon to confirm you are not a robot. Include a short message here to confirm.'
-                })
+            self.fields['message'].help_text= "Weird Root is a private server for sharing and discussing fan-made Root content. To keep bots out, invites aren't shared publicly. The easiest way to join is by messaging someone already in the server. This site isn’t managed by Weird Root, but if you include a brief message, we’ll do our best to get back to you soon."
+    
         elif message_category == 'report':
             self.fields['title'].choices = [
                 ('outdated', 'Outdated Information'),

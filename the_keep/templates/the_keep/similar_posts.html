@@ -1,0 +1,10 @@
+{% extends 'the_keep/base.html' %}
+
+{% block content %}
+    <h1 class="root-title">{{ match_title }}</h1>
+    {% with original_post as object %}
+        {% include 'the_keep/partials/post.html' %}
+    {% endwith %}
+    {{ description }}
+    {% include 'the_keep/partials/search_results.html' %}
+{% endblock content %}

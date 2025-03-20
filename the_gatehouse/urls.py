@@ -4,7 +4,7 @@ from .views import (user_settings, player_page_view,
                     designer_component_view, post_bookmarks, game_bookmarks,
                     onboard_user, player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks,
-                    status_check, general_feedback, post_feedback, player_feedback, game_feedback, weird_root_invite)
+                    status_check, general_feedback, post_feedback, player_feedback, game_feedback, weird_root_invite, post_request)
 from the_warroom.views import PlayerGameListView
 urlpatterns = [
 
@@ -28,6 +28,7 @@ urlpatterns = [
     path('profiles/', ProfileListView.as_view(), name='players-list'),
 
     # Feedback
+    path('request/', post_request, name='post-request'),
     path('feedback/', general_feedback, name='general-feedback'),
     path('feedback/post/<slug:slug>/', post_feedback, name='post-feedback'),
     path('feedback/profile/<slug:slug>/', player_feedback, name='player-feedback'),

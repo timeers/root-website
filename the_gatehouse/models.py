@@ -25,6 +25,12 @@ class Theme(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
+    background_color = models.CharField(
+        max_length=7,
+        default='#fafafa',
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
     def __str__(self):
         return self.name
 
@@ -51,9 +57,9 @@ class BackgroundImage(models.Model):
     
     def alt(self):
         if self.artist:
-            alt = f'{ self.name } Background by {self.artist}'
+            alt = f'{ self.name } by {self.artist}'
         else:
-            alt = f'{ self.name } Background by {self.theme.artist}'
+            alt = f'{ self.name } by {self.theme.artist}'
         return alt
 
         
@@ -95,9 +101,9 @@ class ForegroundImage(models.Model):
     
     def alt(self):
         if self.artist:
-            alt = f'{ self.name } Background by {self.artist}'
+            alt = f'{ self.name } by {self.artist}'
         else:
-            alt = f'{ self.name } Background by {self.theme.artist}'
+            alt = f'{ self.name } by {self.theme.artist}'
         return alt
         
     def save(self, *args, **kwargs):

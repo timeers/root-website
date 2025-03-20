@@ -1,25 +1,29 @@
 import os
 import uuid
+import re
+import inflect
+
 from django.db import models
 from django.db.models.signals import pre_save, post_save
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
-from django.db.models.functions import Cast
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, IntegerField
+from django.db.models.functions import Cast, Abs
 from django.utils import timezone 
-from datetime import timedelta
+# from datetime import timedelta
 from django.urls import reverse
+from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
+
 import json
 from PIL import Image
 from io import BytesIO
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile
-from .utils import validate_hex_color, resize_image, delete_old_image
-import boto3
+from .utils import validate_hex_color, resize_image, delete_old_image, hex_to_rgb
 import random
 from django.conf import settings
 from the_gatehouse.discordservice import send_rich_discord_message
-from the_gatehouse.utils import build_absolute_uri
+# from the_gatehouse.utils import build_absolute_uri
 
 
 # Stable requirements
@@ -28,6 +32,7 @@ stable_game_count = 10
 # 5 different players
 unique_player_count = 5
 
+p = inflect.engine()
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
@@ -137,18 +142,16 @@ class Post(models.Model):
         ABANDONED = '5', 'Abandoned'
 
     title = models.CharField(max_length=40)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     animal = models.CharField(max_length=25, null=True, blank=True, default="None")
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
-    date_updated = models.DateTimeField(default=timezone.now)
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     official = models.BooleanField(default=False)
     in_root_digital = models.BooleanField(default=False)
-    # stable = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)
 
     bgg_link = models.CharField(max_length=400, null=True, blank=True)
@@ -158,9 +161,6 @@ class Post(models.Model):
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
     stl_link = models.CharField(max_length=400, null=True, blank=True)
     leder_games_link = models.CharField(max_length=400, null=True, blank=True)
-    change_log = models.TextField(default='[]') 
-    component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
-    sorting = models.IntegerField(default=10)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
@@ -176,10 +176,79 @@ class Post(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
+    color_name = models.CharField(max_length=50, blank=True, null=True) 
+    color_r = models.IntegerField(blank=True, null=True)
+    color_g = models.IntegerField(blank=True, null=True)
+    color_b = models.IntegerField(blank=True, null=True)
+    component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
+    sorting = models.IntegerField(default=10)
     component_snippet = models.CharField(max_length=100, null=True, blank=True)
+    date_updated = models.DateTimeField(default=timezone.now)
+    change_log = models.TextField(default='[]') 
 
 
     objects = PostManager()
+
+    def get_similar_colors(self, tolerance=100):
+        """
+        Get all posts that have a similar color to the current Post's color.
+        The tolerance defines how strict the color match should be.
+        """
+        if not self.color:
+            return None
+        
+        cache_key = f"similar_colors_{self.id}_{tolerance}"
+        cached_result = cache.get(cache_key)
+
+        if cached_result is not None:
+            return cached_result
+
+        target_rgb = (self.color_r, self.color_g, self.color_b)
+
+        # Query to find colors with Euclidean distance within the tolerance
+        queryset = Post.objects.annotate(
+            color_dist=ExpressionWrapper(
+                # Calculate the sum of squared differences for each RGB component
+                (
+                    (F('color_r') - target_rgb[0]) ** 2 +
+                    (F('color_g') - target_rgb[1]) ** 2 +
+                    (F('color_b') - target_rgb[2]) ** 2
+                ),
+                output_field=IntegerField()
+                )
+            ).filter(color_dist__lte=tolerance**2).exclude(id=self.id)  # Filter based on squared tolerance
+
+        # Cache the result for 5 minutes (you can adjust the time based on your use case)
+        cache.set(cache_key, queryset, timeout=300)
+
+        return queryset
+
+    # Method to clean the animal name: remove special characters and handle plurals
+    def clean_animal_name(self, name):
+        # Remove special characters (keep only alphabetic characters and spaces)
+        name = re.sub(r'[^a-zA-Z\s]', '', name)
+       
+        # Convert plural to singular
+        singular_name = p.singular_noun(name) or name  # `singular_noun` returns None if no plural found
+        return singular_name
+
+    def matching_animals(self):
+        # Check if animal is None or empty
+        if not self.animal:
+            return Post.objects.none()  # or return an empty queryset
+ 
+        # Split the animal into individual animals and clean them
+        animals_list = self.animal.split()
+        cleaned_animals_list = [self.clean_animal_name(animal) for animal in animals_list]
+ 
+        # Build the query to check if the cleaned animals appear in other objects
+        query = Q()
+        for animal in cleaned_animals_list:
+            query |= Q(animal__icontains=animal)
+ 
+        # Query other objects that contain at least one of the cleaned animals
+        return Post.objects.filter(query).exclude(id=self.id).distinct()
+
 
     def count_links(self, user):
         # List of link field names you want to check
@@ -256,8 +325,9 @@ class Post(models.Model):
         else:
             new_post = True
 
-        
-
+        if self.color:
+            rgb = hex_to_rgb(self.color)
+            self.color_r, self.color_g, self.color_b = rgb
 
         super().save(*args, **kwargs)
 
@@ -1156,36 +1226,6 @@ def check_for_image(folder, image_png_name):
     if matching_images:
         return random.choice(matching_images)  # Return a random matching image
     return f'default_images/{folder}/default_{folder}.png'
-
-
-
-## USING AWS S3
-# def check_for_aws_image(folder, image_png_name):
-#     s3_client = boto3.client(
-#         's3',
-#         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-#         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-#         region_name=settings.AWS_S3_REGION_NAME,
-#     )
-    
-#     bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-#     folder_name = f'{folder}/'  # S3 Folder
-
-#     # List objects in folder
-#     response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
-
-#     matching_images = []
-#     # Check if 'Contents' key is in the response
-#     if 'Contents' in response:
-#         for obj in response['Contents']:
-#             if obj['Key'].endswith(f'{image_png_name}.png'):
-#                 matching_images.append(obj['Key']) 
-#     else:
-#         print('No objects found in the specified folder.')
-#     if matching_images:
-#         return random.choice(matching_images) 
-#     return f'{folder}/default_{folder}.png'
-
 
 
 

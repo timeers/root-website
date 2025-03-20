@@ -32,7 +32,7 @@ SECRET_KEY = config['SECRET_KEY']
 DEBUG = (config['DEBUG_VALUE'] == 'True')
 
 if DEBUG:
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com']
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com', '45.33.85.19']
 else:
     ALLOWED_HOSTS = ['97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com']
 
@@ -146,30 +146,24 @@ SOCIALACCOUNT_PROVIDERS = {
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
-# if DEBUG:
-#     DATABASES = {
-#         'default': {
-#             'ENGINE': 'django.db.backends.postgresql',
-#             'NAME': 'railway',
-#             'USER': 'postgres',
-#             'PASSWORD': config["POSTGRES_PASS"],
-#             'HOST': 'junction.proxy.rlwy.net',
-#             'PORT': '57688',
-#         }
-#     }
-# else:
-#     DATABASES = {
-#         'default': {
-#             'ENGINE': 'django.db.backends.sqlite3',
-#             'NAME': BASE_DIR / 'db.sqlite3',
-#         }
-#     }
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if config['POSTGRES_VALUE'] == 'True':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'rootdbpostgres',
+            'USER': 'mrmirz',
+            'PASSWORD': config["POSTGRES_PASS"],
+            'HOST': 'localhost',
+            'PORT': '5432',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -254,29 +248,6 @@ AWS_DEFAULT_ACL = None
 AWS_S3_REGION_NAME = 'us-east-1'
 AWS_S3_SIGNATURE_VERSION = 's3v4'
 
-# DEFAULT_FILE_STORAGE = 'storages.backends.s3.S3Boto3Storage'
-
-# STORAGES = {
-#     "default": {
-#         "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
-#         "OPTIONS": {
-#             "access_key": AWS_ACCESS_KEY_ID,
-#             "secret_key": AWS_SECRET_ACCESS_KEY,
-#             "bucket_name": AWS_STORAGE_BUCKET_NAME,
-#             "region_name": AWS_S3_REGION_NAME,
-#         },
-#     },
-#     "staticfiles": {
-#         "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
-#         "OPTIONS": {
-#             "access_key": AWS_ACCESS_KEY_ID,
-#             "secret_key": AWS_SECRET_ACCESS_KEY,
-#             "bucket_name": AWS_STORAGE_BUCKET_NAME,
-#             "region_name": AWS_S3_REGION_NAME,
-#             "location": "static",  # Optional: set this if you want to store static files in a subdirectory
-#         },
-#     },
-# }
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
