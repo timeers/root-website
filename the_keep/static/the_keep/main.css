@@ -863,13 +863,13 @@ tr.clickable-row:hover {
   /*border-radius: 5px; /* Optional: for rounded corners */
 }
 .bar-background-low {
-  width: 25%; /* Width of the bar (can be dynamic or fixed) */
+  width: 28%; /* Width of the bar (can be dynamic or fixed) */
 }
 .bar-background-moderate {
-  width: 55%; /* Width of the bar (can be dynamic or fixed) */
+  width: 59%; /* Width of the bar (can be dynamic or fixed) */
 }
 .bar-background-high {
-  width: 95%; /* Width of the bar (can be dynamic or fixed) */
+  width: 98%; /* Width of the bar (can be dynamic or fixed) */
 }
 .bar-background-none {
   width: 2%; /* Width of the bar (can be dynamic or fixed) */
@@ -1024,5 +1024,174 @@ tr.clickable-row:hover {
 }
 
 
+
+/* Flexbox method */
+/* .spinner {
+  position: relative;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: auto;
+  text-align: center;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+
+.image {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  object-fit: cover;
+  transition: transform 1s ease-in-out;
+}
+
+.top-image {
+  z-index: 900; 
+}
+
+
+.movement-image {
+  z-index: 800;
+  transform: translateY(100%);
+  transition: transform 1s ease-in-out;
+}
+
+
+.back-image {
+  z-index: 700;
+
+}
+
+.spinner:hover .movement-image {
+  transform: translateY(0);
+} */
+
+
+
+@keyframes slideUp {
+  0% {
+    transform: translateY(100%) translateX(-60%);
+  }
+  100% {
+    transform: translateY(0) translateX(-50%);
+  }
+}
+
+
+
+/* Absolute method */
+/* 
+.spinner {
+  position: relative;
+  bottom: 0; 
+  left: 50%; 
+  transform: translateX(-50%); 
+  width: 60%; 
+  height: 180px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.image {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  bottom: 0;
+
+}
+
+.top-image {
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 900; 
+}
+
+.movement-image {
+  position: absolute;
+  transform: translateY(100%) translateX(-60%);
+  transition: transform 1s ease-in-out;
+  z-index: 800; 
+}
+
+.back-image {
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 700; 
+}
+
+.spinner:hover .movement-image {
+  transform: translateY(0) translateX(-50%);
+} */
+
+
+/* Grid */
+#spinner {
+  display: none; /* Hide by default */
+  bottom: 0; 
+  width: 100%; 
+  height: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  place-items: center;
+  overflow: hidden;
+}
+
+#spinner.hx-request {
+  display: grid;
+}
+
+.image-container {
+
+  width: 60%; 
+  height: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  place-items: center;
+}
+
+.image {
+  width: 100%;
+  grid-area: 1 / 1;
+
+}
+
+.top-image {
+  z-index: 10;
+}
+
+@keyframes moveImage {
+  0% {
+    transform: translateY(34%) translateX(-6%);
+  }
+  30% {
+    transform: translateY(0) translateX(0); /* Move to center */
+  }
+  60% {
+    transform: translateY(0) translateX(0); /* Move to center */
+  }
+  100% {
+    transform: translateY(34%) translateX(-6%); /* Move back to original position */
+  }
+}
+
+/* Apply the animation to the movement image */
+.movement-image {
+  animation: moveImage 3s ease-in-out infinite; /* Run animation indefinitely */
+  z-index: 9;
+}
+
+.back-image {
+  z-index: 8;
+}
+
+#spinner.hx-request .movement-image {
+  transform: translateY(0) translateX(0);
+}
 
 

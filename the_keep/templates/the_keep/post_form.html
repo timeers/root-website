@@ -39,7 +39,7 @@
             <div class="form-group">
                 <button class="btn btn-info" type="submit">Save</button>
                 {% if not object.id %}
-                    <a class="btn btn-secondary" href="{% url 'keep-home' %}">Cancel</a>
+                    <a class="btn btn-secondary" href="{% url 'archive-home' %}">Cancel</a>
                 {% else %}
                     <a class="btn btn-secondary" href="{% url object.component|lower|add:'-detail' object.slug %}">Cancel</a>
                     <a class="btn btn-danger" href="{% url 'post-delete' object.id %}">Delete</a>

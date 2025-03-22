@@ -370,7 +370,7 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
                 post.save()
                 messages.success(request, f'The {post.component} "{name}" was successfully deleted.')
-                return redirect('keep-home')
+                return redirect('archive-home')
             else:
                 # Do not delete posts with games recorded.
                 post.status = 4  # Set the status to inactive
@@ -469,10 +469,13 @@ def ultimate_component_view(request, slug):
     view_status = 4
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
+
+        
     related_posts = Post.objects.filter(based_on=object, status__lte=view_status)
     # Add the post that the current object is based on (if it exists)
     if object.based_on:
         related_posts |= Post.objects.filter(id=object.based_on.id, status__lte=view_status)
+        related_posts |= Post.objects.filter(based_on=object.based_on, status__lte=view_status).exclude(id=object.id)
     # Start with the base queryset
     games = object.get_games_queryset()
 

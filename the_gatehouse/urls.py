@@ -7,7 +7,8 @@ from .views import (user_settings, player_page_view,
                     status_check, general_feedback, post_feedback, player_feedback, game_feedback, weird_root_invite, post_request)
 from the_warroom.views import PlayerGameListView
 urlpatterns = [
-
+    path("", list_view, name='home'),
+    path("home/", list_view),
     path('status/', status_check, name='status_check'),
 
     path('profile/', player_page_view, name='profile'),

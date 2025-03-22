@@ -7,7 +7,7 @@
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
-        <h1><a class="navbar-brand mr-4 root-title" href="{% url 'keep-home' %}">Root Database</a></h1>
+        <h1><a class="navbar-brand mr-4 root-title" href="{% url 'archive-home' %}">Root Database</a></h1>
                   <!-- Middle: Search Bar -->
           
                   {% include 'the_keep/partials/universal_search.html' %}
@@ -15,7 +15,7 @@
       
         <div class="collapse navbar-collapse" id="navbarToggle">
           <div class="navbar-nav align-items-center mr-auto">
-            <a class="nav-item nav-link" href="{% url 'keep-home' %}">Archive</a>
+            <a class="nav-item nav-link" href="{% url 'archive-home' %}">Archive</a>
             <a class="nav-item nav-link" href="{% url 'games-home' %}">War Room</a>
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">Workshop</a>
           </div>

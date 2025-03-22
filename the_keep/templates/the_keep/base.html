@@ -135,8 +135,17 @@
             event.stopPropagation();
         });
 
+        document.body.addEventListener('htmx:afterSwap', function(event) {
 
-  
+            // Only remove the spinner if the event is targeting the specific content area
+            if (event.target.id === 'search-contents') {
+                var spinner = event.target.querySelector('.htmx-indicator');
+                if (spinner) {
+                    console.log('Spinner removed')
+                    spinner.remove();  // Remove the spinner only inside the targeted content area
+                }
+            }
+        });
 
     });
 </script>

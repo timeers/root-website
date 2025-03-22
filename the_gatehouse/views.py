@@ -529,7 +529,7 @@ def onboard_user(request, user_type=None):
             messages.info(request, f"You already have access to the {user_type} role")
             
         # Redirect to a relevant page after onboarding
-        next_url = request.POST.get('next', 'keep-home')  # Fallback to a default URL if no `next`
+        next_url = request.POST.get('next', 'archive-home')  # Fallback to a default URL if no `next`
         return redirect(next_url)
 
     context = {
@@ -589,7 +589,7 @@ def onboard_decline(request, user_type=None):
         profile.save()
 
         # Redirect to homepage
-        return redirect('keep-home') 
+        return redirect('archive-home') 
     
     # Load onboard page with relevant onboard data
     return render(request, 'the_gatehouse/onboard_user.html')
@@ -854,7 +854,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
             # Set success response message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
             messages.success(request, response_message)
-            # return redirect('keep-home')
+            # return redirect('archive-home')
     else:
         form = MessageForm(author=author, message_category=message_category)
 
@@ -945,7 +945,7 @@ def discord_feedback(request):
             # Redirect and return a success message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
             messages.success(request, response_message)
-            return redirect('keep-home')
+            return redirect('archive-home')
     else:
         form = MessageForm(author=author, message_category=message_category)
 
@@ -968,8 +968,7 @@ def general_feedback(request):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
-        # Redirect to home (you can replace 'home' with the actual name of your home URL)
-        return redirect('keep-home')
+        return redirect('archive-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
@@ -984,7 +983,6 @@ def post_feedback(request, slug):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
-        # Redirect to home (you can replace 'home' with the actual name of your home URL)
         return redirect(post.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
@@ -1002,8 +1000,7 @@ def post_request(request):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
-        # Redirect to home (you can replace 'home' with the actual name of your home URL)
-        return redirect('keep-home')
+        return redirect('archive-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
@@ -1020,7 +1017,6 @@ def player_feedback(request, slug):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
-        # Redirect to home (you can replace 'home' with the actual name of your home URL)
         return redirect(player.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
@@ -1036,7 +1032,6 @@ def game_feedback(request, id):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
-        # Redirect to home (you can replace 'home' with the actual name of your home URL)
         return redirect(game.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
@@ -1055,11 +1050,10 @@ def weird_root_invite(request, slug=None):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
-        # Redirect to home (you can replace 'home' with the actual name of your home URL)
         if slug:
             return redirect(post.get_absolute_url())
         else:
-            return redirect('keep-home')
+            return redirect('archive-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
@@ -1084,3 +1078,5 @@ def status_check(request):
 
     # Return a successful status
     return JsonResponse({'status': 'ok'}, status=200)
+
+

@@ -19,7 +19,7 @@
     {% comment %} <article class="media content-section"> {% endcomment %}
     <div class='d-flex media-body'>
         <div class='root-menu-title'>
-            <a href='{% url 'keep-home' %}'>Components</a>
+            <a href='{% url 'archive-home' %}'>Components</a>
         </div>
         <div class='root-menu-title'>
             <a href='{% url 'games-home' %}'>Games</a>
@@ -34,11 +34,15 @@
     {% lorem 2 b random %}
 {% comment %} </article> {% endcomment %}
 </div>
-{% comment %} <article class="media content-section"> {% endcomment %}
-<h1>END</h1>
-<div>
-    {% lorem 20 b random %}
 
+{% comment %} <div id="spinner" class="spinner" style="display: none;"> {% endcomment %}
+<div id="spinner" class="spinner">
+    <div class="image-container">
+        <img class="image back-image" src="{% static 'images/newbushes.png'  %}" alt="Bushes">
+        <img class="image top-image" src="{% static 'images/newgreen.png'  %}" alt="Bushes">
+        <img class="image movement-image" src="{% static 'images/newvb.png'  %}" alt="VB">
+    </div>
 </div>
-{% comment %} </article> {% endcomment %}
+
+
 {% endblock content %}

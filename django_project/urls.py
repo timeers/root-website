@@ -26,7 +26,9 @@ from the_warroom.api_views import get_options_for_tournament
 from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline
 
 
+
 urlpatterns = [
+
     path('woodland-admin/', admin.site.urls),
 
     # path('register/', user_views.register, name='register'),

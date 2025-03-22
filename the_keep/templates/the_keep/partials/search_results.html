@@ -1,4 +1,5 @@
 <div id="search-results">
+    <div id="search-contents">
 {% if posts %}
     {% for object in posts %}
         
@@ -7,7 +8,7 @@
             <div hx-trigger="revealed" 
             hx-get="{% url 'search' %}"
             hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}", "search_type": "{{ search_type }}", "designer": "{{ designer }}", "faction_type": "{{ faction_type }}", "reach_value": "{{ reach_value }}", "status": "{{ status }}"}'
-            hx-target="#search-results"
+            hx-target="#search-contents"
             hx-swap="beforeend"
             hx-indicator="#spinner">
             {% else %}
@@ -18,19 +19,24 @@
             
             </div>
 
+            {% if forloop.last and posts.has_next %}
+                {% include 'the_gatehouse/partials/spinner.html' %}
+            {% endif %}
+
     {% endfor %} 
 
-    <div id="spinner" class="d-flex justify-content-center htmx-indicator">
+    {% comment %} <div id="spinner" class="d-flex justify-content-center htmx-indicator">
         <div class="spinner-border" role="status">
             <span class="visually-hidden">Loading...</span>
         </div>
-    </div>
+    </div> {% endcomment %}
+
 
 {% else %}
     <h3>No results</h3>
 {% endif %}
 
-
+        </div>
 </div>
 
 
