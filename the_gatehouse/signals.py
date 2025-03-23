@@ -1,9 +1,10 @@
 # import logging
 from django.db.models.signals import post_save
-from django.contrib.auth.signals import user_logged_in
 from django.shortcuts import redirect
 from django.dispatch import receiver
+from django.contrib import messages
 from django.contrib.auth.models import User
+from django.contrib.auth.signals import user_logged_in
 from .models import Profile  # Adjust the import based on your project structure
 from .discordservice import get_discord_display_name, check_user_guilds, send_discord_message
 from django.contrib.auth.models import Group
@@ -17,6 +18,8 @@ def manage_profile(sender, instance, created, **kwargs):
         # print(f'Profile created/linked: {profile.discord}')
         # logger.info(f'Profile created/linked: {profile.discord}')
         send_discord_message(f'Profile created for {profile.discord}', category='user_updates')
+
+
     else:
         try:
             profile = instance.profile
@@ -78,6 +81,7 @@ def user_logged_in_handler(request, user, **kwargs):
 
     if not hasattr(user, 'profile'):
         user.save()
+        messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access and record games to track stats.')
 
     
     profile = user.profile

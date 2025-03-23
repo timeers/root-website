@@ -862,6 +862,9 @@ tr.clickable-row:hover {
   /* border: 1px solid black; */
   /*border-radius: 5px; /* Optional: for rounded corners */
 }
+.bar-background-variable {
+  width: var(--bar-width); /* Width of the bar (can be dynamic or fixed) */
+}
 .bar-background-low {
   width: 28%; /* Width of the bar (can be dynamic or fixed) */
 }

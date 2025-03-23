@@ -1,0 +1,18 @@
+<div>
+    {% if object.status == '1' %}
+        <span class="text-success">{{ object.get_status_display }}</span>
+        <i class="bi bi-check-circle-fill text-success"></i>
+    {% elif object.status == '2' %}
+        <span class="text-primary">{{ object.get_status_display }}</span>
+        <i class="bi bi-play-circle-fill text-primary"></i>
+    {% elif object.status == '3' %}
+        <span class="text-warning">{{ object.get_status_display }}</span>
+        <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
+    {% elif object.status == '4' %}
+        <span class="text-secondary">{{ object.get_status_display }}</span>
+        <i class="bi bi-dash-circle-fill text-secondary"></i>
+    {% else %}
+        <span class="text-dark">{{ object.get_status_display }}</span>
+        <i class="bi bi-x-circle-fill text-dark"></i>
+    {% endif %}
+</div>

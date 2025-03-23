@@ -36,7 +36,7 @@ class CsvImportForm(forms.Form):
 
 
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'group', 'display_name', 'discord', 'dwd', 'league', 'weird')
+    list_display = ('display_name', 'discord', 'group', 'theme', 'weird')
     search_fields = ('display_name', 'discord', 'dwd',)
     actions = ['merge_profiles']
 

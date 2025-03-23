@@ -133,7 +133,7 @@ def player_required(view_func):
         if request.user.profile.player:
             return view_func(request, *args, **kwargs) 
         else:
-            messages.error(request, "Please join the Woodland Warriors Discord Server and try again.")
+            messages.error(request, "Please join the Woodland Warriors Discord Server. Once you have joined, log in again to update your profile.")
             raise PermissionDenied() 
     return wrapper
 
@@ -154,7 +154,7 @@ def player_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs) 
         else:
-            messages.error(request, "Please join the Woodland Warriors Discord Server and try again.")
+            messages.error(request, "Please join the Woodland Warriors Discord Server. Once you have joined, log in again to update your profile.")
             raise PermissionDenied()   # 403 Forbidden
     return wrapper
 
@@ -886,7 +886,7 @@ def discord_feedback(request):
         "feedback": 'Thank you for your feedback!',
         "request": 'Your request has been received',
         "report": 'Your report has been received',
-        "weird-root": 'Your request has been received',
+        "weird-root": 'Your request has been received, you should receive a Discord DM once an admin sees your request.',
     }
     title_mapping = {
         'general': 'General Feedback',

@@ -28,9 +28,9 @@ from the_gatehouse.discordservice import send_rich_discord_message
 
 # Stable requirements
 # 10 games played
-stable_game_count = 10
+game_threshold = 10
 # 5 different players
-unique_player_count = 5
+player_threshold = 5
 
 p = inflect.engine()
 
@@ -495,7 +495,7 @@ class Post(models.Model):
         match self.component:
             case "Map" | "Deck" | "Landmark" | "Tweak" | "Hireling":
                 return self.games.order_by('-date_posted') 
-            case "Faction" | "Vagabond":
+            case "Faction" | "Vagabond" | "Clockwork":
                 return self.efforts.order_by('-date_posted') 
             case _:
                 return Post.objects.none()  # or return an empty queryset
@@ -507,7 +507,7 @@ class Post(models.Model):
                 return self.games.order_by('-date_posted')  # Return a queryset directly
             case "Vagabond":
                 return Game.objects.filter(efforts__vagabond=self, efforts__game__final=True)
-            case "Faction":
+            case "Faction" | "Clockwork":
                 return Game.objects.filter(efforts__faction=self, efforts__game__final=True)
 
             case _:
@@ -567,7 +567,7 @@ class Deck(Post):
 
     def stable_check(self):
         plays = self.get_plays_queryset()
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         official_faction_count = Faction.objects.filter(efforts__game__deck=self, official=True, status=1).distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
@@ -576,12 +576,17 @@ class Deck(Post):
 
         play_count = plays.count()
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+        map_threshold = Map.objects.filter(official=True, status=1).count()
+        official_map_count = Map.objects.filter(games__deck=self, official=True, status=1).distinct().count()
+        deck_threshold = 0
+        official_deck_count = 0
+
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
 
 
 
@@ -614,7 +619,7 @@ class Landmark(Post):
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__landmarks=self, official=True, status=1).distinct().count()
         unique_players = plays.aggregate(
@@ -624,12 +629,17 @@ class Landmark(Post):
 
         play_count = plays.count()
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+        map_threshold = Map.objects.filter(official=True, status=1).count()
+        official_map_count = Map.objects.filter(games__landmarks=self, official=True, status=1).distinct().count()
+        deck_threshold = Deck.objects.filter(official=True, status=1).count() - 1
+        official_deck_count = Deck.objects.filter(games__landmarks=self, official=True, status=1).distinct().count()
+
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
 
 class Tweak(Post):
     def save(self, *args, **kwargs):
@@ -653,7 +663,7 @@ class Tweak(Post):
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__tweaks=self, official=True, status=1).distinct().count()
         unique_players = plays.aggregate(
@@ -663,13 +673,18 @@ class Tweak(Post):
 
         play_count = plays.count()
 
+        map_threshold = Map.objects.filter(official=True, status=1).count()
+        official_map_count = Map.objects.filter(games__tweaks=self, official=True, status=1).distinct().count()
+        deck_threshold = Deck.objects.filter(official=True, status=1).count() - 1
+        official_deck_count = Deck.objects.filter(games__tweaks=self, official=True, status=1).distinct().count()
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
 
 class Map(Post):
     clearings = models.IntegerField(default=12)
@@ -714,7 +729,7 @@ class Map(Post):
 
 
     def stable_check(self):
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__map=self, official=True, status=1).distinct().count()
         unique_players = plays.aggregate(
@@ -722,15 +737,19 @@ class Map(Post):
                 )['total_players']
         
         play_count = plays.count()
- 
+
+        map_threshold = 0
+        official_map_count = 0
+        deck_threshold = Deck.objects.filter(official=True, status=1).count() - 1
+        official_deck_count = Deck.objects.filter(games__map=self, official=True, status=1).distinct().count()
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
 
 
 
@@ -809,7 +828,7 @@ class Vagabond(Post):
         return points / total_plays * 100 if total_plays > 0 else 0
     
     def stable_check(self):
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__efforts__vagabond=self, official=True, status=1).distinct().count()
         unique_players = plays.aggregate(
@@ -819,13 +838,22 @@ class Vagabond(Post):
 
         play_count = plays.count()
 
+        win_count = self.wins()
+        loss_count = int(play_count) - int(win_count)
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+        map_threshold = Map.objects.filter(official=True, status=1).count()
+        official_map_count = Map.objects.filter(games__efforts__vagabond=self, official=True, status=1).distinct().count()
+        deck_threshold = Deck.objects.filter(official=True, status=1).count() - 1
+        official_deck_count = Deck.objects.filter(games__efforts__vagabond=self, official=True, status=1).distinct().count()
+
+
+
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold and win_count != 0 and loss_count != 0:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold, win_count, loss_count)
 
 class Faction(Post):
     class TypeChoices(models.TextChoices):
@@ -1030,27 +1058,38 @@ class Faction(Post):
 
 
     def stable_check(self):
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__efforts__faction=self, official=True, status=1).distinct().count()
-        unique_players = plays.aggregate(
-                    total_players=Count('player', distinct=True)
-                )['total_players']
-        
+        if self.component == 'Faction':
+            unique_players = plays.aggregate(
+                        total_players=Count('player', distinct=True)
+                    )['total_players']
+        else:
+            # unique_players = plays.aggregate(
+            #         total_players=Count('player', distinct=True)
+            #     )['total_players']
+            unique_players = Profile.objects.filter(efforts__game__efforts__faction=self).distinct().count()
 
         play_count = plays.count()
- 
+
+        map_threshold = Map.objects.filter(official=True, status=1).count()
+        official_map_count = Map.objects.filter(games__efforts__faction=self, official=True, status=1).distinct().count()
+        deck_threshold = Deck.objects.filter(official=True, status=1).count() - 1
+        official_deck_count = Deck.objects.filter(games__efforts__faction=self, official=True, status=1).distinct().count()
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+        win_count = self.wins()
+        loss_count = play_count - win_count
+
+
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold and win_count != 0 and loss_count != 0:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold, win_count, loss_count)
 
-    # class Meta:
-    #     ordering = ['sorting', '-official', 'status', '-date_posted']
 
 
 class Hireling(Post):
@@ -1113,7 +1152,7 @@ class Hireling(Post):
         # super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
-        stable_official_factions = Faction.objects.filter(official=True, status=1, component="Faction").count()
+        faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
         official_faction_count = Faction.objects.filter(efforts__game__hirelings=self, official=True, status=1).distinct().count()
         unique_players = plays.aggregate(
@@ -1123,14 +1162,18 @@ class Hireling(Post):
 
         play_count = plays.count()
 
+        map_threshold = Map.objects.filter(official=True, status=1).count()
+        official_map_count = Map.objects.filter(games__hirelings=self, official=True, status=1).distinct().count()
+        deck_threshold = Deck.objects.filter(official=True, status=1).count() - 1
+        official_deck_count = Deck.objects.filter(games__hirelings=self, official=True, status=1).distinct().count()
 
 
-        if play_count >= stable_game_count and self.status != 'Stable' and unique_players >= unique_player_count and official_faction_count >= stable_official_factions:
+        if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
             stable_ready = True
         else:
             stable_ready = False
-        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{stable_game_count}, Players: {unique_players}/{unique_player_count}, Official Factions: {official_faction_count}/{stable_official_factions}')
-        return (stable_ready, play_count, unique_players, official_faction_count, stable_game_count, unique_player_count, stable_official_factions)
+        print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
+        return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
 
 
 

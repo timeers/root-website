@@ -1,0 +1,268 @@
+{% extends 'the_keep/base.html' %}
+
+{% block content %}
+<article class="content-section">
+    <h1 class="root-title">{{object.component}} Status</h1>
+
+    <a href='{{ object.get_absolute_url }}'>
+        <div class="d-flex">
+            <div class="article-img-container">
+                <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+            </div>
+            <div class='d-flex flex-nowrap'>
+                <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h2>
+            </div>
+        </div>
+    </a>
+
+    <div class="row">
+        <div class="col-12 col-md-12">
+            <div class="bar-container">
+                <div class="bar-label">Progress</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{total_completion}}">
+                    <div class="bar-text{% if total_count == 0 %} bar-black-text{% endif %}">{{ total_count }}/{{ total_threshold }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% include 'the_keep/partials/status.html' %}
+
+    <div>
+    {% if object.status == '5' %}
+        This {{ object.component }} has been abandoned by the designer and no further development is planned.
+    {% elif object.status == '4' %}
+        This {{ object.component }} is not currently being worked on and is considered inactive.<br>
+        The designer, if they choose, can make this {{ object.component }} active again.
+    {% elif object.status == '3' %}
+        This {{ object.component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
+        Once a game has been recorded the designer can choose the "Testing" status.
+    {% elif object.status == '2' %}
+        This {{ object.component }} is being tested, it has reached a playable state but fine tuning may be necessary before it is stable.<br>
+    {% elif object.status == '1' %}
+        This {{ object.component }} is considered stable and no major changes are expected.
+    {% endif %}
+    </div>
+</article>
+    {% if object.status != '1' %}
+    <article class="content-section">
+    <div>
+        <h2 class='root-title'>Stability</h2>
+        There are two ways to mark this {{ object.component }} as Stable:<br>
+        <li>
+        If this {{ object.component }} has a Stable Weird Root thread you can request to have the status changed.<br>
+        </li>
+        <li>
+        The designer can mark this {{ object.component }} as stable once these requirements have been met:<br>
+        </li>
+        <ol>
+            {% if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork' %}
+            <li>
+                At Least 1 Win and 1 Loss
+            </li>
+            {% endif %}
+            <li>
+                {{ play_threshold }} Games Recorded
+            </li>
+            <li>
+                With {{ player_threshold }} Unique Players
+            </li>
+
+            <li>
+                {% if object.component == 'Faction' or object.component == 'Vagabond' %}Against{% else %}With{% endif %} the {{ official_faction_threshold }} Official Factions 
+            </li>
+            {% if object.component != 'Map' %}
+            <li>
+                On the {{ official_map_threshold }} Official Maps
+            </li>
+            {% endif %}
+            {% if object.component != 'Deck' %}
+            <li>
+                With {{ official_deck_threshold }} of the Official Decks
+            </li>
+            {% endif %}
+
+        </ol>
+    </div>
+</article>
+    {% endif %}
+    <article class="content-section">
+<div>
+
+    {% if play_count != 0 %}
+    <h2 class='root-title'>Recorded Stats</h2>
+
+    {% comment %} <div>
+        {{ play_count }}/{{ play_threshold }} Games Played
+    </div>
+    <div>
+        {{ player_count }}/{{ player_threshold }} Unique Players
+    </div>
+    <div>
+        {{ official_faction_count }}/{{ official_faction_threshold }} Official Factions Included
+    </div> {% endcomment %}
+
+    <div class="row">
+        
+
+
+        <div class="col-12 col-md-6">
+            <div class="bar-container">
+                <div class="bar-label">Games Played</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{play_completion}}">
+                    <div class="bar-text{% if play_count == 0 %} bar-black-text{% endif %}">{{ play_count }}/{{ play_threshold }}</div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">Unique Players</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{player_completion}}">
+                    <div class="bar-text{% if player_count == 0 %} bar-black-text{% endif %}">{{ player_count }}/{{ player_threshold }}</div>
+                </div>
+            </div>
+        </div>
+
+        {% if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork' %}
+        <div class="col-12 col-md-6">
+            <div class="bar-container">
+                <div class="bar-label">Wins</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{win_completion}}">
+                    <div class="bar-text{% if win_count == 0 %} bar-black-text{% endif %}">{{ win_count }}/1</div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">Losses</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{loss_completion}}">
+                    <div class="bar-text{% if loss_count == 0 %} bar-black-text{% endif %}">{{ loss_count }}/1</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+
+        <div class="col-12 col-md-6">
+
+            <div class="bar-container">
+                <div class="bar-label">Official Factions</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_faction_completion}}">
+                    <div class="bar-text{% if official_faction_count == 0 %} bar-black-text{% endif %}">{{ official_faction_count }}/{{ official_faction_threshold }}</div>
+                </div>
+            </div>
+            {% if object.component != 'Map' %}
+            <div class="bar-container">
+                <div class="bar-label">Official Maps</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_map_completion}}">
+                    <div class="bar-text{% if official_map_count == 0 %} bar-black-text{% endif %}">{{ official_map_count }}/{{ official_map_threshold }}</div>
+                </div>
+            </div>
+            {% endif %}
+            {% if object.component != 'Deck' %}
+            <div class="bar-container">
+                <div class="bar-label">Official Decks</div> 
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_deck_completion}}">
+                    <div class="bar-text{% if official_deck_count == 0 %} bar-black-text{% endif %}">{{ official_deck_count }}/{{ official_deck_threshold }}</div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</article>
+
+<a href="{{ object.get_games_url }}">
+    <article class="content-section post-card">
+            <div>
+                <h3 class='root-title'>Games</h3>
+            </div>
+            <div>
+                View {{ play_count }} Game{% if play_count != 1 %}s{% endif %}
+            </div>
+        </div>
+
+    </article>
+</a>
+    {% else %}
+        <h2 class='root-title'>No Games Recorded</h2>
+        </div>
+    </article>
+    {% endif %}
+
+{% endblock content %}
+
+
+
+{% block scripts %}
+
+ <script>
+
+function hexToRgb(hex) {
+    // Remove the hash symbol if it exists
+    hex = hex.replace(/^#/, '');
+
+    // Convert 3-character hex to 6-character hex if necessary
+    if (hex.length === 3) {
+        hex = hex.split('').map(function (char) {
+            return char + char;
+        }).join('');
+    }
+
+    // Parse the hex values and return RGB object
+    return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+    };
+}
+
+function luminance(r, g, b) {
+    // Normalize the RGB values to [0, 1] range and apply gamma correction
+    let a = [r, g, b].map(function (value) {
+        value = value / 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+
+    // Calculate the luminance based on the formula
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+}
+
+function contrastRatio(colorHex) {
+    // Convert hex color to RGB
+    const { r, g, b } = hexToRgb(colorHex);
+
+    // Calculate luminance of the background color
+    const L2 = luminance(r, g, b);
+
+    // Luminance of white text (always 1)
+    const L1 = 1;
+
+    // Calculate the contrast ratio
+    return (L1 + 0.05) / (L2 + 0.05);
+}
+
+function isWhiteTextLegible(colorHex, isLargeText = true) {
+    // Calculate the contrast ratio for white text
+    const ratio = contrastRatio(colorHex);
+    console.log(ratio)
+    // Use 4.5:1 for normal text and 3:1 for large text
+    // Using 2 for a little less contrast required
+    return ratio >= (isLargeText ? 1.9 : 4.5);
+}
+
+// Check if faction color is legible
+const color = '{{ object_color }}';
+const result = isWhiteTextLegible(color);
+
+// Find all elements with the class 'bar-text'
+const barTextElements = document.querySelectorAll('.bar-text');
+
+// If the white text is not legible, change the class to 'bar-black-text'
+if (!result) {
+    barTextElements.forEach(function (element) {
+        {% comment %} element.classList.remove('bar-text'); {% endcomment %}
+        element.classList.add('bar-black-text');
+    });
+    console.log("White text is not legible, changed to black text.");
+} else {
+    console.log("White text is legible.");
+}
+
+</script>
+
+{% endblock scripts %}

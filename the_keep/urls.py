@@ -27,6 +27,7 @@ from .views import (
     universal_search,
     color_match_view,
     animal_match_view,
+    status_check,
 )
 from .api_views import search_posts
 from . import views
@@ -86,10 +87,11 @@ urlpatterns = [
     path('clockwork/<slug:slug>/update/', ClockworkUpdateView.as_view(), name='clockwork-update'),
 
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
-    path("post/<slug:slug>/stable/", confirm_stable, name='confirm-stable'),
-    path("post/<slug:slug>/testing/", confirm_testing, name='confirm-testing'),
+    path("stable/<slug:slug>/", confirm_stable, name='confirm-stable'),
+    path("testing/<slug:slug>/", confirm_testing, name='confirm-testing'),
     path("colors/<slug:slug>/", color_match_view, name='color-match'),
     path("animals/<slug:slug>/", animal_match_view, name='animal-match'),
+    path("status/<slug:slug>/", status_check, name='status-check'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),

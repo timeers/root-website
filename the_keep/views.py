@@ -987,6 +987,139 @@ def activity_list(request):
     return render(request, 'the_keep/activity_list.html', context)
 
 @player_required
+def status_check(request, slug):
+    # Get the Post object based on the slug from the URL
+    post = get_object_or_404(Post, slug=slug)
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=slug)
+
+    stable = object.stable_check()
+
+    play_count = stable[1]
+    play_threshold = stable[4]
+    player_count = stable[2]
+    player_threshold = stable[5]
+    official_faction_count = stable[3]
+    official_faction_threshold = stable[6]
+    official_map_count = stable[7]
+    official_map_threshold = stable[8]
+    official_deck_count = stable[9]
+    official_deck_threshold = stable[10]
+    
+    if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
+        win_count = stable[11]
+        loss_count = stable[12]
+        if win_count != 0:
+            win_completion = '100%'
+        else:
+            win_completion = '1%'
+            
+        if loss_count != 0:
+            loss_completion = '100%'
+        else:
+            loss_completion = '1%'
+    else:
+        win_count = 0
+        loss_count = 0
+        win_completion = '100%'
+        loss_completion = '100%'
+
+    play_calculation = max(min(100, play_count/play_threshold*100),1)
+    if play_count:
+        play_calculation = max(play_calculation,24)
+    play_completion = f'{play_calculation}%'
+
+    player_calculation = max(min(100, player_count/player_threshold*100),1)
+    player_completion = f'{player_calculation}%'
+
+    official_faction_calculation = max(min(100, official_faction_count/official_faction_threshold*100),1)
+    if official_faction_count:
+        official_faction_calculation = max(official_faction_calculation,24)
+    official_faction_completion = f'{official_faction_calculation}%'
+
+    if official_map_threshold != 0:
+        official_map_calculation = max(min(100, official_map_count/official_map_threshold*100),1)
+    else:
+        official_map_calculation = 1
+    if official_map_count:
+        official_map_calculation = max(official_map_calculation,24)
+    official_map_completion = f'{official_map_calculation}%'
+
+    if official_deck_threshold != 0:
+        official_deck_calculation = max(min(100, official_deck_count/official_deck_threshold*100),1)
+    else:
+        official_deck_calculation = 1
+    if official_deck_count:
+        official_deck_calculation = max(official_deck_calculation,24)
+    official_deck_completion = f'{official_deck_calculation}%'
+
+    total_threshold = play_threshold + player_threshold + official_deck_threshold + official_faction_threshold + official_map_threshold
+    if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
+        total_threshold += 2
+    total_count = min(play_count,play_threshold) + min(player_count,player_threshold) + min(official_deck_count,official_deck_threshold) + min(official_faction_count,official_faction_threshold) + min(official_map_count,official_map_threshold) + min(win_count,1) + min(loss_count,1)
+    total_completion = f'{max(total_count / total_threshold * 100,1)}%'
+    print(total_completion)
+
+    if object.color:
+        object_color = object.color
+    else:
+        if request.user.is_authenticated:
+            if request.user.profile.theme:
+                object_color = request.user.profile.theme.theme_color
+            else:
+                object_color = "#5f788a"
+        else:
+            object_color = "#5f788a"
+
+    context = {
+        'object': object,
+        'object_color': object_color,
+
+        'play_count': play_count,
+        'play_threshold': play_threshold,
+        'play_completion': play_completion,
+
+        'player_count': player_count,
+        'player_threshold': player_threshold,
+        'player_completion': player_completion,
+
+        'official_faction_count': official_faction_count,
+        'official_faction_threshold': official_faction_threshold,
+        'official_faction_completion': official_faction_completion,
+
+        'official_map_count': official_map_count,
+        'official_map_threshold': official_map_threshold,
+        'official_map_completion': official_map_completion,
+
+        'official_deck_count': official_deck_count,
+        'official_deck_threshold': official_deck_threshold,
+        'official_deck_completion': official_deck_completion,
+
+        'win_count': win_count,
+        'win_completion': win_completion,
+
+        'loss_count': loss_count,
+        'loss_completion': loss_completion,
+
+        'total_count': total_count,
+        'total_threshold': total_threshold,
+        'total_completion': total_completion,
+    }
+
+    return render(request, 'the_keep/status_check.html', context)
+
+
+@player_required
 def confirm_stable(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
@@ -1007,13 +1140,14 @@ def confirm_stable(request, slug):
     # print(stable)
 
     if stable[0] == False:
-        messages.info(request, f'{object} has not yet met the stability requirements. Current stats: {stable[1]} plays with {stable[2]} players and {stable[3]} official factions.')
-        return redirect(object.get_absolute_url())
+        messages.info(request, f'{object} has not yet met the stability requirements.')
+        return redirect('status-check', slug=object.slug)
     
     # Check if the current user is the designer
     if object.designer != request.user.profile:
         messages.error(request, "You are not authorized to make this change.")
-        return redirect(object.get_absolute_url())
+        return redirect('status-check', slug=object.slug)
+    
 
     # If form is submitted (POST request)
     if request.method == 'POST':
@@ -1052,12 +1186,12 @@ def confirm_testing(request, slug):
 
     if testing == False:
         messages.info(request, f'{object} has not yet recorded a playtest.')
-        return redirect(object.get_absolute_url())
+        return redirect('status-check', slug=object.slug)
     
     # Check if the current user is the designer
     if object.designer != request.user.profile:
         messages.error(request, "You are not authorized to make this change.")
-        return redirect(object.get_absolute_url())
+        return redirect('status-check', slug=object.slug)
 
     # If form is submitted (POST request)
     if request.method == 'POST':
