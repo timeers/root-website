@@ -18,7 +18,7 @@ class ForegroundInline(admin.StackedInline):
     extra = 0
 
 class WebsiteAdmin(admin.ModelAdmin):
-    list_display = ['site_title', 'default_theme__name', 'player_threshold', 'game_threshold']
+    list_display = ['site_title', 'default_theme', 'player_threshold', 'game_threshold']
 
 class ThemeAdmin(admin.ModelAdmin):
     list_display = ['name']
