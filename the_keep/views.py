@@ -1067,7 +1067,7 @@ def status_check(request, slug):
     if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
         total_threshold += 2
     total_count = min(play_count,play_threshold) + min(player_count,player_threshold) + min(official_deck_count,official_deck_threshold) + min(official_faction_count,official_faction_threshold) + min(official_map_count,official_map_threshold) + min(win_count,1) + min(loss_count,1)
-    total_completion = f'{max(min(total_count / total_threshold * 100,100),12)}%'
+    total_completion = f'{max(min(total_count / total_threshold * 100,100),16)}%'
 
     if object.color:
         object_color = object.color
