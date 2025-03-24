@@ -911,7 +911,7 @@ def add_piece(request, id=None):
     if id:
         obj = get_object_or_404(Piece, id=id)
         #Check if user owns this object
-        if obj.parent.designer!=request.user.profile:
+        if obj.parent.designer!=request.user.profile and not request.user.profile.admin:
             raise PermissionDenied() 
     else:
         obj = Piece()  # Create a new Piece instance but do not save it yet
@@ -957,7 +957,7 @@ def delete_piece(request, id):
         raise Http404("Not an HTMX request")
     piece = get_object_or_404(Piece, id=id)
     # Check if user owns this object
-    if piece.parent.designer==request.user.profile:
+    if piece.parent.designer==request.user.profile or request.user.profile.admin:
         piece.delete()
         return HttpResponse('')
     else:
@@ -1023,7 +1023,7 @@ def status_check(request, slug):
             win_completion = '100%'
         else:
             win_completion = '1%'
-            
+
         if loss_count != 0:
             loss_completion = '100%'
         else:
@@ -1325,15 +1325,15 @@ class PNPAssetListView(ListView):
             context['shared_assets'] = None
             theme = None
 
-        # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-        # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-        # # Group the images by location
-        # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-        # # Select a random image from each location
-        # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+        background_image = BackgroundImage.objects.filter(theme=theme, page="resources").order_by('?').first()
+        all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="resources")
+        # Group the images by location
+        grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+        # Select a random image from each location
+        foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
 
-        # context['background_image'] = background_image
-        # context['foreground_images'] = foreground_images
+        context['background_image'] = background_image
+        context['foreground_images'] = foreground_images
 
 
         return context

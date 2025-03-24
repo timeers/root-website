@@ -15,6 +15,7 @@ from the_keep.utils import validate_hex_color, delete_old_image
 
 
 
+
 class Theme(models.Model):
     name = models.CharField(max_length=100)
     artist = models.CharField(max_length=100)
@@ -50,7 +51,8 @@ class BackgroundImage(models.Model):
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     background_color = models.CharField(
         max_length=7,
-        default='#fafafa',
+        blank=True,
+        null=True,
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
@@ -595,3 +597,24 @@ def component_post_save(sender, instance, created, *args, **kwargs):
         slugify_instance_discord(instance, save=True)
 
 post_save.connect(component_post_save, sender=Profile)
+
+
+def get_first_theme():
+    # This will return the first Theme object, or None if no Theme objects exist
+    return Theme.objects.first()
+
+class Website(models.Model):
+    site_title = models.CharField(max_length=255, default="Root Database")
+    default_theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
+    game_threshold = models.IntegerField(default=10)
+    player_threshold = models.IntegerField(default=5)
+
+
+    @classmethod
+    def get_singular_instance(cls):
+        # This will return the first instance or create one if none exists
+        obj, created = cls.objects.get_or_create(pk=1)  # You could use any constant key, like '1'
+        return obj
+    
+    def __str__(self):
+        return "Website Configuration"

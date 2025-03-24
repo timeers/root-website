@@ -21,9 +21,9 @@
 
 
     {% if title %}
-        <title>Root Database - {{ title }}</title>
+        <title>{{site_title}} - {{ title }}</title>
     {% else %}
-        <title>Root Database{% block title %}{% endblock %}</title>
+        <title>{{site_title}}{% block title %}{% endblock %}</title>
     {% endif %}
     <link rel="icon" href="{% static 'images/DB_Only.png' %}" type="image/png">
     <!-- Apple Bookmark Icon -->
@@ -39,7 +39,7 @@
     <script src="https://flackr.github.io/scroll-timeline/dist/scroll-timeline.js"></script>
 
 </head>
-<body{% if background_image %} style='--background-color: {{ background_image.background_color }};'{% endif %}>
+<body{% if background_image.background_color %} style='--background-color: {{ background_image.background_color }};'{% elif theme %} style='--background-color: {{ theme.background_color }};'{% endif %}>
     <!-- Header -->
     {% include 'includes/header.html' %}
 

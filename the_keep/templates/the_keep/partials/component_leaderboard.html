@@ -49,9 +49,12 @@
             {% endif %}
 
         {% endif %}
-
+    </div>
+</article>
         {% if games %}
-        <div class='clickable-segment'>
+        
+        <article class="media content-section post-card">
+
             <a href="{{ object.get_games_url }}" class="w-100">
                 <div>
                     <h3 class='root-title'>Games</h3>
@@ -60,8 +63,7 @@
                     View {{ games_total }} Game{% if games_total != 1 %}s{% endif %}
                 </div>
             </a>
-        </div>
+        </article>
         {% endif %}
-        </div>
-    </article>
+
     {% endif %}

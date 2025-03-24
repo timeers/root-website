@@ -111,15 +111,15 @@ class GameListView(ListView):
             profile = None
             theme = None
 
-        # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-        # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-        # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-        # # Group the images by location
-        # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-        # # Select a random image from each location
-        # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-        # context['background_image'] = background_image
-        # context['foreground_images'] = foreground_images
+        background_image = BackgroundImage.objects.filter(theme=theme, page="games").order_by('?').first()
+        # foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")
+        all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")
+        # Group the images by location
+        grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+        # Select a random image from each location
+        foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+        context['background_image'] = background_image
+        context['foreground_images'] = foreground_images
 
 
 

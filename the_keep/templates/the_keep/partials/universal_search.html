@@ -12,7 +12,7 @@
             autocomplete="off"
             aria-label='search'
         />
-        <button class="search-bar-submit">
+        <button class="search-bar-submit" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
             <i class="bi bi-search"></i>
         </button>
     </div>

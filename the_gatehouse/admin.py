@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import Profile, PlayerBookmark, Theme, BackgroundImage, ForegroundImage
+from .models import Profile, PlayerBookmark, Theme, BackgroundImage, ForegroundImage, Website
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -16,6 +16,9 @@ class BackgroundInline(admin.StackedInline):
 class ForegroundInline(admin.StackedInline):
     model = ForegroundImage
     extra = 0
+
+class WebsiteAdmin(admin.ModelAdmin):
+    list_display = ['site_title', 'default_theme__name', 'player_threshold', 'game_threshold']
 
 class ThemeAdmin(admin.ModelAdmin):
     list_display = ['name']
@@ -223,3 +226,4 @@ admin.site.register(Profile, ProfileAdmin)
 admin.site.register(Theme, ThemeAdmin)
 admin.site.register(BackgroundImage, BackgroundImageAdmin)
 admin.site.register(ForegroundImage, ForegroundImageAdmin)
+admin.site.register(Website, WebsiteAdmin)

@@ -6,7 +6,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% if expansion.picture %}{{ expansion.picture.url }}{% else %}{% static 'images/RDB_Logo.png' %}{% endif %}">
-<meta property="og:site_name" content="Root Database">
+<meta property="og:site_name" content="{{site_title}}">
 <meta property="og:title" content="{{ expansion.title }}">
 <meta property="og:description" content="{{ expansion.title }}{% if expansion.designer %} by {{ expansion.designer.name }} {% endif %}{% if expansion.lore %} - {{ expansion.lore }}{% elif expansion.description %} - {{expansion.description}}{% endif %}">
 <meta name="description" content="{{ expansion.title }}{% if expansion.designer %} by {{ expansion.designer.name }} {% endif %}{% if expansion.lore %} - {{ expansion.lore }}{% elif expansion.description %} - {{expansion.description}}{% endif %}">

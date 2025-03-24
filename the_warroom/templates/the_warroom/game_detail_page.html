@@ -6,7 +6,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% if game.map.board_image %}{{ game.map.board_image.url }}{% else %}{% static 'images/DB_Only.png' %}{% endif %}">
-<meta property="og:site_name" content="Root Database">
+<meta property="og:site_name" content="{{site_title}}">
 {% if game.nickname %}
 <meta property="og:title" content="{{game.nickname}}">
 {% else %}

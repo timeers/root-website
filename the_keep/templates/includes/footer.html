@@ -1,6 +1,6 @@
-<footer class="footer">
+<footer class="footer" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
     <div class="footer-container">
-        <div>2025 The Root Database</div>
+        <div>2025 The {{site_title}}</div>
         <div>
             <a href="{% url 'keep-about' %}">About</a> |
             {% if theme %}

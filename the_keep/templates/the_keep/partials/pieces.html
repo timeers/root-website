@@ -1,9 +1,9 @@
 <!-- Component Manifest -->
 {% load static %}
-{% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.designer %}
+{% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.designer or user.profile.admin %}
 <div class='mt-2 mb-2'>
 
-    {% if object.designer == user.profile and user.profile.designer %}
+    {% if object.designer == user.profile and user.profile.designer or user.profile.admin %}
         <div class="d-flex justify-content-end">
             <button id="edit-button" class="btn btn-warning btn-sm mt-1 mb-1 ml-2">
                 Edit Components <i class="bi bi-pencil-square"></i>
@@ -18,7 +18,7 @@
 
     <div class="d-flex flex-wrap justify-content-evenly">
         {% if object.component != "Vagabond" %}
-            {% if object.warriors.all or object.designer == user.profile and user.profile.designer  %}
+            {% if user.profile.admin or object.warriors.all or object.designer == user.profile and user.profile.designer  %}
                 <div class="p-2 flex-fill{% if not object.warriors.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Warriors</h5>
                     <div id="W-pieces">
@@ -26,7 +26,7 @@
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
-                    {% if object.designer == user.profile and object.warriors.count < 6 and user.profile.designer %}
+                    {% if user.profile.admin or object.designer == user.profile and object.warriors.count < 6 and user.profile.designer %}
                         <div>
                             <button type="button" class="btn btn-primary me-2 hidden-buttons"
                                 hx-get="{% url 'add-piece' %}?piece=W&slug={{ object.slug }}"
@@ -38,7 +38,7 @@
                 </div>
             {% endif %}
 
-            {% if object.buildings.all or object.designer == user.profile and user.profile.designer %}
+            {% if user.profile.admin or object.buildings.all or object.designer == user.profile and user.profile.designer %}
                 <div class="p-2 flex-fill piece-box{% if not object.buildings.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Buildings</h5>
                     <div id="B-pieces">
@@ -46,7 +46,7 @@
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
-                    {% if object.designer == user.profile and object.buildings.count < 6 and user.profile.designer %}
+                    {% if user.profile.admin or object.designer == user.profile and object.buildings.count < 6 and user.profile.designer %}
                         <div>
                             <button type="button" class="btn btn-primary me-2 hidden-buttons"
                                 hx-get="{% url 'add-piece' %}?piece=B&slug={{ object.slug }}"
@@ -58,7 +58,7 @@
                 </div>
             {% endif %}
 
-            {% if object.tokens.all or object.designer == user.profile and user.profile.designer %}
+            {% if user.profile.admin or object.tokens.all or object.designer == user.profile and user.profile.designer %}
                 <div class="p-2 flex-fill piece-box{% if not object.tokens.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Tokens</h5>
                     <div id="T-pieces">
@@ -66,7 +66,7 @@
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
-                    {% if object.designer == user.profile and object.tokens.count < 6 and user.profile.designer %}
+                    {% if user.profile.admin or object.designer == user.profile and object.tokens.count < 6 and user.profile.designer %}
                         <div>
                             <button type="button" class="btn btn-primary me-2 hidden-buttons"
                                 hx-get="{% url 'add-piece' %}?piece=T&slug={{ object.slug }}"
@@ -78,7 +78,7 @@
                 </div>
             {% endif %}
 
-            {% if object.cards.all or object.component == 'Deck' or object.designer == user.profile and user.profile.designer %}
+            {% if user.profile.admin or object.cards.all or object.component == 'Deck' or object.designer == user.profile and user.profile.designer %}
                 <div class="p-2 flex-fill piece-box{% if not object.cards.all and object.component != 'Deck' %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>Cards</h5>
                     <div id="C-pieces">
@@ -93,7 +93,7 @@
                                 </div>
 
                             </div>
-                            {% if object.designer == user.profile and user.profile.designer %}
+                            {% if user.profile.admin or object.designer == user.profile and user.profile.designer %}
                             <div class="d-flex">
                                 <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons" id="saveAndGo-button">
                                     Edit Cards <i class="bi bi-pencil-square"></i>
@@ -105,7 +105,7 @@
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
-                    {% if object.designer == user.profile and object.cards.count < 6 and user.profile.designer %}
+                    {% if user.profile.admin or object.designer == user.profile and object.cards.count < 6 and user.profile.designer %}
                         <div>
                             <button type="button" class="btn btn-primary me-2 hidden-buttons"
                                 hx-get="{% url 'add-piece' %}?piece=C&slug={{ object.slug }}"
@@ -119,7 +119,7 @@
         {% else %}
             {% include 'the_keep/partials/vagabond_items.html' %}
         {% endif %}
-        {% if object.component == "Vagabond" or object.otherpieces.all or object.designer == user.profile and user.profile.designer %}
+        {% if user.profile.admin or object.component == "Vagabond" or object.otherpieces.all or object.designer == user.profile and user.profile.designer %}
             <div class="p-2 flex-fill piece-box{% if not object.otherpieces.all and object.component != "Vagabond" %} hidden-pieces{% endif %}">
                 <h5 class='root-title'>Other Pieces</h5>
                 <div id="O-pieces">
@@ -135,7 +135,7 @@
                         {% include 'the_keep/partials/piece_line.html' %}
                     {% endfor %}
                 </div>
-                {% if object.designer == user.profile and object.otherpieces.count < 6 and user.profile.designer %}
+                {% if user.profile.admin or object.designer == user.profile and object.otherpieces.count < 6 and user.profile.designer %}
                     <div>
                         <button type="button" class="btn btn-primary me-2 hidden-buttons"
                             hx-get="{% url 'add-piece' %}?piece=O&slug={{ object.slug }}"
@@ -148,7 +148,7 @@
         {% endif %}
 
     </div>
-    {% if object.designer == user.profile and user.profile.designer %}
+    {% if user.profile.admin or object.designer == user.profile and user.profile.designer %}
         <button type="button" id="save-all" class="btn btn-success ml-2 mb-2 hidden-buttons">Save All</button>
     {% endif %}
 
@@ -158,7 +158,7 @@
 
     </div>
 {% endif %}
-{% if object.designer == user.profile and user.profile.designer %}
+{% if user.profile.admin or object.designer == user.profile and user.profile.designer %}
 {% block scripts %}
 <script>
 
