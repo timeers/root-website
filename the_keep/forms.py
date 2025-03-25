@@ -506,9 +506,15 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Character Art',  # Set the label for the picture field
         required=False
     )
+    color = forms.CharField(
+        max_length=7,  # Color code length (e.g., #FFFFFF)
+        widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
+        required=False,
+        label="Faction Color"
+    )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
-        fields = top_fields + ['animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
+        fields = top_fields + ['color', 'color_group', 'animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
 
     def __init__(self, *args,  **kwargs):
         # Check if an instance is being created or updated
@@ -672,7 +678,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     small_icon = forms.ImageField(
-        label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
+        label='Icon (Faction Head or Meeple)',  # Set the label for the picture field
         required=False
     )
     color = forms.CharField(
@@ -683,7 +689,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['color', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
+        fields = top_fields + ['color', 'color_group', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'small_icon', 'card_image', 'board_image', 'board_2_image'] + bottom_fields
 
     def clean_reach_and_type(self, cleaned_data):
@@ -759,9 +765,15 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
         required=False
     )
+    color = forms.CharField(
+        max_length=7,  # Color code length (e.g., #FFFFFF)
+        widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
+        required=False,
+        label="Faction Color"
+    )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['small_icon', 'animal', 'based_on', 'board_image'] + bottom_fields
+        fields = top_fields + ['color', 'color_group', 'small_icon', 'animal', 'based_on', 'board_image'] + bottom_fields
 
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')

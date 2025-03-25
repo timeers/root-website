@@ -58,19 +58,16 @@
         </div>
     </div>
     <div>
-            <div>
-                {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
-                <a href='{% url 'animal-match' object.slug %}'>
-                    {% if object.component == 'Faction' %}
+            <div class='mt-1'>
+                {% if object.animal %}
+                    {% if object.component == 'Faction' or object.component == 'Clockwork' %}
                         <img class="faction-icon" src="{{ object.small_icon.url }}">
                     {% endif %}
+
                     {{ object.animal }}
-                
+
                 {% endif %}
                 {{ object.component }}
-                {% if object.component == 'Faction' or object.component == 'Hireling' or object.component == 'Vagabond' %}
-                    </a>
-                {% endif %}
                  by 
                 <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
@@ -112,16 +109,48 @@
             </div>
 
             {% if object.lore %}
-                <p class="lore-content mt-2">{{ object.lore }}</p>
+                <div class="lore-content mt-1 mb-2">{{ object.lore }}</div>
             {% endif %}
 
-            <a href={% url 'status-check' object.slug %}>
+            {% comment %} <a href={% url 'status-check' object.slug %}>
             {% include 'the_keep/partials/status.html' %}
-            </a>
+            </a> {% endcomment %}
 
-            {% if object.description %}
-                <p class="article-content">{{ object.description }}</p>
+            
+
+            {% if object.status == '1' %}
+            <a class="btn btn-outline-success btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                {{ object.get_status_display }}
+                <i class="bi bi-check-circle-fill"></i>
+            {% elif object.status == '2' %}
+            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                {{ object.get_status_display }}
+                <i class="bi bi-play-circle-fill"></i>
+            {% elif object.status == '3' %}
+            <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                {{ object.get_status_display }}
+                <i class="bi bi-wrench-adjustable-circle-fill"></i>
+            {% elif object.status == '4' %}
+            <a class="btn btn-outline-secondary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                {{ object.get_status_display }}
+                <i class="bi bi-dash-circle-fill"></i>
+            {% else %}
+            <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                {{ object.get_status_display }}
+                <i class="bi bi-x-circle-fill"></i>
             {% endif %}
+        </a>
+
+        {% if object.animal %}
+            <a class='btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
+            {{ object.animal }}
+            </a>
+        {% endif %}
+
+
+        {% if object.description %}
+            <div class='mb-1 mt-1'>{{ object.description }}</div>
+        {% endif %}
 
 
 </article>

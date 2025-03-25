@@ -126,3 +126,102 @@ def complementary_color(hex_code):
    
     # Convert back to hex and return
     return rgb_to_hex(r_complement, g_complement, b_complement)
+
+
+def rgb_to_color_name(rgb):
+    """
+    Maps an RGB tuple to a corresponding color name, including purple, violet, lavender, and blue shades.
+    
+    Args:
+    - rgb: A tuple (R, G, B), where R, G, and B are integers between 0 and 255.
+    
+    Returns:
+    - The name of the color corresponding to the given RGB value.
+    """
+    r, g, b = rgb
+
+    # Check if the color is grayscale (R == G == B)
+    if r == g == b:
+        if r > 200:
+            return "White"
+        elif r < 50:
+            return "Black"
+        else:
+            return "Gray"
+    
+    # Determine color family (hue)
+    if r > g and r > b:
+        color_family = "Red"
+    elif g > r and g > b:
+        color_family = "Green"
+    elif b > r and b > g:
+        color_family = "Blue"
+    elif r == g and r > b:
+        color_family = "Yellow"  # Yellow is a mix of red and green
+    elif g == b and g > r:
+        color_family = "Cyan"  # Cyan is a mix of green and blue
+    elif r == b and r > g:
+        color_family = "Magenta"  # Magenta is a mix of red and blue
+    else:
+        color_family = "Unknown"
+    
+    # Handle purple shades (mix of red and blue, low green)
+    if r > 100 and b > 100 and g < 100:
+        if r > 150 and b > 150:
+            return "Purple"  # Strong purple
+        elif r < 150 and b < 150:
+            return "Lavender"  # Lighter purple
+        return "Violet"  # A more reddish purple
+
+    # Check for light or dark blue more specifically
+    if color_family == "Blue":
+        brightness = (r + g + b) / 3
+        if brightness > 180:  # High brightness, likely a light shade
+            return "Light Blue"
+        elif brightness < 80:  # Low brightness, likely a dark shade
+            return "Dark Blue"
+        else:  # Otherwise, normal blue
+            return "Blue"
+
+    # Handle green shades more specifically
+    if color_family == "Green":
+        brightness = (r + g + b) / 3  # Using average brightness
+        
+        # Light green logic: if the green channel is dominant and the brightness is high
+        if g > r and g > b and brightness > 180:
+            return "Light Green"
+        
+        # Dark green logic: if the brightness is low
+        elif brightness < 80:
+            return "Dark Green"
+        
+        # Otherwise, normal green
+        return "Green"
+    
+    # Brightness and Saturation for other color families
+    brightness = (r + g + b) / 3  # Simple average to represent brightness
+    if brightness > 200:
+        brightness_level = "Light"
+    elif brightness < 80:
+        brightness_level = "Dark"
+    else:
+        brightness_level = "Medium"
+
+    # Map to more specific names based on family and brightness
+    if color_family == "Red":
+        if b < 100 and g < 100:
+            return f"Light {color_family}"
+        if b > 100 and g > 100:
+            return f"Pink"
+        return f"Dark {color_family}"
+    elif color_family == "Yellow":
+        return f"Yellow"
+    elif color_family == "Cyan":
+        return f"Cyan"
+    elif color_family == "Magenta":
+        return f"Magenta"
+    
+    # Return based on brightness and family
+    return f"{brightness_level} {color_family}"
+
+

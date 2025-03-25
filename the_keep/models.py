@@ -141,6 +141,21 @@ class Post(models.Model):
         INACTIVE = '4', 'Inactive'
         ABANDONED = '5', 'Abandoned'
 
+    class ColorChoices(models.TextChoices):
+        RED = ('#FF0000', 'Red')
+        ORANGE = ('#FFA500', 'Orange')
+        YELLOW = ('#FFFF00', 'Yellow')
+        GREEN = ('#008000', 'Green')
+        BLUE = ('#0000FF', 'Blue')
+        PURPLE = ('#800080', 'Purple')
+        WHITE = ('#FFFFFF', 'White')
+        GREY = ('#808080', 'Grey')
+        BLACK = ('#000000', 'Black')
+        PINK = ('#FFC0CB', 'Pink')
+        BROWN = ('#A52A2A', 'Brown')
+
+
+
     title = models.CharField(max_length=40)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     animal = models.CharField(max_length=25, null=True, blank=True, default="None")
@@ -176,6 +191,7 @@ class Post(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
+    color_group = models.CharField(max_length=30, choices=ColorChoices.choices, blank=True, null=True)
     color_name = models.CharField(max_length=50, blank=True, null=True) 
     color_r = models.IntegerField(blank=True, null=True)
     color_g = models.IntegerField(blank=True, null=True)

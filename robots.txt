@@ -11,3 +11,5 @@ Disallow: /piece/
 Disallow: /new/
 Disallow: /scorecard/
 Disallow: /status/
+Disallow: /colors/
+Disallow: /animals/

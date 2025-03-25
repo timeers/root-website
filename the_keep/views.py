@@ -242,8 +242,12 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 
     def test_func(self):
         obj = self.get_object()
-        if self.request.user.profile.admin and not obj.designer.designer:
-            return True
+        if self.request.user.profile.admin:
+            if not obj.designer.designer:
+                return True
+            elif self.request.user.profile != obj.designer:
+                messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designer}.')
+
         # Only allow access if the logged-in user is the designer of the object
         return self.request.user.profile == obj.designer
 
@@ -375,7 +379,7 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
                 # Do not delete posts with games recorded.
                 post.status = 4  # Set the status to inactive
                 post.save()
-                messages.error(request, f'The {post.component} "{name}"" cannot be deleted because it has been used in a game. Status has been set to "Inactive".')
+                messages.error(request, f'The {post.component} "{name}" cannot be deleted because it has been used in a game. Status has been set to "Inactive".')
                 # Redirect back to the post detail page
                 return redirect(detail_view, post.slug)
             
@@ -1067,7 +1071,10 @@ def status_check(request, slug):
     if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
         total_threshold += 2
     total_count = min(play_count,play_threshold) + min(player_count,player_threshold) + min(official_deck_count,official_deck_threshold) + min(official_faction_count,official_faction_threshold) + min(official_map_count,official_map_threshold) + min(win_count,1) + min(loss_count,1)
-    total_completion = f'{max(min(total_count / total_threshold * 100,100),16)}%'
+    total_completion = max(min(100, total_count / total_threshold * 100),1)
+    if play_count:
+        total_completion = max(total_completion,16)
+    total_completion = f'{total_completion}%'
 
     if object.color:
         object_color = object.color

@@ -1,6 +1,6 @@
 <!-- Component Manifest -->
 {% load static %}
-{% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.designer or user.profile.admin %}
+{% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.designer or user.profile.admin and not object.designer.designer %}
 <div class='mt-2 mb-2'>
 
     {% if object.designer == user.profile and user.profile.designer or user.profile.admin %}
