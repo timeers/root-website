@@ -1248,7 +1248,7 @@ tr.clickable-row:hover {
 
 
 /* Custom small outline button styling */
-.custom-btn-outline {
+.btn-outline {
   display: inline-block;
   padding: 0.25rem 0.5rem; /* Bootstrap's padding for small buttons */
   font-size: 0.875rem; /* Font size for small button */
@@ -1264,7 +1264,7 @@ tr.clickable-row:hover {
 }
 
 /* Hover effect */
-.custom-btn-outline:hover {
+.btn-outline:hover {
   background-color: var(--button-color); /* Blue background on hover */
   color: white; /* White text color on hover */
   border-color: var(--button-color); /* Darker blue border on hover */
@@ -1272,14 +1272,52 @@ tr.clickable-row:hover {
 }
 
 /* Focus effect */
-.custom-btn-outline:focus {
+.btn-outline:focus {
   outline: none; /* Remove outline when focused */
   box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1); /* Blue shadow on focus */
 }
 
 /* Active (clicking) state */
-.custom-btn-outline:active {
+.btn-outline:active {
   background-color: var(--button-color); /* Darker blue when clicked */
   border-color: var(--button-color); /* Darker blue border when clicked */
   color: white; /* White text color when clicked */
+}
+
+
+/* Custom small outline button styling */
+.btn-outline-inverted {
+  display: inline-block;
+  padding: 0.25rem 0.5rem; /* Bootstrap's padding for small buttons */
+  font-size: 0.875rem; /* Font size for small button */
+  font-weight: 400; /* Font weight for button text */
+  text-align: center;
+  text-decoration: none; /* Remove underline for links */
+  border: 1px solid black; /* Blue border (default outline color for btn-outline-inverted-primary) */
+  border-radius: 0.25rem; /* Rounded corners, like Bootstrap */
+  background-color: var(--button-color); /* Transparent background */
+  color: black; /* Blue text color */
+  cursor: pointer; /* Pointer cursor on hover */
+  transition: all 0.15s ease-in-out; /* Smooth transition for hover and focus effects */
+}
+
+/* Hover effect */
+.btn-outline-inverted:hover {
+  background-color: black; /* Blue background on hover */
+  color: var(--button-color); /* White text color on hover */
+  border-color: black; /* Darker blue border on hover */
+  text-decoration: none; /* Remove underline on hover */
+}
+
+/* Focus effect */
+.btn-outline-inverted:focus {
+  outline: none; /* Remove outline when focused */
+  box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1); /* Blue shadow on focus */
+}
+
+/* Active (clicking) state */
+.btn-outline-inverted:active {
+  background-color: black; /* Darker blue when clicked */
+  border-color: black; /* Darker blue border when clicked */
+  color: var(--button-color); /* White text color when clicked */
 }

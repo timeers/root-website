@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 from .models import Effort, Game, TurnScore, ScoreCard, Round, Tournament
-from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak
+from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak, get_status_name_from_int, StatusChoices
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
 from django.db.models import Q
@@ -261,6 +261,7 @@ class GameCreateForm(forms.ModelForm):
                         if not vagabond.official:
                             official_only = False
                         vagabond_roster.add(vagabond)
+
 
             # Winner Required
             if win_count == 0:

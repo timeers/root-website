@@ -3,6 +3,7 @@ from django.utils.text import slugify
 import uuid
 from urllib.parse import urljoin
 
+
 def slugify_instance_discord(instance, save=False, new_slug=None):
     if new_slug is not None:
         slug = new_slug

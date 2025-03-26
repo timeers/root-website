@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from the_gatehouse.models import Profile
-from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak
+from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
 from .utils import slugify_tournament_name, slugify_round_name
@@ -219,6 +219,7 @@ class Game(models.Model):
     solo = models.BooleanField(default=False)
     official = models.BooleanField(default=True)
     final = models.BooleanField(default=False)
+    status = models.CharField(max_length=15 , null=True, blank=True, choices=StatusChoices.choices)
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()

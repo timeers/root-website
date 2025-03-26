@@ -28,7 +28,7 @@ from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter, PlayerGameFilter
 
-from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak
+from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices
 
 from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage
 from the_gatehouse.views import (player_required, admin_required, 
@@ -510,23 +510,31 @@ def manage_game(request, id=None):
             parent.save()  # Save the new or updated Game instance
             form.save_m2m()
             seat = 0
+            game_status = max(parent.map.status, parent.deck.status)
+            for landmark in parent.landmarks.all():
+                game_status = max(game_status, landmark.status)
+            for hireling in parent.hirelings.all():
+                game_status = max(game_status, hireling.status)
+            for tweak in parent.tweaks.all():
+                game_status = max(game_status, tweak.status)
             # roster = []
             for form in formset:
                 child = form.save(commit=False)
                 if child.faction_id is not None:  # Only save if faction_id is present
 
+                    game_status = max(game_status, child.faction.status)
+                    if child.vagabond:
+                        game_status = max(game_status, child.vagabond.status)
                     seat += 1
                     # Save current status of faction. Might be useful somewhere.
-                    if child.faction.status == "Stable":
-                        status = "Stable"
-                    else:
-                        status = f"{child.faction.status} - {child.faction.date_updated.strftime('%Y-%m-%d')}"
-                    child.faction_status = status
+
+                    child.faction_status = child.faction.status
+
                     child.game = parent  # Link the effort to the game
                     child.seat = seat
                     child.save()
                     
-
+            parent.status = StatusChoices(game_status)
             parent.save()
             context['message'] = "Game Saved"
             return redirect(parent.get_absolute_url())

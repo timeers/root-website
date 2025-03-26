@@ -96,7 +96,7 @@ def user_logged_in_handler(request, user, **kwargs):
         profile_updated = True
 
     # If user is a member of WW but in group O (add to group P)
-    if current_group == 'O' and in_ww:
+    if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr):
         profile.group = 'P'
         profile_updated = True
 

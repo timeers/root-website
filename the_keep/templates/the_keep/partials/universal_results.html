@@ -121,5 +121,14 @@
             {% endfor %}
         {% endif %}
 
+        {% if pieces %}
+            <strong>Pieces</strong>
+            {% for result in pieces %}
+
+                {% include 'the_keep/partials/post_snippet_piece.html' %}
+
+            {% endfor %}
+        {% endif %}
+
     </ul>
 {% endif %}

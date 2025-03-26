@@ -360,7 +360,7 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             games = object.get_games_queryset()
             if not games.exists():
                 # Abandon the post without deleting
-                post.status = 5  # Set the status to abandoned
+                post.status = 100  # Set the status to abandoned
                 rand_int = random.randint(100, 999)
                 post.title = f'Deleted {post.component}-{rand_int}'
                 if post.component == 'Hireling':
@@ -1430,6 +1430,7 @@ def universal_search(request):
         tournaments = Tournament.objects.none()
         rounds = Round.objects.none()
         resources = PNPAsset.objects.none()
+        pieces = Piece.objects.none()
     else:
         # If the query is not empty, perform the search as usual
         factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
@@ -1448,13 +1449,13 @@ def universal_search(request):
         tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  
         rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
-
+        pieces = Piece.objects.filter(Q(name__icontains=query), parent__status__lte=view_status).order_by('parent__status')
 
     total_results = (factions.count() + maps.count() + decks.count() + vagabonds.count() +
                      landmarks.count() + hirelings.count() + expansions.count() + 
                      players.count() + games.count() + scorecards.count() + 
                      tournaments.count() + rounds.count() + tweaks.count() + 
-                     resources.count())
+                     resources.count() + pieces.count())
     
     if total_results == 0:
         no_results = True
@@ -1483,6 +1484,7 @@ def universal_search(request):
         'tournaments': tournaments[:result_count],
         'rounds': rounds[:result_count],
         'resources': resources[:result_count],
+        'pieces': pieces[:result_count],
         'no_results': no_results,
         'query': query,
     }

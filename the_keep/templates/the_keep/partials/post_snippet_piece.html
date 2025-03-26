@@ -1,0 +1,32 @@
+<div class="d-flex align-items-center mb-2 clickable-segment">
+    <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
+        {% if result.parent.picture %}
+        <div class="d-flex align-items-center mr-1">
+            <img class="lg-faction-icon" src="{{ result.parent.picture.url }}" alt="{{ result.parent.title }}">
+        </div>
+        {% endif %}
+        <div>
+            <div class='root-title'>
+                {{ result.parent.title }}
+                {% if result.parent.status %}
+                <i class="bi 
+                {% if result.parent.status == '1' %}bi-check-circle-fill text-success
+                {% elif result.parent.status == '2' %}bi-play-circle-fill text-primary
+                {% elif result.parent.status == '3' %}bi-wrench-adjustable-circle-fill text-warning
+                {% elif result.parent.status == '4' %}bi-dash-circle-fill text-secondary
+                {% else %}bi-x-circle-fill text-dark
+                {% endif %}
+                ml-1"></i>
+                {% endif %}
+            </div>
+            <div>
+                {% if result.small_icon %}
+                    <img class="faction-icon" src="{{ result.small_icon.url }}" alt="{{ result.parent.title }}">x 
+                {% endif %}
+                {{ result.quantity }}
+                {% if result.suited %} Fox/Mouse/Rabbit {% endif %}
+                {{ result.name }}
+            </div>
+        </div>
+    </a>
+</div>

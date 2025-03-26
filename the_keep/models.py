@@ -34,6 +34,35 @@ player_threshold = 5
 
 p = inflect.engine()
 
+class ColorChoices(models.TextChoices):
+    RED = ('#FF0000', 'Red')
+    ORANGE = ('#FFA500', 'Orange')
+    YELLOW = ('#FFFF00', 'Yellow')
+    GREEN = ('#008000', 'Green')
+    BLUE = ('#0000FF', 'Blue')
+    PURPLE = ('#800080', 'Purple')
+    WHITE = ('#FFFFFF', 'White')
+    GREY = ('#808080', 'Grey')
+    BLACK = ('#000000', 'Black')
+    PINK = ('#FFC0CB', 'Pink')
+    BROWN = ('#A52A2A', 'Brown')
+    TAN = ('#D2B48C', 'Tan')
+
+class StatusChoices(models.TextChoices):
+    STABLE = '1','Stable'
+    TESTING = '2', 'Testing'
+    DEVELOPMENT = '3', 'Development'
+    INACTIVE = '4', 'Inactive'
+    ABANDONED = '5', 'Abandoned'
+    DEEPFREEZE = '100', 'Deep Freeze'
+
+def get_status_name_from_int(status_int):
+    # Iterate through the choices to find the matching integer
+    for status in StatusChoices:
+        if status.value == str(status_int):  # Compare as string because your choices are strings
+            return status.label
+    return None  # Return None if not found
+
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
         if query is None or query == "":
@@ -134,31 +163,12 @@ class Post(models.Model):
         FACTION = 'Faction'
         CLOCKWORK = 'Clockwork'
         TWEAK = 'Tweak'
-    class StatusChoices(models.TextChoices):
-        STABLE = '1','Stable'
-        TESTING = '2', 'Testing'
-        DEVELOPMENT = '3', 'Development'
-        INACTIVE = '4', 'Inactive'
-        ABANDONED = '5', 'Abandoned'
-
-    class ColorChoices(models.TextChoices):
-        RED = ('#FF0000', 'Red')
-        ORANGE = ('#FFA500', 'Orange')
-        YELLOW = ('#FFFF00', 'Yellow')
-        GREEN = ('#008000', 'Green')
-        BLUE = ('#0000FF', 'Blue')
-        PURPLE = ('#800080', 'Purple')
-        WHITE = ('#FFFFFF', 'White')
-        GREY = ('#808080', 'Grey')
-        BLACK = ('#000000', 'Black')
-        PINK = ('#FFC0CB', 'Pink')
-        BROWN = ('#A52A2A', 'Brown')
 
 
 
     title = models.CharField(max_length=40)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
-    animal = models.CharField(max_length=25, null=True, blank=True, default="None")
+    animal = models.CharField(max_length=25, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)
@@ -192,7 +202,7 @@ class Post(models.Model):
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
     color_group = models.CharField(max_length=30, choices=ColorChoices.choices, blank=True, null=True)
-    color_name = models.CharField(max_length=50, blank=True, null=True) 
+
     color_r = models.IntegerField(blank=True, null=True)
     color_g = models.IntegerField(blank=True, null=True)
     color_b = models.IntegerField(blank=True, null=True)
@@ -200,7 +210,7 @@ class Post(models.Model):
     sorting = models.IntegerField(default=10)
     component_snippet = models.CharField(max_length=100, null=True, blank=True)
     date_updated = models.DateTimeField(default=timezone.now)
-    change_log = models.TextField(default='[]') 
+
 
 
     objects = PostManager()
@@ -490,18 +500,6 @@ class Post(models.Model):
             case _:
                 return reverse('faction-games', kwargs={'slug': self.slug})
 
-    def add_change(self, note):
-        changes = json.loads(self.change_log)
-        change_entry = {
-            'timestamp': timezone.now(),
-            'note': note,
-        }
-        changes.append(change_entry) 
-        self.change_log = json.dumps(changes) 
-        self.save() 
-
-    def get_change_log(self):
-        return json.loads(self.change_log)
  
     def __str__(self):
         return self.title
@@ -1212,6 +1210,26 @@ class Piece(models.Model):
 
     def __str__(self):
         return f"{self.name} (x{self.quantity})"
+
+    def  get_absolute_url(self):
+        match self.parent.component:
+            case "Map":
+                return reverse('map-detail', kwargs={'slug': self.parent.slug})
+            case "Deck":
+                return reverse('deck-detail', kwargs={'slug': self.parent.slug})
+            case "Landmark":
+                return reverse('landmark-detail', kwargs={'slug': self.parent.slug})
+            case "Tweak":
+                return reverse('tweak-detail', kwargs={'slug': self.parent.slug})
+            case "Hireling":
+                return reverse('hireling-detail', kwargs={'slug': self.parent.slug})        
+            case "Vagabond":
+                return reverse('vagabond-detail', kwargs={'slug': self.parent.slug})
+            case "Clockwork":
+                return reverse('clockwork-detail', kwargs={'slug': self.parent.slug})
+            case _:
+                return reverse('faction-detail', kwargs={'slug': self.parent.slug})
+    
 
     def save(self, *args, **kwargs):
 

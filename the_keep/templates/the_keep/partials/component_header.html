@@ -146,8 +146,12 @@
             {{ object.animal }}
             </a>
         {% endif %}
-
-
+        {% comment %}  
+        <!-- For color button -->
+        <a class='btn btn-outline' style='--button-color: {{ object.color }};' href='{% url 'animal-match' object.slug %}'>
+            {{ object.animal }}
+        </a>
+    {% endcomment %}
         {% if object.description %}
             <div class='mb-1 mt-1'>{{ object.description }}</div>
         {% endif %}

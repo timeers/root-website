@@ -2,7 +2,7 @@ import json
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion, Tweak, PNPAsset
+    Piece, Expansion, Tweak, PNPAsset, ColorChoices
 )
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
@@ -237,8 +237,8 @@ class PostCreateForm(forms.ModelForm):
             # #     designer = self.user.profile
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]):
-                raise ValidationError("Please include a link to one of the following: a Board Game Geek post, a Tabletop Simulator Mod, a Woodland Warriors Discord Thread, a Weird Root Discord Thread, or Print and Play Files.")
+            if not any([bgg_link, ww_link, wr_link, leder_games_link]):
+                raise ValidationError("Please include a link to one of the following: a Board Game Geek post, a Woodland Warriors or Weird Root Discord Thread.")
             # Validate URLs
             url_validator = URLValidator()
             for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]:
@@ -291,7 +291,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     board_image = forms.ImageField(
         label='Map',  # Set the label for the picture field
-        required=False
+        required=True
     )
     card_image = forms.ImageField(
         label='Card', 
@@ -348,7 +348,7 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     card_image = forms.ImageField(
         label='Card Back',  # Set the label for the card_image field
-        required=False
+        required=True
     )
     picture = forms.ImageField(
         label='Card Art',  # Set the label for the picture field
@@ -403,8 +403,8 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     card_image = forms.ImageField(
-        label='Card Front',  # Set the label for the card_image field
-        required=False
+        label='Landmark Card Front',  # Set the label for the card_image field
+        required=True
     )
     card_2_image = forms.ImageField(
         label='Card Back',  # Set the label for the card_image field
@@ -512,6 +512,14 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False,
         label="Faction Color"
     )
+    color_group = forms.ChoiceField(
+        choices=ColorChoices.choices,
+        required=True
+    )
+    board_image = forms.ImageField(
+        label='Hireling Card',
+        required=True
+    )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
         fields = top_fields + ['color', 'color_group', 'animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
@@ -560,12 +568,15 @@ class VagabondCreateForm(PostCreateForm):
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
-        required=False
+        required=True
     )
-
+    card_image = forms.ImageField(
+        label='Vagabond Card',  # Set the label for the card_image field
+        required=True
+    )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'based_on',
+        fields = top_fields + ['animal', 'based_on', 'card_image',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields
@@ -667,11 +678,11 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
-        required=False
+        required=True
     )
     board_image = forms.ImageField(
         label='Faction Board Front',  # Set the label for the faction board field
-        required=False
+        required=True
     )
     board_2_image = forms.ImageField(
         label='Faction Board Back',  # Set the label for the faction board back field
@@ -686,6 +697,10 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
         label="Faction Color"
+    )
+    color_group = forms.ChoiceField(
+        choices=ColorChoices.choices,
+        required=True
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
@@ -759,7 +774,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
-        required=False
+        required=True
     )
     small_icon = forms.ImageField(
         label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
@@ -770,6 +785,14 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
         label="Faction Color"
+    )
+    color_group = forms.ChoiceField(
+        choices=ColorChoices.choices,
+        required=True
+    )
+    board_image = forms.ImageField(
+        label='Faction Board Front',  # Set the label for the faction board field
+        required=True
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
