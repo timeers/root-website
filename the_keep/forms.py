@@ -237,7 +237,7 @@ class PostCreateForm(forms.ModelForm):
             # #     designer = self.user.profile
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, ww_link, wr_link, leder_games_link]):
+            if not any([bgg_link, ww_link, wr_link, leder_games_link, pnp_link, tts_link]):
                 raise ValidationError("Please include a link to one of the following: a Board Game Geek post, a Woodland Warriors or Weird Root Discord Thread.")
             # Validate URLs
             url_validator = URLValidator()

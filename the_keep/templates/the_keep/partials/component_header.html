@@ -143,7 +143,7 @@
 
         {%if color_group %}
         <!-- For color button -->
-        <a class='btn btn-outline{% if color_group == 'White' %}-inverted{% endif %}' style='--button-color: {{ object.color_group }};' href="{% url 'color-group' color_group %}">
+        <a class='btn btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object.color_group }};' href="{% url 'color-group' color_group %}">
             {{ color_group }}
         </a>
         {% endif %}
