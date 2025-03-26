@@ -510,7 +510,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         max_length=7,  # Color code length (e.g., #FFFFFF)
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
-        label="Faction Color"
+        label="Hireling Color"
     )
     color_group = forms.ChoiceField(
         choices=ColorChoices.choices,

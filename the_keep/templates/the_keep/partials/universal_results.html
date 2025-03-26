@@ -100,6 +100,7 @@
 
         {% if players %}
             <strong>Profiles</strong>
+            <div class='mb-2'>
             {% for result in players %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
@@ -108,6 +109,7 @@
                 </div>
             </a>
             {% endfor %}
+        </div>
         {% endif %}
 
         {% if resources %}
@@ -133,7 +135,7 @@
         {% if color_group %}
             <strong>Color Match</strong>
             <a href="{% url 'color-group' color_group.label %}">
-                <div class='clickable-segment color-group-container'>
+                <div class='clickable-segment color-group-container mb-2'>
                     <div class="color-square" style="background-color: {{ color_group }};"></div>
                     <div>
                     {{ color_group.label }} Components

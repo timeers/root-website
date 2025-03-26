@@ -34,6 +34,28 @@ player_threshold = 5
 
 p = inflect.engine()
 
+def convert_animals_to_singular(text):
+    # Remove any instances of "and" from the input string
+    text = text.replace("and", ",")
+    # Replace slashes with commas to unify the separator
+    text = text.replace("/", ",")
+    
+    # Split the string by commas
+    words = [word.strip() for word in text.split(",")]
+    
+    # Convert each word to its singular form
+    singular_words = [p.singular_noun(word) or word for word in words]
+    
+    # Capitalize the first letter of each word
+    capitalized_words = [word.capitalize() for word in singular_words]
+
+    # Join the words with commas except for the last one
+    if len(capitalized_words) > 1:
+        return ", ".join(capitalized_words[:-1]) + " and " + capitalized_words[-1]
+    else:
+        # If there's only one word, just return it
+        return capitalized_words[0]
+
 class ColorChoices(models.TextChoices):
     RED = ('#FF0000', 'Red')
     ORANGE = ('#FFA500', 'Orange')
@@ -242,6 +264,7 @@ class Post(models.Model):
 
 
     objects = PostManager()
+
     @classmethod
     def get_color_group(cls, color_group):
         """
@@ -249,7 +272,7 @@ class Post(models.Model):
         The tolerance defines how strict the color match should be.
         """
         # Query to find posts with the same color group
-        queryset = cls.objects.filter(color_group=color_group)
+        queryset = cls.objects.filter(Q(color_group=color_group) | Q(based_on__color_group=color_group))
 
         return queryset
 
@@ -287,6 +310,9 @@ class Post(models.Model):
 
     #     return queryset
 
+
+
+
     # Method to clean the animal name: remove special characters and handle plurals
     def clean_animal_name(self, name):
         # Remove special characters (keep only alphabetic characters and spaces)
@@ -301,8 +327,11 @@ class Post(models.Model):
         if not self.animal:
             return Post.objects.none()  # or return an empty queryset
  
+        # Remove any instances of "and" from the animal string
+        cleaned_animal_string = self.animal.replace("and", "").strip()
+
         # Split the animal into individual animals and clean them
-        animals_list = self.animal.split()
+        animals_list = cleaned_animal_string.split()
         cleaned_animals_list = [self.clean_animal_name(animal) for animal in animals_list]
  
         # Build the query to check if the cleaned animals appear in other objects
@@ -392,6 +421,10 @@ class Post(models.Model):
         if self.color:
             rgb = hex_to_rgb(self.color)
             self.color_r, self.color_g, self.color_b = rgb
+
+        if self.animal:
+            animals = convert_animals_to_singular(self.animal)
+            self.animal = animals
 
         super().save(*args, **kwargs)
 

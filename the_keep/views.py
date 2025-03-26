@@ -575,14 +575,17 @@ def ultimate_component_view(request, slug):
 
     links_count = object.count_links(request.user)
 
-    print(object.color_group)
     if object.color_group:
         color_group = ColorChoices.get_color_group_by_hex(object.color_group)
-        
-        print(color_group)
+        object_color = object.color_group
     else:
-        color_group = None
-        print('No Color')
+        if object.based_on and object.based_on.color_group:
+            color_group = ColorChoices.get_color_group_by_hex(object.based_on.color_group)
+            object_color = object.based_on.color_group
+        else:
+            color_group = None
+            object_color = None
+       
 
     context = {
         'object': object,
@@ -608,6 +611,7 @@ def ultimate_component_view(request, slug):
         'scorecard_count': scorecard_count,
         'detail_scorecard_count': detail_scorecard_count,
         'color_group': color_group,
+        'object_color': object_color,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -630,17 +634,17 @@ def color_group_view(request, color_name):
     color_name = str(color_name).capitalize()
     color_group = ColorChoices.get_color_by_name(color_name)
 
-    matching_colors = Post.objects.filter(color_group=color_group)
+    matching_colors = Post.objects.filter(Q(color_group=color_group) | Q(based_on__color_group=color_group)).distinct()
 
-    # if not color_group:
-    #     # Get the referring URL
-    #     referer = request.META.get('HTTP_REFERER')
-    #     messages.error(request, f'No posts matching the color "{color_name}" were found.')
-    #     # If there's a valid referer, redirect back to it, otherwise redirect to home
-    #     if referer:
-    #         return redirect(request.META.get('HTTP_REFERER'))
-    #     else:
-    #         return redirect('archive-home')
+    if not color_group:
+        # Get the referring URL
+        referer = request.META.get('HTTP_REFERER')
+        messages.error(request, f'No posts matching the color "{color_name}" were found.')
+        # If there's a valid referer, redirect back to it, otherwise redirect to home
+        if referer:
+            return redirect(request.META.get('HTTP_REFERER'))
+        else:
+            return redirect('archive-home')
         
 
     context = {
