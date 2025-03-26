@@ -1,10 +1,14 @@
 {% extends 'the_keep/base.html' %}
 
 {% block content %}
-    <h1 class="root-title">{{ match_title }}</h1>
+    <h1 class="root-title" {% if color_group %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ color_group }};"{% endif %}>{{ match_title }}</h1>
+    {% if original_post %}
     {% with original_post as object %}
         {% include 'the_keep/partials/post.html' %}
     {% endwith %}
+    {% endif %}
+    {% if description %}
     {{ description }}
+    {% endif %}
     {% include 'the_keep/partials/search_results.html' %}
 {% endblock content %}

@@ -37,7 +37,7 @@ from .models import (
     Map, Deck,
     Hireling, Landmark,
     Piece, Tweak,
-    PNPAsset,
+    PNPAsset, ColorChoices
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -575,6 +575,14 @@ def ultimate_component_view(request, slug):
 
     links_count = object.count_links(request.user)
 
+    print(object.color_group)
+    if object.color_group:
+        color_group = ColorChoices.get_color_group_by_hex(object.color_group)
+        
+        print(color_group)
+    else:
+        color_group = None
+        print('No Color')
 
     context = {
         'object': object,
@@ -599,20 +607,46 @@ def ultimate_component_view(request, slug):
         'links_count': links_count,
         'scorecard_count': scorecard_count,
         'detail_scorecard_count': detail_scorecard_count,
+        'color_group': color_group,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
     return render(request, 'the_keep/post_detail.html', context)
 
 
-def color_match_view(request, slug):
-    post = get_object_or_404(Post, slug=slug)
-    matching_colors = post.get_similar_colors()
+# def color_match_view(request, slug):
+#     post = get_object_or_404(Post, slug=slug)
+#     matching_colors = post.get_similar_colors()
+#     context = {
+#         'original_post': post,
+#         'posts': matching_colors,
+#         'match_title': 'Similar Colors (beta)',
+#         'description': 'Color is similar to:'
+#     }
+#     return render(request, 'the_keep/similar_posts.html', context)
+
+def color_group_view(request, color_name):
+
+    color_name = str(color_name).capitalize()
+    color_group = ColorChoices.get_color_by_name(color_name)
+
+    matching_colors = Post.objects.filter(color_group=color_group)
+
+    # if not color_group:
+    #     # Get the referring URL
+    #     referer = request.META.get('HTTP_REFERER')
+    #     messages.error(request, f'No posts matching the color "{color_name}" were found.')
+    #     # If there's a valid referer, redirect back to it, otherwise redirect to home
+    #     if referer:
+    #         return redirect(request.META.get('HTTP_REFERER'))
+    #     else:
+    #         return redirect('archive-home')
+        
+
     context = {
-        'original_post': post,
         'posts': matching_colors,
-        'match_title': 'Similar Colors (beta)',
-        'description': 'Color is similar to:'
+        'match_title': f'{color_name} Components',
+        'color_group': color_group,
     }
     return render(request, 'the_keep/similar_posts.html', context)
 
@@ -1431,6 +1465,7 @@ def universal_search(request):
         rounds = Round.objects.none()
         resources = PNPAsset.objects.none()
         pieces = Piece.objects.none()
+        color_group = None
     else:
         # If the query is not empty, perform the search as usual
         factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
@@ -1450,12 +1485,18 @@ def universal_search(request):
         rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
         pieces = Piece.objects.filter(Q(name__icontains=query), parent__status__lte=view_status).order_by('parent__status')
+        color_group = ColorChoices.get_color_by_name(color_name=query)
+
+    if color_group:
+        color_count = 1
+    else:
+        color_count = 0
 
     total_results = (factions.count() + maps.count() + decks.count() + vagabonds.count() +
                      landmarks.count() + hirelings.count() + expansions.count() + 
                      players.count() + games.count() + scorecards.count() + 
                      tournaments.count() + rounds.count() + tweaks.count() + 
-                     resources.count() + pieces.count())
+                     resources.count() + pieces.count() + color_count)
     
     if total_results == 0:
         no_results = True
@@ -1485,6 +1526,7 @@ def universal_search(request):
         'rounds': rounds[:result_count],
         'resources': resources[:result_count],
         'pieces': pieces[:result_count],
+        'color_group': color_group,
         'no_results': no_results,
         'query': query,
     }

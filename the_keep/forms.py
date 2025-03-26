@@ -12,7 +12,7 @@ from django.utils import timezone
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'title', 'expansion', 'picture', 'status', 'official', 'in_root_digital']
+top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'picture', 'status']
 bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
 
 
@@ -704,8 +704,8 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['color', 'color_group', 'type', 'reach', 'animal', 'based_on',  'complexity', 'card_wealth', 
-                               'aggression', 'crafting_ability', 'small_icon', 'card_image', 'board_image', 'board_2_image'] + bottom_fields
+        fields = top_fields + ['color', 'color_group', 'type', 'reach', 'animal', 'board_image', 'small_icon', 'card_image', 'board_2_image',  'complexity', 'card_wealth', 
+                               'aggression', 'crafting_ability', 'based_on'] + bottom_fields
 
     def clean_reach_and_type(self, cleaned_data):
         reach = cleaned_data.get('reach')

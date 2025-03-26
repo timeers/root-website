@@ -141,17 +141,21 @@
             {% endif %}
         </a>
 
+        {%if color_group %}
+        <!-- For color button -->
+        <a class='btn btn-outline{% if color_group == 'White' %}-inverted{% endif %}' style='--button-color: {{ object.color_group }};' href="{% url 'color-group' color_group %}">
+            {{ color_group }}
+        </a>
+        {% endif %}
+
         {% if object.animal %}
             <a class='btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
             {{ object.animal }}
             </a>
         {% endif %}
-        {% comment %}  
-        <!-- For color button -->
-        <a class='btn btn-outline' style='--button-color: {{ object.color }};' href='{% url 'animal-match' object.slug %}'>
-            {{ object.animal }}
-        </a>
-    {% endcomment %}
+        
+
+
         {% if object.description %}
             <div class='mb-1 mt-1'>{{ object.description }}</div>
         {% endif %}

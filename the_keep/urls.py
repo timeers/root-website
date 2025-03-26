@@ -25,7 +25,8 @@ from .views import (
     confirm_testing,
     pin_asset,
     universal_search,
-    color_match_view,
+    # color_match_view,
+    color_group_view,
     animal_match_view,
     status_check,
 )
@@ -89,7 +90,8 @@ urlpatterns = [
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
     path("stable/<slug:slug>/", confirm_stable, name='confirm-stable'),
     path("testing/<slug:slug>/", confirm_testing, name='confirm-testing'),
-    path("colors/<slug:slug>/", color_match_view, name='color-match'),
+    # path("colors/<slug:slug>/", color_match_view, name='color-match'),
+    path('color/<str:color_name>/', color_group_view, name='color-group'),
     path("animals/<slug:slug>/", animal_match_view, name='animal-match'),
     path("status/<slug:slug>/", status_check, name='status-check'),
 

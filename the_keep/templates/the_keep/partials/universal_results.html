@@ -130,5 +130,16 @@
             {% endfor %}
         {% endif %}
 
+        {% if color_group %}
+            <strong>Color Match</strong>
+            <a href="{% url 'color-group' color_group.label %}">
+                <div class='clickable-segment color-group-container'>
+                    <div class="color-square" style="background-color: {{ color_group }};"></div>
+                    <div>
+                    {{ color_group.label }} Components
+                    </div>
+                </div>
+            </a>
+        {% endif %}
     </ul>
 {% endif %}

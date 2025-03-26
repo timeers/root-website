@@ -1321,3 +1321,16 @@ tr.clickable-row:hover {
   border-color: black; /* Darker blue border when clicked */
   color: var(--button-color); /* White text color when clicked */
 }
+
+.color-group-container {
+  display: flex;                  /* Flexbox to align items horizontally */
+  align-items: center;            /* Align items vertically in the center */
+  gap: 10px;                      /* Space between the color square and the label */
+}
+
+.color-square {
+  width: 30px;                    /* Size of the color square */
+  height: 30px;                   /* Size of the color square */
+  border-radius: 5px;             /* Optional: Rounded corners for the color square */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);  /* Soft drop shadow */
+}

@@ -48,6 +48,34 @@ class ColorChoices(models.TextChoices):
     BROWN = ('#A52A2A', 'Brown')
     TAN = ('#D2B48C', 'Tan')
 
+    @classmethod
+    def get_color_by_name(cls, color_name):
+        """
+        Given a color name, return the corresponding color tuple from ColorChoices.
+        Color name should be case-insensitive (e.g., 'red', 'Red', 'RED' all work).
+        """
+        # Normalize the input color name to be case-insensitive
+        color_name = color_name.strip().capitalize()
+
+        # Loop through each choice and match by the 'name' of the color (not the value)
+        for color in cls:
+            if color_name == color.name.capitalize():  # Use .capitalize() to ensure case-insensitivity
+                return color
+        return None
+    
+    @classmethod
+    def get_color_group_by_hex(cls, hex_code):
+        """
+        Given a hex code, return the corresponding color name from ColorChoices.
+        Hex code should be case-insensitive (e.g., '#ff0000', '#FF0000', '#Ff0000' all work).
+        """
+
+        # Loop through each choice and match by the 'hex' part of the color (first part of the tuple)
+        for color in cls:
+            if hex_code == color.value:
+                return color.name.capitalize()  # Return the color name, properly capitalized
+        return None
+
 class StatusChoices(models.TextChoices):
     STABLE = '1','Stable'
     TESTING = '2', 'Testing'
@@ -56,12 +84,12 @@ class StatusChoices(models.TextChoices):
     ABANDONED = '5', 'Abandoned'
     DEEPFREEZE = '100', 'Deep Freeze'
 
-def get_status_name_from_int(status_int):
-    # Iterate through the choices to find the matching integer
-    for status in StatusChoices:
-        if status.value == str(status_int):  # Compare as string because your choices are strings
-            return status.label
-    return None  # Return None if not found
+# def get_status_name_from_int(status_int):
+#     # Iterate through the choices to find the matching integer
+#     for status in StatusChoices:
+#         if status.value == str(status_int):  # Compare as string because your choices are strings
+#             return status.label
+#     return None  # Return None if not found
 
 class PostQuerySet(models.QuerySet):
     def search(self, query=None):
@@ -214,40 +242,50 @@ class Post(models.Model):
 
 
     objects = PostManager()
-
-    def get_similar_colors(self, tolerance=100):
+    @classmethod
+    def get_color_group(cls, color_group):
         """
-        Get all posts that have a similar color to the current Post's color.
+        Get all posts that have the same color group.
         The tolerance defines how strict the color match should be.
         """
-        if not self.color:
-            return None
-        
-        cache_key = f"similar_colors_{self.id}_{tolerance}"
-        cached_result = cache.get(cache_key)
-
-        if cached_result is not None:
-            return cached_result
-
-        target_rgb = (self.color_r, self.color_g, self.color_b)
-
-        # Query to find colors with Euclidean distance within the tolerance
-        queryset = Post.objects.annotate(
-            color_dist=ExpressionWrapper(
-                # Calculate the sum of squared differences for each RGB component
-                (
-                    (F('color_r') - target_rgb[0]) ** 2 +
-                    (F('color_g') - target_rgb[1]) ** 2 +
-                    (F('color_b') - target_rgb[2]) ** 2
-                ),
-                output_field=IntegerField()
-                )
-            ).filter(color_dist__lte=tolerance**2).exclude(id=self.id)  # Filter based on squared tolerance
-
-        # Cache the result for 5 minutes (you can adjust the time based on your use case)
-        cache.set(cache_key, queryset, timeout=300)
+        # Query to find posts with the same color group
+        queryset = cls.objects.filter(color_group=color_group)
 
         return queryset
+
+    # def get_similar_colors(self, tolerance=100):
+    #     """
+    #     Get all posts that have a similar color to the current Post's color.
+    #     The tolerance defines how strict the color match should be.
+    #     """
+    #     if not self.color:
+    #         return None
+        
+    #     cache_key = f"similar_colors_{self.id}_{tolerance}"
+    #     cached_result = cache.get(cache_key)
+
+    #     if cached_result is not None:
+    #         return cached_result
+
+    #     target_rgb = (self.color_r, self.color_g, self.color_b)
+
+    #     # Query to find colors with Euclidean distance within the tolerance
+    #     queryset = Post.objects.annotate(
+    #         color_dist=ExpressionWrapper(
+    #             # Calculate the sum of squared differences for each RGB component
+    #             (
+    #                 (F('color_r') - target_rgb[0]) ** 2 +
+    #                 (F('color_g') - target_rgb[1]) ** 2 +
+    #                 (F('color_b') - target_rgb[2]) ** 2
+    #             ),
+    #             output_field=IntegerField()
+    #             )
+    #         ).filter(color_dist__lte=tolerance**2).exclude(id=self.id)  # Filter based on squared tolerance
+
+    #     # Cache the result for 5 minutes (you can adjust the time based on your use case)
+    #     cache.set(cache_key, queryset, timeout=300)
+
+    #     return queryset
 
     # Method to clean the animal name: remove special characters and handle plurals
     def clean_animal_name(self, name):
