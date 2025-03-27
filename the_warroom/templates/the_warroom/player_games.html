@@ -14,7 +14,7 @@
 
 {% block content %}
 <div style="display: flex; align-items: center;">
-    <a href="{% url 'player-detail' player.slug %}">{{ player }}'s Profile</a>
+    <a href="{% url 'player-detail' player.slug %}">{{ player.name }}'s Profile</a>
     <i class="bi bi-chevron-right"></i>
     Games
 </div>
@@ -25,7 +25,7 @@
     </div>
         <div class="media-body">
             <div class='d-flex flex-nowrap'>
-            <h1 class="account-heading root-title">{{ player }}'s Games</h1>
+            <h1 class="account-heading root-title">{{ player.name }}'s Games</h1>
 
             </div>
 
@@ -48,7 +48,7 @@
             hx-swap="outerHTML"
             id="gamefilterform">
         <div class="mb-1">
-            {{ player }} Playing as:
+            {{ player.name }} Playing as:
             {{ form.faction }}
         </div>   
         <div class="mb-1">
