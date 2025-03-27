@@ -7,9 +7,9 @@
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
 <meta property="og:site_name" content="{{site_title}}">
-<meta property="og:title" content="{{ player }}'s Games">
-<meta property="og:description" content="{{ player }}'s Recorded Games on the {{site_title}}">
-<meta name="description" content="{{ player }}'s Recorded Games on the {{site_title}}">
+<meta property="og:title" content="{{ player.name }}'s Games">
+<meta property="og:description" content="{{ player.name }}'s Recorded Games on the {{site_title}}">
+<meta name="description" content="{{ player.name }}'s Recorded Games on the {{site_title}}">
 {% endblock meta%}
 
 {% block content %}

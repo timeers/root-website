@@ -204,19 +204,19 @@ class PlayerGameListView(ListView):
                 queryset = Game.objects.filter(final=True).prefetch_related(
                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                    )
+                    ).distinct()
                 # queryset = super().get_queryset()
             else:
                 queryset = Game.objects.filter(official=True, final=True).prefetch_related(
                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                    )
+                    ).distinct()
                 # queryset = super().get_queryset().only_official_components()
         else:
             queryset = Game.objects.filter(final=True).prefetch_related(
                 'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
                 'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                )
+                ).distinct()
             # queryset = super().get_queryset()
         self.filterset = PlayerGameFilter(self.request.GET, queryset=queryset, player=player)
 
