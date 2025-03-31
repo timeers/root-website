@@ -45,10 +45,10 @@
 
     {% include 'the_gatehouse/partials/background.html' %}
 
-    <main role="main" class="container main-content" id="main-content">
+    <main role="main" class="{% block main_class %}container main-content{% endblock %}" id="main-content">
         
       <div class="row">
-        <div class="col-md-8">
+        <div class="{% block main_width_class %}col-md-8{% endblock %}">
             {% if background_image %}
                 <div class='background-image-padding' style="{{ background_image.style }}"></div>
             {% endif %}

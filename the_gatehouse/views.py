@@ -126,6 +126,49 @@ def designer_required_class_based_view(view_class):
     view_class.dispatch = method_decorator(designer_onboard_required)(view_class.dispatch)
     return view_class
 
+
+def editor_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        profile = request.user.profile
+        
+        # Check if user is a editor
+        if profile.editor:
+            return view_func(request, *args, **kwargs)  # Proceed with the original view
+        else:
+            messages.error(request, "You do not have full permissions to view this page.")
+            raise PermissionDenied() 
+    return wrapper
+
+def editor_onboard_required(view_func):
+    @login_required  # Ensure the user is authenticated
+    @wraps(view_func)  # Preserve the original function's metadata
+    def wrapper(request, *args, **kwargs):
+        profile = request.user.profile
+        
+        # Check if user is a editor and if they are onboarded
+        if profile.editor:
+            if not profile.editor_onboard:
+                # Capture the current URL the user is visiting
+                next_url = request.GET.get('next', request.path)
+                
+                # Redirect to onboarding page with `next` as a query parameter
+                return redirect(f'{reverse("onboard-user", args=["editor"])}?next={next_url}')
+
+            else:
+                return view_func(request, *args, **kwargs)  # Proceed with the original view
+        else:
+            messages.error(request, "You do not have full permissions to view this page.")
+            raise PermissionDenied() 
+    return wrapper
+
+def editor_required_class_based_view(view_class):
+    """Decorator to apply to class-based views."""
+    view_class.dispatch = method_decorator(editor_onboard_required)(view_class.dispatch)
+    return view_class
+
+
 def player_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata
@@ -510,6 +553,13 @@ def onboard_user(request, user_type=None):
                 messages.info(request, "Enjoy!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
+        elif user_type == 'editor' and not profile.editor_onboard:
+            if profile.editor:
+                profile.editor_onboard = True
+                profile.save()
+                messages.info(request, "Thank you!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'designer' and not profile.designer_onboard:
             if profile.designer:
                 profile.designer_onboard = True
@@ -550,6 +600,7 @@ def onboard_decline(request, user_type=None):
     decline_choices = {
     "admin": "D",
     "designer": "P",
+    "editor": "P",
     "player": "P",
     'tester': "T",
     }
@@ -577,6 +628,9 @@ def onboard_decline(request, user_type=None):
             case "designer":
                 profile.designer_onboard = False
                 messages.error(request, "Contact an Administrator if you would like to post")
+            case "editor":
+                profile.editor_onboard = False
+                messages.error(request, "Contact an Administrator if you would like to edit your posts")
             case "tester":
                 profile.tester_onboard = False
                 messages.error(request, "Contact an Administrator if you want to record detailed game data")

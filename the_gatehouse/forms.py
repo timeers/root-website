@@ -39,7 +39,7 @@ class ProfileUpdateForm(forms.ModelForm):
     )
     class Meta:
         model = Profile     
-        fields = ['image', 'dwd', 'weird', 'view_status', 'theme'] # 'league' to add yourself to RDL tournament
+        fields = ['image', 'dwd', 'weird', 'view_status'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root TTS League',
@@ -84,13 +84,14 @@ class UserManageForm(forms.ModelForm):
     STATUS_CHOICES = [
         ('B', 'Banned'),
         ('P', 'User'),
+        ('E', 'Editor'),
         ('D', 'Designer')
     ]
     group = forms.ChoiceField(
         choices=STATUS_CHOICES,
         required=False,
         label="User Status",
-        help_text="Users can record games, Designers can post new fan content, users should only be banned after being warned and repeat offenses. User status is only visible to Moderators."
+        help_text="Users can record games, Editors can edit their existing posts, Designers can post new fan content and delete their existing posts, users should only be banned after being warned and repeat offenses. User status is only visible to Moderators."
     )
     # Adding a checkbox to the form
     nominate_admin = forms.BooleanField(

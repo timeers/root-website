@@ -28,7 +28,7 @@ from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
 from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
-                                 admin_onboard_required, admin_required)
+                                 admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
 from the_gatehouse.discordservice import send_discord_message
 from the_gatehouse.utils import get_uuid, build_absolute_uri
 from .models import (
@@ -224,7 +224,7 @@ class ClockworkCreateView(PostCreateView):
 
 # END CREATE VIEWS
 
-
+@editor_required_class_based_view  
 class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     """
     A base class for all UpdateViews that require:
@@ -243,7 +243,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     def test_func(self):
         obj = self.get_object()
         if self.request.user.profile.admin:
-            if not obj.designer.designer:
+            if not obj.designer.editor:
                 return True
             elif self.request.user.profile != obj.designer:
                 messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designer}.')
@@ -267,31 +267,31 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         return kwargs
 
     
-@designer_required_class_based_view
+
 class MapUpdateView(PostUpdateView):
     model = Map
     form_class = MapCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class DeckUpdateView(PostUpdateView):
     model = Deck
     form_class = DeckCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class LandmarkUpdateView(PostUpdateView):
     model = Landmark
     form_class = LandmarkCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class TweakUpdateView(PostUpdateView):
     model = Tweak
     form_class = TweakCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class HirelingUpdateView(PostUpdateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -304,19 +304,19 @@ class HirelingUpdateView(PostUpdateView):
         kwargs['designer'] = self.request.user.profile
         return kwargs
 
-@designer_required_class_based_view
+
 class VagabondUpdateView(PostUpdateView):
     model = Vagabond
     form_class = VagabondCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view  
+  
 class FactionUpdateView(PostUpdateView):
     model = Faction
     form_class = FactionCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view  
+  
 class ClockworkUpdateView(PostUpdateView):
     model = Faction
     form_class = ClockworkCreateForm
@@ -436,8 +436,8 @@ def home(request, *args, **kwargs):
         'official_deck_count': official_deck_count,
         'official_map_count': official_map_count,
         'game_count': game_count,
-        'background_image': background_image,
-        'foreground_images': foreground_images,
+        # 'background_image': background_image,
+        # 'foreground_images': foreground_images,
 
 
 
@@ -946,7 +946,7 @@ def _search_components(request, slug=None):
 
 
 
-@designer_required
+@editor_required
 def add_piece(request, id=None):
     if not request.htmx:
         raise Http404("Not an HTMX request")
@@ -993,7 +993,7 @@ def add_piece(request, id=None):
     else:
         return render(request, 'the_keep/partials/piece_add.html', context)
 
-@designer_required
+@editor_required
 def delete_piece(request, id):
     if not request.htmx:
         raise Http404("Not an HTMX request")
@@ -1379,6 +1379,31 @@ class PNPAssetListView(ListView):
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
 
+        
+        # Get the search query from the GET parameters
+        search_query = self.request.GET.get('search', '')
+        search_type = self.request.GET.get('search_type', '')
+        file_type = self.request.GET.get('file_type', '')
+        if search_query or search_type or file_type:
+            queryset = PNPAsset.objects.filter(pinned=False)
+        else:
+            queryset = PNPAsset.objects.none()
+
+        # If a search query is provided, filter the queryset based on title, category, and shared_by
+        if search_query:
+            queryset = queryset.filter(
+                Q(title__icontains=search_query) |
+                Q(shared_by__discord__icontains=search_query)
+            )
+        if search_type:
+            queryset = queryset.filter(category__icontains=search_type)
+
+        if file_type:
+            queryset = queryset.filter(file_type__icontains=file_type)
+
+        print(queryset)
+
+        context['unpinned_assets'] = queryset
 
         return context
     
@@ -1387,10 +1412,11 @@ class PNPAssetListView(ListView):
         # Check if it's an HTMX request
         if self.request.headers.get('HX-Request') == 'true':
             # Only return the part of the template that HTMX will update
-            # print("HTMX")
-            # print(context)
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
         # print("NOT HTMX")
+
+
+
         if self.request.user.is_authenticated:
             send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) on Resource Page')
         else:
@@ -1453,8 +1479,8 @@ def universal_search(request):
         view_status = 4
 
     # If the query is empty, set all results to empty QuerySets
-    players = Profile.objects.none()
     scorecards = ScoreCard.objects.none()
+
     if not query:
         factions = Faction.objects.none()
         maps = Map.objects.none()
@@ -1464,6 +1490,7 @@ def universal_search(request):
         hirelings = Hireling.objects.none()
         tweaks = Tweak.objects.none()
         expansions = Expansion.objects.none()
+        players = Profile.objects.none()
         games = Game.objects.none()
         tournaments = Tournament.objects.none()
         rounds = Round.objects.none()
@@ -1480,9 +1507,9 @@ def universal_search(request):
         hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
         tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
         expansions = Expansion.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        players = Profile.objects.filter(Q(display_name__icontains=query)|Q(discord__icontains=query)|Q(dwd__icontains=query))
         if request.user.is_authenticated:
             if request.user.profile.player:
-                players = Profile.objects.filter(Q(display_name__icontains=query)|Q(discord__icontains=query)|Q(dwd__icontains=query))
                 scorecards = ScoreCard.objects.filter(game_group__icontains=query, effort=None, recorder=request.user.profile)
         games = Game.objects.filter(nickname__icontains=query)     
         tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  

@@ -10,13 +10,13 @@
     </thead>
     <tbody class="effort-rows">
         {% for player in leaderboard_players %}
-        <tr class="{% if forloop.counter > 10 %} extra-rows {% endif %}">
+        <tr data-href="{% url 'player-detail' player.slug %}" class="clickable-row{% if forloop.counter > 10 %} extra-rows {% endif %}">
             <td>{{ forloop.counter }}</td>
             <td>
-                <a href="{% url 'player-detail' player.slug %}">
+          
                     <img class="faction-icon" src="{{ player.image.url }}">
                     {{ player.name }}
-                </a>
+          
             </td>
             <td>
                 {{ player.win_rate|floatformat:2 }}%

@@ -20,6 +20,15 @@
     <div>Have fun creating and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
+{% elif user_type == 'editor' and active_user.editor %}
+    <div>Thank you for your interest in keeping your fan-made content up to date.</div>
+    <div>You will be able to edit and update all of your existing posts.</div>
+    <div>Every post should be linked to a Discord or BGG thread for discussion.</div>
+    <div>By accepting, you agree to not post offensive material.</div>
+    <div>If you would prefer to have an admin update your material on your behalf, click "Decline".</div>
+    <div>Have fun creating and enjoy!</div>
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
 {% elif user_type == 'tester' and active_user.tester %}
     <div>Thank you for your interest in recording detailed game data.</div> 
     <div>By accepting you agree to only submit accurate game data to the best of your knowledge.</div>

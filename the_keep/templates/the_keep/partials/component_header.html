@@ -17,21 +17,13 @@
                 <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> Testing</a>
             </div>
         {% endif %}
-        {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.designer %}
+        {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
                 <!-- Show option to Edit -->
                 <div>
                     <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ object.get_edit_url }}">
                         Edit {{ object.component }} <i class="bi bi-pencil-square"></i>
                     </a>
                 </div>
-        {% else %}
-            <!-- Show option to send Feedback -->
-            <div>
-                <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'post-feedback' object.slug %}">
-                    <i class="bi bi-tools"></i> /
-                    <i class="bi bi-megaphone-fill"></i>
-                </a>
-            </div>
         {% endif %}
 
     </div>

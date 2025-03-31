@@ -8,12 +8,15 @@
 <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
 <meta property="og:site_name" content="{{site_title}}">
 <meta property="og:title" content="The {{site_title}}">
-<meta property="og:description" content="The {{site_title}} is a site for posting and finding fan created content for the woodland war game Root by Leder Games">
-<meta name="description" content="The {{site_title}} is a site for posting and finding fan created content for the woodland war game Root by Leder Games">
+<meta property="og:description" content="The {{site_title}} is a site for posting and discoverting fan-created content for the woodland war game, Root, by Leder Games">
+<meta name="description" content="The {{site_title}} is a site for posting and discoverting fan-created content for the woodland war game, Root, by Leder Games">
 {% endblock meta%}
 
-
+{% block main_width_class %}col-12{% endblock %}
+{% block main_class %}{% endblock %}
 {% block content %}
+
+<img class="hero-image" src="{% static 'images/homepage/Archive.png'  %}" alt="The Archive Image" fetchpriority="high">
 
 <div>
     {% comment %} <article class="media content-section"> {% endcomment %}
@@ -31,16 +34,16 @@
     {{faction_count}} Fan Made Factions
     {{map_count}} Fan Made Maps
     {{deck_count}} Fan Made Decks
-    {% lorem 2 b random %}
+
 {% comment %} </article> {% endcomment %}
 </div>
 
 {% comment %} <div id="spinner" class="spinner" style="display: none;"> {% endcomment %}
 <div id="spinner" class="spinner">
     <div class="image-container">
-        <img class="image back-image" src="{% static 'images/newbushes.png'  %}" alt="Bushes">
-        <img class="image top-image" src="{% static 'images/newgreen.png'  %}" alt="Bushes">
-        <img class="image movement-image" src="{% static 'images/newvb.png'  %}" alt="VB">
+        <img class="image back-image" src="{% static 'images/backgroundbushes.png'  %}" alt="Bushes">
+        <img class="image top-image" src="{% static 'images/smallbush.png'  %}" alt="Bushes">
+        <img class="image movement-image" src="{% static 'images/searchingvb.png'  %}" alt="VB">
     </div>
 </div>
 

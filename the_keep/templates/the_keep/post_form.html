@@ -42,7 +42,9 @@
                     <a class="btn btn-secondary" href="{% url 'archive-home' %}">Cancel</a>
                 {% else %}
                     <a class="btn btn-secondary" href="{% url object.component|lower|add:'-detail' object.slug %}">Cancel</a>
+                    {% if active_user.profile.designer %}
                     <a class="btn btn-danger" href="{% url 'post-delete' object.id %}">Delete</a>
+                    {% endif %}
                 {% endif %}
             </div>
         </form>

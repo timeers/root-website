@@ -124,6 +124,7 @@ class Profile(models.Model):
     class GroupChoices(models.TextChoices):
         OUTCAST = 'O'
         PLAYER = 'P'
+        EDITOR = 'E'
         DESIGNER = 'D'
         ADMIN = 'A'
         BANNED = 'B'
@@ -159,6 +160,7 @@ class Profile(models.Model):
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
     player_onboard = models.BooleanField(default=False)
     tester_onboard = models.BooleanField(default=False)
+    editor_onboard = models.BooleanField(default=False)
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
@@ -258,11 +260,18 @@ class Profile(models.Model):
         else:
             return False
 
+    @property
+    def editor(self):
+        group = self.group
+        if group == "A" or group == "D" or group == "E":
+            return True
+        else:
+            return False
 
     @property
     def player(self):
         group = self.group
-        if group == "A" or group == "D" or group == "P":
+        if group == "A" or group == "D" or group == "E" or group == "P":
             return True
         else:
             return False

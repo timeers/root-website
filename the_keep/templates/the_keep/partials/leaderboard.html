@@ -10,13 +10,13 @@
     </thead>
     <tbody class="effort-rows">
         {% for faction in leaderboard_factions %}
-        <tr class="{% if forloop.counter > 10 %} extra-rows {% endif %}">
+        <tr data-href="{% url 'faction-detail' faction.slug %}" class="clickable-row{% if forloop.counter > 10 %} extra-rows {% endif %}">
             <td>{{ forloop.counter }}</td>
             <td>
-                <a href="{% url 'faction-detail' faction.slug %}">
+           
                     <img class="faction-icon" src="{{ faction.small_icon.url }}">
                     {{ faction.title }}
-                </a>
+             
             </td>
             <td>
                 {{ faction.win_rate|floatformat:2 }}%
