@@ -7,6 +7,8 @@ def active_user_data(request):
 
     config = Website.get_singular_instance()
     site_title = config.site_title
+    global_message = config.global_message
+    global_message_type = config.message_type
     post_count = 0
     recent_posts = 0
     in_process_games = 0
@@ -41,4 +43,6 @@ def active_user_data(request):
         'user_unassigned_scorecards_count': unassigned_scorecards,
         'user_bookmarks_count': bookmarks,
         'theme': theme,
+        'global_message': global_message,
+        'global_message_type': global_message_type,
     }

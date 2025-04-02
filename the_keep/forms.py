@@ -12,8 +12,8 @@ from django.utils import timezone
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'picture', 'status']
-bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'artist']
+top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'artist']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -23,12 +23,13 @@ class ExpansionCreateForm(forms.ModelForm):
     form_type = 'Expansion'
     class Meta:
         model = Expansion
-        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'open_roster', 'end_date']
+        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'open_roster', 'end_date']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
+            'fr_link': "French Root Thread",
             'pnp_link': "Link to Print and Play Files",
             'stl_link': "Link to STL Files (if not in PNP)",
             'open_roster': "Allow Others to Contribute",
@@ -48,6 +49,12 @@ class ExpansionCreateForm(forms.ModelForm):
             if not user.profile.admin:
                 self.fields.pop('open_roster', None)
                 self.fields.pop('end_date', None)
+            # Remove Weird Root link option if not in Weird Root
+            if not user.profile.in_weird_root:
+                self.fields.pop('wr_link', None)
+            # Remove French Root link option if not in French Root
+            if not user.profile.in_french_root:
+                self.fields.pop('fr_link', None)
 
     def clean(self):
             cleaned_data = super().clean()
@@ -55,6 +62,7 @@ class ExpansionCreateForm(forms.ModelForm):
             tts_link = cleaned_data.get('tts_link')
             ww_link = cleaned_data.get('ww_link')
             wr_link = cleaned_data.get('wr_link')
+            fr_link = cleaned_data.get('fr_link')
             pnp_link = cleaned_data.get('pnp_link')
             leder_games_link = cleaned_data.get('leder_games_link')
             # Validate URLs
@@ -69,6 +77,8 @@ class ExpansionCreateForm(forms.ModelForm):
                 raise ValidationError(f"Link to Woodland Warriors is not a valid thread")
             if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
                 raise ValidationError(f"Link to Weird Root is not a valid thread")
+            if fr_link and not f"discord.com/channels/{config['FR_GUILD_ID']}" in fr_link:
+                raise ValidationError(f"Link to French Root is not a valid thread")
             if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
                 raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
@@ -139,6 +149,7 @@ class PostCreateForm(forms.ModelForm):
             'tts_link': "Tabletop Simulator", 
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
+            'fr_link': "French Root Thread",
             'pnp_link': "Link to Print and Play Files",
             'stl_link': "Link to STL Files (if not in PNP)",
             'leder_games_link': "Link to Leder Games",
@@ -205,6 +216,10 @@ class PostCreateForm(forms.ModelForm):
         if not user.profile.in_weird_root:
             self.fields.pop('wr_link', None)
 
+        # Remove French Root link option if not in French Root
+        if not user.profile.in_french_root:
+            self.fields.pop('fr_link', None)
+
         # Check if the post has any related plays and adjust the status choices accordingly
         if post_instance and post_instance.plays() > 0:
             # Add status '2' (Testing) only if the post has plays
@@ -226,6 +241,7 @@ class PostCreateForm(forms.ModelForm):
             tts_link = cleaned_data.get('tts_link')
             ww_link = cleaned_data.get('ww_link')
             wr_link = cleaned_data.get('wr_link')
+            fr_link = cleaned_data.get('fr_link')
             pnp_link = cleaned_data.get('pnp_link')
             leder_games_link = cleaned_data.get('leder_games_link')
             official = cleaned_data.get('official')
@@ -251,6 +267,8 @@ class PostCreateForm(forms.ModelForm):
                 raise ValidationError(f"Link to Woodland Warriors is not a valid thread")
             if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
                 raise ValidationError(f"Link to Weird Root is not a valid thread")
+            if fr_link and not f"discord.com/channels/{config['FR_GUILD_ID']}" in fr_link:
+                raise ValidationError(f"Link to French Root is not a valid thread")
             if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
                 raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
@@ -285,10 +303,10 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         queryset=Post.objects.filter(component__in=['Map']),
         required=False
     )
-    picture = forms.ImageField(
-        label='Art',  # Set the label for the picture field
-        required=False
-    )
+    # picture = forms.ImageField(
+    #     label='Art',  # Set the label for the picture field
+    #     required=False
+    # )
     board_image = forms.ImageField(
         label='Map',  # Set the label for the picture field
         required=True
@@ -327,7 +345,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
     class Meta(PostImportForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'date_posted', 'designer', 'official', 'status', 'in_root_digital', 'expansion', 'leder_games_link'] + bottom_fields
+        fields = top_fields + ['picture', 'clearings', 'date_posted', 'designer', 'official', 'status', 'in_root_digital', 'expansion', 'leder_games_link'] + bottom_fields
 
 
 
@@ -350,10 +368,10 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label='Card Back',  # Set the label for the card_image field
         required=True
     )
-    picture = forms.ImageField(
-        label='Card Art',  # Set the label for the picture field
-        required=False
-    )
+    # picture = forms.ImageField(
+    #     label='Card Art',  # Set the label for the picture field
+    #     required=False
+    # )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Deck  # Specify the model to be Deck
         fields = top_fields + ['card_total', 'card_image', 'based_on'] + bottom_fields
@@ -424,7 +442,7 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Landmark
-        fields = top_fields + ['card_text', 'based_on', 'card_image', 'card_2_image'] + bottom_fields
+        fields = top_fields + ['picture', 'card_text', 'based_on', 'card_image', 'card_2_image'] + bottom_fields
     def clean(self):
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
@@ -460,7 +478,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Tweak  # Specify the model to be Tweak
-        fields = top_fields + ['based_on', 'card_image', 'board_image'] + bottom_fields
+        fields = top_fields + ['picture', 'based_on', 'card_image', 'board_image'] + bottom_fields
     def clean(self):
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
@@ -522,7 +540,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Hireling 
-        fields = top_fields + ['color', 'color_group', 'animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
+        fields = top_fields + ['picture', 'color', 'color_group', 'animal', 'type', 'other_side', 'based_on', 'board_image'] + bottom_fields
 
     def __init__(self, *args,  **kwargs):
         # Check if an instance is being created or updated
@@ -568,7 +586,7 @@ class VagabondCreateForm(PostCreateForm):
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
-        required=True
+        required=False
     )
     card_image = forms.ImageField(
         label='Vagabond Card',  # Set the label for the card_image field
@@ -576,7 +594,7 @@ class VagabondCreateForm(PostCreateForm):
     )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['animal', 'based_on', 'card_image',
+        fields = top_fields + ['picture', 'animal', 'based_on', 'card_image',
                                 'ability_item', 'ability', 'ability_description', 
                                 'starting_torch', 'starting_coins', 'starting_boots',
                                 'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields
@@ -678,7 +696,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
-        required=True
+        required=False
     )
     board_image = forms.ImageField(
         label='Faction Board Front',  # Set the label for the faction board field
@@ -704,7 +722,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['color', 'color_group', 'type', 'reach', 'animal', 'board_image', 'small_icon', 'card_image', 'board_2_image',  'complexity', 'card_wealth', 
+        fields = top_fields + ['picture', 'color', 'color_group', 'type', 'reach', 'animal', 'board_image', 'small_icon', 'card_image', 'board_2_image',  'complexity', 'card_wealth', 
                                'aggression', 'crafting_ability', 'based_on'] + bottom_fields
 
     def clean_reach_and_type(self, cleaned_data):
@@ -774,7 +792,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     picture = forms.ImageField(
         label='Character Art',  # Set the label for the picture field
-        required=True
+        required=False
     )
     small_icon = forms.ImageField(
         label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field

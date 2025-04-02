@@ -58,6 +58,33 @@
         {% endif %}
     {% endif %}
 
+
+    {% if object.fr_link %}
+        {% if user.is_authenticated %}
+            {% if user.profile.in_french_root %}
+                <a class="mr-2 mt-1" href="{{ object.fr_link }}" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
+                    French Root Thread
+                </a>
+            {% elif user.profile.player %}
+                <a class="mr-2 mt-1" href="{% url 'french-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
+                    Request Invite
+                </a>
+            {% else %}
+                <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
+                    Join on Discord for Link
+                </span>
+            {% endif %}
+        {% else %}
+            <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
+                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
+                Log In for Link
+            </a>
+        {% endif %}
+    {% endif %}
+
     {% if object.pnp_link  %}
         <a class="mr-2 mt-1" href="{{ object.pnp_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/PNP.jpg' %}" alt="Print & Play">

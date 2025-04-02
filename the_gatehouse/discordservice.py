@@ -74,6 +74,7 @@ def check_user_guilds(user):
     guilds = get_user_guilds(user)
     in_ww = False
     in_wr = False
+    in_fr = False
 
     if guilds:
         for guild in guilds:
@@ -81,8 +82,10 @@ def check_user_guilds(user):
                 in_ww = True
             if guild['id'] == config['WR_GUILD_ID']:
                 in_wr = True
+            if guild['id'] == config['FR_GUILD_ID']:
+                in_fr = True
 
-    return in_ww, in_wr
+    return in_ww, in_wr, in_fr
 
 
 # Decorator
@@ -191,7 +194,7 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Request Received"
         embed_color = 0x0000FF  # Blue color for request
-    elif category == 'weird-root':
+    elif category == 'weird-root' or category == 'french-root':
         webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
         embed_title = "Invite Requested"
         embed_color = 0x9746c7  # Purple color for invite

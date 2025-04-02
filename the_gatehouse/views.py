@@ -847,7 +847,8 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         'map': 'Map Request',
         'deck': 'Deck Request',
         'other': 'Other',
-        'weird-root': 'Weird Root'
+        'weird-root': 'Weird Root',
+        'french-root': 'French Root'
     }
 
     response_mapping = {
@@ -855,6 +856,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         "request": 'Your request has been received',
         "report": 'Your report has been received',
         "weird-root": 'Your request has been received',
+        "french-root": 'Your request has been received',
     }
 
     # Page Title Logic
@@ -862,6 +864,8 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         page_title = f'Report {feedback_subject}'
     elif message_category == 'weird-root':
         page_title = f'Request Invite to Weird Root'
+    elif message_category == 'french-root':
+        page_title = f'Request Invite to French Root'
     elif message_category == 'request':
         page_title = f'Request a New Post'
     elif message_category:
@@ -870,7 +874,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         page_title = "Send Feedback"
 
     # Authentication Check
-    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root'):
+    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root' or message_category == 'french-root'):
         messages.error(request, "You must be logged in to view this page.")
         raise PermissionDenied()
 
@@ -927,12 +931,14 @@ def discord_feedback(request):
         page_title = f'Report {feedback_subject}'
     elif message_category == 'weird-root':
         page_title = f'Request Invite to Weird Root'
+    elif message_category == 'french-root':
+        page_title = f'Request Invite to French Root'
     elif message_category:
         page_title = f"Send {message_category.title()}"
     else:
         page_title = "Send Feedback"
 
-    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root'):
+    if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root' or message_category == 'french-root'):
         messages.error(request, "You must be logged in to view this page.")
         raise PermissionDenied() 
 
@@ -941,6 +947,7 @@ def discord_feedback(request):
         "request": 'Your request has been received',
         "report": 'Your report has been received',
         "weird-root": 'Your request has been received, you should receive a Discord DM once an admin sees your request.',
+        "french-root": 'Your request has been received, you should receive a Discord DM once an admin sees your request.',
     }
     title_mapping = {
         'general': 'General Feedback',
@@ -955,7 +962,8 @@ def discord_feedback(request):
         'map': 'Map Request',
         'deck': 'Deck Request',
         'other': 'Other',
-        'weird-root': 'Weird Root'
+        'weird-root': 'Weird Root',
+        'french-root': 'French Root'
     }
 
     if not request.user.is_authenticated:
@@ -1111,7 +1119,26 @@ def weird_root_invite(request, slug=None):
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
+@player_required
+def french_root_invite(request, slug=None):
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+        feedback_subject = f'{post.component}: {post.title}'
+    else:
+        feedback_subject = "Generic Invite"
+    message_category = 'french-root'
+    
 
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        if slug:
+            return redirect(post.get_absolute_url())
+        else:
+            return redirect('archive-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
 
 def status_check(request):
     # Check database connection

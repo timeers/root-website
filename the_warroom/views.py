@@ -519,20 +519,30 @@ def manage_game(request, id=None):
                 game_status = max(game_status, tweak.status)
             # roster = []
             for form in formset:
-                child = form.save(commit=False)
-                if child.faction_id is not None:  # Only save if faction_id is present
+                if form.cleaned_data.get('delete'):  # Check if the delete checkbox is checked
+                    print('delete found')
+                    if form.instance.id:
+                        form.instance.delete()
+                    # formset.forms.remove(form)  # Delete the associated Effort instance
+                elif not form.cleaned_data.get('faction') and not form.cleaned_data.get('score') and not form.cleaned_data.get('player'):
+                    print('empty found')
+                    if form.instance.id:
+                        form.instance.delete()
+                else:
+                    child = form.save(commit=False)
+                    if child.faction_id is not None:  # Only save if faction_id is present
 
-                    game_status = max(game_status, child.faction.status)
-                    if child.vagabond:
-                        game_status = max(game_status, child.vagabond.status)
-                    seat += 1
-                    # Save current status of faction. Might be useful somewhere.
+                        game_status = max(game_status, child.faction.status)
+                        if child.vagabond:
+                            game_status = max(game_status, child.vagabond.status)
+                        seat += 1
+                        # Save current status of faction. Might be useful somewhere.
 
-                    child.faction_status = child.faction.status
+                        child.faction_status = child.faction.status
 
-                    child.game = parent  # Link the effort to the game
-                    child.seat = seat
-                    child.save()
+                        child.game = parent  # Link the effort to the game
+                        child.seat = seat
+                        child.save()
                     
             parent.status = StatusChoices(game_status)
             parent.save()

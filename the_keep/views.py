@@ -2,6 +2,7 @@ import random
 # import logging
 from itertools import groupby
 from django.utils import timezone 
+# from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
@@ -906,9 +907,9 @@ def _search_components(request, slug=None):
             posts = Faction.objects.filter(status__lte=view_status).prefetch_related('designer')
 
         if faction_type:
-            posts = posts.filter(type=faction_type)
+            posts = posts.filter(type=faction_type, status__lte=view_status)
         if reach_value:
-            posts = posts.filter(reach=reach_value)
+            posts = posts.filter(reach=reach_value, status__lte=view_status)
 
     else:
         if request.user.is_authenticated:
@@ -1316,6 +1317,14 @@ class PNPAssetUpdateView(UpdateView):
         kwargs = super().get_form_kwargs()
         kwargs['profile'] = self.request.user.profile
         return kwargs 
+
+
+
+class PNPAssetDetailView(DetailView):
+    model = PNPAsset
+    context_object_name = 'resource'
+    template_name = 'the_keep/resource_detail.html'
+
 
 
 class PNPAssetListView(ListView):

@@ -12,8 +12,11 @@ from django.apps import apps
 from django.utils import timezone 
 from the_keep.utils import validate_hex_color, delete_old_image
 
-
-
+class MessageChoices(models.TextChoices):
+    DANGER = 'danger'
+    WARNING = 'warning'
+    SUCCESS = 'success'
+    INFO = 'info'
 
 
 class Theme(models.Model):
@@ -153,6 +156,7 @@ class Profile(models.Model):
     tester = models.BooleanField(default=True)
     in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
+    in_french_root = models.BooleanField(default=False)
     view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)
 
     display_name = models.CharField(max_length=100, null=True, blank=True)
@@ -617,6 +621,8 @@ class Website(models.Model):
     default_theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     game_threshold = models.IntegerField(default=10)
     player_threshold = models.IntegerField(default=5)
+    global_message = models.CharField(max_length=400, null=True, blank=True)
+    message_type = models.CharField(max_length=15 , default=MessageChoices.INFO, choices=MessageChoices.choices)
 
 
     @classmethod

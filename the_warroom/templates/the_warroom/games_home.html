@@ -14,7 +14,8 @@
 
 
 {% block content %}
-
+<article class="media content-section">
+    <div class="media-body">
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <div class='d-flex'>
     <h1>Games</h1>
@@ -37,6 +38,8 @@
         </a>
     </div>
 </div>
+</div>
+</article>
 {% if in_progress %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h3>In Progress Games ({{ in_progress.count }})</h3>

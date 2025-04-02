@@ -97,6 +97,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const undraftedFactionSelect = document.getElementById('id_undrafted_faction');
     const undraftedVagabondSelect = document.getElementById('id_undrafted_vagabond');
     
+    var deleteFields = document.querySelectorAll('input[name$="-delete"]');
+
+    // Iterate over each delete checkbox and set it to false (unchecked)
+    deleteFields.forEach(function(deleteField) {
+        deleteField.checked = false;
+    });
+
     // Function to update all select options based on the platform
     function updateOptions(platformValue) {
         const tournamentValue = tournamentSelect.value;
@@ -821,6 +828,20 @@ document.addEventListener('htmx:afterRequest', function(event) {
                 var formDiv = button.closest('.effort-form'); // Find the parent form div
                 formDiv.remove(); // Remove the form from the DOM
         }
+
+        function deleteForm(button) {
+                var formDiv = button.closest('.effort-form'); // Find the parent form div
+                var deleteField = formDiv.querySelector('input[name$="-delete"]'); // Find the delete checkbox in the form
+            
+                // Set the 'delete' checkbox to true
+                if (deleteField) {
+                    deleteField.checked = true;  // Mark the delete field as checked
+                }
+            
+                // Add the hidden class to hide the form
+                formDiv.classList.add('hidden'); // Optionally hide the form from the DOM
+            }
+
 
         // Check if the "Save Progress" button exists in the DOM
         const saveProgressButton = document.getElementById('save-progress');

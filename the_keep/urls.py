@@ -10,7 +10,7 @@ from .views import (
     PostDeleteView,
     TweakCreateView, TweakUpdateView,
 
-    PNPAssetCreateView, PNPAssetListView, PNPAssetUpdateView, PNPAssetDeleteView,
+    PNPAssetCreateView, PNPAssetListView, PNPAssetUpdateView, PNPAssetDeleteView, PNPAssetDetailView,
 
     # ComponentDetailListView,
     bookmark_post,
@@ -107,8 +107,9 @@ urlpatterns = [
     path('workshop/', PNPAssetListView.as_view(), name='asset-list'),
     path('resources/', PNPAssetListView.as_view()),
     path('resources/new/', PNPAssetCreateView.as_view(), name='asset-new'),
-    path('resources/update/<int:pk>/', PNPAssetUpdateView.as_view(), name='asset-update'),
-    path('resources/delete/<int:pk>/', PNPAssetDeleteView.as_view(), name='asset-delete'),
+    path('resources/<int:pk>/', PNPAssetDetailView.as_view(), name='asset-detail'),
+    path('resources/<int:pk>/update/', PNPAssetUpdateView.as_view(), name='asset-update'),
+    path('resources/<int:pk>/delete/', PNPAssetDeleteView.as_view(), name='asset-delete'),
     path('resources/player/<slug:slug>/', PNPAssetListView.as_view(), name='asset-player'),
     path('resources/pin/<int:id>/', pin_asset, name='pin-asset')
 ]

@@ -115,7 +115,7 @@
         {% if resources %}
             <strong>Resources</strong>
             {% for result in resources %}
-            <a href="{{ result.link }}">
+            <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
                 {{ result.title }} - {{ result.category }} {{ result.file_type }} ({{ result.link|slice:":30" }}{% if result.link|length > 30 %}...{% endif %})
                 </div>

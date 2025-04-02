@@ -227,7 +227,8 @@ class MessageForm(forms.Form):
                 ('offensive', 'Offensive Image/Language'),
                 ('spam', 'Spam'),
                 ('other', 'Other'),
-                ('weird-root', 'Weird Root')
+                ('weird-root', 'Weird Root'),
+                ('french-root', 'French Root')
     ]
     
     title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
@@ -295,6 +296,12 @@ class MessageForm(forms.Form):
                 ('weird-root', 'Weird Root')
             ]
             self.fields['message'].help_text= "Weird Root is a private server for developing and discussing fan-made Root content. To keep bots out, invites aren't shared publicly. The easiest way to join is by messaging someone already in the server. This site isn’t managed by Weird Root, but if you include a brief message, we’ll do our best to get back to you soon."
+        
+        elif message_category == 'french-root':
+            self.fields['title'].choices = [
+                ('french-root', 'French Root')
+            ]
+            self.fields['message'].help_text= "Root & co - Communauté FR is a French Discord server"
     
         elif message_category == 'report':
             self.fields['title'].choices = [

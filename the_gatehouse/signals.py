@@ -87,7 +87,7 @@ def user_logged_in_handler(request, user, **kwargs):
     profile = user.profile
     profile_updated = False
     current_group = profile.group
-    in_ww, in_wr = check_user_guilds(user)
+    in_ww, in_wr, in_fr = check_user_guilds(user)
     display_name = get_discord_display_name(user)
 
 
@@ -96,7 +96,7 @@ def user_logged_in_handler(request, user, **kwargs):
         profile_updated = True
 
     # If user is a member of WW but in group O (add to group P)
-    if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr):
+    if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr) or (current_group == 'O' and in_fr):
         profile.group = 'P'
         profile_updated = True
 
@@ -104,6 +104,10 @@ def user_logged_in_handler(request, user, **kwargs):
     if not profile.in_weird_root and in_wr:
         profile.in_weird_root = True
         profile.weird = True
+        profile_updated = True
+
+    if not profile.in_french_root and in_fr:
+        profile.in_french_root = True
         profile_updated = True
 
     if profile_updated:

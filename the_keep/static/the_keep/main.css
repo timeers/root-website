@@ -927,15 +927,21 @@ tr.clickable-row:hover {
   time-range: 100%; 
 } */
 
-.hero-image {
-  /* position: fixed; */
-  /* top: var(--header-padding); */
-  /* left: 50%;    
-  transform: translateX(-50%); */
-  z-index: -5; /* Furthest Back */
-  width: 100vw;
-  height: auto;
 
+.hero-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  width: 100%;
+}
+
+.hero-image {
+  background-image: url("{% static 'images/homepage/Archive.png' %}");
+  background-position: center; /* Center the image */
+  background-size: cover; /* Cover the entire container */
+  width: 100%;
+  height: 100%;
 }
 
 

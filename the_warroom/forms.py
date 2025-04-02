@@ -384,6 +384,7 @@ class EffortCreateForm(forms.ModelForm):
         required=False,
         initial=0 
     )
+    delete = forms.BooleanField(required=False, initial=False, widget=forms.CheckboxInput(attrs={'class': 'delete-form-checkbox'}))
     class Meta:
         model = Effort
         fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
@@ -408,6 +409,20 @@ class EffortCreateForm(forms.ModelForm):
         coalition = cleaned_data.get('coalition_with')
         if score is None or score == "":
             cleaned_data['score'] = 0 
+        
+        # If the delete checkbox is checked, clear the cleaned data to skip further validation
+        if cleaned_data.get('delete', False):
+            # Clear out cleaned_data, essentially skipping validation for this form
+            cleaned_data = {}
+            cleaned_data['delete'] = True
+            print(cleaned_data)
+            return cleaned_data
+        
+        if not faction and not player and not score:
+            cleaned_data = {}
+            cleaned_data['delete'] = True
+            print(cleaned_data)
+            return cleaned_data
 
         # print(cleaned_data.get('score'))
         if faction is None or faction == "":

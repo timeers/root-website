@@ -3,7 +3,7 @@ from the_keep.views import list_view
 from .views import (user_settings, player_page_view, 
                     designer_component_view, post_bookmarks, game_bookmarks,
                     onboard_user, player_stats, artist_component_view, manage_user,
-                    ProfileListView, user_bookmarks,
+                    ProfileListView, user_bookmarks, french_root_invite,
                     status_check, general_feedback, post_feedback, player_feedback, game_feedback, weird_root_invite, post_request)
 from the_warroom.views import PlayerGameListView
 urlpatterns = [
@@ -36,7 +36,8 @@ urlpatterns = [
     path('feedback/game/<int:id>/', game_feedback, name='game-feedback'),
     path('feedback/request-invite/', weird_root_invite, name='generic-weird-root-invite'),
     path('feedback/request-invite/<slug:slug>/', weird_root_invite, name='weird-root-invite'),
-
+    path('feedback/french-invite/', french_root_invite, name='generic-french-root-invite'),
+    path('feedback/french-invite/<slug:slug>/', french_root_invite, name='french-root-invite'),
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),
 
 ]

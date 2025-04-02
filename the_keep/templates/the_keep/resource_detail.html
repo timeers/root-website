@@ -1,0 +1,63 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+{% block title %} - {{ resource.title }}{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDB_Logo.png' %}">
+<meta property="og:site_name" content="{{site_title}}">
+<meta property="og:title" content="{{ resource.title }}">
+<meta property="og:description" content="{{ resource.title }} - {{ resource.category }} {{ resource.file_type }}{% if resource.shared_by %} shared by {{ resource.shared_by.name }} {% endif %}">
+<meta name="description" content="{{ resource.title }} - {{ resource.category }} {{ resource.file_type }}{% if resource.shared_by %} shared by {{ resource.shared_by.name }} {% endif %}">
+{% endblock meta%}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1 class='root-title'>{{ resource.title }}</h1>
+        {% if resource.shared_by == user.profile %}
+                <div>
+                    <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' resource.id %}"><i class="bi bi-pencil-square"></i></a>
+                    <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'asset-delete' resource.id %}"><i class="bi bi-trash3"></i></a>
+                </div>
+        {% endif %}
+</div>
+
+<article class="media content-section">
+    <div class="media-body">
+        <h2>
+        {{ resource.category }} Resource
+        </h2>
+        <div>
+            Type: {{resource.file_type}}
+        </div>
+        <div>
+            URL: <a class='clickable-link' href="{{ object.link }}">{{ resource.link }}</a>
+        </div>
+        {% if resource.shared_by %}
+            <div>
+                Shared by: 
+                {{ resource.shared_by.name }}
+            </div>
+        {% endif %}
+        <div>
+            Date: {{resource.date_updated |date:"F j, Y"}}
+        </div>
+
+
+    </div>
+
+</article>
+
+
+<article class="media content-section">
+    <div class="media-body">
+        {% if resource.pinned %}
+            This link was {% if resource.shared_by %}shared by <a class="mr-2 clickable-link" href="{% url 'player-detail' resource.shared_by.slug %}">{{resource.shared_by.name }}</a>and {% endif %}pinned by the site admin. You should still verify any link before downloading anything.
+        {% else %}
+            This link {% if resource.shared_by %}was shared by <a class="mr-2 clickable-link" href="{% url 'player-detail' resource.shared_by.slug %}">{{resource.shared_by.name }}</a>and {% endif %}has not been verified. Check the url above before downloading anything.
+        {% endif %}
+        
+    </div>
+</article>
+{% endblock content %} 

@@ -21,6 +21,15 @@
 
 {% endif %}
 
+    <!-- Show option to send Feedback -->
+    <div class='mb-2'>
+        <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
+            <small>
+                Is something missing or incorrect?
+            </small>
+        </a>
+     </div>
+
 {% endblock content %} 
 
 {% block scripts %}

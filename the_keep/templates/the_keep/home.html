@@ -16,24 +16,40 @@
 {% block main_class %}{% endblock %}
 {% block content %}
 
-<img class="hero-image" src="{% static 'images/homepage/Archive.png'  %}" alt="The Archive Image" fetchpriority="high">
-
+<div class="hero-container">
+    <div class="hero-image"></div>
+</div>
 <div>
     {% comment %} <article class="media content-section"> {% endcomment %}
     <div class='d-flex media-body'>
         <div class='root-menu-title'>
-            <a href='{% url 'archive-home' %}'>Components</a>
+            <h1>The Archive</h1>
+            <p>Discover fan content by status, type, reach value or designer.</p>
+            <p>
+            {{faction_count}} Factions |
+            {{map_count}} Maps |
+            {{deck_count}} Decks 
+            </p>
+            <a href='{% url 'archive-home' %}'>View</a>
         </div>
         <div class='root-menu-title'>
-            <a href='{% url 'games-home' %}'>Games</a>
+            <h1>The Warroom</h1>
+            <p>Record games and playtests of Root! Compare Faction standings and matchups.</p>
+            <a href='{% url 'games-home' %}'>View</a>
         </div>
         <div class='root-menu-title'>
-            <a href='{% url 'asset-list' %}'>Resources</a>
+            <h1>The Workshop</h1>
+            <p>Submit your fan tocntent. Access PNP resources & templates.</p>
+            <a href='{% url 'asset-list' %}'>View</a>
+        </div>
+
+        <div class='root-menu-title'>
+            <h1>Quick Search</h1>
+            <p>Quickly find what you're looking for.<br>
+            Games | Resources | Colors | Pieces | Players</p>
         </div>
     </div>
-    {{faction_count}} Fan Made Factions
-    {{map_count}} Fan Made Maps
-    {{deck_count}} Fan Made Decks
+
 
 {% comment %} </article> {% endcomment %}
 </div>

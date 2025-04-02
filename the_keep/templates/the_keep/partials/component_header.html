@@ -31,40 +31,37 @@
 </div>
 <article class="content-section">
     <div class="d-flex justify-content-between align-items-top">
-    <div class="d-flex">
-        <div class="article-img-container">
-        <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+        <div class="d-flex">
+            <div class="article-img-container">
+                <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+            </div>
+            <div class='d-flex flex-nowrap'>
+                <h1 class='root-title' {% if object_color or object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {% if object.color %}{{ object.color }}{% else %}{{ object_color }}{% endif %};"{% endif %}>{{ object.title }}</h1>
+            </div>
         </div>
-        <div class='d-flex flex-nowrap'>
-        <h1 class='root-title' {% if object_color or object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {% if object.color %}{{ object.color }}{% else %}{{ object_color }}{% endif %};"{% endif %}>{{ object.title }}</h1>
-
-        </div>
-    </div>
-    <div class="d-flex flex-nowrap">
-
-                <!-- Bookmarks -->
-                {% if user.is_authenticated %}
-                    {% include 'the_keep/partials/bookmarks.html' %}
-                {% endif %}
-
+        <div class="d-flex flex-nowrap">
+            <!-- Bookmarks -->
+            {% if user.is_authenticated %}
+                {% include 'the_keep/partials/bookmarks.html' %}
+            {% endif %}
         </div>
     </div>
     <div>
-            <div class='mt-1'>
-                {% if object.animal %}
-                    {% if object.component == 'Faction' or object.component == 'Clockwork' %}
-                        <img class="faction-icon" src="{{ object.small_icon.url }}">
-                    {% endif %}
-
-                    {{ object.animal }}
-
+        <div class='mt-1'>
+            {% if object.animal %}
+                {% if object.component == 'Faction' or object.component == 'Clockwork' %}
+                    <img class="faction-icon" src="{{ object.small_icon.url }}">
                 {% endif %}
-                {{ object.component }}
-                 by 
-                <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
-            </div>
-                <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
+                {{ object.animal }}
+
+            {% endif %}
+            {{ object.component }}
+                by 
+            <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
+
+        </div>
+        <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
     </div>
     <div>
                 {% if object.expansion %}

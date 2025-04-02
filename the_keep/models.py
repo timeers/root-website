@@ -104,7 +104,7 @@ class StatusChoices(models.TextChoices):
     DEVELOPMENT = '3', 'Development'
     INACTIVE = '4', 'Inactive'
     ABANDONED = '5', 'Abandoned'
-    DEEPFREEZE = '100', 'Deep Freeze'
+    DEEPFREEZE = '9', 'Deep Freeze'
 
 # def get_status_name_from_int(status_int):
 #     # Iterate through the choices to find the matching integer
@@ -140,6 +140,7 @@ class Expansion(models.Model):
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
     stl_link = models.CharField(max_length=400, null=True, blank=True)
     leder_games_link = models.CharField(max_length=400, null=True, blank=True)
+    fr_link = models.CharField(max_length=400, null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     open_roster = models.BooleanField(default=False)
 
@@ -168,20 +169,13 @@ class Expansion(models.Model):
     
     def count_links(self, user):
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'leder_games_link']
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link']
         
         # Count how many of these fields are not None or empty
         count = 0
         for field in link_fields:
-            # Special handling for 'wr_link' if the user is authenticated and a member of WR
-            # if field == 'wr_link':
-            #     if user.is_authenticated:
-            #         if user.profile.in_weird_root:
-            #             if getattr(self, field):  # Checks if the field value is not None or empty string
-            #                 count += 1
-            # else:
-                if getattr(self, field):  # Checks if the field value is not None or empty string
-                    count += 1
+            if getattr(self, field):  # Checks if the field value is not None or empty string
+                count += 1
         return count
 
     def save(self, *args, **kwargs):
@@ -236,6 +230,7 @@ class Post(models.Model):
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
     stl_link = models.CharField(max_length=400, null=True, blank=True)
     leder_games_link = models.CharField(max_length=400, null=True, blank=True)
+    fr_link = models.CharField(max_length=400, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
@@ -345,7 +340,7 @@ class Post(models.Model):
 
     def count_links(self, user):
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'pnp_link', 'stl_link', 'leder_games_link']
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'leder_games_link']
         
         # Count how many of these fields are not None or empty
         count = 0
@@ -503,7 +498,7 @@ class Post(models.Model):
 
             # Optionally, save the image to a new BytesIO buffer
             img_io = BytesIO()
-            small_icon_copy.save(img_io, format='PNG')  # Save as a JPEG, or another format as needed
+            small_icon_copy.save(img_io, format='PNG')  # Save as a PNG, or another format as needed
             img_io.seek(0)
             # Now you can assign the img_io to your model field or save it to a new ImageField
             # Generate a unique filename using UUID
@@ -512,6 +507,33 @@ class Post(models.Model):
             # Save to small_icon field with unique filename
             self.small_icon.save(unique_filename, img_io, save=False)
 
+    def process_and_save_picture(self, image_field_name):
+        """
+        Process the image field, resize it, and save it to the `picture` field.
+        This method can be used by any subclass of Post to reuse the image processing logic.
+        """
+        # Get the image from the specified field
+        image = getattr(self, image_field_name)
+
+        if image:
+            # Open the image from the ImageFieldFile
+            img = Image.open(image)
+                # Convert the image to RGB if it's in a mode like 'P' (palette-based)
+            # if img.mode != 'RGB':
+            #     img = img.convert('RGB')
+            # Create a copy of the image
+            picture_copy = img.copy()
+
+            # Optionally, save the image to a new BytesIO buffer
+            img_io = BytesIO()
+            picture_copy.save(img_io, format='PNG')  # Save as a PNG, or another format as needed
+            img_io.seek(0)
+            # Now you can assign the img_io to your model field or save it to a new ImageField
+            # Generate a unique filename using UUID
+            unique_filename = f"{uuid.uuid4().hex}.png"
+
+            # Save to picture field with unique filename
+            self.picture.save(unique_filename, img_io, save=False)
 
     def get_absolute_url(self):
         match self.component:
@@ -640,12 +662,15 @@ class Deck(Post):
             if old_image != new_image or not self.small_icon:
                 delete_old_image(getattr(old_instance,'small_icon'))
                 self.process_and_save_small_icon(field_name)
+                delete_old_image(getattr(old_instance,'picture'))
+                self.process_and_save_picture(field_name)
         else:
             if self.card_image:
                 field_name = 'card_image'
             else:
                 field_name = 'picture'
             self.process_and_save_small_icon(field_name)
+            self.process_and_save_picture(field_name)
 
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -796,12 +821,15 @@ class Map(Post):
             if old_image != new_image or not self.small_icon:
                 delete_old_image(getattr(old_instance,'small_icon'))
                 self.process_and_save_small_icon(field_name)
+                delete_old_image(getattr(old_instance,'picture'))
+                self.process_and_save_picture(field_name)
         else:
             if self.board_image:
                 field_name = 'board_image'
             else:
                 field_name = 'picture'
             self.process_and_save_small_icon(field_name)
+            self.process_and_save_picture(field_name)
             
 
         super().save(*args, **kwargs)
@@ -1406,6 +1434,9 @@ class PNPAsset(models.Model):
     category = models.CharField(choices=CategoryChoices, max_length=15)
     shared_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, related_name='assets', null=True, blank=True)
     pinned = models.BooleanField(default=False)
+
+    def get_absolute_url(self):
+        return reverse('asset-detail', kwargs={'pk': self.id})
 
     class Meta:
         ordering = ['pinned', 'category', 'date_updated']

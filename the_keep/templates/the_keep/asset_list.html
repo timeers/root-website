@@ -12,7 +12,8 @@
 
 
 {% block content %}
-
+<article class="media content-section">
+    <div class="media-body">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class='d-flex'>
             <h1>Resources</h1>
@@ -26,7 +27,8 @@
             <a class="btn btn-sm btn-success ml-1 mb-3" href="{% url 'asset-new' %}">New Resource +</a>
         </div>
         </div>
-
+    </div>
+</article>
         {% if shared_assets %}
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h3>Shared ({{ shared_assets.count }})</h3>
@@ -64,7 +66,7 @@
                     
                         <tbody id="shared-asset-table" class="effort-rows">
                             {% for obj in shared_assets %}
-                            <tr data-href="{{ obj.link }}">
+                            <tr data-href="{{ obj.get_absolute_url }}">
                                 <td>{{ obj.title }}</td>
                                 <td>{{ obj.category }}</td>
                                 <td>{{ obj.file_type }}</td>
@@ -184,7 +186,7 @@
             </thead>
             <tbody id="asset-table" class="effort-rows">
                 {% for obj in objects %}
-                <tr data-href="{{ obj.link }}" class="clickable-row">
+                <tr data-href="{{ obj.get_absolute_url }}" class="clickable-row">
                     <td>{{ obj.title }}</td>
                     <td>{{ obj.category }}</td>
                     <td>{{ obj.file_type }}</td>
