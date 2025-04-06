@@ -97,7 +97,7 @@
 </td>
 {% endif %}
 
-{% if user.profile.admin and game.efforts.count > 1 %}
+{% comment %} {% if user.profile.admin and game.efforts.count > 1 %}
 <td>   
     {% if game.efforts.count > 1 %}
         <a class="btn btn-danger btn-sm"
@@ -112,7 +112,7 @@
         <a class="btn btn-danger btn-sm" href="{{ game.get_delete_url }}">Delete Game</a>
     {% endif %}
 </td>
-{% endif %}
+{% endif %} {% endcomment %}
 </tr>
 
 

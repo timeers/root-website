@@ -1,0 +1,18 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags %}
+{% block title %} - New Translation{% endblock %}
+{% block content %}
+    <div class="content-section">
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <fieldset class="form-group">
+                <legend class="border-bottom mb-4">New Translation for {{ post.title }} {{ post.component }}</legend>
+                {{ form | crispy }}
+            </fieldset>
+            <div class="form-group">
+                <button class="btn btn-info" type="submit">Save</button>
+                <a class="btn btn-secondary" href="{% url 'post-translations' post.slug %}">Cancel</a>
+            </div>
+        </form>
+    </div>
+{% endblock content %}

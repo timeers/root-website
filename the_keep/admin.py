@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 import csv
 from io import StringIO
 from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     PostBookmark, Piece, Tweak, PNPAsset)
+                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
 from the_gatehouse.models import Profile
@@ -17,6 +17,10 @@ class PieceInline(admin.StackedInline):
     model = Piece
     extra = 0
 
+class PostTranslationInline(admin.StackedInline):
+    model = PostTranslation
+    extra = 0
+
 class PNPAssetAdmin(admin.ModelAdmin):
     list_display = ('title', 'category', 'date_updated', 'shared_by__display_name', 'pinned')
     search_fields = ('title', 'description')
@@ -25,7 +29,7 @@ class MapAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'clearings')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -141,7 +145,7 @@ class DeckAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'card_total')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -243,13 +247,13 @@ class TweakAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'based_on', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
 
 class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -368,7 +372,7 @@ class HirelingAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'animal', 'other_side__title')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -506,7 +510,7 @@ class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'type', 'reach', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
 
 
 
@@ -926,7 +930,7 @@ class VagabondAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer']
-    inlines = [PieceInline]
+    inlines = [PieceInline, PostTranslationInline]
     def get_urls(self):
         urls = super().get_urls()
         new_urls = [path('upload-vagabond-csv/', self.upload_vagabond_csv)]

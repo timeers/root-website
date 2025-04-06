@@ -772,6 +772,22 @@ def manage_user(request, slug):
                 user_to_edit.group = form.cleaned_data['group']
                 update_user = True
                 update_message  = f'{user_to_edit.name} has been updated.'
+                print(user_to_edit.group)
+                match user_to_edit.group:
+                    case 'D':
+                        user_to_edit.admin_onboard = False
+                    case 'E':
+                        user_to_edit.admin_onboard = False
+                        user_to_edit.designer_onboard = False
+                    case 'P':
+                        user_to_edit.admin_onboard = False
+                        user_to_edit.designer_onboard = False
+                        user_to_edit.editor_onboard = False
+                    case 'B':
+                        user_to_edit.admin_onboard = False
+                        user_to_edit.designer_onboard = False
+                        user_to_edit.editor_onboard = False
+                        user_to_edit.player_onboard = False
             
             if form.cleaned_data.get('dwd'):
                 user_to_edit.dwd = form.cleaned_data['dwd']
@@ -841,6 +857,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         'usability': 'Usability Feedback',
         'outdated': 'Outdated Information',
         'incorrect': 'Incorrect Information',
+        'translation': 'Existing Translation Missing',
         'offensive': 'Offensive Image/Language',
         'spam': 'Spam',
         'faction': 'Faction Request',
@@ -956,6 +973,7 @@ def discord_feedback(request):
         'usability': 'Usability Feedback',
         'outdated': 'Outdated Information',
         'incorrect': 'Incorrect Information',
+        'translation': 'Existing Translation Missing',
         'offensive': 'Offensive Image/Language',
         'spam': 'Spam',
         'faction': 'Faction Request',

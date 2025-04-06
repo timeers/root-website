@@ -2,9 +2,9 @@ import json
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion, Tweak, PNPAsset, ColorChoices
+    Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation
 )
-from the_gatehouse.models import Profile
+from the_gatehouse.models import Profile, Language
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
@@ -115,9 +115,146 @@ class PostImportForm(forms.ModelForm):
 
 
 
+class TranslationCreateForm(forms.ModelForm):
+    class Meta:
+        model = PostTranslation
+        fields = ['language', 'translated_title', 
+                  'translated_lore', 'translated_description', 'translated_animal',
+                  'translated_board_image', 'translated_board_2_image',
+                  'translated_card_image', 'translated_card_2_image', 'designer'
+                  ]
+        labels = {
+            'designer': 'Translated By',
+            'translated_title': 'Title',
+            'translated_lore': 'Lore',
+            'translated_description': 'Description',
+            'translated_animal': 'Animal',
+            'translated_board_image': 'Board Image', 
+            'translated_board_2_image': 'Board Back',
+            'translated_card_image': 'Card Image', 
+            'translated_card_2_image': 'Second Card Image'
+        }
+    def __init__(self, *args, user=None, post=None, **kwargs):
+        
+        super().__init__(*args, **kwargs)
+        
+        
+        # If we are updating an existing translation, make the language field read-only
+        if self.instance and self.instance.pk:
+            # Make the 'language' field read-only
+            self.fields['language'].disabled = True
+        else:
+        # Otherwise find any available languages
+            used_languages = PostTranslation.objects.filter(post=post).values_list('language', flat=True)
+            if post.language:
+                excluded_languages = list(used_languages) + [post.language.id]  # Exclude already used languages + post's language
+            else:
+                excluded_languages = list(used_languages)
+            self.fields['language'].queryset = Language.objects.exclude(id__in=excluded_languages)
+            # Set the initial translator as the designer
+            self.fields['designer'].initial = user
+        
+        match post.component:
+            case 'Faction':
+                self.fields['translated_board_image'].label = "Faction Board"
+                self.fields['translated_board_2_image'].label = "Faction Board Back"
+                self.fields['translated_card_image'].label = "Adset Card"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+            case 'Map':
+                self.fields['translated_board_image'].label = "Map"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Setup Card"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+            case 'Deck':
+                self.fields['translated_board_image'].label = "Suit Distribution"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Card Back"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+            case 'Vagabond':
+                self.fields['translated_board_image'].label = "Board"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Vagabond Card"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+            case 'Hireling':
+                self.fields['translated_board_image'].label = "Hireling Card"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Card"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+            case 'Landmark':
+                self.fields['translated_board_image'].label = "Board"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Landmark Card"
+                self.fields['translated_card_2_image'].label = "Setup Card"
+            case 'Clockwork':
+                self.fields['translated_board_image'].label = "FactionBoard"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Card"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+            case 'Tweak':
+                self.fields['translated_board_image'].label = "Board"
+                self.fields['translated_board_2_image'].label = "Misc Board"
+                self.fields['translated_card_image'].label = "Card"
+                self.fields['translated_card_2_image'].label = "Misc Card"
+
+        self.fields['translated_title'].help_text = post.title
+
+        if not post.lore:
+            self.fields.pop('translated_lore', None)
+        else:
+            self.fields['translated_lore'].widget.attrs.update({
+                'rows': '2',
+            })
+            self.fields['translated_lore'].help_text = post.lore
+
+        if not post.description:
+            self.fields.pop('translated_description', None)
+        else:
+            self.fields['translated_description'].widget.attrs.update({
+                'rows': '2',
+            })
+            self.fields['translated_description'].help_text = post.description
+
+        if not post.animal:
+            self.fields.pop('translated_animal', None)
+        else:
+            self.fields['translated_animal'].widget.attrs.update({
+                'rows': '2',
+            })
+            self.fields['translated_animal'].help_text = post.animal
+
+        if not post.board_image:
+            self.fields.pop('translated_board_image', None)
+        if not post.board_2_image:
+            self.fields.pop('translated_board_2_image', None)
+        if not post.card_image:
+            self.fields.pop('translated_card_image', None)
+        if not post.card_2_image:
+            self.fields.pop('translated_card_2_image', None)
 
 
+    def clean(self):
+            cleaned_data = super().clean()
+            post = cleaned_data.get('post')
+            language = cleaned_data.get('language')
 
+            # Add custom validation if needed (e.g., ensure a translation doesn't already exist for this post and language)
+            if post and language:
+                if PostTranslation.objects.filter(post=post, language=language).exists():
+                    raise forms.ValidationError("A translation for this post in this language already exists.")
+            
+            # List of the fields you want to check
+            required_fields = [
+                'translated_title', 'translated_lore', 'translated_description', 'translated_animal',
+                'translated_board_image', 'translated_board_2_image',
+                'translated_card_image', 'translated_card_2_image'
+            ]
+            
+            # Check if at least one of the required fields has data
+            if not any(cleaned_data.get(field) for field in required_fields):
+                raise ValidationError("At least one of the following fields must be filled: Title, Lore, Description, Animal, Board Image, Board Back, Card Image, Card Back.")
+            
+
+            return cleaned_data
 
 
 class PostCreateForm(forms.ModelForm):
@@ -253,11 +390,11 @@ class PostCreateForm(forms.ModelForm):
             # #     designer = self.user.profile
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, ww_link, wr_link, leder_games_link, pnp_link, tts_link]):
-                raise ValidationError("Please include a link to one of the following: a Board Game Geek post, a Woodland Warriors or Weird Root Discord Thread.")
+            if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link]):
+                raise ValidationError("Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
             # Validate URLs
             url_validator = URLValidator()
-            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]:
+            for url in [bgg_link, tts_link, ww_link, wr_link, fr_link, pnp_link, leder_games_link]:
                 if url:  # Only validate if the field is filled
                     try:
                         url_validator(url)

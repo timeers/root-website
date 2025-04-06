@@ -26,7 +26,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
-from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage
+from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
@@ -38,7 +38,7 @@ from .models import (
     Map, Deck,
     Hireling, Landmark,
     Piece, Tweak,
-    PNPAsset, ColorChoices
+    PNPAsset, ColorChoices, PostTranslation
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -46,7 +46,7 @@ from .forms import (MapCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
                     PieceForm, ClockworkCreateForm,
                     StatusConfirmForm, TweakCreateForm,
-                    PNPAssetCreateForm,
+                    PNPAssetCreateForm, TranslationCreateForm
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -447,10 +447,8 @@ def home(request, *args, **kwargs):
     return render(request, 'the_keep/home.html', context)
 
 
+def translations_view(request, slug):
 
-
-def ultimate_component_view(request, slug):
-    
     post = get_object_or_404(Post, slug=slug)
     component_mapping = {
             "Map": Map,
@@ -464,6 +462,151 @@ def ultimate_component_view(request, slug):
         }
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
+    # Get a list of other available translations
+    other_translations = object.translations.all()
+    languages_count = Language.objects.all().count() - 1
+    print(languages_count)
+    if languages_count > other_translations.count():
+        available_languages = True
+    else:
+        available_languages = False
+    print(available_languages)
+    context = {
+        'object': object,
+        'other_translations': other_translations,
+        'available_languages': available_languages,
+    }
+
+    return render(request, 'the_keep/post_translations.html', context)
+
+@editor_required
+def create_post_translation(request, slug, lang=None):
+    post = get_object_or_404(Post, slug=slug)  # Get the post object
+    
+    if not post.designer==request.user.profile and not request.user.profile.admin:
+        messages.error(request, f'You are not autorized to translate {{ post.title }}.')
+        raise PermissionDenied() 
+
+    if lang:
+        # Check if there's an existing translation for this post and language
+        existing_translation = PostTranslation.objects.filter(post=post, language__code=lang).first()
+    else:
+        existing_translation = None
+
+    if request.method == 'POST':
+                # If updating, prepopulate the form with the existing translation, otherwise create a new one
+        if existing_translation:
+            form = TranslationCreateForm(request.POST, instance=existing_translation, post=post, user=post.designer)
+        else:
+            form = TranslationCreateForm(request.POST, post=post, user=post.designer)
+
+        if form.is_valid():
+            # Explicitly set the 'post' field to the post passed into the form
+            translation = form.save(commit=False)
+            translation.post = post  # Make sure post is set
+
+            # Save the translation
+            translation.save()
+
+            post_url = post.get_absolute_url()
+    
+            # Append the lang query parameter to the URL
+            redirect_url = f"{post_url}?lang={translation.language.code}"
+
+            return redirect(redirect_url)
+    else:
+        # If GET request, initialize the form with either a new instance or an existing one
+        if existing_translation:
+            form = TranslationCreateForm(instance=existing_translation, post=post, user=post.designer)
+        else:
+            form = TranslationCreateForm(post=post, user=post.designer)
+    
+    context = {
+        'form': form,
+        'post': post
+    }
+
+    return render(request, 'the_keep/translation_form.html', context)
+
+
+
+def ultimate_component_view(request, slug):
+    
+    language = None
+    if request.user.is_authenticated:
+        language = request.user.profile.language
+
+    language_code = request.GET.get('lang', None)
+    if language_code:
+        language_code_object = Language.objects.filter(code=language_code).first()
+        if language_code_object:
+            language = language_code_object
+
+    post = get_object_or_404(Post, slug=slug)
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=slug)
+
+    # Get the translation if available, fallback to default
+    object_translation = object.translations.filter(language=language).first()
+
+
+
+    available_translations = object.translations.all().count()
+
+    # # Get a list of other available translations
+    # other_translations = object.translations.exclude(language=language)
+
+    # language_queryset = Language.objects.filter(id__in=other_translations.values_list('language', flat=True))
+
+    # # Add object's language is not already included and is not the current language
+    # if object.language and language and object.language != language and object.language not in language_queryset:
+    #     language_queryset = language_queryset | Language.objects.filter(id=object.language.id)
+
+    # if not object_translation and object.language:
+    #     language_queryset = language_queryset.exclude(id=object.language.id)
+
+
+    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else object.title
+    object_lore = object_translation.translated_lore if object_translation and object_translation.translated_lore else object.lore
+    object_description = object_translation.translated_description if object_translation and object_translation.translated_description else object.description
+
+    object_animal = object_translation.translated_animal if object_translation and object_translation.translated_animal else object.animal
+
+    object_board_image = object_translation.translated_board_image if object_translation and object_translation.translated_board_image else object.board_image
+    if object_board_image:
+        object_board_image_url = object_board_image.url
+    else:
+        object_board_image_url = None
+
+    object_board_2_image = object_translation.translated_board_2_image if object_translation and object_translation.translated_board_2_image else object.board_2_image
+    if object_board_2_image:
+        object_board_2_image_url = object_board_2_image.url
+    else:
+        object_board_2_image_url = None
+
+    object_card_image = object_translation.translated_card_image if object_translation and object_translation.translated_card_image else object.card_image
+    if object_card_image:
+        object_card_image_url = object_card_image.url
+    else:
+        object_card_image_url = None
+
+    object_card_2_image = object_translation.translated_card_2_image if object_translation and object_translation.translated_card_2_image else object.card_2_image
+    if object_card_2_image:
+        object_card_2_image_url = object_card_2_image.url
+    else:
+        object_card_2_image_url = None
+
+
     # full_url = request.build_absolute_uri()
     if request.user.is_authenticated:
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {object.component}: {object.title}')
@@ -613,6 +756,16 @@ def ultimate_component_view(request, slug):
         'detail_scorecard_count': detail_scorecard_count,
         'color_group': color_group,
         'object_color': object_color,
+        'object_title': object_title,
+        'object_lore': object_lore,
+        'object_description': object_description,
+        'object_animal': object_animal,
+        'object_board_image_url': object_board_image_url,
+        'object_board_2_image_url': object_board_2_image_url,
+        'object_card_image_url': object_card_image_url,
+        'object_card_2_image_url': object_card_2_image_url,
+
+        'available_translations': available_translations,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)

@@ -36,7 +36,7 @@
                 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
             </div>
             <div class='d-flex flex-nowrap'>
-                <h1 class='root-title' {% if object_color or object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {% if object.color %}{{ object.color }}{% else %}{{ object_color }}{% endif %};"{% endif %}>{{ object.title }}</h1>
+                <h1 class='root-title' {% if object_color or object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {% if object.color %}{{ object.color }}{% else %}{{ object_color }}{% endif %};"{% endif %}>{{ object_title }}</h1>
             </div>
         </div>
         <div class="d-flex flex-nowrap">
@@ -48,12 +48,12 @@
     </div>
     <div>
         <div class='mt-1'>
-            {% if object.animal %}
+            {% if object_animal %}
                 {% if object.component == 'Faction' or object.component == 'Clockwork' %}
                     <img class="faction-icon" src="{{ object.small_icon.url }}">
                 {% endif %}
 
-                {{ object.animal }}
+                {{ object_animal }}
 
             {% endif %}
             {{ object.component }}
@@ -97,8 +97,8 @@
             
             </div>
 
-            {% if object.lore %}
-                <div class="lore-content mt-1 mb-2">{{ object.lore }}</div>
+            {% if object_lore %}
+                <div class="lore-content mt-1 mb-2">{{ object_lore }}</div>
             {% endif %}
 
             {% comment %} <a href={% url 'status-check' object.slug %}>
@@ -137,17 +137,28 @@
         </a>
         {% endif %}
 
-        {% if object.animal %}
+        {% if object_animal %}
             <a class='btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
-            {{ object.animal }}
+            {{ object_animal }}
             </a>
         {% endif %}
         
 
 
-        {% if object.description %}
-            <div class='mb-1 mt-1'>{{ object.description }}</div>
+        {% if object_description %}
+            <div class='mb-1 mt-1'>{{ object_description }}</div>
         {% endif %}
 
-
+        {% comment %} {% if language_queryset %}
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-translate"></i>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+                {% for language in language_queryset %}
+                <li><a class="dropdown-item" href="?lang={{language.code}}">{{language.name}}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %} {% endcomment %}
 </article>

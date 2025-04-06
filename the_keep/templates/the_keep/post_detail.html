@@ -28,13 +28,19 @@
 
 
     <!-- Show option to send Feedback -->
-     <div class='mb-2'>
+     <div class='mb-2 d-flex justify-content-between'>
         <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
             <small>
                 Is something missing or incorrect?
             </small>
         </a>
+        {% if available_translations or user.profile.admin or object.designer == user.profile %}
+            <a class='subtle-link' href="{% url 'post-translations' object.slug %}"><i class="bi bi-translate"></i></a>
+        {% endif %}
      </div>
+
+
+
 
 
 {% endblock content %} 

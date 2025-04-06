@@ -220,6 +220,7 @@ class Game(models.Model):
     official = models.BooleanField(default=True)
     final = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , null=True, blank=True, choices=StatusChoices.choices)
+    reach_value = models.IntegerField(null=True, blank=True)
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()

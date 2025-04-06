@@ -228,7 +228,8 @@ class MessageForm(forms.Form):
                 ('spam', 'Spam'),
                 ('other', 'Other'),
                 ('weird-root', 'Weird Root'),
-                ('french-root', 'French Root')
+                ('french-root', 'French Root'),
+                ('translation', 'Existing Translation Missing')
     ]
     
     title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
@@ -307,6 +308,7 @@ class MessageForm(forms.Form):
             self.fields['title'].choices = [
                 ('outdated', 'Outdated Information'),
                 ('incorrect', 'Incorrect Information'),
+                ('translation', 'Existing Translation Missing'),
                 ('offensive', 'Offensive Image/Language'),
                 ('spam', 'Spam'),
                 ('other', 'Other')

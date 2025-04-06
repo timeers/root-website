@@ -29,6 +29,7 @@ from .views import (
     color_group_view,
     animal_match_view,
     status_check,
+    translations_view, create_post_translation
 )
 from .api_views import search_posts
 from . import views
@@ -94,6 +95,9 @@ urlpatterns = [
     path('color/<str:color_name>/', color_group_view, name='color-group'),
     path("animals/<slug:slug>/", animal_match_view, name='animal-match'),
     path("status/<slug:slug>/", status_check, name='status-check'),
+    path("translations/<slug:slug>/", translations_view, name='post-translations'),
+    path("translations/<slug:slug>/new/", create_post_translation, name='translation-create'),
+    path("translations/<slug:slug>/update/<str:lang>/", create_post_translation, name='translation-update'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
     path('about/', views.about, name='keep-about'),

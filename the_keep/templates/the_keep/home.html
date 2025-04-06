@@ -1,6 +1,6 @@
-{% extends 'the_keep/base.html' %}
+{% extends 'the_keep/base_b.html' %}
 
-{% load static %}
+{% load static i18n %}
 
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
@@ -12,56 +12,49 @@
 <meta name="description" content="The {{site_title}} is a site for posting and discoverting fan-created content for the woodland war game, Root, by Leder Games">
 {% endblock meta%}
 
-{% block main_width_class %}col-12{% endblock %}
-{% block main_class %}{% endblock %}
+
 {% block content %}
 
-<div class="hero-container">
-    <div class="hero-image"></div>
-</div>
-<div>
-    {% comment %} <article class="media content-section"> {% endcomment %}
-    <div class='d-flex media-body'>
-        <div class='root-menu-title'>
-            <h1>The Archive</h1>
-            <p>Discover fan content by status, type, reach value or designer.</p>
-            <p>
-            {{faction_count}} Factions |
-            {{map_count}} Maps |
-            {{deck_count}} Decks 
-            </p>
-            <a href='{% url 'archive-home' %}'>View</a>
+<div class="homepage-image-container">
+    <img src="{% static 'images/homepage/Archive.png' %}" alt="The Archive Image">
+    <div class="text-overlay">
+        <div class="root-title title-overlay">
+            {% trans "The Archive" %}
         </div>
-        <div class='root-menu-title'>
-            <h1>The Warroom</h1>
-            <p>Record games and playtests of Root! Compare Faction standings and matchups.</p>
-            <a href='{% url 'games-home' %}'>View</a>
+        <div>
+            Discover fan content by status, type, reach value or designer.
         </div>
-        <div class='root-menu-title'>
-            <h1>The Workshop</h1>
-            <p>Submit your fan tocntent. Access PNP resources & templates.</p>
-            <a href='{% url 'asset-list' %}'>View</a>
-        </div>
-
-        <div class='root-menu-title'>
-            <h1>Quick Search</h1>
-            <p>Quickly find what you're looking for.<br>
-            Games | Resources | Colors | Pieces | Players</p>
-        </div>
+        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'archive-home' %}">View</a>
     </div>
-
-
-{% comment %} </article> {% endcomment %}
 </div>
 
-{% comment %} <div id="spinner" class="spinner" style="display: none;"> {% endcomment %}
-<div id="spinner" class="spinner">
-    <div class="image-container">
-        <img class="image back-image" src="{% static 'images/backgroundbushes.png'  %}" alt="Bushes">
-        <img class="image top-image" src="{% static 'images/smallbush.png'  %}" alt="Bushes">
-        <img class="image movement-image" src="{% static 'images/searchingvb.png'  %}" alt="VB">
+<div class="homepage-image-container">
+    <img src="{% static 'images/homepage/WarRoom.png' %}" alt="The War Room Image">
+    <div class="text-overlay text-overlay-right">
+        <div class="root-title title-overlay">
+            {% trans "The War Room" %}
+        </div>
+        <div>
+            Record games and playtests of Root! <br>Compare Faction standings and matchups.
+        </div>
+        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'games-home' %}">View</a>
+    </div>
+</div>
+
+<div class="homepage-image-container">
+    <img src="{% static 'images/homepage/Archive.png' %}" alt="The Workshop Image">
+    <div class="text-overlay">
+        <div class="root-title title-overlay">
+            {% trans "The Workshop" %}
+        </div>
+        <div>
+            Submit your fan content. <br>Access PNP resources & templates.
+        </div>
+        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'asset-list' %}">View</a>
     </div>
 </div>
 
 
 {% endblock content %}
+
+

@@ -1,0 +1,69 @@
+<!--Translations-->
+{% extends "the_keep/base.html" %}
+
+{% block content %}
+<div class='mt-1'>
+{% include 'the_keep/partials/post.html' %}
+</div>
+
+<div>
+    <h2 class='d-flex justify-content-center root-title'>
+        Available Translations
+    </h2>
+
+    <a href="{{ object.get_absolute_url }}?lang={{object.language.code}}">
+        <article class="content-section post-card d-flex justify-content-center root-title">
+            {{ object.title }} ({{object.language.name}})
+        </article>
+    </a>
+
+    {% for translation in other_translations %}
+    <div class="d-flex justify-content-between align-items-center">
+        <!-- First div (content section with title) -->
+        <div class="root-title flex-grow-1 w-100">
+            <a href="{{ object.get_absolute_url }}?lang={{translation.language.code}}">
+                <article class="content-section post-card d-flex justify-content-center">
+                    {% if translation.translated_title %}
+                        {{ translation.translated_title }} ({{translation.language.name}})
+                    {% else %}
+                        {{ object.title }} ({{translation.language.name}})
+                    {% endif %}
+                </article>
+            </a>
+        </div>
+        
+        {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
+
+        <!-- Second div (Update Translation button) -->
+        <div>
+            <a href="{% url 'translation-update' slug=object.slug lang=translation.language.code %}" class="btn btn-sm btn-warning mb-4 ml-3">
+                Update
+            </a>
+        </div>
+        {% endif %}
+    </div>
+    
+    {% endfor %}
+
+
+
+</div>
+
+{% if available_languages %}
+
+    {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
+        <div class="d-flex justify-content-center align-items-center">
+            <a href="{% url 'translation-create' slug=object.slug %}" class="btn btn-sm btn-success mb-3 ml-3">
+                New Translation
+            </a>
+        </div>
+    {% endif %}
+{% endif %}
+<div class='mb-2 d-flex justify-content-between'>
+    <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
+        <small>
+            Is an existing translation missing?
+        </small>
+    </a>
+ </div>
+{% endblock %}

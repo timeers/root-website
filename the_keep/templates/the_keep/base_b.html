@@ -1,10 +1,9 @@
 {% extends 'the_keep/template.html' %}
 
 {% block template %}
-    <main role="main" class="{% block main_class %}container main-content{% endblock %}" id="main-content">
+    <main role="main" id="main-content">
         
-      <div class="{% block main_row_class %}row{% endblock %}">
-        <div class="{% block main_width_class %}col-md-8{% endblock %}">
+        <div style="position: relative;">
             {% if background_image %}
                 <div class='background-image-padding' style="{{ background_image.style }}"></div>
             {% endif %}
@@ -16,17 +15,18 @@
             {% endif %}
 
             {% if messages %}
+            <div class="floating-alert">
                 {% for message in messages %}
                 <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}">
                     {{ message }}
                 </div>
                 {% endfor %}
+            </div>
             {% endif %}
 
           
             {% block content %}{% endblock %}
         </div>
-      </div>
 
     </main>
     {% endblock %}

@@ -19,10 +19,18 @@ class MessageChoices(models.TextChoices):
     INFO = 'info'
 
 
+class Language(models.Model):
+    code = models.CharField(max_length=10, unique=True)  # 'en', 'fr', etc.
+    name = models.CharField(max_length=50)
+
+    def __str__(self):
+        return self.name
+
 class Theme(models.Model):
     name = models.CharField(max_length=100)
     artist = models.CharField(max_length=100)
     artist_link = models.CharField(max_length=400, null=True, blank=True)
+    theme_artists = models.ManyToManyField('Profile', blank=True, related_name='theme_artwork')
     theme_color = models.CharField(
         max_length=7,
         default='#5f788a',
@@ -49,6 +57,7 @@ class PageChoices(models.TextChoices):
 class BackgroundImage(models.Model):
     name = models.CharField(max_length=100)    
     artist = models.CharField(max_length=100, blank=True, null=True)
+    background_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(upload_to='background_images')
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
@@ -92,6 +101,7 @@ class ForegroundImage(models.Model):
         THIRD = 102, 'Third Title'
     name = models.CharField(max_length=100)
     artist = models.CharField(max_length=100, blank=True, null=True)
+    foreground_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
     image = models.ImageField(upload_to='foreground_images')
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
@@ -154,10 +164,12 @@ class Profile(models.Model):
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
     tester = models.BooleanField(default=True)
-    in_weird_root = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
+    in_weird_root = models.BooleanField(default=False)
+    in_woodland_warriors = models.BooleanField(default=False)
     in_french_root = models.BooleanField(default=False)
     view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)
+    language = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True, blank=True)
 
     display_name = models.CharField(max_length=100, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
@@ -169,6 +181,7 @@ class Profile(models.Model):
     admin_onboard = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
+    credit_link = models.CharField(max_length=400, null=True, blank=True)
 
     @property
     def name(self):

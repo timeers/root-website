@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from pathlib import Path
 import json
+from django.utils.translation import gettext_lazy as _
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -190,7 +191,13 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'en'
+
+LANGUAGES = [
+    ('en', _('English')),
+    ('fr', _('French')),
+    ('es', _('Spanish')),
+]
 
 TIME_ZONE = 'UTC'
 
@@ -208,7 +215,9 @@ STATIC_URL = '/static/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
-# LOCALE_PATHS = os.path.join(BASE_DIR, 'locale')
+LOCALE_PATHS = [
+    BASE_DIR / 'locale',  # This is the folder where you'll store your translation files
+]
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap4"
 

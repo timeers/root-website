@@ -1,0 +1,137 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html>
+<head>
+
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    {% block meta %}{% endblock meta%}
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+    <!-- <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous"> -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" type="text/css" href="{% static 'the_keep/main.css' %}">
+
+    <!-- Select2 -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+
+    {% if title %}
+        <title>{{site_title}} - {{ title }}</title>
+    {% else %}
+        <title>{{site_title}}{% block title %}{% endblock %}</title>
+    {% endif %}
+    <link rel="icon" href="{% static 'images/DB_Only.png' %}" type="image/png">
+    <!-- Apple Bookmark Icon -->
+    <link rel="apple-touch-icon" href="{% static 'images/DB_Only.png' %}" type="image/png">
+
+    {% block head %}{% endblock head %}
+
+    <!-- HTMX -->
+    <script src="{% static 'js/htmx.min.js' %}"></script>
+    <script src="https://unpkg.com/hyperscript.org@0.9.13"></script>
+        
+    <!-- Scroll Timeline Polyfill -->
+    <script src="https://flackr.github.io/scroll-timeline/dist/scroll-timeline.js"></script>
+
+</head>
+<body{% if background_image.background_color %} style='--background-color: {{ background_image.background_color }};'{% elif theme %} style='--background-color: {{ theme.background_color }};'{% endif %}>
+    <!-- Header -->
+    {% include 'includes/header.html' %}
+
+    {% include 'the_gatehouse/partials/background.html' %}
+
+    {% block template %}{% endblock %}
+
+    <!--Footer-->
+    {% include 'includes/footer.html' %}
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <!-- <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script> -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>    
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+
+
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script> -->
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
+    <!-- <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script> -->
+    
+    <!-- Select2 -->
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+    <!-- ChartJS -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+
+<script>
+    $(document).ready(function () {
+        $(document.body).on("click", "tr[data-href]", function () {
+            window.location.href = this.dataset.href;
+        });
+    });
+</script>
+    {% block scripts %}{% endblock %}
+<script>
+    // Wait until the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchBar = document.getElementById('universal-search-bar');
+        const searchResults = document.getElementById('universal-search-results');
+        const searchButton = document.querySelector('.search-bar-submit');
+
+        // Function to hide the search results
+        function hideSearchResults() {
+            searchResults.style.display = 'none';
+        }
+
+        // Function to show search results
+        function showSearchResults() {
+            searchResults.style.display = 'block';
+        }
+
+        // Event listener for the search input to show the results when typing
+        searchBar.addEventListener('focus', function() {
+            showSearchResults();
+        });
+
+        // Close the search results when clicking outside
+        document.addEventListener('click', function(event) {
+            // Check if the click is outside the search bar or search results
+            if (!searchBar.contains(event.target) && !searchButton.contains(event.target) && !searchResults.contains(event.target)) {
+                hideSearchResults();
+            }
+        });
+
+        // Prevent the click event on the search bar or button from closing the results
+        searchBar.addEventListener('click', function(event) {
+            event.stopPropagation();
+        });
+
+        searchButton.addEventListener('click', function(event) {
+            event.stopPropagation();
+        });
+
+        document.body.addEventListener('htmx:afterSwap', function(event) {
+
+            // Only remove the spinner if the event is targeting the specific content area
+            if (event.target.id === 'search-contents') {
+                var spinner = event.target.querySelector('.htmx-indicator');
+                if (spinner) {
+  
+                    spinner.remove();  // Remove the spinner only inside the targeted content area
+                }
+            }
+        });
+
+    });
+</script>
+
+  </body>
+</html>

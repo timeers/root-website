@@ -110,6 +110,10 @@ def user_logged_in_handler(request, user, **kwargs):
         profile.in_french_root = True
         profile_updated = True
 
+    if not profile.in_woodland_warriors and in_ww:
+        profile.in_woodland_warriors = True
+        profile_updated = True
+
     if profile_updated:
         profile.save()
 

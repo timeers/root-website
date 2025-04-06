@@ -102,13 +102,14 @@
             {% endfor %}
             </div>
         {% endif %} {% endcomment %}
-        {% if user.profile.player %}
-            {% if game.notes %}
+        
+        {% if game.notes %}
             <div class='mb-1'>
                 {% comment %} <h4>Notes:</h4> {% endcomment %}
                 {{ game.notes }}
             </div>
-            {% endif %}
+        {% endif %}
+        {% if user.profile.player %}
             {% if game.link %}
             <div>
                 <a class='btn btn-primary mt-1' href="{{ game.link }}">
@@ -117,13 +118,14 @@
                 </a>
             </div>
             {% endif %}
-        
-            {% if game.recorder %}
-            <small>
-                Recorded by: {{ game.recorder.name }}
-            </small>
-            {% endif %}
         {% endif %}
+
+        {% if game.recorder %}
+        <small>
+            Recorded by: {{ game.recorder.name }}
+        </small>
+        {% endif %}
+
         {% if game.test_match %}
         <div class='lore-content'>
             <small>*Multihanded Playtests are not counted in Leaderboard standings</small>

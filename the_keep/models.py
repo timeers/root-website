@@ -18,7 +18,7 @@ from PIL import Image
 from io import BytesIO
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
-from the_gatehouse.models import Profile
+from the_gatehouse.models import Profile, Language
 from .utils import validate_hex_color, resize_image, delete_old_image, hex_to_rgb
 import random
 from django.conf import settings
@@ -33,6 +33,10 @@ game_threshold = 10
 player_threshold = 5
 
 p = inflect.engine()
+
+def get_default_language():
+    # Return the first Language object if it exists, otherwise return None
+    return Language.objects.first()
 
 def convert_animals_to_singular(text):
     # Remove any instances of "and" from the input string
@@ -222,6 +226,7 @@ class Post(models.Model):
     official = models.BooleanField(default=False)
     in_root_digital = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)
+    language = models.ForeignKey(Language, on_delete=models.SET_DEFAULT, null=True, blank=True, default=get_default_language)
 
     bgg_link = models.CharField(max_length=400, null=True, blank=True)
     tts_link = models.CharField(max_length=400, null=True, blank=True)
@@ -271,43 +276,6 @@ class Post(models.Model):
 
         return queryset
 
-    # def get_similar_colors(self, tolerance=100):
-    #     """
-    #     Get all posts that have a similar color to the current Post's color.
-    #     The tolerance defines how strict the color match should be.
-    #     """
-    #     if not self.color:
-    #         return None
-        
-    #     cache_key = f"similar_colors_{self.id}_{tolerance}"
-    #     cached_result = cache.get(cache_key)
-
-    #     if cached_result is not None:
-    #         return cached_result
-
-    #     target_rgb = (self.color_r, self.color_g, self.color_b)
-
-    #     # Query to find colors with Euclidean distance within the tolerance
-    #     queryset = Post.objects.annotate(
-    #         color_dist=ExpressionWrapper(
-    #             # Calculate the sum of squared differences for each RGB component
-    #             (
-    #                 (F('color_r') - target_rgb[0]) ** 2 +
-    #                 (F('color_g') - target_rgb[1]) ** 2 +
-    #                 (F('color_b') - target_rgb[2]) ** 2
-    #             ),
-    #             output_field=IntegerField()
-    #             )
-    #         ).filter(color_dist__lte=tolerance**2).exclude(id=self.id)  # Filter based on squared tolerance
-
-    #     # Cache the result for 5 minutes (you can adjust the time based on your use case)
-    #     cache.set(cache_key, queryset, timeout=300)
-
-    #     return queryset
-
-
-
-
     # Method to clean the animal name: remove special characters and handle plurals
     def clean_animal_name(self, name):
         # Remove special characters (keep only alphabetic characters and spaces)
@@ -345,13 +313,6 @@ class Post(models.Model):
         # Count how many of these fields are not None or empty
         count = 0
         for field in link_fields:
-            # Special handling for 'wr_link' if the user is authenticated and a member of WR
-            # if field == 'wr_link':
-            #     if user.is_authenticated:
-            #         if user.profile.in_weird_root:
-            #             if getattr(self, field):  # Checks if the field value is not None or empty string
-            #                 count += 1
-            # else:
                 if getattr(self, field):  # Checks if the field value is not None or empty string
                     count += 1
         return count
@@ -421,6 +382,10 @@ class Post(models.Model):
             animals = convert_animals_to_singular(self.animal)
             self.animal = animals
 
+        if not self.language:
+            language = Language.objects.first()
+            self.language = language
+
         super().save(*args, **kwargs)
 
         if new_post:
@@ -436,11 +401,11 @@ class Post(models.Model):
         # if self.board_image:
         resize_image(self.board_image, 950)  # Resize board_image
         # if self.board_2_image:
-        resize_image(self.board_image, 950)  # Resize board_image
+        resize_image(self.board_2_image, 950)  # Resize board_image
         # if self.card_image:
         resize_image(self.card_image, 350)  # Resize card_image
         # if self.card_2_image:
-        resize_image(self.card_image, 350)  # Resize card_image
+        resize_image(self.card_2_image, 350)  # Resize card_image
         # if self.picture:
         resize_image(self.picture, 350)
 
@@ -628,6 +593,41 @@ class Post(models.Model):
         
     class Meta:
         ordering = ['sorting', '-official', 'status', '-date_posted']
+
+
+
+class PostTranslation(models.Model):
+    post = models.ForeignKey(Post, related_name='translations', on_delete=models.CASCADE)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
+
+    translated_title = models.CharField(max_length=40, null=True, blank=True)
+    translated_lore = models.TextField(null=True, blank=True)
+    translated_description = models.TextField(null=True, blank=True)
+    translated_animal = models.CharField(max_length=25, null=True, blank=True)
+
+
+    translated_board_image = models.ImageField(upload_to='boards', null=True, blank=True)
+    translated_card_image = models.ImageField(upload_to='cards', null=True, blank=True)
+    translated_board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
+    translated_card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
+
+    class Meta:
+        unique_together = ('post', 'language')
+
+    def __str__(self):
+        if self.translated_title:
+            return self.translated_title
+        else:
+            return f'{self.post.title} ({self.language.code})'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+        resize_image(self.translated_board_image, 950)  # Resize board_image
+        resize_image(self.translated_board_2_image, 950)  # Resize board_image
+        resize_image(self.translated_card_image, 350)  # Resize card_image
+        resize_image(self.translated_card_2_image, 350)  # Resize card_image
 
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)

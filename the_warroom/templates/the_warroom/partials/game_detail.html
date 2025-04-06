@@ -72,9 +72,9 @@
                     <th>Detail</th>
                 {% endif %}
 
-                {% if user.profile.admin  %}
+                {% comment %} {% if user.profile.admin  %}
                     <th>Admin</th>
-                {% endif %}
+                {% endif %} {% endcomment %}
             </tr>
         </thead>
         <tbody class="effort-rows">

@@ -1,5 +1,5 @@
 
-{% if top_players or most_players or games  %}
+{% if top_players or most_players  %}
     {% if user.profile.player %}
         <article class="media content-section">
             <div class="media-body">
@@ -53,20 +53,21 @@
             </div>
         </article>
     {% endif %}
-
-    {% if games %}
-    
-    <article class="media content-section post-card">
-
-        <a href="{{ object.get_games_url }}" class="w-100">
-            <div>
-                <h3 class='root-title'>Games</h3>
-            </div>
-            <div>
-                View {{ games_total }} Game{% if games_total != 1 %}s{% endif %}
-            </div>
-        </a>
-    </article>
-    {% endif %}
-
 {% endif %}
+
+
+{% if games %}
+
+<article class="media content-section post-card">
+
+    <a href="{{ object.get_games_url }}" class="w-100">
+        <div>
+            <h3 class='root-title'>Games</h3>
+        </div>
+        <div>
+            View {{ games_total }} Game{% if games_total != 1 %}s{% endif %}
+        </div>
+    </a>
+</article>
+{% endif %}
+

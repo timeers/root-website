@@ -90,7 +90,7 @@ footer a:hover {
   }
 
   .root-title {
-    color: #444444;
+    /* color: #444444; */
     font-family: 'Luminari', serif; 
   }
 
@@ -1272,4 +1272,73 @@ tr.clickable-row:hover {
   height: 30px;                   /* Size of the color square */
   border-radius: 5px;             /* Optional: Rounded corners for the color square */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);  /* Soft drop shadow */
+}
+
+.homepage-image-container {
+  position: relative;
+  width: auto; /* You can set specific width/height for each image if needed */
+  height: 60vh; /* 60% of the viewport height */
+  min-height: 40vh;
+  min-width: 100vw;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+
+
+.homepage-image-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;  /* Ensure the image covers the container without distortion */
+}
+
+.text-overlay {
+  top: 20%;
+  position: absolute;
+  left: 20px;  /* Padding on the left */
+  color: white;
+  text-align: center;
+  padding: 0 10px;
+  background: rgba(0, 0, 0, 0.7); /* Solid color fallback */
+  border-radius: 10px; /* Rounded corners */
+}
+
+.title-overlay {
+  font-size: 2.5rem;
+  padding: 10px; /* Add some padding for mobile */
+}
+
+
+.text-overlay-right {
+  left: auto;
+  right: 20px;  /* Align text to the right side */
+
+}
+
+@media (max-width: 500px) {
+  .text-overlay {
+    top: 50%; /* Center vertically */
+    left: 50%; /* Center horizontally */
+    transform: translate(-50%, -50%); /* Offset by 50% to truly center the element */
+    width: auto;  /* Ensure it doesn't stretch unnecessarily */
+    min-width: 75%;
+  }
+}
+
+
+
+/* Ensures no extra space between images */
+.homepage-image-container:not(:last-child) {
+  margin-bottom: 0;
+}
+
+.floating-alert {
+  position: absolute; 
+  top: 0;  /* Position at the top of the page */
+  left: 0;
+  right: 0;
+  z-index: 99;  /* Ensure it's above other content */
+  padding: 10px;
 }

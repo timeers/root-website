@@ -72,7 +72,7 @@ class GameCreateForm(forms.ModelForm):
         fields = ['solo', 'coop', 'official', 'test_match', 'round', 
                   'platform', 'type', 'deck', 'map', 'random_clearing', 
                   'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
-                  'hirelings', 'link', 'tweaks', 'final', 'notes', 'nickname']
+                  'hirelings', 'link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -193,6 +193,7 @@ class GameCreateForm(forms.ModelForm):
             clockwork_count = 0
             human_count = 0
             coalition_count = 0
+            reach_value = 0
 
             # Check that all game components are official
             official_only = True
@@ -237,6 +238,7 @@ class GameCreateForm(forms.ModelForm):
                         player_roster.add(player)
 
                 if faction:
+                    reach_value = reach_value + faction.reach
                     if faction.type == "C": # Count the Clockwork Factions
                         clockwork_count += 1
                     else:
@@ -290,7 +292,8 @@ class GameCreateForm(forms.ModelForm):
             else:
                 cleaned_data['official'] = False
 
-
+            cleaned_data['reach_value'] = reach_value
+            
             if len(faction_roster) + max(0, vagabond_count-1) < 2:
                 validation_errors_to_display.append(f'Select at least two factions') 
                 progress_errors_to_display.append(f'Select at least two factions') 
