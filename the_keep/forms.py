@@ -135,6 +135,11 @@ class TranslationCreateForm(forms.ModelForm):
             'translated_card_image': 'Card Image', 
             'translated_card_2_image': 'Second Card Image'
         }
+        translated_board_image = forms.ImageField(required=False)
+        translated_board_2_image = forms.ImageField(required=False)
+        translated_card_image = forms.ImageField(required=False)
+        translated_card_2_image = forms.ImageField(required=False)
+        
     def __init__(self, *args, user=None, post=None, **kwargs):
         
         super().__init__(*args, **kwargs)

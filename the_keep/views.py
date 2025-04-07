@@ -2,6 +2,7 @@ import random
 # import logging
 from itertools import groupby
 from django.utils import timezone 
+from django.utils import translation
 from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse
@@ -501,9 +502,9 @@ def create_post_translation(request, slug, lang=None):
     if request.method == 'POST':
                 # If updating, prepopulate the form with the existing translation, otherwise create a new one
         if existing_translation:
-            form = TranslationCreateForm(request.POST, instance=existing_translation, post=post, user=post.designer)
+            form = TranslationCreateForm(request.POST, request.FILES, instance=existing_translation, post=post, user=post.designer)
         else:
-            form = TranslationCreateForm(request.POST, post=post, user=post.designer)
+            form = TranslationCreateForm(request.POST, request.FILES, post=post, user=post.designer)
 
         if form.is_valid():
             # Explicitly set the 'post' field to the post passed into the form
@@ -543,10 +544,10 @@ def ultimate_component_view(request, slug):
     # if request.user.is_authenticated:
     #     language = request.user.profile.language
 
-    language_code = request.GET.get('lang', None)
+    language_code_override = request.GET.get('lang', None)
     
-    if language_code:
-        language_code_object = Language.objects.filter(code=language_code).first()
+    if language_code_override:
+        language_code_object = Language.objects.filter(code=language_code_override).first()
         if language_code_object:
             language = language_code_object
     else:
@@ -804,6 +805,10 @@ def ultimate_component_view(request, slug):
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
+    
+    if language_code_override:
+        with translation.override(language_code_override):
+            return render(request, 'the_keep/post_detail.html', context)
     return render(request, 'the_keep/post_detail.html', context)
 
 
