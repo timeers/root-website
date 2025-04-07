@@ -1,3 +1,4 @@
+{% load i18n %}
 <div class="d-flex align-items-center mb-2 clickable-segment">
     <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
         {% if result.picture %}
@@ -21,7 +22,7 @@
             </div>
             <div>
                 {% if result.component %}
-                {% if result.official %}Official{% else %}Fan Made{% endif %}
+                {% if result.official %}{% trans 'Official' %}{% else %}{% trans 'Fan Made' %}{% endif %}
                 {{ result.component }}
                 {% endif %}
                 {% if result.designer %}

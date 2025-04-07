@@ -1,3 +1,4 @@
+{% load i18n %}
 <a href="{% url object.component|lower|add:'-detail' object.slug %}">
 <article class="media content-section">
 <div class="article-img-container">
@@ -9,7 +10,7 @@
         
         <h2>{{ object.title }}</h2>
 
-        {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }} by 
+        {% if object.official %}{% trans 'Official' %} {% else %}{% trans 'Fan Made' %} {% endif %}{{ object.component }} {% trans 'by' %} 
         <span class="mr-2">{{ object.designer.name }}</span>
     </div>
         <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>

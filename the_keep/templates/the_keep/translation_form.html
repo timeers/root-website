@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 {% block title %} - New Translation{% endblock %}
 {% block content %}
     <div class="content-section">
@@ -10,8 +10,8 @@
                 {{ form | crispy }}
             </fieldset>
             <div class="form-group">
-                <button class="btn btn-info" type="submit">Save</button>
-                <a class="btn btn-secondary" href="{% url 'post-translations' post.slug %}">Cancel</a>
+                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+                <a class="btn btn-secondary" href="{% url 'post-translations' post.slug %}">{% trans 'Cancel' %}</a>
             </div>
         </form>
     </div>

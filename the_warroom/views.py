@@ -36,7 +36,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  tester_required, player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.discordservice import send_discord_message
-from the_gatehouse.utils import get_uuid
+from the_gatehouse.utils import get_uuid, get_theme
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -104,12 +104,14 @@ class GameListView(ListView):
         # Create a dictionary to collect context values
         context_data = {}
 
+        theme = get_theme(self.request)
+
         if self.request.user.is_authenticated:
             profile = self.request.user.profile
-            theme = self.request.user.profile.theme
+            # theme = self.request.user.profile.theme
         else:
             profile = None
-            theme = None
+            # theme = None
 
         background_image = BackgroundImage.objects.filter(theme=theme, page="games").order_by('?').first()
         # foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")

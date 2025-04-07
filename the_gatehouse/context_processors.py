@@ -2,6 +2,7 @@
 from the_keep.models import Post
 from the_warroom.models import Game, ScoreCard
 from .models import Website
+from .utils import get_theme
 
 def active_user_data(request):
 
@@ -9,12 +10,6 @@ def active_user_data(request):
     site_title = config.site_title
     global_message = config.global_message
     global_message_type = config.message_type
-    post_count = 0
-    recent_posts = 0
-    in_process_games = 0
-    game_count = 0
-    unassigned_scorecards = 0
-    bookmarks = 0
 
     # You can add any data you want to be available in templates here
     if request.user.is_authenticated:
@@ -28,11 +23,18 @@ def active_user_data(request):
         bookmarked_games = profile.bookmarkedgames.count()
         bookmarked_posts = profile.bookmarkedposts.count()
         bookmarks = bookmarked_posts + bookmarked_games
-        theme = profile.theme
+        # theme = profile.theme
 
     else:
+        post_count = 0
+        recent_posts = 0
+        in_process_games = 0
+        game_count = 0
+        unassigned_scorecards = 0
+        bookmarks = 0
+        # theme = config.default_theme
 
-        theme = config.default_theme
+    theme = get_theme(request)
 
     return {
         'site_title': site_title,

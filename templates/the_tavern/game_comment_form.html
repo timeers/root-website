@@ -1,4 +1,4 @@
-
+{% load i18n %}
 
 <div style="display: flex; align-items: center;">
     <form class="inline-form"
@@ -8,6 +8,6 @@
             _="on htmx:afterRequest reset() me">
         {% csrf_token %}
         {{ commentform.body }}
-        <button class="btn btn-success btn-sm ml-1" type="submit">Submit</button>
+        <button class="btn btn-success btn-sm ml-1" type="submit">{% trans 'Submit' %}</button>
     </form>
 </div>

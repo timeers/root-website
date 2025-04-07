@@ -1,54 +1,56 @@
 <!-- Components -->
 {% extends "the_keep/base.html" %}
+{% load i18n %}
+
 
 {% block content %}
 <div class='root-title'>
     <h1 class='d-flex justify-content-center'>
-        Post a New
+        {% trans 'Post a New' %}
     </h1>
     <a href="{% url 'faction-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Faction
+            {% trans 'Faction' %}
         </article>
     </a>
     <a href="{% url 'vagabond-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Vagabond
+            {% trans 'Vagabond' %}
         </article>
     </a>
     <a href="{% url 'map-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Map
+            {% trans 'Map' %}
         </article>
     </a>
     <a href="{% url 'deck-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Deck
+            {% trans 'Deck' %}
         </article>
     </a>
     <a href="{% url 'landmark-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Landmark
+            {% trans 'Landmark' %}
         </article>
     </a>
     <a href="{% url 'clockwork-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Clockwork Faction
+            {% trans 'Clockwork Faction' %}
         </article>
     </a>
     <a href="{% url 'hireling-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Hireling
+            {% trans 'Hireling' %}
         </article>
     </a>
     <a href="{% url 'tweak-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                House Rule
+            {% trans 'House Rule' %}
         </article>
     </a>
     <a href="{% url 'expansion-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
-                Expansion
+            {% trans 'Expansion' %}
         </article>
     </a>
 </div>

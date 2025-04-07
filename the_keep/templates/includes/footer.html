@@ -1,15 +1,22 @@
+{% load i18n %}
 <footer class="footer" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
     <div class="footer-container">
         <div>2025 The {{site_title}}</div>
         <div>
-            <a href="{% url 'keep-about' %}">About</a> |
+            <a href="{% url 'keep-about' %}">{% trans 'About' %}</a> |
             {% if theme %}
-            <a href='{{ theme.artist_link }}'>Original Art by {{ theme.artist }}</a> |
+                {% for artist in theme.theme_artists.all %}
+                    {% if artist.credit_link %}
+                        <a href='{{ artist.credit_link }}'>{% trans 'Original Art by' %} {{ artist.name }}</a> |
+                    {% else %}
+                        <a href='{{ artist.get_absolute_url }}'>{% trans 'Original Art by' %} {{ artist.name }}</a> |
+                    {% endif %}
+                {% endfor %}
             {% endif %}
             {% if user.profile.player %}
                 <a href="https://discord.gg/Aspf4tAbJj">Discord</a> |
             {% endif %}
-            <a href="{% url 'general-feedback' %}">Feedback</a>
+            <a href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
         </div>
     </div>
 </footer>

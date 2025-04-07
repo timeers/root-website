@@ -1,4 +1,4 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 
 <form method="POST" action="">
     {% csrf_token %}
@@ -120,9 +120,9 @@
     <!-- <button class="btn btn-success htmx-inverted-indicator mb-2 mt-2" type="submit">Save</button> -->
 
     <!-- Save Progress and Submit Buttons -->
-     <button class="btn btn-success mb-2 mt-2" id="save" type="submit">Submit</button>
+     <button class="btn btn-success mb-2 mt-2" id="save" type="submit">{% trans 'Submit' %}</button>
 
-     <button class="btn btn-warning mb-2 mt-2" id="save-progress" type="button">Save Progress</button>
+     <button class="btn btn-warning mb-2 mt-2" id="save-progress" type="button">{% trans 'Save Progress' %}</button>
 
     
 
@@ -131,10 +131,10 @@
 
 
     {% if object.id %}
-        <a class="btn btn-secondary mb-2 mt-2"  href="{{ object.get_absolute_url }}">Cancel</a>
-        <a class="btn btn-danger mb-2 mt-2" href="{{ object.get_delete_url }}">Delete</a>
+        <a class="btn btn-secondary mb-2 mt-2"  href="{{ object.get_absolute_url }}">{% trans 'Cancel' %}</a>
+        <a class="btn btn-danger mb-2 mt-2" href="{{ object.get_delete_url }}">{% trans 'Delete' %}</a>
     {% else %}
-        <a class="btn btn-secondary mb-2 mt-2"  href="{% url 'games-home' %}">Cancel</a>
+        <a class="btn btn-secondary mb-2 mt-2"  href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
     {% endif %}
 
     

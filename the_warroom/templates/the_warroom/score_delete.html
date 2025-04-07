@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Delete{% endblock %}
 {% block content %}
 
@@ -10,8 +11,8 @@
         <p>This scorecard is linked to <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game }}</a>. Deleting this scorecard will not delete the linked game.</p>
     {% endif %}
     <p>Are you sure you want to delete the selected scorecard{% if object.faction %} for {{ object.faction.title }}{% endif %}? This cannot be undone.</p>
-    <button class="btn btn-danger" type="submit">Yes, delete</button>
-    <a class="btn btn-secondary" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
+    <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
+    <a class="btn btn-secondary" href="{% url 'detail-scorecard' object.id %}">{% trans 'Cancel' %}</a>
 </form>
 {% include 'the_warroom/partials/scorecard.html' %}
 {% endif %}

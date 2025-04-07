@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 
 {% block title %}
 {% if not object.id %}
@@ -25,12 +25,12 @@
             </fieldset>
 
             <div class="form-group">
-                <button class="btn btn-info" type="submit">Save</button>
+                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
                 
                 
-                <a class="btn btn-secondary" href="{% url 'asset-list' %}">Cancel</a>
+                <a class="btn btn-secondary" href="{% url 'asset-list' %}">{% trans 'Cancel' %}</a>
                 {% if object.id %}
-                    <a class="btn btn-danger" href="{% url 'asset-delete' object.id %}">Delete</a>
+                    <a class="btn btn-danger" href="{% url 'asset-delete' object.id %}">{% trans 'Delete' %}</a>
                 {% endif %}
             </div>
         </form>

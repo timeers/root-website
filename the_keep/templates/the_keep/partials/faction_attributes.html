@@ -1,31 +1,36 @@
+{% load i18n %}
 {% if object.component == 'Faction' %}
     {% if object.complexity != 'N' or object.aggression != 'N' or object.card_wealth != 'N' or object.crafting_ability != 'N' %}
     <div class="row">
         <div class="col-12 col-md-6">
             <div class="bar-container">
-                <div class="bar-label">Complexity</div> 
-                <div class="bar-background bar-background-{{ object.get_complexity_display|lower }}" style="--bar-color: {{ object.color }};">
-                    <div class="bar-text{% if object.get_complexity_display == 'None' %} bar-black-text{% endif %}">{{ object.get_complexity_display }}</div>
+                <div class="bar-label">{% trans 'Complexity' %}</div> 
+                {% comment %} <div class="bar-background bar-background-{{ object.get_complexity_display|lower }}" style="--bar-color: {{ object.color }};"> {% endcomment %}
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object.color }}; --bar-width: {{complexity_value}}">
+                    <div class="bar-text{% if object.complexity == 'N' %} bar-black-text{% endif %}">{{ object.get_complexity_display }}</div>
                 </div>
             </div>
             <div class="bar-container">
-                <div class="bar-label">Aggression</div> 
-                <div class="bar-background bar-background-{{ object.get_aggression_display|lower }}" style="--bar-color: {{ object.color }};">
-                    <div class="bar-text{% if object.get_aggression_display == 'None' %} bar-black-text{% endif %}">{{ object.get_aggression_display }}</div>
+                <div class="bar-label">{% trans 'Aggression' %}</div> 
+                {% comment %} <div class="bar-background bar-background-{{ object.get_aggression_display|lower }}" style="--bar-color: {{ object.color }};"> {% endcomment %}
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object.color }}; --bar-width: {{aggression_value}}">
+                    <div class="bar-text{% if object.aggression == 'N' %} bar-black-text{% endif %}">{{ object.get_aggression_display }}</div>
                 </div>
             </div>
         </div>
         <div class="col-12 col-md-6">
             <div class="bar-container">
-                <div class="bar-label">Card Wealth</div> 
-                <div class="bar-background bar-background-{{ object.get_card_wealth_display|lower }}" style="--bar-color: {{ object.color }};">
-                    <div class="bar-text{% if object.get_card_wealth_display == 'None' %} bar-black-text{% endif %}">{{ object.get_card_wealth_display }}</div>
+                <div class="bar-label">{% trans 'Card Wealth' %}</div> 
+                {% comment %} <div class="bar-background bar-background-{{ object.get_card_wealth_display|lower }}" style="--bar-color: {{ object.color }};"> {% endcomment %}
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object.color }}; --bar-width: {{card_wealth_value}}">
+                    <div class="bar-text{% if object.card_wealth == 'N' %} bar-black-text{% endif %}">{{ object.get_card_wealth_display }}</div>
                 </div>
             </div>
             <div class="bar-container">
-                <div class="bar-label">Crafting Ability</div> 
-                <div class="bar-background bar-background-{{ object.get_crafting_ability_display|lower }}" style="--bar-color: {{ object.color }};">
-                    <div class="bar-text{% if object.get_crafting_ability_display == 'None' %} bar-black-text{% endif %}">{{ object.get_crafting_ability_display }}</div>
+                <div class="bar-label">{% trans 'Crafting Ability' %}</div> 
+                {% comment %} <div class="bar-background bar-background-{{ object.get_crafting_ability_display|lower }}" style="--bar-color: {{ object.color }};"> {% endcomment %}
+                <div class="bar-background bar-background-variable" style="--bar-color: {{ object.color }}; --bar-width: {{crafting_ability_value}}">
+                    <div class="bar-text{% if object.crafting_ability == 'N' %} bar-black-text{% endif %}">{{ object.get_crafting_ability_display }}</div>
                 </div>
             </div>
         </div>

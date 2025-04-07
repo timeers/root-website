@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-
+{% load i18n%}
 {% block content %}
 
 <h1>Delete Comment</h1>
@@ -11,7 +11,7 @@ Unused? I think this is obsolete with HTMX
 <form method="POST">
     {% csrf_token %}
     <button class="btn btn-danger" type="submit">Confirm</button>
-    <a class="btn btn-secondary" href="{{ request.META.HTTP_REFERER }}">Cancel</a>
+    <a class="btn btn-secondary" href="{{ request.META.HTTP_REFERER }}">{% trans 'Cancel' %}</a>
 </form>
 
 {% endblock content %}

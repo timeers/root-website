@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - {{ object.title }} Games{% endblock %}
 
 {% include 'the_keep/partials/component_meta.html' %}
@@ -25,7 +26,7 @@
     <div class='mb-2'>
         <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
             <small>
-                Is something missing or incorrect?
+                {% trans 'Is something missing or incorrect?' %}
             </small>
         </a>
      </div>

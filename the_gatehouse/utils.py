@@ -1,7 +1,10 @@
 import random
 from django.utils.text import slugify
+# from django.utils.translation import get_language, get_language_from_request, activate
+from django.apps import apps
 import uuid
 from urllib.parse import urljoin
+from django.utils import timezone 
 
 
 def slugify_instance_discord(instance, save=False, new_slug=None):
@@ -73,3 +76,63 @@ def build_absolute_uri(request, relative_url):
     full_url = urljoin(get_base_url(request), relative_url)
     return full_url
 
+
+
+# def detect_language(request):
+
+#     if request.user.is_authenticated:
+#         profile = request.user.profile
+#         if profile.language:
+#             language = profile.language.code
+#             return language
+#     # First try getting from the request (browser or URL)
+#     language = get_language_from_request(request)
+    
+#     # If not found, fall back to session or default language
+#     if not language:
+#         language = get_language()
+    
+#     return language
+
+# def set_language(request):
+#     # Check if the user is logged in and has a saved language preference
+#     if request.user.is_authenticated and hasattr(request.user.profile, 'language'):
+#         user_language = request.user.profile.language.code
+#     elif 'language' in request.session:
+#         # Use the session value if available
+#         user_language = request.session['language']
+#     else:
+#         # Fall back to the browser's default language
+#         user_language = get_language_from_request(request)
+
+#     # Activate the language
+#     activate(user_language)
+
+#     # Optionally, store the selected language in the session
+#     request.session['language'] = user_language
+
+
+def get_theme(request):
+    now = timezone.now()
+    config = apps.get_model('the_gatehouse', 'Website').get_singular_instance()
+    
+    # Get the current holidays that are active
+    current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(start_date__lte=now, end_date__gte=now)
+    
+    # If there are any active holidays, get the most recent one
+    if current_holidays.exists():
+        current_holiday = current_holidays.order_by('-start_date').first()  # Get the holiday that started most recently
+        current_theme = apps.get_model('the_gatehouse', 'Theme').objects.filter(holiday=current_holiday).first()
+    else:
+        current_theme = None  # No active holiday theme
+    
+    # Determine the theme to use
+    if current_theme:
+        theme = current_theme
+    else:
+        if request.user.is_authenticated:
+            theme = request.user.profile.theme  # User's theme if authenticated
+        else:
+            theme = config.default_theme  # Default theme if user is not authenticated
+    
+    return theme

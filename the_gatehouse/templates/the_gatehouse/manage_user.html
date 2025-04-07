@@ -1,6 +1,6 @@
 
 {% extends "the_keep/base.html" %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 
 {% block content %}
 
@@ -68,15 +68,10 @@
 
     <!-- Submit button -->
     <div class="form-group">
-    <button class="btn btn-outline-info" type="submit">Save</button>
-    <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">Cancel</a>
+    <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
+    <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">{% trans 'Cancel' %}</a>
     </div>
     </form>
-    {% comment %} {% else %}
-    This account is not yet registered or the user is not a member of Woodland Warriors and cannot be edited.
-    <div>
-        <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">Cancel</a>
-    </div> {% endcomment %}
 
 </div>
 {% endblock %}

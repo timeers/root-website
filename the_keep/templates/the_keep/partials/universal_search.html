@@ -1,3 +1,4 @@
+{% load i18n %}
 <div class="navbar-nav mr-auto">
     <div class="search-bar">
         <input 
@@ -5,7 +6,7 @@
             class="search-bar-input"
             id="universal-search-bar" 
             name="query" 
-            placeholder="Find..." 
+            placeholder={% trans "Find..."  %}
             hx-get="{% url 'universal-search' %}" 
             hx-target="#universal-search-results" 
             hx-trigger="keyup changed delay:500ms" 

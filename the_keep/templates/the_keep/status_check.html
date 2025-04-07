@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 
 {% block meta %}
     {% include 'the_keep/partials/component_meta.html' %}
@@ -6,8 +7,7 @@
 
 {% block content %}
 <article class="content-section">
-    <h1 class="root-title">{{object.component}} Status</h1>
-
+    <h1 class="root-title">{{object_component}} {% trans 'Status' %}</h1>
     <a href='{{ object.get_absolute_url }}'>
         <div class="d-flex">
             <div class="article-img-container">
@@ -22,7 +22,7 @@
     <div class="row">
         <div class="col-12 col-md-12">
             <div class="bar-container">
-                <div class="bar-label">Progress</div> 
+                <div class="bar-label">{% trans 'Progress' %}</div> 
                 <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{total_completion}}">
                     <div class="bar-text{% if total_count == 0 %} bar-black-text{% endif %}">{{ total_count }}/{{ total_threshold }}</div>
                 </div>
@@ -34,17 +34,17 @@
 
     <div>
     {% if object.status == '5' %}
-        This {{ object.component }} has been abandoned by the designer and no further development is planned.
+        This {{ object_component }} has been abandoned by the designer and no further development is planned.
     {% elif object.status == '4' %}
-        This {{ object.component }} is not currently being worked on and is considered inactive.<br>
-        The designer, if they choose, can make this {{ object.component }} active again.
+        This {{ object_component }} is not currently being worked on and is considered inactive.<br>
+        The designer, if they choose, can make this {{ object_component }} active again.
     {% elif object.status == '3' %}
-        This {{ object.component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
+        This {{ object_component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
         Once a game has been recorded the designer can choose the "Testing" status.
     {% elif object.status == '2' %}
-        This {{ object.component }} is being tested, it has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
+        This {{ object_component }} is being tested, it has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
     {% elif object.status == '1' %}
-        This {{ object.component }} is considered stable and no major changes are expected.
+        This {{ object_component }} is considered stable and no major changes are expected.
     {% endif %}
     </div>
 </article>
@@ -52,16 +52,16 @@
 {% if object.status != '1' %}
     <article class="content-section">
         <div>
-            <h2 class='root-title'>Stability</h2>
-            There are two ways to mark this {{ object.component }} as Stable:<br>
+            <h2 class='root-title'>{% trans 'Stability' %}</h2>
+            There are two ways to mark this {{ object_component }} as Stable:<br>
             <li>
-            If this {{ object.component }} has a Stable Weird Root thread you can request to have the status changed.<br>
+            If this {{ object_component }} has a Stable Weird Root thread you can request to have the status changed.<br>
             </li>
             <li>
-            The designer can mark this {{ object.component }} as stable once these requirements have been met:<br>
+            The designer can mark this {{ object_component }} as stable once these requirements have been met:<br>
             </li>
             <ol>
-                {% if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork' %}
+                {% if object_component == 'Faction' or object_component == 'Vagabond' or object_component == 'Clockwork' %}
                 <li>
                     At Least 1 Win and 1 Loss
                 </li>
@@ -74,14 +74,14 @@
                 </li>
 
                 <li>
-                    {% if object.component == 'Faction' or object.component == 'Vagabond' %}Against{% else %}With{% endif %} the {{ official_faction_threshold }} Official Factions 
+                    {% if object_component == 'Faction' or object_component == 'Vagabond' %}Against{% else %}With{% endif %} the {{ official_faction_threshold }} Official Factions 
                 </li>
-                {% if object.component != 'Map' %}
+                {% if object_component != 'Map' %}
                 <li>
                     On the {{ official_map_threshold }} Official Maps
                 </li>
                 {% endif %}
-                {% if object.component != 'Deck' %}
+                {% if object_component != 'Deck' %}
                 <li>
                     With {{ official_deck_threshold }} of the Official Decks
                 </li>
@@ -96,7 +96,7 @@
 {% if play_count != 0 %}
     <article class="content-section">
         <div>
-            <h2 class='root-title'>Recorded Stats</h2>
+            <h2 class='root-title'>{% trans 'Recorded Stats' %}</h2>
 
             <div class="row">
                 
@@ -104,29 +104,29 @@
 
                 <div class="col-12 col-md-6">
                     <div class="bar-container">
-                        <div class="bar-label">Games Played</div> 
+                        <div class="bar-label">{% trans 'Games Played' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{play_completion}}">
                             <div class="bar-text{% if play_count == 0 %} bar-black-text{% endif %}">{{ play_count }}/{{ play_threshold }}</div>
                         </div>
                     </div>
                     <div class="bar-container">
-                        <div class="bar-label">Unique Players</div> 
+                        <div class="bar-label">{% trans 'Unique Players' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{player_completion}}">
                             <div class="bar-text{% if player_count == 0 %} bar-black-text{% endif %}">{{ player_count }}/{{ player_threshold }}</div>
                         </div>
                     </div>
                 </div>
 
-                {% if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork' %}
+                {% if object_component == 'Faction' or object_component == 'Vagabond' or object_component == 'Clockwork' %}
                 <div class="col-12 col-md-6">
                     <div class="bar-container">
-                        <div class="bar-label">Wins</div> 
+                        <div class="bar-label">{% trans 'Wins' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{win_completion}}">
                             <div class="bar-text{% if win_count == 0 %} bar-black-text{% endif %}">{{ win_count }}/1</div>
                         </div>
                     </div>
                     <div class="bar-container">
-                        <div class="bar-label">Losses</div> 
+                        <div class="bar-label">{% trans 'Losses' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{loss_completion}}">
                             <div class="bar-text{% if loss_count == 0 %} bar-black-text{% endif %}">{{ loss_count }}/1</div>
                         </div>
@@ -138,22 +138,22 @@
                 <div class="col-12 col-md-6">
 
                     <div class="bar-container">
-                        <div class="bar-label">Official Factions</div> 
+                        <div class="bar-label">{% trans 'Official Factions' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_faction_completion}}">
                             <div class="bar-text{% if official_faction_count == 0 %} bar-black-text{% endif %}">{{ official_faction_count }}/{{ official_faction_threshold }}</div>
                         </div>
                     </div>
-                    {% if object.component != 'Map' %}
+                    {% if object_component != 'Map' %}
                     <div class="bar-container">
-                        <div class="bar-label">Official Maps</div> 
+                        <div class="bar-label">{% trans 'Official Maps' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_map_completion}}">
                             <div class="bar-text{% if official_map_count == 0 %} bar-black-text{% endif %}">{{ official_map_count }}/{{ official_map_threshold }}</div>
                         </div>
                     </div>
                     {% endif %}
-                    {% if object.component != 'Deck' %}
+                    {% if object_component != 'Deck' %}
                     <div class="bar-container">
-                        <div class="bar-label">Official Decks</div> 
+                        <div class="bar-label">{% trans 'Official Decks' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_deck_completion}}">
                             <div class="bar-text{% if official_deck_count == 0 %} bar-black-text{% endif %}">{{ official_deck_count }}/{{ official_deck_threshold }}</div>
                         </div>
@@ -168,7 +168,7 @@
             <article class="content-section post-card">
                 <a href="{{ object.get_games_url }}">
                     <div>
-                        <h3 class='root-title'>Games</h3>
+                        <h3 class='root-title'>{% trans 'Games' %}</h3>
                     </div>
                     <div>
                         View {{ play_count }} Game{% if play_count != 1 %}s{% endif %}
@@ -179,7 +179,9 @@
 {% else %}
     <article class="content-section">
         <div>
-        <h2 class='root-title'>No Games Recorded</h2>
+        <h2 class='root-title'>
+            {% trans 'No Games Recorded' %}
+        </h2>
         </div>
     </article>
 {% endif %}
@@ -188,7 +190,7 @@
     <div class='mb-2'>
         <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
             <small>
-                Is something missing or incorrect?
+                {% trans 'Is something missing or incorrect?' %}
             </small>
         </a>
      </div>

@@ -1,3 +1,4 @@
+{% load i18n %}
 <div class="d-flex justify-content-between align-items-top">
 
     <div class="d-flex flex-nowrap ml-auto">
@@ -7,21 +8,21 @@
             {% if stable_ready|first %}
             <!-- Show option to Mark Stable -->
             <div>
-                <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> Stable</a>
+                <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> {% trans 'Stable' %}</a>
             </div>
             {% endif %}
         {% endif %}
         {% if testing_ready %}
         <!-- Show option to Mark Testing -->
             <div>
-                <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> Testing</a>
+                <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> {% trans 'Testing' %}</a>
             </div>
         {% endif %}
         {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
                 <!-- Show option to Edit -->
                 <div>
                     <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ object.get_edit_url }}">
-                        Edit {{ object.component }} <i class="bi bi-pencil-square"></i>
+                        {% trans 'Edit' %} {{ object.component }} <i class="bi bi-pencil-square"></i>
                     </a>
                 </div>
         {% endif %}
@@ -57,7 +58,7 @@
 
             {% endif %}
             {{ object.component }}
-                by 
+                {% trans 'by' %} 
             <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
         </div>
@@ -78,13 +79,13 @@
     
                 {% if object.artist %}
                 <div>
-                    Art by 
+                    {% trans 'Art by' %} 
                     <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
                 </div>
                 {% endif %}
                 {% if object.based_on %}
-                    Based on: <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a>
-                    by 
+                    {% trans 'Based on' %}: <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a>
+                    {% trans 'by' %} 
                     {% if user.profile.player %}
                         <a class="mr-2" href="{% url 'player-detail' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
                     {% else %}
@@ -109,23 +110,23 @@
 
             {% if object.status == '1' %}
             <a class="btn btn-outline-success btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {{ object.get_status_display }}
+                {% trans 'Stable' %}
                 <i class="bi bi-check-circle-fill"></i>
             {% elif object.status == '2' %}
             <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {{ object.get_status_display }}
+                {% trans 'Testing' %}
                 <i class="bi bi-play-circle-fill"></i>
             {% elif object.status == '3' %}
             <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {{ object.get_status_display }}
+                {% trans 'Development' %}
                 <i class="bi bi-wrench-adjustable-circle-fill"></i>
             {% elif object.status == '4' %}
             <a class="btn btn-outline-secondary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {{ object.get_status_display }}
+                {% trans 'Inactive' %}
                 <i class="bi bi-dash-circle-fill"></i>
             {% else %}
             <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {{ object.get_status_display }}
+                {% trans 'Abandoned' %}
                 <i class="bi bi-x-circle-fill"></i>
             {% endif %}
         </a>

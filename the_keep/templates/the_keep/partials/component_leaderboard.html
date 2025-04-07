@@ -1,4 +1,4 @@
-
+{% load i18n %}
 {% if top_players or most_players  %}
     {% if user.profile.player %}
         <article class="media content-section">
@@ -6,15 +6,15 @@
 
                 {% if top_players and user.profile.player or most_players and user.profile.player %}
 
-                    <h2 class='root-title'>Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+                    <h2 class='root-title'>{% if top_players and most_players %}{% trans 'Leaderboards' %}{% else %}{% trans 'Leaderboard' %}{% endif %}</h2>
 
                     {% if top_players and most_players %}
                     <ul class="nav nav-tabs" id="leaderboardTabs" role="tablist">
                         <li class="nav-item" role="presentation">
-                            <a class="nav-link active" id="winrate-leaderboard-tab" data-bs-toggle="tab" href="#winrate-leaderboard" role="tab" aria-controls="winrate-leaderboard" aria-selected="true">By Winrate</a>
+                            <a class="nav-link active" id="winrate-leaderboard-tab" data-bs-toggle="tab" href="#winrate-leaderboard" role="tab" aria-controls="winrate-leaderboard" aria-selected="true">{% trans 'By Winrate' %}</a>
                         </li>    
                         <li class="nav-item" role="presentation">
-                            <a class="nav-link" id="game-leaderboard-tab" data-bs-toggle="tab" href="#game-leaderboard" role="tab" aria-controls="game-leaderboard" aria-selected="false">By Games Won</a>
+                            <a class="nav-link" id="game-leaderboard-tab" data-bs-toggle="tab" href="#game-leaderboard" role="tab" aria-controls="game-leaderboard" aria-selected="false">{% trans 'By Games Won' %}</a>
                         </li>        
                         
                     </ul>
@@ -27,7 +27,7 @@
                         <div class="tab-content" id="tab-contents">
                             <div class="tab-pane active" id="winrate-leaderboard" role="tabpanel" aria-labelledby="winrate-leaderboard-tab">
                         {% else %}
-                            <h4>By Winrate</h4>
+                            <h4>{% trans 'By Winrate' %}</h4>
                         {% endif %}
                         {% with top_players as leaderboard_players %}
                             {% include 'the_gatehouse/partials/leaderboard.html' %}
@@ -39,7 +39,7 @@
                     {% if top_players and most_players %}
                         <div class="tab-pane" id="game-leaderboard" role="tabpanel" aria-labelledby="game-leaderboard-tab">
                     {% else %}
-                        <h4>By Games Won</h4>
+                        <h4>{% trans 'By Games Won' %}</h4>
                     {% endif %}
                     {% with most_players as leaderboard_players %}
                         {% include 'the_gatehouse/partials/leaderboard.html' %}
@@ -62,10 +62,10 @@
 
     <a href="{{ object.get_games_url }}" class="w-100">
         <div>
-            <h3 class='root-title'>Games</h3>
+            <h3 class='root-title'>{% trans 'Games' %}</h3>
         </div>
         <div>
-            View {{ games_total }} Game{% if games_total != 1 %}s{% endif %}
+            {% trans 'View' %} {{ games_total }} {% if games_total != 1 %}{% trans 'Games' %}{% else %}{% trans 'Game' %}{% endif %}
         </div>
     </a>
 </article>

@@ -1,4 +1,4 @@
-
+{% load i18n %}
 
 
 <article class="media content-section post-card" id="game-{{ game.id }}">
@@ -60,10 +60,10 @@
             <thead>
                 <tr>
                     {% if user.profile.player %}
-                    <th>Player</th>
+                    <th>{% trans 'Player' %}</th>
                     {% endif %}
-                    <th>Faction</th>
-                    <th>Score</th>
+                    <th>{% trans 'Faction' %}</th>
+                    <th>{% trans 'Score' %}</th>
                 </tr>
             </thead>
             <tbody class="effort-rows">

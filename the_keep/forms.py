@@ -9,11 +9,12 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status']
-bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'artist']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'artist', 'language']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -278,6 +279,10 @@ class PostCreateForm(forms.ModelForm):
         queryset=Profile.objects.exclude(discord__in=['kyleferrin', 'leder games']),
         required=False
     )
+    language = forms.ModelChoiceField(
+        queryset=Language.objects.all(),
+        empty_label=None
+    )
     class Meta:
         model = Post
         fields = top_fields + bottom_fields
@@ -322,16 +327,36 @@ class PostCreateForm(forms.ModelForm):
         
         post_instance = kwargs.pop('instance', None)
 
-
+        user_language = user.profile.language if user.profile.language else None
+        if user_language:
+            self.fields['language'].initial = user_language
+        else:
+            # If no language preference, fallback to English
+            self.fields['language'].initial = Language.objects.get(code='en')
 
         # If not admin user the designer will be the active user
         # Admin users can create posts for any user.
         if not user.profile.admin:
             self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
+            # Limit language choices to English and the user's language
+            if user_language:
+                self.fields['language'].queryset = Language.objects.filter(
+                    pk__in=[user_language.pk, Language.objects.get(code='en').pk]
+                )
+            else:
+                # If no language only allow English
+                self.fields['language'].queryset = Language.objects.filter(code='en')
         else:
             self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
             Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B")
-        )
+            )
+        # Remove language if it already exists
+        if post_instance:
+            self.fields.pop('language', None)
+
+        
+
+
         if not post_instance:
             self.fields['designer'].initial = user.profile.id
 
@@ -360,13 +385,15 @@ class PostCreateForm(forms.ModelForm):
         # Check if the post has any related plays and adjust the status choices accordingly
         if post_instance and post_instance.plays() > 0:
             # Add status '2' (Testing) only if the post has plays
-            self.fields['status'].choices.append(('2', 'Testing'))
+            # self.fields['status'].choices.append(('2', 'Testing'))
+            pass
         else:
             # Remove '2' (Testing) if no plays exist
             self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '2']
 
         if post_instance and post_instance.status == '1':
-            self.fields['status'].choices.append(('1', 'Stable'))
+            # self.fields['status'].choices.append(('1', 'Stable'))
+            pass
         else:
             # Remove '1' (Stable) if not already stable
             self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '1']
@@ -425,16 +452,16 @@ class PostCreateForm(forms.ModelForm):
 class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Map'
     title = forms.CharField(
-        label='Map Name',
+        label=_('Map Name'),
         required=True
     )
     clearings = forms.IntegerField(
-        label='Number of Clearings', initial=12,
+        label=_('Number of Clearings'), initial=12,
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
     fixed_clearings = forms.BooleanField(
-        label='This map has fixed suits for each clearing by default', initial=False, required=False
+        label=_('This map has fixed suits for each clearing by default'), initial=False, required=False
     )
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Map']),
@@ -445,15 +472,15 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     #     required=False
     # )
     board_image = forms.ImageField(
-        label='Map',  # Set the label for the picture field
+        label=_('Map'),  # Set the label for the picture field
         required=True
     )
     card_image = forms.ImageField(
-        label='Card', 
+        label=_('Card'), 
         required=False
     )
     card_2_image = forms.ImageField(
-        label='Card Back', 
+        label=_('Card Back'), 
         required=False
     )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
@@ -489,11 +516,11 @@ class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
 class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Deck'
     title = forms.CharField(
-        label='Deck Name',
+        label=_('Deck Name'),
         required=True
     )
     card_total = forms.IntegerField(
-        label='Card Count', initial=54,
+        label=_('Card Count'), initial=54,
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
@@ -502,7 +529,7 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     card_image = forms.ImageField(
-        label='Card Back',  # Set the label for the card_image field
+        label=_('Card Back'),  # Set the label for the card_image field
         required=True
     )
     # picture = forms.ImageField(
@@ -546,7 +573,7 @@ class LandmarkImportForm(PostImportForm):  # Inherit from PostCreateForm
 class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Landmark'
     title = forms.CharField(
-        label='Landmark Name',
+        label=_('Landmark Name'),
         required=True
     )
     based_on = forms.ModelChoiceField(
@@ -554,15 +581,15 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     picture = forms.ImageField(
-        label='Landmark Art',  # Set the label for the picture field
+        label=_('Landmark Art'),  # Set the label for the picture field
         required=False
     )
     card_image = forms.ImageField(
-        label='Landmark Card Front',  # Set the label for the card_image field
+        label=_('Landmark Card Front'),  # Set the label for the card_image field
         required=True
     )
     card_2_image = forms.ImageField(
-        label='Card Back',  # Set the label for the card_image field
+        label=_('Card Back'),  # Set the label for the card_image field
         required=False
     )
     def __init__(self, *args, **kwargs):
@@ -591,7 +618,7 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Tweak'
     title = forms.CharField(
-        label='Tweak Name',
+        label=_('House Rule Name'),
         required=True
     )
     based_on = forms.ModelChoiceField(
@@ -599,7 +626,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=True
     )
     picture = forms.ImageField(
-        label='Tweak Art',  # Set the label for the picture field
+        label=_('House Rule Art'),  # Set the label for the picture field
         required=False
     )
     def __init__(self, *args, **kwargs):
@@ -634,13 +661,13 @@ class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
 class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Hireling'
     title = forms.CharField(
-        label='Hireling Name',
+        label=_('Hireling Name'),
         required=True
     )
     animal = forms.CharField(required=True)
     TYPE_CHOICES = [
-        ('P', 'Promoted'),
-        ('D', 'Demoted'),
+        ('P', _('Promoted')),
+        ('D', _('Demoted')),
     ]
     type = forms.ChoiceField(
         choices=TYPE_CHOICES, initial="P",
@@ -650,29 +677,29 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Faction', 'Hireling']),
         required=False,
-        label="Based On (Faction or other Hireling):"
+        label=_("Based On (Faction or other Hireling):")
     )
     other_side = forms.ModelChoiceField(
         queryset=Hireling.objects.all(),
         required=False,
-        label="Other Side"
+        label=_("Other Side")
     )
     picture = forms.ImageField(
-        label='Character Art',  # Set the label for the picture field
+        label=_('Character Art'),  # Set the label for the picture field
         required=False
     )
     color = forms.CharField(
         max_length=7,  # Color code length (e.g., #FFFFFF)
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
-        label="Hireling Color"
+        label=_("Hireling Color")
     )
     color_group = forms.ChoiceField(
         choices=ColorChoices.choices,
         required=True
     )
     board_image = forms.ImageField(
-        label='Hireling Card',
+        label=_('Hireling Card'),
         required=True
     )
     class Meta(PostCreateForm.Meta): 
@@ -704,7 +731,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 class VagabondCreateForm(PostCreateForm): 
     form_type = 'Vagabond'
     title = forms.CharField(
-        label='Vagabond Name',
+        label=_('Vagabond Name'),
         required=True
     )
     animal = forms.CharField(required=True)
@@ -722,11 +749,11 @@ class VagabondCreateForm(PostCreateForm):
         required=False
     )
     picture = forms.ImageField(
-        label='Character Art',  # Set the label for the picture field
+        label=_('Character Art'),  # Set the label for the picture field
         required=False
     )
     card_image = forms.ImageField(
-        label='Vagabond Card',  # Set the label for the card_image field
+        label=_('Vagabond Card'),  # Set the label for the card_image field
         required=True
     )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
@@ -793,21 +820,21 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Faction'
     STYLE_WIDGET = forms.RadioSelect()
     title = forms.CharField(
-        label='Faction Name',
+        label=_('Faction Name'),
         required=True
     )
     animal = forms.CharField(required=True)
     TYPE_CHOICES = [
-        ('I', 'Insurgent'),
-        ('M', 'Militant'),
+        ('I', _('Insurgent')),
+        ('M', _('Militant')),
     ]
 
     def create_style_choice_field(field_name):
         STYLE_CHOICES = [
-            ('N', 'None'),
-            ('L', 'Low'),
-            ('M', 'Moderate'),
-            ('H', 'High'),
+            ('N', _('None')),
+            ('L', _('Low')),
+            ('M', _('Moderate')),
+            ('H', _('High')),
         ]
         return forms.ChoiceField(
             choices=STYLE_CHOICES, initial="M", 
@@ -828,30 +855,30 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     card_image = forms.ImageField(
-        label='ADSET Card',  # Set the label for the card_image field
+        label=_('ADSET Card'),  # Set the label for the card_image field
         required=False
     )
     picture = forms.ImageField(
-        label='Character Art',  # Set the label for the picture field
+        label=_('Character Art'),  # Set the label for the picture field
         required=False
     )
     board_image = forms.ImageField(
-        label='Faction Board Front',  # Set the label for the faction board field
+        label=_('Faction Board Front'),  # Set the label for the faction board field
         required=True
     )
     board_2_image = forms.ImageField(
-        label='Faction Board Back',  # Set the label for the faction board back field
+        label=_('Faction Board Back'),  # Set the label for the faction board back field
         required=False
     )
     small_icon = forms.ImageField(
-        label='Icon (Faction Head or Meeple)',  # Set the label for the picture field
+        label=_('Icon (Faction Head or Meeple)'),  # Set the label for the picture field
         required=False
     )
     color = forms.CharField(
         max_length=7,  # Color code length (e.g., #FFFFFF)
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
-        label="Faction Color"
+        label=_("Faction Color")
     )
     color_group = forms.ChoiceField(
         choices=ColorChoices.choices,
@@ -918,7 +945,7 @@ class FactionImportForm(PostImportForm):
 class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     form_type = 'Clockwork Faction'
     title = forms.CharField(
-        label='Clockwork Faction Name',
+        label=_('Clockwork Faction Name'),
         required=True
     )
     animal = forms.CharField(required=True)
@@ -928,25 +955,25 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     picture = forms.ImageField(
-        label='Character Art',  # Set the label for the picture field
+        label=_('Character Art'),  # Set the label for the picture field
         required=False
     )
     small_icon = forms.ImageField(
-        label='Icon (Meeple or Relationship Marker)',  # Set the label for the picture field
+        label=_('Icon (Meeple or Relationship Marker)'),  # Set the label for the picture field
         required=False
     )
     color = forms.CharField(
         max_length=7,  # Color code length (e.g., #FFFFFF)
         widget=forms.TextInput(attrs={'type': 'color', 'class': 'form-control'}),
         required=False,
-        label="Faction Color"
+        label=_("Faction Color")
     )
     color_group = forms.ChoiceField(
         choices=ColorChoices.choices,
         required=True
     )
     board_image = forms.ImageField(
-        label='Faction Board Front',  # Set the label for the faction board field
+        label=_('Faction Board Front'),  # Set the label for the faction board field
         required=True
     )
     class Meta(PostCreateForm.Meta): 
@@ -975,7 +1002,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             self.instance.type = "C"
 
         self.fields['description'].widget.attrs.update({
-            'placeholder': 'Give a brief explanation on how to use this Clockwork Faction...'
+            'placeholder': _('Give a brief explanation on how to use this Clockwork Faction...')
             })
         if instance:
             # Exclude the current instance from the queryset
@@ -996,7 +1023,7 @@ class PieceForm(forms.ModelForm):
         widgets = {
             'name': forms.TextInput(attrs={
                 'style': 'width: 75px;',  # Adjust the width here
-                'placeholder': 'Name'  # Add placeholder text for the name field
+                'placeholder': _('Name')  # Add placeholder text for the name field
             }),
             'quantity': forms.NumberInput(attrs={
                 'inputmode': 'numeric',  # Mobile-friendly number input
@@ -1029,7 +1056,7 @@ class PNPAssetCreateForm(forms.ModelForm):
             'link': 'Enter the direct link to this asset (Google Drive, Dropbox, etc). The more specific the better.'
         }
         labels = {
-            'file_type': 'File Type'
+            'file_type': _('File Type')
         }
 
     def __init__(self, *args, **kwargs):

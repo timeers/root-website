@@ -1,10 +1,10 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - About{% endblock %}
-{% load static %}
+{% load static i18n %}
 
 {% block content %}
 
-<h1>About</h1>
+<h1>{% trans 'About' %}</h1>
 
 <div class='mb-4'>
     Welcome to the {{site_title}}, an unofficial collection of components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.

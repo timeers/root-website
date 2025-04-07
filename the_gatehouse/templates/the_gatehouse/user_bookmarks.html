@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Bookmarks{% endblock %}
 {% block content %}
 
@@ -15,7 +16,7 @@
     </div>
         <div class="media-body">
             <div class='d-flex flex-nowrap'>
-            <h1 class="account-heading root-title">My Bookmarks</h1>
+            <h1 class="account-heading root-title">{% trans 'My Bookmarks' %}</h1>
 
             </div>
 

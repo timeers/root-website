@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Delete{% endblock %}
 {% block content %}
     <div class="content-section">
@@ -9,8 +10,8 @@
                 <p>Are you sure you want to delete the {{ object.category }} asset link for {{ object.title }}? This cannot be undone.</p>
             </fieldset>
             <div class="form-group">
-                <button class="btn btn-danger" type="submit">Yes, Delete</button>
-                <a class="btn btn-secondary" href="{% url 'asset-list' %}">Cancel</a>
+                <button class="btn btn-danger" type="submit">{% trans 'Yes, Delete' %}</button>
+                <a class="btn btn-secondary" href="{% url 'asset-list' %}">{% trans 'Cancel' %}</a>
             </div>
         </form>
     </div>

@@ -1,34 +1,34 @@
-{% load static %}
+{% load static i18n %}
 {% load allauth socialaccount %}
 {% get_providers as socialaccount_providers %}
 
 <article class="media content-section">
     
     <div class="media-body">
-    <h2 class='root-title'>Link{% if links_count != 1 %}s{% endif %}</h2>
+    <h2 class='root-title'>{% if links_count != 1 %}{% trans 'Links' %}{% else %}{% trans 'Link' %}{% endif %}</h2>
     <div class="d-flex flex-wrap justify-content-between">
     {% if object.leder_games_link %}
         <a class="mr-2 mt-1" href="{{ object.leder_games_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/LG.jpg' %}" alt="Leder Games">
-            Find at Leder Games
+            {% trans 'Find at Leder Games' %}
         </a>
     {% endif %}
     {% if object.bgg_link %}
         <a class="mr-2 mt-1" href="{{ object.bgg_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/BGG.jpg' %}" alt="Board Game Geek">
-            Board Game Geek Post
+            {% trans 'Board Game Geek Post' %}
         </a>
     {% endif %}
     {% if object.tts_link %}
         <a class="mr-2 mt-1" href="{{ object.tts_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/TTS.jpg' %}" alt="Tabletop Simulator">
-            Tabletop Simulator
+            {% trans 'Tabletop Simulator' %}
         </a>
     {% endif %}
     {% if object.ww_link %}
         <a class="mr-2 mt-1" href="{{ object.ww_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WW.jpg' %}" alt="Woodland Warriors">
-            Woodland Warriors Thread
+            {% trans 'Woodland Warriors Thread' %}
         </a>
     {% endif %}
 
@@ -37,23 +37,23 @@
             {% if user.profile.in_weird_root %}
             <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-                Weird Root Thread
+                {% trans 'Weird Root Thread' %}
             </a>
             {% elif user.profile.player %}
                 <a class="mr-2 mt-1" href="{% url 'weird-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-                    Request Invite to WR
+                    {% trans 'Request Invite to WR' %}
                 </a>
             {% else %}
                 <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-                    Join on Discord for Link
+                    {% trans 'Join on Discord for Link' %}
                 </span>
             {% endif %}
         {% else %}
             <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.jpg' %}" alt="Weird Root">
-                Log In for Link
+                {% trans 'Log In for Link' %}
             </a>
         {% endif %}
     {% endif %}
@@ -64,23 +64,23 @@
             {% if user.profile.in_french_root %}
                 <a class="mr-2 mt-1" href="{{ object.fr_link }}" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
-                    French Root Thread
+                    {% trans 'French Root Thread' %}
                 </a>
             {% elif user.profile.player %}
                 <a class="mr-2 mt-1" href="{% url 'french-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
-                    Request Invite to FR
+                    {% trans 'Request Invite to FR' %}
                 </a>
             {% else %}
                 <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
-                    Join on Discord for Link
+                    {% trans 'Join on Discord for Link' %}
                 </span>
             {% endif %}
         {% else %}
             <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.jpg' %}" alt="French Root">
-                Log In for Link
+                {% trans 'Log In for Link' %}
             </a>
         {% endif %}
     {% endif %}
@@ -88,13 +88,13 @@
     {% if object.pnp_link  %}
         <a class="mr-2 mt-1" href="{{ object.pnp_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/PNP.jpg' %}" alt="Print & Play">
-            Print & Play Files
+            {% trans 'Print & Play Files' %}
         </a>
     {% endif %}
     {% if object.stl_link  %}
         <a class="mr-2 mt-1" href="{{ object.stl_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/STL.jpg' %}" alt="STL Files">
-            STL Files
+            {% trans 'STL Files' %}
         </a>
     {% endif %}
     </div>

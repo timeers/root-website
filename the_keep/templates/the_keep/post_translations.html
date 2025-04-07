@@ -1,5 +1,6 @@
 <!--Translations-->
 {% extends "the_keep/base.html" %}
+{% load i18n %}
 
 {% block content %}
 <div class='mt-1'>
@@ -54,7 +55,7 @@
     {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
         <div class="d-flex justify-content-center align-items-center">
             <a href="{% url 'translation-create' slug=object.slug %}" class="btn btn-sm btn-success mb-3 ml-3">
-                New Translation
+                {% trans 'New Translation' %}
             </a>
         </div>
     {% endif %}
@@ -62,7 +63,7 @@
 <div class='mb-2 d-flex justify-content-between'>
     <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
         <small>
-            Is an existing translation missing?
+            {% trans 'Is an existing translation missing?' %}
         </small>
     </a>
  </div>

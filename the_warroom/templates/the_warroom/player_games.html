@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static i18n %}
 {% block title %} - Games{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
@@ -16,7 +16,7 @@
 <div style="display: flex; align-items: center;">
     <a href="{% url 'player-detail' player.slug %}">{{ player.name }}'s Profile</a>
     <i class="bi bi-chevron-right"></i>
-    Games
+    {% trans 'Games' %}
 </div>
 
 <div class="media content-section">
@@ -52,25 +52,25 @@
             {{ form.faction }}
         </div>   
         <div class="mb-1">
-            Map:
+            {% trans 'Map' %}:
             {{ form.map }}
         </div>    
         <div class="mb-1">
-        Deck:
+            {% trans 'Deck' %}:
         {{ form.deck }}
         </div>
         <div class="mb-1">
-        Factions:
+            {% trans 'Factions' %}:
         {{ form.factions }}
-        Vagabonds:
+        {% trans 'Vagabonds' %}:
         {{ form.vagabonds }}
         </div>
         <div class="mb-1">
-        Players:
+            {% trans 'Players' %}:
         {{ form.players }}
         </div>
 
-        <button class="btn btn-primary mb-3">Filter</button>
+        <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
     </form>
 
 

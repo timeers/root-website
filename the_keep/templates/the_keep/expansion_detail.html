@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static i18n %}
 {% block title %} - {{ expansion.title }}{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
@@ -23,7 +23,7 @@
         {% endif %}
 </div>
         {% if expansion.designer %}
-            by 
+        {% trans 'by' %} 
                 {% if user.profile.player %}
                         <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
                 {% else %}
@@ -53,7 +53,13 @@
 
         {% if expansion.get_posts %}
             {% if expansion.get_factions %}
-            <h2>Faction{% if expansion.get_factions.count != 1 %}s{% endif %}</h2>
+            <h2>
+                {% if expansion.get_factions.count != 1 %}
+                        {% trans 'Factions' %} 
+                {% else %}
+                        {% trans 'Faction' %} 
+                {% endif %}
+        </h2>
             {% for object in expansion.get_factions %}
                 
                     {% include 'the_keep/partials/post.html' %}

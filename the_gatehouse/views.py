@@ -5,6 +5,7 @@ from django.db import connection
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.utils.translation import gettext_lazy as _
 from django.views.generic import ListView, UpdateView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator, EmptyPage
@@ -878,17 +879,18 @@ def get_feedback_context(request, message_category, feedback_subject=None):
 
     # Page Title Logic
     if message_category == 'report':
-        page_title = f'Report {feedback_subject}'
+        page_title = _('Report {subject}').format(subject=feedback_subject)
     elif message_category == 'weird-root':
-        page_title = f'Request Invite to Weird Root'
+        page_title = _('Request Invite to Weird Root')
     elif message_category == 'french-root':
-        page_title = f'Request Invite to French Root'
+        page_title = _('Request Invite to French Root')
     elif message_category == 'request':
-        page_title = f'Request a New Post'
+        page_title = _('Request a New Post')
     elif message_category:
-        page_title = f"Send {message_category.title()}"
+        page_title = _('Send {category}').format(category=message_category.title())
     else:
-        page_title = "Send Feedback"
+        page_title = _('Send Feedback')
+
 
     # Authentication Check
     if not request.user.is_authenticated and (message_category == 'request' or message_category == 'weird-root' or message_category == 'french-root'):

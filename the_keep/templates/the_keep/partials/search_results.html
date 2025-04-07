@@ -1,3 +1,4 @@
+{% load i18n %}
 <div id="search-results">
     <div id="search-contents">
 {% if posts %}
@@ -33,7 +34,7 @@
 
 
 {% else %}
-    <h3>No results</h3>
+    <h3>{% trans 'No Results' %}</h3>
 {% endif %}
 
         </div>

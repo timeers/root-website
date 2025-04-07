@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Delete{% endblock %}
 {% block content %}
 <form method="POST" action=".">
@@ -6,7 +7,7 @@
     <h1>Delete Series?</h1>
     <p>Are you sure you want to delete the selected series? This cannot be undone.</p>
     <p>The games related to this series will not be removed.</p>
-    <button class="btn btn-danger" type="submit">Yes, delete</button>
-    <a class="btn btn-secondary" href="{% url 'tournament-detail' tournament.slug %}">Cancel</a>
+    <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
+    <a class="btn btn-secondary" href="{% url 'tournament-detail' tournament.slug %}">{% trans 'Cancel' %}</a>
 </form>
 {% endblock content %}

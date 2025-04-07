@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - New Series{% endblock %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 {% block content %}
     <div class="content-section">
         <form method="POST">
@@ -15,12 +15,12 @@
                 {{ form | crispy }}
             </fieldset>
             <div class="form-group">
-                <button class="btn btn-info" type="submit">Save</button>
+                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
                 {% if not object.id %}
-                <a class="btn btn-secondary" href="{% url 'tournaments-home' %}">Cancel</a>
+                <a class="btn btn-secondary" href="{% url 'tournaments-home' %}">{% trans 'Cancel' %}</a>
                 {% else %}
-                <a class="btn btn-secondary" href="{% url 'tournament-detail' object.slug %}">Cancel</a>
-                <a class="btn btn-danger" href="{% url 'tournament-delete' object.slug %}">Delete</a>
+                <a class="btn btn-secondary" href="{% url 'tournament-detail' object.slug %}">{% trans 'Cancel' %}</a>
+                <a class="btn btn-danger" href="{% url 'tournament-delete' object.slug %}">{% trans 'Delete' %}</a>
                 {% endif %}
             </div>
         </form>

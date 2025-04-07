@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Stable{% endblock %}
 {% block content %}
 <article class="content-section">
@@ -19,8 +20,8 @@ Of course this does not mean that this {{ post.component }} will be completely b
 <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-    <button class="btn btn-success" type="submit">Yes!</button>
-    <a href="{{ post.get_absolute_url }}" class="btn btn-secondary">Not yet...</a href="{{ post.get_absolute_url }}">
+    <button class="btn btn-success" type="submit">{% trans 'Yes!' %}</button>
+    <a href="{{ post.get_absolute_url }}" class="btn btn-secondary">{% trans 'Not yet...' %}</a href="{{ post.get_absolute_url }}">
 </form>
 </article>
 {% endblock content %}

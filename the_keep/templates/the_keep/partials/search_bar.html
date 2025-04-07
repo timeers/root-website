@@ -1,3 +1,4 @@
+{% load i18n %}
 <article class="media content-section">
     <div class="media-body">
 <form class="mb-2"
@@ -6,12 +7,12 @@
     hx-swap="outerHTML"
     hx-trigger="submit, input delay:0.3s">
     {% comment %} <input type="text" name="search" placeholder="Search name or animal..." value="{{ search }}"> {% endcomment %}
-    <input type="text" name="search" id="search" placeholder="Search by Name or Animal..." value="{{ search }}" class="form-control mb-1">
+    <input type="text" name="search" id="search" placeholder={% trans "Search by Name or Animal..." %} value="{{ search }}" class="form-control mb-1">
 
         <!-- Designer Search Dropdown -->
 
             <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
-                <option value="">Select Designer</option>
+                <option value="">{% trans 'Select Designer' %}</option>
                 {% for designer in designers %}
                     <option value="{{ designer.id }}" {% if designer.id == search_type %}selected{% endif %}>
                         {{ designer }}
@@ -22,30 +23,30 @@
 
 
             <select id="search_type" class="form-select" name="search_type" value="{{ search_type }}" onchange="toggleFactionFields()">
-                <option value="">All Components</option>  
-                <option value="faction" {% if search_type == 'faction' %}selected{% endif %}>Faction</option>
-                <option value="vagabond" {% if search_type == 'vagabond' %}selected{% endif %}>Vagabond</option>
-                <option value="map" {% if search_type == 'map' %}selected{% endif %}>Map</option>
-                <option value="deck" {% if search_type == 'deck' %}selected{% endif %}>Deck</option>
-                <option value="landmark" {% if search_type == 'landmark' %}selected{% endif %}>Landmark</option>
-                <option value="hireling" {% if search_type == 'hireling' %}selected{% endif %}>Hireling</option>
-                <option value="clockwork" {% if search_type == 'clockwork' %}selected{% endif %}>Clockwork</option>
-                <option value="tweak" {% if search_type == 'tweak' %}selected{% endif %}>House Rules</option>
+                <option value="">{% trans 'All Components' %}</option>  
+                <option value="faction" {% if search_type == 'faction' %}selected{% endif %}>{% trans 'Faction' %}</option>
+                <option value="vagabond" {% if search_type == 'vagabond' %}selected{% endif %}>{% trans 'Vagabond' %}</option>
+                <option value="map" {% if search_type == 'map' %}selected{% endif %}>{% trans 'Map' %}</option>
+                <option value="deck" {% if search_type == 'deck' %}selected{% endif %}>{% trans 'Deck' %}</option>
+                <option value="landmark" {% if search_type == 'landmark' %}selected{% endif %}>{% trans 'Landmark' %}</option>
+                <option value="hireling" {% if search_type == 'hireling' %}selected{% endif %}>{% trans 'Hireling' %}</option>
+                <option value="clockwork" {% if search_type == 'clockwork' %}selected{% endif %}>{% trans 'Clockwork' %}</option>
+                <option value="tweak" {% if search_type == 'tweak' %}selected{% endif %}>{% trans 'House Rules' %}</option>
             </select>
     
 
 
     <div>
-    <label for="faction_type">Faction Type: </label>
+    <label for="faction_type">{% trans 'Faction Type' %}: </label>
     <select id="faction_type" name="faction_type" value="{{ faction_type }}">
-        <option value="">All</option>  
-        <option value="M" {% if faction_type == 'M' %}selected{% endif %}>Militant</option>
-        <option value="I" {% if faction_type == 'I' %}selected{% endif %}>Insurgent</option>
+        <option value="">{% trans 'All' %}</option>  
+        <option value="M" {% if faction_type == 'M' %}selected{% endif %}>{% trans 'Militant' %}</option>
+        <option value="I" {% if faction_type == 'I' %}selected{% endif %}>{% trans 'Insurgent' %}</option>
     </select>
 
-    <label for="reach_value">Reach: </label>
+    <label for="reach_value">{% trans 'Reach' %}: </label>
     <select id="reach_value" name="reach_value" value="{{ reach_value }}">
-        <option value="">All</option>
+        <option value="">{% trans 'All' %}</option>
         <option value=10 {% if reach_value == 10 %}selected{% endif %}>10</option>
         <option value=9 {% if reach_value == 9 %}selected{% endif %}>9</option>
         <option value=8 {% if reach_value == 8 %}selected{% endif %}>8</option>
@@ -59,11 +60,11 @@
     </select>
 
     <select id="status" name="status" value="{{ status }}">
-        <option value="">Status (All)</option>  
-        <option value="1" {% if status == '1' %}selected{% endif %}>Stable</option>
-        <option value="2" {% if status == '2' %}selected{% endif %}>Testing</option>
-        <option value="3" {% if status == '3' %}selected{% endif %}>Development</option>
-        <option value="4" {% if status == '4' %}selected{% endif %}>Inactive</option>
+        <option value="">{% trans 'Status (All)' %}</option>  
+        <option value="1" {% if status == '1' %}selected{% endif %}>{% trans 'Stable' %}</option>
+        <option value="2" {% if status == '2' %}selected{% endif %}>{% trans 'Testing' %}</option>
+        <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>
+        <option value="4" {% if status == '4' %}selected{% endif %}>{% trans 'Inactive' %}</option>
     </select>
 
 </div>

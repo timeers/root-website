@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from .models import Profile
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
-
+from django.utils.translation import gettext_lazy as _ 
 
 
 class UserRegisterForm(UserCreationForm):
@@ -211,41 +211,41 @@ class PlayerCreateForm(forms.ModelForm):
 
 class MessageForm(forms.Form):
     TITLE_CHOICES = [
-                ('general', 'General Feedback'),
-                ('usability', 'Usability Feedback'),
-                ('bug', 'Bug Report'),
-                ('feature', 'Feature Request'),
-                ('faction', 'Faction'),
-                ('map', 'Map'),
-                ('vagabond', 'Vagabond'),
-                ('deck', 'Deck'),
-                ('landmark', 'Landmark'),
-                ('hireling', 'Hireling'),
-                ('playtest', 'Playtest Group'),
-                ('outdated', 'Outdated Information'),
-                ('incorrect', 'Incorrect Information'),
-                ('offensive', 'Offensive Image/Language'),
-                ('spam', 'Spam'),
-                ('other', 'Other'),
-                ('weird-root', 'Weird Root'),
-                ('french-root', 'French Root'),
-                ('translation', 'Existing Translation Missing')
+        ('general', _('General Feedback')),
+        ('usability', _('Usability Feedback')),
+        ('bug', _('Bug Report')),
+        ('feature', _('Feature Request')),
+        ('faction', _('Faction')),
+        ('map', _('Map')),
+        ('vagabond', _('Vagabond')),
+        ('deck', _('Deck')),
+        ('landmark', _('Landmark')),
+        ('hireling', _('Hireling')),
+        ('playtest', _('Playtest Group')),
+        ('outdated', _('Outdated Information')),
+        ('incorrect', _('Incorrect Information')),
+        ('offensive', _('Offensive Image/Language')),
+        ('spam', _('Spam')),
+        ('other', _('Other')),
+        ('weird-root', _('Weird Root')),
+        ('french-root', _('French Root')),
+        ('translation', _('Existing Translation Missing'))
     ]
     
-    title = forms.ChoiceField(choices=TITLE_CHOICES, label="Select Category")
-    message = forms.CharField(widget=forms.Textarea, label="Details")
+    title = forms.ChoiceField(choices=TITLE_CHOICES, label=_("Select Category"))
+    message = forms.CharField(widget=forms.Textarea, label=_("Details"))
     # Initially make the author field hidden
     author = forms.CharField(
         required=False,
         widget=forms.HiddenInput(),  # Default to hidden
-        label='Contact Info (Optional)'
+        label=_('Contact Info (Optional)')
     )
     subject = forms.CharField(
         widget=forms.HiddenInput(),  # Makes the field hidden
         required=False
     )
     captcha = ReCaptchaField(
-        label = "Does Clearing Priority fill you with a sense of urgency?",
+        label = _("Does Clearing Priority fill you with a sense of urgency?"),
         widget=ReCaptchaV2Checkbox(
             attrs={
 
@@ -274,45 +274,45 @@ class MessageForm(forms.Form):
         # Limit choices for title based on message_category
         if message_category == 'feedback':
             self.fields['title'].choices = [
-                ('general', 'General Feedback'),
-                ('usability', 'Usability Feedback'),
-                ('bug', 'Bug Report'),
-                ('feature', 'Feature Request'),
-                ('other', 'Other')
+                ('general', _('General Feedback')),
+                ('usability', _('Usability Feedback')),
+                ('bug', _('Bug Report')),
+                ('feature', _('Feature Request')),
+                ('other', _('Other'))
             ]
         elif message_category == 'request':
             self.fields['title'].choices = [
-                ('faction', 'Faction'),
-                ('map', 'Map'),
-                ('deck', 'Deck'),
-                ('vagabond', 'Vagabond'),
-                ('landmark', 'Landmark'),
-                ('hireling', 'Hireling'),
-                ('other', 'Other')
+                ('faction', _('Faction')),
+                ('map', _('Map')),
+                ('deck', _('Deck')),
+                ('vagabond', _('Vagabond')),
+                ('landmark', _('Landmark')),
+                ('hireling', _('Hireling')),
+                ('other', _('Other'))
             ]
-            self.fields['message'].help_text= "Please include details for the Fan Content you would like to be added. Each post must include at least one link to a Discord Thread or BGG Post, PNP Files or TTS Mod is a plus. You can make a request for something you did not create, but include the designer's discord username."
+            self.fields['message'].help_text= _("Please include details for the Fan Content you would like to be added. Each post must include at least one link to a Discord Thread or BGG Post, PNP Files or TTS Mod is a plus. You can make a request for something you did not create, but include the designer's discord username.")
 
         elif message_category == 'weird-root':
             self.fields['title'].choices = [
-                ('weird-root', 'Weird Root')
+                ('weird-root', _('Weird Root'))
             ]
-            self.fields['message'].help_text= "Weird Root is a private server for developing and discussing fan-made Root content. To keep bots out, invites aren't shared publicly. The easiest way to join is by messaging someone already in the server. This site isn’t managed by Weird Root, but if you include a brief message, we’ll do our best to get back to you soon."
+            self.fields['message'].help_text= _("Weird Root is a private server for developing and discussing fan-made Root content. To keep bots out, invites aren't shared publicly. The easiest way to join is by messaging someone already in the server. This site isn’t managed by Weird Root, but if you include a brief message, we’ll do our best to get back to you soon.")
         
         elif message_category == 'french-root':
             self.fields['title'].choices = [
-                ('french-root', 'French Root')
+                ('french-root', _('French Root'))
             ]
-            self.fields['message'].help_text= "Root & co - Communauté FR is a French Discord server"
+            self.fields['message'].help_text= _("Root & co - Communauté FR is a French Discord server")
     
         elif message_category == 'report':
             self.fields['title'].choices = [
-                ('outdated', 'Outdated Information'),
-                ('incorrect', 'Incorrect Information'),
-                ('translation', 'Existing Translation Missing'),
-                ('offensive', 'Offensive Image/Language'),
-                ('spam', 'Spam'),
-                ('other', 'Other')
+                ('outdated', _('Outdated Information')),
+                ('incorrect', _('Incorrect Information')),
+                ('translation', _('Existing Translation Missing')),
+                ('offensive', _('Offensive Image/Language')),
+                ('spam', _('Spam')),
+                ('other', _('Other'))
             ]
             self.fields['message'].widget.attrs.update({
-            'placeholder': 'Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.'
+            'placeholder': _('Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.')
                 })

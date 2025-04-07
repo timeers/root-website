@@ -17,40 +17,46 @@
 
 <div class="homepage-image-container">
     <img src="{% static 'images/homepage/Archive.png' %}" alt="The Archive Image">
-    <div class="text-overlay">
+    <div class="text-overlay text-overlay-right">
         <div class="root-title title-overlay">
             {% trans "The Archive" %}
         </div>
         <div>
-            Discover fan content by status, type, reach value or designer.
+            {% trans 'Discover fan content by status, type, reach value or designer.' %}
         </div>
-        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'archive-home' %}">View</a>
+        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'archive-home' %}">{% trans 'View' %}</a>
     </div>
 </div>
 
 <div class="homepage-image-container">
-    <img src="{% static 'images/homepage/WarRoom.png' %}" alt="The War Room Image">
-    <div class="text-overlay text-overlay-right">
+    <img src="{% static 'images/homepage/Battlefield.png' %}" alt="The Battlefield Image">
+    <div class="text-overlay">
         <div class="root-title title-overlay">
-            {% trans "The War Room" %}
+            {% trans "The Battlefield" %}
         </div>
         <div>
-            Record games and playtests of Root! <br>Compare Faction standings and matchups.
+            {% trans 'Record games and playtests of Root!' %} 
+            <br>
+            {% trans 'Compare Faction standings and matchups.' %}
         </div>
-        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'games-home' %}">View</a>
+        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'games-home' %}">{% trans 'View' %}</a>
     </div>
 </div>
 
 <div class="homepage-image-container">
-    <img src="{% static 'images/homepage/Archive.png' %}" alt="The Workshop Image">
-    <div class="text-overlay">
+    <img src="{% static 'images/homepage/Workshop.png' %}" alt="The Workshop Image">
+    <div class="text-overlay text-overlay-right">
         <div class="root-title title-overlay">
             {% trans "The Workshop" %}
         </div>
         <div>
-            Submit your fan content. <br>Access PNP resources & templates.
+
+            {% trans 'Submit your fan content.' %}
+            <br>
+            {% trans 'Access PNP resources & templates.' %}
+
         </div>
-        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'asset-list' %}">View</a>
+        <a class="btn btn-primary mb-2 mt-2"  href="{% url 'asset-list' %}">{% trans 'View' %}</a>
     </div>
 </div>
 

@@ -1,8 +1,9 @@
+{% load i18n %}
 {% if object.component == 'Hireling' %}
     {% if object.other_side %}
     <a href="{{ object.other_side.get_absolute_url }}">
         <div>
-        <h3>{{ object.other_side.get_type_display }} Hireling</h3>
+        <h3>{{ object.other_side.get_type_display }} {% trans 'Hireling' %}</h3>
         <img class="lg-faction-icon mr-2" src="{{ object.other_side.picture.url }}">
         {{ object.other_side }}
     </div>

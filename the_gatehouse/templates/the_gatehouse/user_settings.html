@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags static %}
+{% load crispy_forms_tags static i18n %}
 {% block title %} - Profile{% endblock %}
 {% block content %}
     <div class="content-section">
@@ -46,7 +46,7 @@
             </fieldset>
             {% if not user.profile.banned and not user.profile.outcast %}
             <div class="form-group">
-                <button class="btn btn-outline-info" type="submit">Save</button>
+                <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
             </div>
         
             {% endif %}

@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Delete{% endblock %}
 {% block content %}
 
@@ -10,8 +11,8 @@
     
     {% include 'the_warroom/partials/game_detail_button.html' %}
     
-    <button class="btn btn-danger" type="submit">Yes, delete</button>
-    <a class="btn btn-secondary" href="{% url 'game-detail' game.id %}">Cancel</a>
+    <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
+    <a class="btn btn-secondary" href="{% url 'game-detail' game.id %}">{% trans 'Cancel' %}</a>
 </form>
 {% endif %}
 

@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load i18n %}
 {% block title %} - Record{% endblock %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: start;">
@@ -6,7 +7,7 @@
     {% if generic_view %}
         {% comment %} <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="enabled" type="button">Less</button>
     {% else %} {% endcomment %}
-        <button class="btn btn-warning btn-sm ml-2 ms-2" id="toggle-detail" value="disabled" type="button">Detail</button>
+        <button class="btn btn-warning btn-sm ml-2 ms-2" id="toggle-detail" value="disabled" type="button">{% trans 'Detail' %}</button>
     {% endif %}
     <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
         <i class="bi bi-info-circle"></i>
@@ -176,17 +177,17 @@
         {% endif %}
     </div>
 
-    <button class="btn btn-success mb-1 mt-1" type="submit">Save</button>
+    <button class="btn btn-success mb-1 mt-1" type="submit">{% trans 'Save' %}</button>
     {% if not object.effort  %}
         {% if not previous_scorecard or not object.id%}
             <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1 hidden" name="add_player" value="true">Save and add next Seat</button>
         {% endif %}
     {% endif %}
     {% if object.id %}
-        <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">Cancel</a>
-        <a class="btn btn-danger mb-1 mt-1" href="{% url 'delete-scorecard' object.id %}">Delete</a>
+        <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">{% trans 'Cancel' %}</a>
+        <a class="btn btn-danger mb-1 mt-1" href="{% url 'delete-scorecard' object.id %}">{% trans 'Delete' %}</a>
     {% else %}
-        <a class="btn btn-secondary mb-1 mt-1" href="{% url 'games-home' %}">Cancel</a>
+        <a class="btn btn-secondary mb-1 mt-1" href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
     {% endif %}
     <div class='hidden'>
         <!-- Auto fields for totals -->

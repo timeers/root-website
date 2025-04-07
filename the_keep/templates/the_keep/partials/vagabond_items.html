@@ -1,7 +1,7 @@
 
-{% load static %}
+{% load static i18n %}
 <div class="p-2 flex-fill">
-    <h5 class='root-title'>Starting Items</h5>
+    <h5 class='root-title'>{% trans 'Starting Items' %}</h5>
     <div id="V-pieces">
         {% if object.starting_torch or object.starting_tea or object.starting_bag or object.starting_boots or object.starting_coins or object.starting_hammer or object.starting_sword or object.starting_crossbow %}
             {% if object.starting_torch %}
@@ -9,7 +9,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}torch.png" alt="Torch">x
                         {{ object.starting_torch }}
-                        Torch{% if not object.starting_torch == 1 %}es{% endif %}
+                        {% if not object.starting_torch == 1 %}{% trans 'Torches' %}{% else %}{% trans 'Torch' %}{% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -18,7 +18,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}tea.png" alt="Tea">x
                         {{ object.starting_tea }}
-                        Tea
+                        {% trans 'Tea' %}
                     </div>
                 </div>
             {% endif %}
@@ -27,7 +27,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}bag.png" alt="Bag">x
                         {{ object.starting_bag }}
-                        Bag{% if not object.starting_bag == 1 %}s{% endif %}
+                        {% if not object.starting_bag == 1 %}{% trans 'Bags' %}{%else%}{% trans 'Bag' %}{% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -36,7 +36,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}boots.png" alt="Boots">x
                         {{ object.starting_boots }}
-                        Boot{% if not object.starting_boots == 1 %}s{% endif %}
+                        {% if not object.starting_boots == 1 %}{% trans 'Boots' %}{%else%}{% trans 'Boot' %}{% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -45,7 +45,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}coins.png" alt="Coins">x
                         {{ object.starting_coins }}
-                        Coins
+                        {% trans 'Coins' %}
                     </div>
                 </div>
             {% endif %}
@@ -54,7 +54,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}hammer.png" alt="Hammer">x
                         {{ object.starting_hammer }}
-                        Hammer{% if not object.starting_hammer == 1 %}s{% endif %}
+                        {% if not object.starting_hammer == 1 %}{% trans 'Hammers' %}{%else%}{% trans 'Hammer' %}{% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -63,7 +63,7 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}sword.png" alt="Sword">x
                         {{ object.starting_sword }}
-                        Sword{% if not object.starting_sword == 1 %}s{% endif %}
+                        {% if not object.starting_sword == 1 %}{% trans 'Swords' %}{%else%}{% trans 'Sword' %}{% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -72,21 +72,21 @@
                     <div class="d-flex align-items-center">
                         <img class="lg-faction-icon mr-2" src="{% static 'items/' %}crossbow.png" alt="Crossbow">x
                         {{ object.starting_crossbow }}
-                        Crossbow{% if not object.starting_crossbow == 1 %}s{% endif %}
+                        {% if not object.starting_crossbow == 1 %}{% trans 'Crossbows' %}{%else%}{% trans 'Crossbow' %}{% endif %}
                     </div>
                 </div>
             {% endif %}
         {% else %}
             <div class="d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center">
-                    None
+                    {% trans 'None' %}
                 </div>
             </div>
         {% endif %}
         {% if object.designer == user.profile and user.profile.designer %}
             <div class="d-flex">
                 <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons" id="saveAndGo-button">
-                    Edit Items <i class="bi bi-pencil-square"></i>
+                    {% trans 'Edit Items' %} <i class="bi bi-pencil-square"></i>
                 </button>
             </div>
         {% endif %}

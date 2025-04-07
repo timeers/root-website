@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static i18n %}
 {% block title %} - {{ resource.title }}{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
@@ -26,22 +26,22 @@
 <article class="media content-section">
     <div class="media-body">
         <h2>
-        {{ resource.category }} Resource
+        {{ resource.category }} {% trans 'Resource' %}
         </h2>
         <div>
-            Type: {{resource.file_type}}
+            {% trans 'Type' %}: {{resource.file_type}}
         </div>
         <div>
-            URL: <a class='clickable-link' href="{{ object.link }}">{{ resource.link }}</a>
+            {% trans 'URL' %}: <a class='clickable-link' href="{{ object.link }}">{{ resource.link }}</a>
         </div>
         {% if resource.shared_by %}
             <div>
-                Shared by: 
+                {% trans 'Shared by' %}: 
                 {{ resource.shared_by.name }}
             </div>
         {% endif %}
         <div>
-            Date: {{resource.date_updated |date:"F j, Y"}}
+            {% trans 'Date' %}: {{resource.date_updated |date:"F j, Y"}}
         </div>
 
 

@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 
 {% block title %}
 {% if not object.id %}
@@ -14,7 +14,13 @@
             {% csrf_token %}
             <fieldset class="form-group">                
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <legend class="border-bottom mb-4">{{ form.form_type }}</legend>
+                    <legend class="border-bottom mb-4">
+                        {% if form.form_type == 'Tweak' %}
+                            {% trans 'House Rule' %}
+                        {% else %}
+                            {% trans form.form_type %}
+                        {% endif %}
+                    </legend>
                     <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-info-circle"></i>
                     </button>
@@ -24,7 +30,9 @@
                 <div class="collapse" id="collapseRegister">
                     <!-- <div class="card card-body">    -->
                             <div id="form-info" class="mb-2">
-                                <small>Post your {{ form.form_type }} here. Required fields are marked with an *. Each {{ form.form_type }} must also have a link to a BGG post{% if user.profile.in_weird_root %}, Weird Root Thread{% endif %} or Woodland Warriors Discord Thread.</small>
+                                <small>
+                                    Post your {{ form.form_type }} here. Required fields are marked with an *. Each {{ form.form_type }} must also have a link to a BGG post{% if user.profile.in_weird_root %}, Weird Root Thread{% endif %} or Woodland Warriors Discord Thread.
+                                </small>
                             </div>        
                     <!-- </div> -->
                 </div>
@@ -37,13 +45,13 @@
             </fieldset>
 
             <div class="form-group">
-                <button class="btn btn-info" type="submit">Save</button>
+                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
                 {% if not object.id %}
-                    <a class="btn btn-secondary" href="{% url 'archive-home' %}">Cancel</a>
+                    <a class="btn btn-secondary" href="{% url 'archive-home' %}">{% trans 'Cancel' %}</a>
                 {% else %}
-                    <a class="btn btn-secondary" href="{% url object.component|lower|add:'-detail' object.slug %}">Cancel</a>
+                    <a class="btn btn-secondary" href="{% url object.component|lower|add:'-detail' object.slug %}">{% trans 'Cancel' %}</a>
                     {% if active_user.profile.designer %}
-                    <a class="btn btn-danger" href="{% url 'post-delete' object.id %}">Delete</a>
+                    <a class="btn btn-danger" href="{% url 'post-delete' object.id %}">{% trans 'Delete' %}</a>
                     {% endif %}
                 {% endif %}
             </div>

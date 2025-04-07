@@ -1,76 +1,78 @@
+{% load i18n %}
+
 {% if no_results and query %}
-    <ul>No results found for "{{ query }}".</ul>
+    <ul>{% trans 'No results found for' %} "{{ query }}".</ul>
 {% else %}
     <ul>
         {% if factions %}
-            <strong>Factions</strong>
+            <strong>{% trans 'Factions' %}</strong>
             {% for result in factions %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if decks %}
-            <strong>Decks</strong>
+            <strong>{% trans 'Decks' %}</strong>
             {% for result in decks %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if maps %}
-            <strong>Maps</strong>
+            <strong>{% trans 'Maps' %}</strong>
             {% for result in maps %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if vagabonds %}
-            <strong>Vagabonds</strong>
+            <strong>{% trans 'Vagabonds' %}</strong>
             {% for result in vagabonds %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if landmarks %}
-            <strong>Landmarks</strong>
+            <strong>{% trans 'Landmarks' %}</strong>
             {% for result in landmarks %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if hirelings %}
-            <strong>Hirelings</strong>
+            <strong>{% trans 'Hirelings' %}</strong>
             {% for result in hirelings %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if tweaks %}
-            <strong>House Rules</strong>
+            <strong>{% trans 'House Rules' %}</strong>
             {% for result in tweaks %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if expansions %}
-            <strong>Expansions</strong>
+            <strong>{% trans 'Expansions' %}</strong>
             {% for result in expansions %}
                 {% include 'the_keep/partials/post_snippet_medium.html' %}
             {% endfor %}
         {% endif %}
 
         {% if games %}
-            <strong>Games</strong>
+            <strong>{% trans 'Games' %}</strong>
             {% for result in games %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
-                    {{ result.nickname }} ({{ result.platform }}) Recorded by {{ result.recorder.name }}
+                    {{ result.nickname }} ({{ result.platform }}) {% trans 'Recorded by' %} {{ result.recorder.name }}
                 </div>
             </a>
             {% endfor %}
         {% endif %}
 
         {% if tournaments or rounds %}
-            <strong>Series</strong>
+            <strong>{% trans 'Series' %}</strong>
             {% for result in tournaments %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
@@ -88,7 +90,7 @@
         {% endif %}
 
         {% if scorecards %}
-            <strong>Scorecards</strong>
+            <strong>{% trans 'Scorecards' %}</strong>
             {% for result in scorecards %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
@@ -99,7 +101,7 @@
         {% endif %}
 
         {% if players %}
-            <strong>Profiles</strong>
+            <strong>{% trans 'Profiles' %}</strong>
             <div class='mb-2'>
             {% for result in players %}
             <a href="{{ result.get_absolute_url }}">
@@ -113,7 +115,7 @@
         {% endif %}
 
         {% if resources %}
-            <strong>Resources</strong>
+            <strong>{% trans 'Resources' %}</strong>
             {% for result in resources %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
@@ -124,7 +126,7 @@
         {% endif %}
 
         {% if pieces %}
-            <strong>Pieces</strong>
+            <strong>{% trans 'Pieces' %}</strong>
             {% for result in pieces %}
 
                 {% include 'the_keep/partials/post_snippet_piece.html' %}
@@ -133,12 +135,12 @@
         {% endif %}
 
         {% if color_group %}
-            <strong>Color Match</strong>
+            <strong>{% trans 'Color Match' %}</strong>
             <a href="{% url 'color-group' color_group.label %}">
                 <div class='clickable-segment color-group-container mb-2'>
                     <div class="color-square" style="background-color: {{ color_group }};"></div>
                     <div>
-                    {{ color_group.label }} Components
+                    {{ color_group.label }} {% trans 'Components' %}
                     </div>
                 </div>
             </a>

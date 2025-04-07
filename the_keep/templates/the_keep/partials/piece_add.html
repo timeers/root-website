@@ -1,3 +1,4 @@
+{% load i18n %}
 <div class="piece-form-container">
     <form hx-post="{% url 'add-piece' %}?piece={{ piece_type }}&slug={{ object.slug }}"
             hx-target="#{{ piece_type }}-pieces"
@@ -11,7 +12,7 @@
         <div class="hidden">{{ form.id }}</div>
         <div>
             <label class="file-input-button">
-                Choose Icon
+                {% trans 'Choose Icon' %}
                 <input type="file" class="compact-file-input" name="small_icon" onchange="updateFileName(event)">
             </label>
             <div class="image-preview-container" style="display:none;">

@@ -26,6 +26,15 @@ class Language(models.Model):
     def __str__(self):
         return self.name
 
+class Holiday(models.Model):
+    name = models.CharField(max_length=100)
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return self.name
+
+
 class Theme(models.Model):
     name = models.CharField(max_length=100)
     artist = models.CharField(max_length=100)
@@ -43,6 +52,7 @@ class Theme(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
+    holiday = models.ForeignKey(Holiday, blank=True, null=True, on_delete=models.SET_NULL)
     def __str__(self):
         return self.name
 
@@ -70,10 +80,10 @@ class BackgroundImage(models.Model):
     )
     
     def alt(self):
-        if self.artist:
-            alt = f'{ self.name } by {self.artist}'
+        if self.background_artist:
+            alt = f'{ self.name } by {self.background_artist.name}'
         else:
-            alt = f'{ self.name } by {self.theme.artist}'
+            alt = f'{ self.name }'
         return alt
 
         
@@ -115,10 +125,10 @@ class ForegroundImage(models.Model):
         return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position };'
     
     def alt(self):
-        if self.artist:
-            alt = f'{ self.name } by {self.artist}'
+        if self.foreground_artist:
+            alt = f'{ self.name } by {self.foreground_artist.name}'
         else:
-            alt = f'{ self.name } by {self.theme.artist}'
+            alt = f'{ self.name }'
         return alt
         
     def save(self, *args, **kwargs):

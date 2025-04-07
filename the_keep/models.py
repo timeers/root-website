@@ -24,7 +24,7 @@ import random
 from django.conf import settings
 from the_gatehouse.discordservice import send_rich_discord_message
 # from the_gatehouse.utils import build_absolute_uri
-
+from django.utils.translation import gettext_lazy as _
 
 # Stable requirements
 # 10 games played
@@ -970,14 +970,15 @@ class Vagabond(Post):
 
 class Faction(Post):
     class TypeChoices(models.TextChoices):
-        MILITANT = 'M', 'Militant'
-        INSURGENT = 'I', 'Insurgent'
-        CLOCKWORK = 'C', 'Clockwork'
+        MILITANT = 'M', _('Militant')  # Marked for translation
+        INSURGENT = 'I', _('Insurgent')
+        CLOCKWORK = 'C', _('Clockwork')
+    
     class StyleChoices(models.TextChoices):
-        NONE = 'N', 'None'
-        LOW = 'L', 'Low'
-        MODERATE = 'M', 'Moderate'
-        HIGH = 'H', 'High' 
+        NONE = 'N', _('None')  # Marked for translation
+        LOW = 'L', _('Low')  # Marked for translation
+        MODERATE = 'M', _('Moderate')  # Marked for translation
+        HIGH = 'H', _('High')  # Marked for translation
 
     type = models.CharField(max_length=10, choices=TypeChoices.choices)
     reach = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)], default=0)
@@ -985,13 +986,7 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
-    # color = models.CharField(
-    #     max_length=7,
-    #     blank=True,
-    #     null=True,
-    #     validators=[validate_hex_color],
-    #     help_text="Enter a hex color code (e.g., #RRGGBB)."
-    # )
+
 
     def __add__(self, other):
         if isinstance(other, Faction):
@@ -1048,67 +1043,6 @@ class Faction(Post):
 
         total_plays = self.get_plays_queryset().filter(game__test_match=False, game__final=True).count()
         return points / total_plays * 100 if total_plays > 0 else 0
-    # Functionality moved to leaderboard
-    # @classmethod
-    # def top_factions(cls, player_id=None, top_quantity=False, tournament=None, round=None, limit=5, game_threshold=10):
-    #     """
-    #     Get the top factions based on their win rate (default) or total efforts.
-    #     If player_id is provided, get the top factions for that faction.
-    #     Otherwise, get the top factions across all factions.
-    #     The `limit` parameter controls how many factions to return.
-    #     """
-    #     # Start with the base queryset for factions
-    #     queryset = cls.objects.all()
-
-    #     # If a tournament is provided, filter efforts that are related to that tournament
-    #     if tournament:
-    #         queryset = queryset.filter(
-    #             efforts__game__round__tournament=tournament  # Filter efforts linked to a specific tournament
-    #         )
-
-    #     # If a round is provided, filter efforts that are related to that round
-    #     if round:
-    #         queryset = queryset.filter(
-    #             efforts__game__round=round  # Filter efforts linked to a specific round
-    #         )
-    #     # Now, annotate with the total efforts and win counts
-    #     queryset = queryset.annotate(
-    #         total_efforts=Count('efforts', filter=Q(efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__game__final=True, efforts__game__test_match=False)),
-    #         win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-    #         coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player_id=player_id, efforts__game__final=True, efforts__game__test_match=False) if player_id else Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
-    #     )
-        
-    #     # Filter factions who have enough efforts (before doing the annotation)
-
-    #     queryset = queryset.filter(total_efforts__gte=game_threshold)
-
-    #     # Annotate with win_rate after filtering
-    #     queryset = queryset.annotate(
-    #         win_rate=Case(
-    #             When(total_efforts=0, then=Value(0)),
-    #             default=ExpressionWrapper(
-    #                 (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-    #                 output_field=FloatField()
-    #             ),
-    #             output_field=FloatField()
-    #         ),
-    #         tourney_points=Case(
-    #             When(total_efforts=0, then=Value(0)),
-    #             default=ExpressionWrapper(
-    #                 Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Win rate as percentage
-    #                 output_field=FloatField()
-    #             ),
-    #             output_field=FloatField()
-    #         )
-    #     )
-    #     # Now we can order the queryset
-    #     if top_quantity:
-    #         # If top_quantity is True, order by total_efforts (most efforts) first
-    #         return queryset.order_by('-tourney_points', '-win_rate')[:limit]
-    #     else:
-    #         # Otherwise, order by win_rate (highest win rate) first
-    #         return queryset.order_by('-win_rate', '-total_efforts')[:limit]
-
 
 
     @classmethod

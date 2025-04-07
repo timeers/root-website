@@ -1,4 +1,4 @@
-{% load static %}
+{% load static i18n %}
 
 
 <article class="media content-section" id="game-{{ game.id }}">
@@ -48,9 +48,9 @@
         <table>
             <thead>
                 <tr>
-                    <th>Player</th>
-                    <th>Faction</th>
-                    <th>Score</th>
+                    <th>{% trans 'Player' %}</th>
+                    <th>{% trans 'Faction' %}</th>
+                    <th>{% trans 'Score' %}</th>
                 </tr>
             </thead>
             <tbody class="effort-rows">

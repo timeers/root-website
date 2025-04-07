@@ -1,4 +1,4 @@
-
+{% load i18n %}
 
 
 <article class="media content-section" id="game-{{ game.id }}">
@@ -63,13 +63,13 @@
         <thead>
             <tr>
                 {% if user.profile.player %}
-                <th>Player</th>
+                <th>{% trans 'Player' %}</th>
                 {% endif %}
-                <th>Faction</th>
-                <th>Score</th>
+                <th>{% trans 'Faction' %}</th>
+                <th>{% trans 'Score' %}</th>
 
                 {% if show_detail %}
-                    <th>Detail</th>
+                    <th>{% trans 'Detail' %}</th>
                 {% endif %}
 
                 {% comment %} {% if user.profile.admin  %}

@@ -1,3 +1,4 @@
+{% load i18n %}
 <article class="media content-section post-card">
     <div class="article-img-container">
         <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
@@ -18,7 +19,7 @@
                     {% endif %}
                     <div>
                         <small>
-                        {% if object.official %}Official {% else %}Fan Made {% endif %}{{ object.component }}
+                        {% if object.official %}{% trans 'Official' %} {% else %}{% trans 'Fan Made' %} {% endif %}{{ object.component }}
                         </small>
                     </div>
                 </div>
@@ -27,7 +28,7 @@
                     <div class='hidden-status'>
                         <div class='text-success mr-2'>
                             <small>
-                        Stable
+                                {% trans 'Stable' %}
                             </small>
                         </div>
                     </div>
@@ -36,7 +37,7 @@
                     <div class='hidden-status'>
                         <div class='text-primary mr-2'>
                             <small>
-                        Testing
+                                {% trans 'Testing' %}
                             </small>
                         </div>
                     </div>
@@ -45,7 +46,7 @@
                 <div class='hidden-status'>
                     <div class='text-warning mr-2'>
                         <small>
-                    Development
+                            {% trans 'Development' %}
                         </small>
                     </div>
                 </div>
@@ -54,7 +55,7 @@
                 <div class='hidden-status'>
                     <div class='text-secondary mr-2'>
                         <small>
-                    Inactive
+                            {% trans 'Inactive' %}
                         </small>
                     </div>
                 </div>
@@ -63,7 +64,7 @@
                 <div class='hidden-status'>
                     <div class='text-dark mr-2'>
                         <small>
-                    Abandoned
+                            {% trans 'Abandoned' %}
                         </small>
                     </div>
                 </div>
@@ -73,22 +74,34 @@
         
             </div>
                 <h2 class='root-title'>
-                <span {% if object.color %}class="root-title-underlined" style="--underline-color: {{ object.color }};"{% elif object.based_on.color %}class="root-title-underlined" style="--underline-color: {{ object.based_on.color }};"{% else %}class="root-title"{% endif %}>{{ object.title }}</span>
+                <span {% if object.color %}class="root-title-underlined" style="--underline-color: {{ object.color }};"{% elif object.based_on.color %}class="root-title-underlined" style="--underline-color: {{ object.based_on.color }};"{% else %}class="root-title"{% endif %}>{% if object.selected_title %}{{object.selected_title}}{% else %}{{ object.title }}{% endif %}</span>
                 </h2>
                 {% comment %} <h2 class='root-title'>{{ object.title }}</h2> {% endcomment %}
                 {% comment %} <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h2> {% endcomment %}
-                by {{ object.designer.name }}
+                {% trans 'by' %} {{ object.designer.name }}
              {% if object.artist %}
             <div class="article-metadata">
-                Art by {{ object.artist.name }}
+                {% trans 'Art by' %} {{ object.artist.name }}
             </div>
             {% endif %}
             
             
-                {% if object.description %}
+                {% if object.selected_description %}
+                <div class="hidden-description">
+                    <div class='limited-text'>
+                    {{object.selected_description}}
+                    </div>
+                </div>
+                {% elif object.description %}
                 <div class="hidden-description">
                     <div class='limited-text'>
                     {{object.description}}
+                    </div>
+                </div>
+                {% elif object.selected_lore %}
+                <div class="lore-content hidden-description">
+                    <div>
+                    {{object.selected_lore}}
                     </div>
                 </div>
                 {% elif object.lore %}

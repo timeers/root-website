@@ -2,7 +2,7 @@ import random
 # import logging
 from itertools import groupby
 from django.utils import timezone 
-# from django.utils.translation import gettext as _
+from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
@@ -16,6 +16,7 @@ from django.db import IntegrityError
 from django.db.models import ProtectedError, Count
 from django.urls import reverse, reverse_lazy
 from django.contrib import messages
+from django.utils.translation import get_language
 
 from the_warroom.filters import GameFilter
 from django.views.generic import (
@@ -31,7 +32,7 @@ from the_gatehouse.views import (designer_required_class_based_view, designer_re
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
 from the_gatehouse.discordservice import send_discord_message
-from the_gatehouse.utils import get_uuid, build_absolute_uri
+from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -50,6 +51,10 @@ from .forms import (MapCreateForm,
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
+
+from django.db import models
+from django.db.models import OuterRef, Subquery, F, Value
+from django.db.models.functions import Coalesce
 
 # logger = logging.getLogger(__name__)
 
@@ -533,11 +538,19 @@ def create_post_translation(request, slug, lang=None):
 def ultimate_component_view(request, slug):
     
     language = None
-    if request.user.is_authenticated:
-        language = request.user.profile.language
+    # middle_language = get_language()
+    # print(middle_language)
+    # if request.user.is_authenticated:
+    #     language = request.user.profile.language
 
     language_code = request.GET.get('lang', None)
+    
     if language_code:
+        language_code_object = Language.objects.filter(code=language_code).first()
+        if language_code_object:
+            language = language_code_object
+    else:
+        language_code = get_language()
         language_code_object = Language.objects.filter(code=language_code).first()
         if language_code_object:
             language = language_code_object
@@ -665,6 +678,23 @@ def ultimate_component_view(request, slug):
     else:
         efforts = Effort.objects.filter(game__in=filtered_games)
     
+    attribute_map = {
+        "L": '28%',
+        "M": '59%',
+        "H": '98%',
+        "N": '2%',
+    }
+    if object.component == 'Faction':
+        complexity_value = attribute_map.get(object.complexity, 1)
+        aggression_value = attribute_map.get(object.aggression, 1)
+        card_wealth_value = attribute_map.get(object.card_wealth, 1)
+        crafting_ability_value = attribute_map.get(object.crafting_ability, 1)
+    else:
+        complexity_value = None
+        aggression_value = None
+        card_wealth_value = None
+        crafting_ability_value = None
+
     # Get top players for factions
     top_players = []
     most_players = []
@@ -766,6 +796,11 @@ def ultimate_component_view(request, slug):
         'object_card_2_image_url': object_card_2_image_url,
 
         'available_translations': available_translations,
+
+        'crafting_ability_value': crafting_ability_value,
+        'card_wealth_value': card_wealth_value,
+        'aggression_value': aggression_value,
+        'complexity_value': complexity_value,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -800,10 +835,10 @@ def color_group_view(request, color_name):
         else:
             return redirect('archive-home')
         
-
+    match_title = _("{} Components").format(color_name)
     context = {
         'posts': matching_colors,
-        'match_title': f'{color_name} Components',
+        'match_title': match_title,
         'color_group': color_group,
     }
     return render(request, 'the_keep/similar_posts.html', context)
@@ -811,11 +846,13 @@ def color_group_view(request, color_name):
 def animal_match_view(request, slug):
     post = get_object_or_404(Post, slug=slug)
     matching_posts = post.matching_animals()
+    match_title = _("{} Components").format(post.animal)
+    description = _("Other {} Components:").format(post.animal)
     context = {
         'original_post': post,
         'posts': matching_posts,
-        'match_title': f'{post.animal} Components',
-        'description': f'Other { post.animal } Components:'
+        'match_title': match_title,
+        'description': description
     }
     return render(request, 'the_keep/similar_posts.html', context)
 
@@ -941,9 +978,10 @@ def list_view(request, slug=None):
 
     if request.user.is_authenticated:
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
-        theme = request.user.profile.theme
-    else:
-        theme = None
+    
+    theme = get_theme(request)
+
+
 
     background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
     # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
@@ -954,8 +992,6 @@ def list_view(request, slug=None):
     foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
     # If using PostgreSQL or another database that supports 'distinct' on a field:
     # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
-
-
 
 
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
@@ -980,6 +1016,9 @@ def list_view(request, slug=None):
             posts_count=Count('posts'),
             valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
             ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+    
+
+
     context = {
         "posts": posts, 
         'search': search or "", 
@@ -1088,6 +1127,45 @@ def _search_components(request, slug=None):
 
     if status:
         posts = posts.filter(status=status)
+
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    print(language, language_object)
+    # Annotate each post with the translated title and description, using Coalesce to fall back to default values
+    posts = posts.annotate(
+        selected_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object  # Assuming you want the current language
+                ).values('translated_title')[:1],
+                output_field=models.CharField()
+            ),
+            'title'  # Fall back to the default title if there's no translation
+        ),
+        selected_description=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object
+                ).values('translated_description')[:1],
+                output_field=models.TextField()
+            ),
+            'description'  # Fall back to the default description if there's no translation
+        ),
+        selected_lore=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object
+                ).values('translated_lore')[:1],
+                output_field=models.TextField()
+            ),
+            'lore'  # Fall back to the default lore if there's no translation
+        )
+    )
+
+
 
     paginator = Paginator(posts, settings.PAGE_SIZE)
     try:
@@ -1282,6 +1360,7 @@ def status_check(request, slug):
     context = {
         'object': object,
         'object_color': object_color,
+        'object_component': object.component,
 
         'play_count': play_count,
         'play_threshold': play_threshold,
@@ -1338,12 +1417,12 @@ def confirm_stable(request, slug):
     # print(stable)
 
     if stable[0] == False:
-        messages.info(request, f'{object} has not yet met the stability requirements.')
+        messages.info(request, _('{} has not yet met the stability requirements.').format(object))
         return redirect('status-check', slug=object.slug)
     
     # Check if the current user is the designer
     if object.designer != request.user.profile:
-        messages.error(request, "You are not authorized to make this change.")
+        messages.error(request, _("You are not authorized to make this change."))
         return redirect('status-check', slug=object.slug)
     
 
@@ -1354,7 +1433,7 @@ def confirm_stable(request, slug):
         object.save()
 
         # Redirect to a success page or back to the post detail page
-        messages.success(request, f'{object.title} has been marked as "Stable".')
+        messages.success(request, _('{} has been marked as "Stable".').format(object.title))
         return redirect(object.get_absolute_url())
 
     # If GET request, render the confirmation form
@@ -1383,12 +1462,12 @@ def confirm_testing(request, slug):
     # print(stable)
 
     if testing == False:
-        messages.info(request, f'{object} has not yet recorded a playtest.')
+        messages.info(request, _('{} has not yet recorded a playtest.').format(object))
         return redirect('status-check', slug=object.slug)
     
     # Check if the current user is the designer
     if object.designer != request.user.profile:
-        messages.error(request, "You are not authorized to make this change.")
+        messages.error(request, _("You are not authorized to make this change."))
         return redirect('status-check', slug=object.slug)
 
     # If form is submitted (POST request)
@@ -1398,7 +1477,7 @@ def confirm_testing(request, slug):
         object.save()
 
         # Redirect to a success page or back to the post detail page
-        messages.success(request, f'{object.title} has been marked as "Testing".')
+        messages.success(request, _('{} has been marked as "Testing".').format(object.title))
         return redirect(object.get_absolute_url())
 
     # If GET request, render the confirmation form
