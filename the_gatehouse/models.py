@@ -37,7 +37,7 @@ class Holiday(models.Model):
 
 class Theme(models.Model):
     name = models.CharField(max_length=100)
-    artist = models.CharField(max_length=100)
+    artist = models.CharField(max_length=100, null=True, blank=True)
     artist_link = models.CharField(max_length=400, null=True, blank=True)
     theme_artists = models.ManyToManyField('Profile', blank=True, related_name='theme_artwork')
     theme_color = models.CharField(

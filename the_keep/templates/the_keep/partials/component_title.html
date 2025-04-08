@@ -1,16 +1,26 @@
+{% load i18n %}
 <div class="d-flex flex-wrap">
 {% if object.component == 'Map' %}
-    <h2 class='root-title mx-auto'>{{ object.clearings }} Clearing Map</h2>
+    <h2 class='root-title mx-auto'>
+        {{ object.clearings }} {% trans 'Clearing Map' %}
+    </h2>
 {% elif object.component == 'Hireling' %}
-    <h2 class='root-title mx-auto'>{{ object.get_type_display }} Hireling</h2>
+    <h2 class='root-title mx-auto'>
+        {{ object.get_type_display }} {% trans 'Hireling' %}
+    </h2>
 {% elif object.component == 'Faction' %}
-    <h2 class='root-title mx-auto'>{{ object.get_type_display }} Faction{% if object.reach != 0 %} ({{ object.reach }} Reach){% endif %}</h2>
+    <h2 class='root-title mx-auto'>
+        {{ object.get_type_display }} {% trans 'Faction' %}
+        {% if object.reach != 0 %} ({{ object.reach }} {% trans 'Reach' %}){% endif %}
+    </h2>
 {% elif object.component == 'Tweak' %}
-    <h2 class='root-title mx-auto'>House Rule</h2>
+    <h2 class='root-title mx-auto'>{% trans 'House Rule' %}</h2>
 {% elif object.component == 'Clockwork' %}
-    <h2 class='root-title mx-auto'>Clockwork Faction</h2>
+    <h2 class='root-title mx-auto'>{% trans 'Clockwork Faction' %}</h2>
 {% elif object.component == 'Deck' %}
-    <h2 class='root-title mx-auto'>{{ object.card_total }} Card Deck</h2>
+    <h2 class='root-title mx-auto'>
+        {{ object.card_total }} {% trans 'Card Deck' %}
+    </h2>
 {% else %}
     <h2 class='root-title mx-auto'>{{ object.component }}</h2>
 {% endif %}

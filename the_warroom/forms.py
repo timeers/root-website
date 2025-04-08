@@ -12,12 +12,21 @@ class GameInfoUpdateForm(forms.ModelForm):
     link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)
     class Meta:
         model = Game
-        fields = ['nickname', 'notes', 'link']
+        fields = ['nickname', 'notes', 'link', 'date_posted']
 
     def __init__(self, *args, **kwargs):
         # Call the parent constructor
         super(GameInfoUpdateForm, self).__init__(*args, **kwargs)
-
+        
+        # Get today's date in the required format (YYYY-MM-DD)
+        today = timezone.now().date()
+        self.fields['date_posted'].widget = forms.DateInput(
+            format='%Y-%m-%d', 
+            attrs={
+                'class': 'datepicker form-control',
+                'max': today  # Set the max attribute to today's date
+            }
+        )
         self.fields['notes'].widget.attrs.update({
             'rows': '2',
             'placeholder': 'Game Notes...',
@@ -67,12 +76,13 @@ class GameCreateForm(forms.ModelForm):
         choices=PLATFORM_CHOICES, initial="Tabletop Simulator",
         required=True
     )
+    
     class Meta:
         model = Game
         fields = ['solo', 'coop', 'official', 'test_match', 'round', 
                   'platform', 'type', 'deck', 'map', 'random_clearing', 
                   'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
-                  'hirelings', 'link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value']
+                  'hirelings', 'link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value', 'date_posted']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -84,6 +94,17 @@ class GameCreateForm(forms.ModelForm):
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
 
+        # Get today's date in the required format (YYYY-MM-DD)
+        today = timezone.now().date()
+
+        # self.fields['date_posted'].widget.attrs.update({'class': 'datepicker'}) 
+        self.fields['date_posted'].widget = forms.DateInput(
+            format='%Y-%m-%d', 
+            attrs={
+                'class': 'datepicker form-control',
+                'max': today  # Set the max attribute to today's date
+            }
+        )
         self.fields['notes'].widget.attrs.update({
             'rows': '2',
             'placeholder': 'Game Notes...',

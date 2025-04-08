@@ -796,6 +796,7 @@ def ultimate_component_view(request, slug):
         'object_card_image_url': object_card_image_url,
         'object_card_2_image_url': object_card_2_image_url,
 
+        'object_translation': object_translation,
         'available_translations': available_translations,
 
         'crafting_ability_value': crafting_ability_value,
@@ -1135,7 +1136,7 @@ def _search_components(request, slug=None):
 
     language = get_language()
     language_object = Language.objects.filter(code=language).first()
-    print(language, language_object)
+    # print(language, language_object)
     # Annotate each post with the translated title and description, using Coalesce to fall back to default values
     posts = posts.annotate(
         selected_title=Coalesce(

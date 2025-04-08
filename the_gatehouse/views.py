@@ -870,11 +870,11 @@ def get_feedback_context(request, message_category, feedback_subject=None):
     }
 
     response_mapping = {
-        "feedback": 'Thank you for your feedback!',
-        "request": 'Your request has been received',
-        "report": 'Your report has been received',
-        "weird-root": 'Your request has been received',
-        "french-root": 'Your request has been received',
+        "feedback": _('Thank you for your feedback!'),
+        "request": _('Your request has been received'),
+        "report": _('Your report has been received'),
+        "weird-root": _('Your request has been received'),
+        "french-root": _('Your request has been received'),
     }
 
     # Page Title Logic
@@ -962,11 +962,11 @@ def discord_feedback(request):
         raise PermissionDenied() 
 
     response_mapping = {
-        "feedback": 'Thank you for your feedback!',
-        "request": 'Your request has been received',
-        "report": 'Your report has been received',
-        "weird-root": 'Your request has been received, you should receive a Discord DM once an admin sees your request.',
-        "french-root": 'Your request has been received, you should receive a Discord DM once an admin sees your request.',
+        "feedback": _('Thank you for your feedback!'),
+        "request": _('Your request has been received'),
+        "report": _('Your report has been received'),
+        "weird-root": _('Your request has been received, you should receive a Discord DM once an admin sees your request.'),
+        "french-root": _('Your request has been received, you should receive a Discord DM once an admin sees your request.'),
     }
     title_mapping = {
         'general': 'General Feedback',
@@ -1132,10 +1132,13 @@ def weird_root_invite(request, slug=None):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
+        request.user.profile.in_weird_root = True
+        request.user.profile.save()
         if slug:
             return redirect(post.get_absolute_url())
         else:
             return redirect('archive-home')
+
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
@@ -1153,6 +1156,8 @@ def french_root_invite(request, slug=None):
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():
+        request.user.profile.in_french_root = True
+        request.user.profile.save()
         if slug:
             return redirect(post.get_absolute_url())
         else:

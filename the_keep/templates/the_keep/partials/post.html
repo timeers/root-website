@@ -1,9 +1,11 @@
 {% load i18n %}
+<a href="{{ object.get_absolute_url }}">
 <article class="media content-section post-card">
+
     <div class="article-img-container">
         <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
-        </div>
-        <a href="{{ object.get_absolute_url }}" class="media-body">
+    </div>
+        <div class="media-body">
            
             <div class="article-metadata d-flex flex-wrap justify-content-between">
                 <div class='d-flex'>
@@ -19,7 +21,11 @@
                     {% endif %}
                     <div>
                         <small>
-                        {% if object.official %}{% trans 'Official' %} {% else %}{% trans 'Fan Made' %} {% endif %}{{ object.component }}
+                        {% if object.official %}
+                                {% trans 'Official' %} {{ object.component }}
+                        {% else %}
+                                {% trans 'Fan Made' %} {{ object.component }}
+                        {% endif %}
                         </small>
                     </div>
                 </div>
@@ -112,6 +118,7 @@
                 </div>
                 {% endif %}
             
-            
-        </a>
+            </div>
+       
 </article>
+</a>

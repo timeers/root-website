@@ -1314,7 +1314,6 @@ tr.clickable-row:hover {
 .text-overlay-right {
   left: auto;
   right: 20px;  /* Align text to the right side */
-
 }
 
 @media (max-width: 500px) {
@@ -1326,7 +1325,6 @@ tr.clickable-row:hover {
     min-width: 75%;
   }
 }
-
 
 
 /* Ensures no extra space between images */

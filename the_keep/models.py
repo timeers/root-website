@@ -61,18 +61,18 @@ def convert_animals_to_singular(text):
         return capitalized_words[0]
 
 class ColorChoices(models.TextChoices):
-    RED = ('#FF0000', 'Red')
-    ORANGE = ('#FFA500', 'Orange')
-    YELLOW = ('#FFFF00', 'Yellow')
-    GREEN = ('#008000', 'Green')
-    BLUE = ('#0000FF', 'Blue')
-    PURPLE = ('#800080', 'Purple')
-    WHITE = ('#FFFFFF', 'White')
-    GREY = ('#808080', 'Grey')
-    BLACK = ('#000000', 'Black')
-    PINK = ('#FFC0CB', 'Pink')
-    BROWN = ('#A52A2A', 'Brown')
-    TAN = ('#D2B48C', 'Tan')
+    RED = ('#FF0000', _('Red'))
+    ORANGE = ('#FFA500', _('Orange'))
+    YELLOW = ('#FFFF00', _('Yellow'))
+    GREEN = ('#008000', _('Green'))
+    BLUE = ('#0000FF', _('Blue'))
+    PURPLE = ('#800080', _('Purple'))
+    WHITE = ('#FFFFFF', _('White'))
+    GREY = ('#808080', _('Grey'))
+    BLACK = ('#000000', _('Black'))
+    PINK = ('#FFC0CB', _('Pink'))
+    BROWN = ('#A52A2A', _('Brown'))
+    TAN = ('#D2B48C', _('Tan'))
 
     @classmethod
     def get_color_by_name(cls, color_name):
@@ -103,11 +103,11 @@ class ColorChoices(models.TextChoices):
         return None
 
 class StatusChoices(models.TextChoices):
-    STABLE = '1','Stable'
-    TESTING = '2', 'Testing'
-    DEVELOPMENT = '3', 'Development'
-    INACTIVE = '4', 'Inactive'
-    ABANDONED = '5', 'Abandoned'
+    STABLE = '1', _('Stable')
+    TESTING = '2', _('Testing')
+    DEVELOPMENT = '3', _('Development')
+    INACTIVE = '4', _('Inactive')
+    ABANDONED = '5', _('Abandoned')
     DEEPFREEZE = '9', 'Deep Freeze'
 
 # def get_status_name_from_int(status_int):
@@ -203,14 +203,14 @@ class Expansion(models.Model):
 class Post(models.Model):
     
     class ComponentChoices(models.TextChoices):
-        MAP = 'Map'
-        DECK = 'Deck'
-        HIRELING = 'Hireling'
-        VAGABOND = 'Vagabond'
-        LANDMARK = 'Landmark'
-        FACTION = 'Faction'
-        CLOCKWORK = 'Clockwork'
-        TWEAK = 'Tweak'
+        MAP = 'Map', _('Map')
+        DECK = 'Deck', _('Deck')
+        HIRELING = 'Hireling', _('Hireling')
+        VAGABOND = 'Vagabond', _('Vagabond')
+        LANDMARK = 'Landmark', _('Landmark')
+        FACTION = 'Faction', _('Faction')
+        CLOCKWORK = 'Clockwork', _('Clockwork')
+        TWEAK = 'Tweak', _('House Rule')
 
 
 
@@ -678,7 +678,7 @@ class Deck(Post):
     def stable_check(self):
         plays = self.get_plays_queryset()
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
-        official_faction_count = Faction.objects.filter(efforts__game__deck=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__deck=self, official=True, status=1, component="Faction").distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
                 )['total_players']
@@ -731,7 +731,7 @@ class Landmark(Post):
     def stable_check(self):
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__landmarks=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__landmarks=self, official=True, status=1, component="Faction").distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
                 )['total_players']
@@ -775,7 +775,7 @@ class Tweak(Post):
     def stable_check(self):
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__tweaks=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__tweaks=self, official=True, status=1, component="Faction").distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
                 )['total_players']
@@ -844,7 +844,7 @@ class Map(Post):
     def stable_check(self):
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__map=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__map=self, official=True, status=1, component="Faction").distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
                 )['total_players']
@@ -943,7 +943,7 @@ class Vagabond(Post):
     def stable_check(self):
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__efforts__vagabond=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__efforts__vagabond=self, official=True, status=1, component="Faction").distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('player', distinct=True)
                 )['total_players']
@@ -1107,7 +1107,7 @@ class Faction(Post):
     def stable_check(self):
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__efforts__faction=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__efforts__faction=self, official=True, status=1, component="Faction").distinct().count()
         if self.component == 'Faction':
             unique_players = plays.aggregate(
                         total_players=Count('player', distinct=True)
@@ -1201,7 +1201,7 @@ class Hireling(Post):
     def stable_check(self):
         faction_threshold = Faction.objects.filter(official=True, status=1, component="Faction").count()
         plays = self.get_plays_queryset()
-        official_faction_count = Faction.objects.filter(efforts__game__hirelings=self, official=True, status=1).distinct().count()
+        official_faction_count = Faction.objects.filter(efforts__game__hirelings=self, official=True, status=1, component="Faction").distinct().count()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
                 )['total_players']

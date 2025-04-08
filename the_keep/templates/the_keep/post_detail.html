@@ -36,7 +36,16 @@
             </small>
         </a>
         {% if available_translations or user.profile.admin or object.designer == user.profile %}
-            <a class='subtle-link' href="{% url 'post-translations' object.slug %}"><i class="bi bi-translate"></i></a>
+
+            <a class='subtle-link' href="{% url 'post-translations' object.slug %}">
+                {% if object_translation.designer and object_translation.designer != object.designer %}
+                <small>
+                    {% trans 'Translation by' %} {{ object_translation.designer.name }}
+                </small>
+                {% endif %}
+                <i class="bi bi-translate">
+
+                </i></a>
         {% endif %}
      </div>
 

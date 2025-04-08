@@ -10,7 +10,16 @@
         
         <h2>{{ object.title }}</h2>
 
-        {% if object.official %}{% trans 'Official' %} {% else %}{% trans 'Fan Made' %} {% endif %}{{ object.component }} {% trans 'by' %} 
+        {% if object.official %}
+            {% blocktrans %}
+                Official {{ object.component }}
+            {% endblocktrans %}
+        {% else %}
+            {% blocktrans %}
+                Fan Made {{ object.component }}
+            {% endblocktrans %}
+        {% endif %}
+        {% trans 'by' %} 
         <span class="mr-2">{{ object.designer.name }}</span>
     </div>
         <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>

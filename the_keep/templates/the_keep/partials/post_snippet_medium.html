@@ -22,8 +22,15 @@
             </div>
             <div>
                 {% if result.component %}
-                {% if result.official %}{% trans 'Official' %}{% else %}{% trans 'Fan Made' %}{% endif %}
-                {{ result.component }}
+                    {% if result.official %}
+                        {% blocktrans %}
+                            Official {{ result.component }}
+                        {% endblocktrans %}
+                    {% else %}
+                        {% blocktrans %}
+                            Fan Made {{ result.component }}
+                        {% endblocktrans %}
+                    {% endif %}
                 {% endif %}
                 {% if result.designer %}
                 by {{ result.designer.display_name }}

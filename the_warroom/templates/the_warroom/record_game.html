@@ -104,6 +104,20 @@ document.addEventListener('DOMContentLoaded', function() {
         deleteField.checked = false;
     });
 
+    $(document).ready(function(){
+        // Get today's date in the required format (YYYY-MM-DD)
+        var today = new Date().toISOString().split('T')[0]; // This gives the date in the format YYYY-MM-DD
+
+        // Apply the jQuery UI datepicker to the 'datepicker' field
+        $(".datepicker").datepicker({
+            dateFormat: "yy-mm-dd",   // Format the date (you can adjust this as needed)
+            changeMonth: true,         // Allow month change via dropdown
+            changeYear: true,          // Allow year change via dropdown
+            yearRange: "2018:c+1",   // Year range (from 100 years ago to 10 years in the future)
+            maxDate: today             // Set the max date to today
+        });
+    });
+
     // Function to update all select options based on the platform
     function updateOptions(platformValue) {
         const tournamentValue = tournamentSelect.value;

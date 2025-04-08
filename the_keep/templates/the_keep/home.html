@@ -22,7 +22,13 @@
             {% trans "The Archive" %}
         </div>
         <div>
-            {% trans 'Discover fan content by status, type, reach value or designer.' %}
+            {% trans 'Discover more ways to play Root.' %}
+            <br>
+            {% trans 'Find factions, maps, and more made by the Root community.' %}
+            <br>
+            {% comment %} {% blocktrans %}
+            {{ faction_count }} Factions, {{ map_count }} Maps, {{ deck_count }} Decks and more.
+            {% endblocktrans %} {% endcomment %}
         </div>
         <a class="btn btn-primary mb-2 mt-2"  href="{% url 'archive-home' %}">{% trans 'View' %}</a>
     </div>
@@ -35,9 +41,9 @@
             {% trans "The Battlefield" %}
         </div>
         <div>
-            {% trans 'Record games and playtests of Root!' %} 
+            {% trans 'Record your games of Root!' %} 
             <br>
-            {% trans 'Compare Faction standings and matchups.' %}
+            {% trans 'Track stats and compare faction matchups.' %}
         </div>
         <a class="btn btn-primary mb-2 mt-2"  href="{% url 'games-home' %}">{% trans 'View' %}</a>
     </div>
@@ -53,7 +59,7 @@
 
             {% trans 'Submit your fan content.' %}
             <br>
-            {% trans 'Access PNP resources & templates.' %}
+            {% trans 'Search PNP resources & templates to make your own Factions.' %}
 
         </div>
         <a class="btn btn-primary mb-2 mt-2"  href="{% url 'asset-list' %}">{% trans 'View' %}</a>

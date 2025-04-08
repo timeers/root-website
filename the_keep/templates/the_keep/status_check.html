@@ -42,55 +42,12 @@
         This {{ object_component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
         Once a game has been recorded the designer can choose the "Testing" status.
     {% elif object.status == '2' %}
-        This {{ object_component }} is being tested, it has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
+        This {{ object_component }} is being tested. It has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
     {% elif object.status == '1' %}
         This {{ object_component }} is considered stable and no major changes are expected.
     {% endif %}
     </div>
 </article>
-
-{% if object.status != '1' %}
-    <article class="content-section">
-        <div>
-            <h2 class='root-title'>{% trans 'Stability' %}</h2>
-            There are two ways to mark this {{ object_component }} as Stable:<br>
-            <li>
-            If this {{ object_component }} has a Stable Weird Root thread you can request to have the status changed.<br>
-            </li>
-            <li>
-            The designer can mark this {{ object_component }} as stable once these requirements have been met:<br>
-            </li>
-            <ol>
-                {% if object_component == 'Faction' or object_component == 'Vagabond' or object_component == 'Clockwork' %}
-                <li>
-                    At Least 1 Win and 1 Loss
-                </li>
-                {% endif %}
-                <li>
-                    {{ play_threshold }} Games Recorded
-                </li>
-                <li>
-                    With {{ player_threshold }} Unique Players
-                </li>
-
-                <li>
-                    {% if object_component == 'Faction' or object_component == 'Vagabond' %}Against{% else %}With{% endif %} the {{ official_faction_threshold }} Official Factions 
-                </li>
-                {% if object_component != 'Map' %}
-                <li>
-                    On the {{ official_map_threshold }} Official Maps
-                </li>
-                {% endif %}
-                {% if object_component != 'Deck' %}
-                <li>
-                    With {{ official_deck_threshold }} of the Official Decks
-                </li>
-                {% endif %}
-
-            </ol>
-        </div>
-    </article>
-{% endif %}
 
 
 {% if play_count != 0 %}
@@ -164,7 +121,56 @@
         </div>
     </article>
 
-        
+{% endif %}
+
+
+{% if object.status != '1' %}
+    <article class="content-section">
+        <div>
+            <h2 class='root-title'>{% trans 'Stability' %}</h2>
+            There are two ways to mark this {{ object_component }} as Stable:<br>
+            <li>
+            If this {{ object_component }} has a Stable Weird Root thread you can request to have the status changed.<br>
+            </li>
+            <li>
+            The designer can mark this {{ object_component }} as stable once these requirements have been met:<br>
+            </li>
+            <ol>
+                {% if object_component == 'Faction' or object_component == 'Vagabond' or object_component == 'Clockwork' %}
+                <li>
+                    At Least 1 Win and 1 Loss
+                </li>
+                {% endif %}
+                <li>
+                    {{ play_threshold }} Games Recorded
+                </li>
+                <li>
+                    With {{ player_threshold }} Unique Players
+                </li>
+
+                <li>
+                    {% if object_component == 'Faction' or object_component == 'Vagabond' %}Against{% else %}With{% endif %} the {{ official_faction_threshold }} Official Factions 
+                </li>
+                {% if object_component != 'Map' %}
+                <li>
+                    On the {{ official_map_threshold }} Official Maps
+                </li>
+                {% endif %}
+                {% if object_component != 'Deck' %}
+                <li>
+                    With {{ official_deck_threshold }} of the Official Decks
+                </li>
+                {% endif %}
+
+            </ol>
+            Meeting these requirements does not necessarily mean that a {{ object_component }} is Stable. For example a {{ object_component }} might go through major changes halfway through playtesting and as a result more than 10 games may be necessary before the designer is ready to mark the {{ object_component }} as "Stable".
+        </div>
+    </article>
+{% endif %}
+
+
+
+{% if play_count != 0 %}
             <article class="content-section post-card">
                 <a href="{{ object.get_games_url }}">
                     <div>
@@ -185,6 +191,8 @@
         </div>
     </article>
 {% endif %}
+
+
 
     <!-- Show option to send Feedback -->
     <div class='mb-2'>

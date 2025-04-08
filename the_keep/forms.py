@@ -139,7 +139,7 @@ class TranslationCreateForm(forms.ModelForm):
         translated_board_2_image = forms.ImageField(required=False)
         translated_card_image = forms.ImageField(required=False)
         translated_card_2_image = forms.ImageField(required=False)
-        
+
     def __init__(self, *args, user=None, post=None, **kwargs):
         
         super().__init__(*args, **kwargs)
@@ -278,7 +278,7 @@ class PostCreateForm(forms.ModelForm):
     status = forms.ChoiceField(
         choices=STATUS_CHOICES, initial="3",
         required=True,
-        help_text='Set the current status. Set status to "Testing" once a game has been recorded. Once thoroughly playtested the status can be set to "Stable". Set to "Inactive" if you are no longer working on this project.'
+        help_text=_('Set the current status. Set status to "Testing" once a game has been recorded. Once thoroughly playtested the status can be set to "Stable". Set to "Inactive" if you are no longer working on this project.')
     )
     artist = forms.ModelChoiceField(
         queryset=Profile.objects.exclude(discord__in=['kyleferrin', 'leder games']),

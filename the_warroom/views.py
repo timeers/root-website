@@ -507,7 +507,7 @@ def manage_game(request, id=None):
                 send_discord_message(f'{user} Recorded a Game')
             if not parent.recorder:
                 parent.recorder = request.user.profile  # Set the recorder
-            parent.date_posted = timezone.now()
+            # parent.date_posted = timezone.now()
             # print(parent.date_posted)
             parent.save()  # Save the new or updated Game instance
             form.save_m2m()
