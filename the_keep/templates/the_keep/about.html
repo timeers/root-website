@@ -24,11 +24,11 @@
 
 <div class='mb-4 lore-content'>
     Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
-    {% if user.profile.player %}
+    {% comment %} {% if user.profile.player %} {% endcomment %}
         You can also find a more detailed FAQ and give feedback at the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj">RDB Feedback Discord</a>.
-    {% else %}
+    {% comment %} {% else %}
         You can also find a more detailed FAQ and give feedback at the RDB Feedback Discord.
-    {% endif %}
+    {% endif %} {% endcomment %}
 </div>
 
 <div class='mb-4'>

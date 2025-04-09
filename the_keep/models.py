@@ -629,6 +629,12 @@ class PostTranslation(models.Model):
         resize_image(self.translated_card_image, 350)  # Resize card_image
         resize_image(self.translated_card_2_image, 350)  # Resize card_image
 
+    def get_absolute_url(self):
+        parent_url = self.post.get_absolute_url()
+        translation_url = parent_url + f'?lang={self.language.code}'
+        return translation_url
+    
+
 class PostBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
@@ -923,6 +929,13 @@ class Vagabond(Post):
         # wins = plays.filter(win=True, game__test_match=False)
         wins = self.efforts.filter(win=True, game__test_match=False, game__final=True)
         return wins.count() if wins else 0
+    
+    def losses(self):
+        # plays = self.get_plays_queryset()
+        # wins = plays.filter(win=True, game__test_match=False)
+        losses = self.efforts.filter(win=False, game__test_match=False, game__final=True)
+        return losses.count() if losses else 0
+
 
     def get_wins_queryset(self):
         return self.efforts.all().filter(win=True, game__test_match=False, game__final=True)
@@ -952,7 +965,7 @@ class Vagabond(Post):
         play_count = plays.count()
 
         win_count = self.wins()
-        loss_count = int(play_count) - int(win_count)
+        loss_count = self.losses()
 
         map_threshold = Map.objects.filter(official=True, status=1).count()
         official_map_count = Map.objects.filter(games__efforts__vagabond=self, official=True, status=1).distinct().count()
@@ -1027,6 +1040,11 @@ class Faction(Post):
         plays = self.get_plays_queryset()
         wins = plays.filter(win=True, game__test_match=False, game__final=True)
         return wins.count() if plays else 0
+
+    def losses(self):
+        plays = self.get_plays_queryset()
+        losses = plays.filter(win=False, game__test_match=False, game__final=True)
+        return losses.count() if plays else 0
 
     def get_wins_queryset(self):
         return self.efforts.all().filter(win=True, game__test_match=False, game__final=True)
@@ -1127,7 +1145,7 @@ class Faction(Post):
 
 
         win_count = self.wins()
-        loss_count = play_count - win_count
+        loss_count = self.losses()
 
 
         if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold and win_count != 0 and loss_count != 0:

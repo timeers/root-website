@@ -77,17 +77,21 @@
     </article>
 </div>  
 {% if object.effort %}
+
     <div class="chart" id="pieChartContainer">
         <canvas id="pieChart"></canvas>  <!-- Pie Chart -->
     </div>
 
     </div>
-
+    <article class="media content-section">
+        <div class="media-body">
     <div class="chart-container" id="lineChartContainer">
         <div class="chart">
             <canvas id="scorecardChart" width="400" height="300"></canvas>  <!-- Line Chart -->
         </div>
     </div>
+</div>
+</article>
 {% else %}
     </div>
 {% endif %}

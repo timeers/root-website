@@ -118,7 +118,7 @@ class FactionAverageTurnScoreView(APIView):
         faction = Faction.objects.get(slug=slug)
 
         color = faction.color if faction.color else generate_neon_color()
-
+        print('faction average')
         # Check if there are no scorecards
         if not scorecards.exists():
             # Handle case where there are no scorecards
@@ -126,31 +126,31 @@ class FactionAverageTurnScoreView(APIView):
                 "message": "No scorecards found."
             }, status=status.HTTP_200_OK)
         
-        # Calculate the average number of Turns for the filtered scorecards
-        turn_count = scorecards.annotate(num_turns=Count('turns')) 
-        
-        # Calculate the total number of turn objects and the total number of scorecards
-        total_turns = sum([scorecard.num_turns for scorecard in turn_count])
-        total_scorecards = scorecards.count()
-
-        # Calculate the average
-        average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
+        # # Calculate the average number of Turns for the filtered scorecards
+        # turn_count = scorecards.annotate(num_turns=Count('turns')) 
+        # # Calculate the total number of turn objects and the total number of scorecards
+        # total_turns = sum([scorecard.num_turns for scorecard in turn_count])
+        # total_scorecards = scorecards.count()
+        # # Calculate the average
+        # average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
 
 
         # Calculate the total points for each turn across all scorecards
         turn_averages = (
-            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=average_turns)  # Filter by the related scorecards
+            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10)  # Filter by the related scorecards
             .values('turn_number')  # Group by turn number
             .annotate(
                 total_points_sum=Sum('total_points'),  # Calculate the total points per turn
                 faction_points_sum=Sum('faction_points'),  # Calculate the faction points per turn
                 crafting_points_sum=Sum('crafting_points'),  # Calculate the crafting points per turn
                 battle_points_sum=Sum('battle_points'),  # Calculate the battle points per turn
-                other_points_sum=Sum('other_points')  # Calculate the other points per turn
+                other_points_sum=Sum('other_points'),  # Calculate the other points per turn
             )
             .order_by('turn_number')  # Optional: to order by turn number
         )
-
+        print('turn averages')
+        print(turn_averages)
+        print('end')
         # Calculate the count of the scorecards
         scorecard_count = scorecards.count()
 
@@ -171,12 +171,25 @@ class FactionAverageTurnScoreView(APIView):
         average_game_points = 0
         for avg in turn_averages:
             # Divide the total points by the number of scorecards for the faction
-            
-            average_total_points = avg['total_points_sum'] / scorecard_count if scorecard_count else 0
-            average_faction_points = avg['faction_points_sum'] / scorecard_count if scorecard_count else 0
-            average_crafting_points = avg['crafting_points_sum'] / scorecard_count if scorecard_count else 0
-            average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
-            average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_total_points = avg['total_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_faction_points = avg['faction_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_crafting_points = avg['crafting_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
+    
+            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number']).count()
+            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'])
+            running_total = 0
+            for current_turn in current_turns:
+                running_total = running_total + current_turn.game_points()
+            running_total = running_total / turn_count
+
+            # Divide the total points by the number of turns for the specific turn_number
+            average_total_points = avg['total_points_sum'] / turn_count if turn_count else 0
+            average_faction_points = avg['faction_points_sum'] / turn_count if turn_count else 0
+            average_crafting_points = avg['crafting_points_sum'] / turn_count if turn_count else 0
+            average_battle_points = avg['battle_points_sum'] / turn_count if turn_count else 0
+            average_other_points = avg['other_points_sum'] / turn_count if turn_count else 0
             average_game_points += average_total_points
 
             # Add the aggregated totals to the overall totals
@@ -192,8 +205,10 @@ class FactionAverageTurnScoreView(APIView):
                 "average_crafting_points": average_crafting_points,
                 "average_battle_points": average_battle_points,
                 "average_other_points": average_other_points,
-                "average_game_points": average_game_points,
-
+                # # This average would take the average for each turn and add it to the previous average
+                #"average_game_points": average_game_points,
+                ## This line takes the game_total for each selected turn and averages them. As a result the average can be much higher or lower than the previous turn as outliers will have less averages.
+                "average_game_points": running_total,
             })
         # Add the aggregated totals to the "totals" list
         average_data["totals"] = {
@@ -232,15 +247,13 @@ class AverageTurnScoreView(APIView):
                 "message": "No scorecards found."
             }, status=status.HTTP_200_OK)
 
-        # Calculate the average number of Turns for the filtered scorecards
-        turn_count = scorecards.annotate(num_turns=Count('turns')) 
-        
-        # Calculate the total number of turn objects and the total number of scorecards
-        total_turns = sum([scorecard.num_turns for scorecard in turn_count])
-        total_scorecards = scorecards.count()
-
-        # Calculate the average
-        average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
+        # # Calculate the average number of Turns for the filtered scorecards
+        # turn_count = scorecards.annotate(num_turns=Count('turns')) 
+        # # Calculate the total number of turn objects and the total number of scorecards
+        # total_turns = sum([scorecard.num_turns for scorecard in turn_count])
+        # total_scorecards = scorecards.count()
+        # # Calculate the average
+        # average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
 
 
         # Calculate the total points for each turn across all scorecards
@@ -277,11 +290,26 @@ class AverageTurnScoreView(APIView):
         for avg in turn_averages:
             # Divide the total points by the number of scorecards for the faction
             
-            average_total_points = avg['total_points_sum'] / scorecard_count if scorecard_count else 0
-            average_faction_points = avg['faction_points_sum'] / scorecard_count if scorecard_count else 0
-            average_crafting_points = avg['crafting_points_sum'] / scorecard_count if scorecard_count else 0
-            average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
-            average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_total_points = avg['total_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_faction_points = avg['faction_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_crafting_points = avg['crafting_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
+            # average_game_points += average_total_points
+
+            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number']).count()
+            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'])
+            running_total = 0
+            for current_turn in current_turns:
+                running_total = running_total + current_turn.game_points()
+            running_total = running_total / turn_count
+
+            # Divide the total points by the number of turns for the specific turn_number
+            average_total_points = avg['total_points_sum'] / turn_count if turn_count else 0
+            average_faction_points = avg['faction_points_sum'] / turn_count if turn_count else 0
+            average_crafting_points = avg['crafting_points_sum'] / turn_count if turn_count else 0
+            average_battle_points = avg['battle_points_sum'] / turn_count if turn_count else 0
+            average_other_points = avg['other_points_sum'] / turn_count if turn_count else 0
             average_game_points += average_total_points
 
             # Add the aggregated totals to the overall totals
@@ -297,7 +325,10 @@ class AverageTurnScoreView(APIView):
                 "average_crafting_points": average_crafting_points,
                 "average_battle_points": average_battle_points,
                 "average_other_points": average_other_points,
-                "average_game_points": average_game_points,
+                # # This average would take the average for each turn and add it to the previous average
+                # "average_game_points": average_game_points,
+                ## This line takes the game_total for each selected turn and averages them. As a result the average can be much higher or lower than the previous turn as outliers will have less averages.
+                "average_game_points": running_total,
 
             })
         # Add the aggregated totals to the "totals" list
@@ -343,15 +374,13 @@ class PlayerScorecardView(APIView):
         # Loop through each faction and calculate averages
         for faction, faction_scorecards in faction_groups.items():
 
-            # Calculate the average number of Turns for the filtered scorecards
-            turn_count = scorecards.annotate(num_turns=Count('turns')) 
-            
-            # Calculate the total number of turn objects and the total number of scorecards
-            total_turns = sum([scorecard.num_turns for scorecard in turn_count])
-            total_scorecards = scorecards.count()
-
-            # Calculate the average
-            average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
+            # # Calculate the average number of Turns for the filtered scorecards
+            # turn_count = scorecards.annotate(num_turns=Count('turns')) 
+            # # Calculate the total number of turn objects and the total number of scorecards
+            # total_turns = sum([scorecard.num_turns for scorecard in turn_count])
+            # total_scorecards = scorecards.count()
+            # # Calculate the average
+            # average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
 
 
             turn_averages = (
@@ -388,11 +417,26 @@ class PlayerScorecardView(APIView):
             # Format the data for the current faction
             average_game_points = 0
             for avg in turn_averages:
-                average_total_points = avg['total_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                average_faction_points = avg['faction_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                average_crafting_points = avg['crafting_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                average_battle_points = avg['battle_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                average_other_points = avg['other_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
+                # average_total_points = avg['total_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
+                # average_faction_points = avg['faction_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
+                # average_crafting_points = avg['crafting_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
+                # average_battle_points = avg['battle_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
+                # average_other_points = avg['other_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
+                # average_game_points += average_total_points
+                print(faction.title, faction.id)
+                turn_count = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number']).count()
+                current_turns = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'])
+                running_total = 0
+                for current_turn in current_turns:
+                    running_total = running_total + current_turn.game_points()
+                running_total = running_total / turn_count
+
+                # Divide the total points by the number of turns for the specific turn_number
+                average_total_points = avg['total_points_sum'] / turn_count if turn_count else 0
+                average_faction_points = avg['faction_points_sum'] / turn_count if turn_count else 0
+                average_crafting_points = avg['crafting_points_sum'] / turn_count if turn_count else 0
+                average_battle_points = avg['battle_points_sum'] / turn_count if turn_count else 0
+                average_other_points = avg['other_points_sum'] / turn_count if turn_count else 0
                 average_game_points += average_total_points
 
                 total_faction_points += average_faction_points
@@ -408,7 +452,10 @@ class PlayerScorecardView(APIView):
                     "average_crafting_points": average_crafting_points,
                     "average_battle_points": average_battle_points,
                     "average_other_points": average_other_points,
-                    "average_game_points": average_game_points,
+                    # # This average would take the average for each turn and add it to the previous average
+                    #"average_game_points": average_game_points,
+                    ## This line takes the game_total for each selected turn and averages them. As a result the average can be much higher or lower than the previous turn as outliers will have less averages.
+                    "average_game_points": running_total,
                 })
 
             # Add the aggregated totals to the "totals" for the current faction

@@ -13,10 +13,23 @@
 {% endblock meta%}
 
 {% block content %}
-<div style="display: flex; align-items: center;">
-    <a href="{% url 'player-detail' player.slug %}">{{ player.name }}'s Profile</a>
-    <i class="bi bi-chevron-right"></i>
-    {% trans 'Games' %}
+<div class="d-flex justify-content-between align-items-center">
+{% comment %} <div style="display: flex; align-items: center;"> {% endcomment %}
+    <div class='d-flex'>
+        <a href="{% url 'player-detail' player.slug %}">{{ player.name }}'s Profile</a>
+        <i class="bi bi-chevron-right"></i>
+        {% trans 'Games' %}
+    </div>
+    {% if user.profile == player %}
+    <div class='d-flex align-items-center'>
+        <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordscorecard">
+            New Scorecard +
+        </a>
+        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
+            New Game +
+        </a>
+    </div>
+    {% endif %}
 </div>
 
 <div class="media content-section">

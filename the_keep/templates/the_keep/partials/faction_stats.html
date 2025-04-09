@@ -30,13 +30,19 @@
     </div>
     Chart based on:
     <div id="titleGames">
-        x Faction Plays
+       
     </div>
-    <div id="typeGames">
+    {% comment %} <div id="typeGames">
         x Type Plays
+    </div> {% endcomment %}
+    <div id="militantGames">
+        
+    </div>
+    <div id="insurgentGames">
+        
     </div>
     <div id="totalGames">
-        x Total Plays
+       
     </div>
     </div>
 </article>
@@ -50,9 +56,12 @@
   // Get the scorecard ID and faction slug dynamically from the template
   const factionSlug = "{{ object.slug }}";  // Replace with actual faction slug
   const factionType = "{{ object.type }}";
+  console.log(factionType)
   const averageEndpoint = `/api/scorecard/average/`;  // API endpoint for the scorecard data
   const factionEndpoint = `/api/scorecard/faction/${factionSlug}/`;  // API endpoint for the faction average data
   const typeEndpoint = `/api/scorecard/average/?type=${factionType}`;
+  const insurgentEndpoint = `/api/scorecard/average/?type=I`;
+  const militantEndpoint = `/api/scorecard/average/?type=M`;
   const factionChartsElement = document.getElementById('factionCharts');
 
   if (factionChartsElement) {
@@ -60,9 +69,11 @@
   Promise.all([
       fetch(averageEndpoint).then(res => res.json()),  // Fetch scorecard data
       fetch(factionEndpoint).then(res => res.json()),     // Fetch faction average data
-      fetch(typeEndpoint).then(res => res.json())
+      //fetch(typeEndpoint).then(res => res.json()),
+      fetch(insurgentEndpoint).then(res => res.json()),
+      fetch(militantEndpoint).then(res => res.json())
   ])
-    .then(([averageData, factionData, typeData]) => {
+    .then(([averageData, factionData, insurgentData, militantData]) => {
 
         // Check if the response contains the "No scorecards found" message
         if (factionData.message && factionData.message === "No scorecards found.") {
@@ -83,15 +94,25 @@
         const factionTurns = factionData.averages.map(fac => fac.turn_number);
         const factionGamePoints = factionData.averages.map(fac => fac.average_game_points);
 
-        // Get the turn numbers and game points from scorecard data
+        {% comment %} // Get the turn numbers and game points from scorecard data
         const typeTurns = typeData.averages.map(avg => avg.turn_number);
-        const typeGamePoints = typeData.averages.map(avg => avg.average_game_points);
+        const typeGamePoints = typeData.averages.map(avg => avg.average_game_points); {% endcomment %}
+
+        // Get the turn numbers and game points from scorecard data
+        const insurgentTurns = insurgentData.averages.map(avg => avg.turn_number);
+        const insurgentGamePoints = insurgentData.averages.map(avg => avg.average_game_points);
+
+        // Get the turn numbers and game points from scorecard data
+        const militantTurns = militantData.averages.map(avg => avg.turn_number);
+        const militantGamePoints = militantData.averages.map(avg => avg.average_game_points);
 
         // Combine turn numbers from both datasets and get the full range of turns
         const allTurnNumbers = [...new Set([
             ...averageTurns,  // Turn numbers from scorecard
             ...factionTurns,     // Turn numbers from faction average
-            ...typeTurns,
+            //...typeTurns,
+            ...insurgentTurns,
+            ...militantTurns,
         ])];
 
         // Determine the min and max turn numbers
@@ -109,12 +130,22 @@
             return fac ? fac.average_game_points : null;  // Use 0 if the turn is missing (avoid null)
         });
 
-        const completeTypeGamePoints = allTurnNumbers.map(turnNumber => {
+        {% comment %} const completeTypeGamePoints = allTurnNumbers.map(turnNumber => {
             const avg = typeData.averages.find(avg => avg.turn_number === turnNumber);
             return avg ? avg.average_game_points : null;  // Use 0 if the turn is missing (avoid null)
+        }); {% endcomment %}
+
+        const completeInsurgentGamePoints = allTurnNumbers.map(turnNumber => {
+            const insu = insurgentData.averages.find(insu => insu.turn_number === turnNumber);
+            return insu ? insu.average_game_points : null;  // Use 0 if the turn is missing (avoid null)
         });
 
-        let typeColor, typeName;  // Declare variables outside the if-else block
+        const completeMilitantGamePoints = allTurnNumbers.map(turnNumber => {
+            const mili = militantData.averages.find(mili => mili.turn_number === turnNumber);
+            return mili ? mili.average_game_points : null;  // Use 0 if the turn is missing (avoid null)
+        }); 
+
+        {% comment %} let typeColor, typeName;  // Declare variables outside the if-else block
 
         if (factionType === "M") {
             typeColor = '#FE0000';
@@ -122,10 +153,12 @@
         } else {
             typeColor = '#9D9A9A';
             typeName = 'Insurgent Faction';
-        }
+        } {% endcomment %}
         // Replace the text content in the divs
         document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} Plays`;
-        document.getElementById('typeGames').innerHTML = `${typeData.count} ${typeName} Plays`;
+        //document.getElementById('typeGames').innerHTML = `${typeData.count} ${typeName} Plays`;
+        document.getElementById('insurgentGames').innerHTML = `${insurgentData.count} Insurgent Plays`;
+        document.getElementById('militantGames').innerHTML = `${militantData.count} Militant Plays`;
         document.getElementById('totalGames').innerHTML = `${averageData.count} Total Plays`;
 
         // Initialize the Combined Line Chart (for both Scorecard and Faction Average Data)
@@ -143,7 +176,7 @@
                         fill: false,  // Do not fill under the line
                         tension: 0.1  // Smooth curve for faction line
                     },
-                    {
+                    {% comment %} {
                         label: typeName,  // Label for the faction average line chart
                         data: completeTypeGamePoints,  // Average game points for y-axis (faction)
                         borderColor: typeColor,  // Line color for faction average (different color)
@@ -151,6 +184,24 @@
                         fill: false,  // Do not fill under the line
                         tension: 0.1,  // Smooth curve for faction line
                         borderDash: [4, 2]
+                    }, {% endcomment %}
+                    {
+                        label: 'Insurgent Factions',  // Label for the faction average line chart
+                        data: completeInsurgentGamePoints,  // Average game points for y-axis (faction)
+                        borderColor: '#9D9A9A',  // Line color for faction average (different color)
+                        backgroundColor: '#9D9A9A',  // Fill color under the line for faction
+                        fill: false,  // Do not fill under the line
+                        tension: 0.1,  // Smooth curve for faction line
+                        borderDash: [7, 5]
+                    },
+                    {
+                        label: 'Militant Factions',  // Label for the faction average line chart
+                        data: completeMilitantGamePoints,  // Average game points for y-axis (faction)
+                        borderColor: '#FE0000',  // Line color for faction average (different color)
+                        backgroundColor: '#FE0000',  // Fill color under the line for faction
+                        fill: false,  // Do not fill under the line
+                        tension: 0.1,  // Smooth curve for faction line
+                        borderDash: [7, 5]
                     },
                     {
                         label: 'All Factions',  // Label for the scorecard line chart

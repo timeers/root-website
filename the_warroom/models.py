@@ -499,15 +499,15 @@ class TurnScore(models.Model):
         unique_together = ('scorecard', 'turn_number')  # Ensure each game has only one entry per turn_number
         ordering = ['scorecard', 'turn_number']   
 
-    # # Calculate the cumulative game points up to the current turn
-    # def game_points(self):
-    #     # Filter turns in the same scorecard with turn_number <= current turn's turn_number
-    #     total_turns = self.scorecard.turns.filter(turn_number__lte=self.turn_number)
+    # Calculate the cumulative game points up to the current turn
+    def game_points(self):
+        # Filter turns in the same scorecard with turn_number <= current turn's turn_number
+        total_turns = self.scorecard.turns.filter(turn_number__lte=self.turn_number)
         
-    #     # Sum up the total_points for those turns
-    #     total_game_points = total_turns.aggregate(Sum('total_points'))['total_points__sum'] or 0
+        # Sum up the total_points for those turns
+        total_game_points = total_turns.aggregate(Sum('total_points'))['total_points__sum'] or 0
         
-    #     return total_game_points
+        return total_game_points
 
 
     # def save(self, *args, **kwargs):

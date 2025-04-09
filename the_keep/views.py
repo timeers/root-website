@@ -806,10 +806,10 @@ def ultimate_component_view(request, slug):
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
-    
-    if language_code_override:
-        with translation.override(language_code_override):
-            return render(request, 'the_keep/post_detail.html', context)
+    ## This section would translate the whole page to the override language including header and footer 
+    # if language_code_override:
+    #     with translation.override(language_code_override):
+    #         return render(request, 'the_keep/post_detail.html', context)
     return render(request, 'the_keep/post_detail.html', context)
 
 

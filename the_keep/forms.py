@@ -281,7 +281,7 @@ class PostCreateForm(forms.ModelForm):
         help_text=_('Set the current status. Set status to "Testing" once a game has been recorded. Once thoroughly playtested the status can be set to "Stable". Set to "Inactive" if you are no longer working on this project.')
     )
     artist = forms.ModelChoiceField(
-        queryset=Profile.objects.exclude(discord__in=['kyleferrin', 'leder games']),
+        queryset=Profile.objects.all(),
         required=False
     )
     language = forms.ModelChoiceField(
@@ -339,9 +339,13 @@ class PostCreateForm(forms.ModelForm):
             # If no language preference, fallback to English
             self.fields['language'].initial = Language.objects.get(code='en')
 
+        # Conditionally exclude artists for non admin users
+        exclude_profiles = ['kyleferrin', 'leder games', 'joshuayearsley', 'patrickleder']
+        
         # If not admin user the designer will be the active user
         # Admin users can create posts for any user.
         if not user.profile.admin:
+            self.fields['artist'].queryset = Profile.objects.exclude(discord__in=exclude_profiles)
             self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
             # Limit language choices to English and the user's language
             if user_language:
