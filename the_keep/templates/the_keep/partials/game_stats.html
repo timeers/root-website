@@ -1,4 +1,4 @@
-
+{% load i18n %}
 <article id="games-stats" class="media content-section">
     
     <div class="media-body">
@@ -8,20 +8,20 @@
             
         
                 {% if filtered_games == games_total %}
-                    <h2>Recorded Games ({{ filtered_games }})</h2>
+                    <h2>{% trans 'Recorded Games' %} ({{ filtered_games }})</h2>
                 {% else %}
-                    <h2>Filtered Games ({{ filtered_games }}/{{ games_total }})</h2>
+                    <h2>{% trans 'Filtered Games' %} ({{ filtered_games }}/{{ games_total }})</h2>
                 {% endif %}
                 {% if object.title == "Vagabond" %}
                     <p class="article-content">with {{ total_efforts }} Plays</p>
                 {% endif %}
 
-            <p class="article-content">{{ win_count }} Recorded Wins</p>
-            <p class="article-content">{{ win_rate|floatformat:2 }}% Winrate</p>
-            <p class="article-content">{{ tourney_points }} Points (1/2 for Coalition Wins)</p>
+            <p class="article-content">{{ win_count }} {% trans 'Recorded Wins' %}</p>
+            <p class="article-content">{{ win_rate|floatformat:2 }}% {% trans 'Winrate' %}</p>
+            <p class="article-content">{{ tourney_points }} {% trans 'Points (1/2 for Coalition Wins)' %}</p>
         {% else %}
-            <h2>Recorded Games ({{ filtered_games }})</h2>
-            <p class="article-content">{{ object.plays }} Total Games</p>
+            <h2>{% trans 'Recorded Games' %} ({{ filtered_games }})</h2>
+            <p class="article-content">{{ object.plays }} {% trans 'Total Games' %}</p>
         {% endif %}
     </div>
 </article>

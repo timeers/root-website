@@ -5,7 +5,7 @@ from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tw
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
 from django.db.models import Q
-
+from django.utils.translation import gettext as _
 
 class GameInfoUpdateForm(forms.ModelForm):  
     required_css_class = 'required-field'
@@ -17,7 +17,7 @@ class GameInfoUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         # Call the parent constructor
         super(GameInfoUpdateForm, self).__init__(*args, **kwargs)
-        
+
         # Get today's date in the required format (YYYY-MM-DD)
         today = timezone.now().date()
         self.fields['date_posted'].widget = forms.DateInput(
@@ -37,7 +37,7 @@ class GameInfoUpdateForm(forms.ModelForm):
             'class': 'form-control full-width', 
         })
         self.fields['nickname'].widget.attrs.update({
-            'placeholder': 'Game Nickname (optional)',
+            'placeholder': _('Game Nickname (optional)'),
             'class': 'form-control full-width', 
         })
 
@@ -115,7 +115,7 @@ class GameCreateForm(forms.ModelForm):
             'class': 'form-control full-width', 
         })
         self.fields['nickname'].widget.attrs.update({
-            'placeholder': 'Game Nickname (optional)',
+            'placeholder': _('Game Nickname (optional)'),
             'class': 'form-control full-width', 
         })
 
@@ -460,9 +460,18 @@ class EffortCreateForm(forms.ModelForm):
         elif faction.title == 'Vagabond' and not vagabond:
             # raise ValidationError('Select a Vagabond.')
             validation_errors_to_display.append('Select a Vagabond')
-                # If captains are assigned ensure no more than 3 captains are assigned
-        elif faction.title == "Knaves of the Deepwood" and not captains:
-            validation_errors_to_display.append('Please select a Captain')
+        
+        # Clean VB specific options
+        if faction.title != 'Vagabond':
+            cleaned_data['vagabond'] = None
+            if faction.title != 'Chameleander':
+                cleaned_data['coalition_with'] = None
+
+        # If captains are assigned ensure no more than 3 captains are assigned
+        # if faction.title == "Knaves of the Deepwood" and not captains:
+        #     validation_errors_to_display.append('Please select a Captain')
+        # Captains cannot be recorded
+        cleaned_data['captains'] = None
 
         # print(score)
         if not dominance and score is None and not coalition:

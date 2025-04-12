@@ -8,7 +8,11 @@
         {% endif %}
         <div>
             <div class='root-title'>
-                {{ result.title }}
+                {% if result.selected_title %}
+                    {{ result.selected_title }}
+                {% else %}
+                    {{ result.title }}
+                {% endif %}
                 {% if result.status %}
                 <i class="bi 
                 {% if result.status == '1' %}bi-check-circle-fill text-success
@@ -23,13 +27,9 @@
             <div>
                 {% if result.component %}
                     {% if result.official %}
-                        {% blocktrans %}
-                            Official {{ result.component }}
-                        {% endblocktrans %}
+                            {% trans 'Official' %} {{ result.component }}
                     {% else %}
-                        {% blocktrans %}
-                            Fan Made {{ result.component }}
-                        {% endblocktrans %}
+                            {% trans 'Fan Made' %} {{ result.component }}
                     {% endif %}
                 {% endif %}
                 {% if result.designer %}

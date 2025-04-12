@@ -1,18 +1,18 @@
-{% load static %}
+{% load static i18n %}
 
 <table>
     <thead>
         <tr>
-            <th style="text-align: center;">Turn</th>
+            <th style="text-align: center;">{% trans 'Turn' %}</th>
             {% if not object.total_generic_points %}
-            <th style="text-align: center;">Faction Points</th>
-            <th style="text-align: center;">Crafting Points</th>
-            <th style="text-align: center;">Battle Points</th>
-            <th style="text-align: center;">Other Points</th>
+            <th style="text-align: center;">{% trans 'Faction Points' %}</th>
+            <th style="text-align: center;">{% trans 'Crafting Points' %}</th>
+            <th style="text-align: center;">{% trans 'Battle Points' %}</th>
+            <th style="text-align: center;">{% trans 'Other Points' %}</th>
             {% endif %}
-            <th style="text-align: center;">Turn Total</th>
+            <th style="text-align: center;">{% trans 'Turn Total' %}</th>
             {% if object.dominance %}
-                <th style="text-align: center;">Dom</th>
+                <th style="text-align: center;">{% trans 'Dom' %}</th>
             {% endif %}
         </tr>
     </thead>
@@ -56,7 +56,7 @@
                     src="{{ object.effort.coalition_with.small_icon.url }}"
                     alt="{{ object.effort.coalition_with.title }} Coalition">
                 {% else %}
-                    Dom
+                    {% trans 'Dom' %}
                 {% endif %}
             {% endif %}
         </td>
@@ -71,7 +71,7 @@
 
 <tfoot>
     <tr>
-        <td style="text-align: center;"><strong>Total</strong></td>
+        <td style="text-align: center;"><strong>{% trans 'Total' %}</strong></td>
         {% if not object.total_generic_points %}
         <td style="text-align: center;"><strong>{{ object.total_faction_points }}</strong></td>
         <td style="text-align: center;"><strong>{{ object.total_crafting_points }}</strong></td>
@@ -86,11 +86,11 @@
 <div>
 
     {% if object.description %}
-    <h4>Notes:</h4>
+    <h4>{% trans 'Notes' %}:</h4>
     <div>{{ object.description }}</div>
     {% endif %}
 
-<small>Recorded on: {{ object.date_posted|date:"F j, Y" }}</small>
+<small>{% trans 'Recorded on' %}: {{ object.date_posted|date:"F j, Y" }}</small>
 
 
 

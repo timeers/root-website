@@ -6,11 +6,11 @@
 {% if object %}
 <form method="POST" action="{% url 'delete-scorecard' object.id %}">
     {% csrf_token %}
-    <h1>Delete Scorecard?</h1>
+    <h1>{% trans 'Delete Scorecard?' %}</h1>
     {% if object.effort %}
         <p>This scorecard is linked to <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game }}</a>. Deleting this scorecard will not delete the linked game.</p>
     {% endif %}
-    <p>Are you sure you want to delete the selected scorecard{% if object.faction %} for {{ object.faction.title }}{% endif %}? This cannot be undone.</p>
+    <p>{% trans 'Are you sure you want to delete the selected scorecard' %}{% if object.faction %} for {{ object.faction.title }}{% endif %}? This cannot be undone.</p>
     <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
     <a class="btn btn-secondary" href="{% url 'detail-scorecard' object.id %}">{% trans 'Cancel' %}</a>
 </form>

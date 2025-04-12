@@ -1,9 +1,9 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - New Game{% endblock %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-        <legend>{% if object.id %}Update Game Data{% else %}Record New Game{% endif %}</legend>
+        <legend>{% if object.id %}{% trans 'Update Game Data' %}{% else %}{% trans 'Record New Game' %}{% endif %}</legend>
        
                 <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-person-plus-fill"></i>
@@ -15,7 +15,7 @@
 </div>
 <div class="collapse mb-1" id="collapseRegister">
         <div class="card card-body">
-                <h5>Register New Player</h5>
+                <h5>{% trans 'Register New Player' %}</h5>
                 <div id="player-form-container" style="display: block;">
                         <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
                                 {% csrf_token %}
@@ -23,11 +23,11 @@
                                         {{ player_form.discord }}
                                         {{ player_form.display_name }}
                                
-                                <button type="submit" class="btn btn-primary btn-sm mb-1">Register Player</button>
+                                <button type="submit" class="btn btn-primary btn-sm mb-1">{% trans 'Register Player' %}</button>
                         </form>
                 </div>
                 
-                <div id="player-form-errors"><small>If a player is missing you can add them here (if they do not have Discord choose a unique name for them).</small></div>        
+                <div id="player-form-errors"><small>{% trans 'If a player is missing you can add them here (if they do not have Discord choose a unique name for them).' %}</small></div>        
         </div>
 </div>
 
@@ -787,13 +787,16 @@ document.addEventListener('htmx:afterRequest', function(event) {
                                 $(VBselector).val(null).trigger('change');
                                 $(coalitionSelector).val(null).trigger('change');
                         }
+                        {% comment %} 
+                        // Removed captains from showing on form. 3 captains seems too complicated and likely not useful to track.
                         if (selectedText == 'Knaves of the Deepwood') {
                                 captainsBlock.style = "display:block;"
                                 $(captainsSelector).select2();
                         } else {
                                 captainsBlock.style = "display:none;"
                                 $(captainsSelector).val(null).trigger('change');
-                        }
+                        } 
+                        {% endcomment %}
                 });
 
         }

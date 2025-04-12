@@ -290,8 +290,20 @@ class Post(models.Model):
         if not self.animal:
             return Post.objects.none()  # or return an empty queryset
  
-        # Remove any instances of "and" from the animal string
-        cleaned_animal_string = self.animal.replace("and", "").strip()
+        # # Remove any instances of "and" from the animal string
+        # cleaned_animal_string = self.animal.replace("and", "").strip()
+
+        base_animal_string = self.animal or ""
+        
+        # Add translated animals from all translations
+        translated_animals = [
+            t.translated_animal for t in self.translations.all()
+            if t.translated_animal
+        ]
+        all_animals_combined = " ".join([base_animal_string] + translated_animals)
+
+        # Clean out "and" and extra spaces
+        cleaned_animal_string = all_animals_combined.replace("and", "").strip()
 
         # Split the animal into individual animals and clean them
         animals_list = cleaned_animal_string.split()
@@ -300,7 +312,7 @@ class Post(models.Model):
         # Build the query to check if the cleaned animals appear in other objects
         query = Q()
         for animal in cleaned_animals_list:
-            query |= Q(animal__icontains=animal)
+            query |= Q(animal__icontains=animal)|Q(translations__translated_animal__icontains=animal)
  
         # Query other objects that contain at least one of the cleaned animals
         return Post.objects.filter(query).exclude(id=self.id).distinct()
@@ -1074,19 +1086,19 @@ class Faction(Post):
         # Start with the base queryset for factions
         queryset = cls.objects.all()
 
-
-        queryset = queryset.filter(efforts__in=effort_qs)
-        queryset = queryset.annotate(
-            total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
-            win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-            coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
-        )
+        # Filter for finished games only
+        queryset = queryset.filter(efforts__in=effort_qs, efforts__game__final=True)
+        # queryset = queryset.annotate(
+        #     total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
+        #     win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
+        #     coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
+        # )
 
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
-            total_efforts=Count('efforts', filter=Q(efforts__game__final=True, efforts__game__test_match=False)),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
+            total_efforts=Count('efforts'),
+            win_count=Count('efforts', filter=Q(efforts__win=True)),
+            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True))
         )
         
         # Filter factions who have enough efforts (before doing the annotation)

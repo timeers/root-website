@@ -1,32 +1,32 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 {% block title %} - Assets{% endblock %}
 {% block content %}
 <h1>{{ tournament.name }}</h1>
-<h2>Manage Assets</h2>
+<h2>{% trans 'Manage Assets' %}</h2>
 
 <form method="POST">
     {% csrf_token %}
     {{ form.errors }}
     {% if available_factions_count > 0 %}
     <div>
-        <h4>Add Factions</h4>
+        <h4>{% trans 'Add Factions' %}</h4>
         {{ form.available_factions }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Factions will be added to {{ tournament.name }}
+            {% trans 'Factions will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.factions.count > 0 %}
     <div>
-        <h4>Remove Factions</h4>
+        <h4>{% trans 'Remove Factions' %}</h4>
         {{ form.tournament_factions }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Factions will be removed and unable to be selected
+            {% trans 'Factions will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
@@ -34,23 +34,23 @@
 
     {% if available_maps_count > 0 %}
     <div>
-        <h4>Add Maps</h4>
+        <h4>{% trans 'Add Maps' %}</h4>
         {{ form.available_maps }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Maps will be added to {{ tournament.name }}
+            {% trans 'Maps will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.maps.count > 0 %}
     <div>
-        <h4>Remove Maps</h4>
+        <h4>{% trans 'Remove Maps' %}</h4>
         {{ form.tournament_maps }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Maps will be removed and unable to be selected
+            {% trans 'Maps will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
@@ -58,46 +58,46 @@
 
     {% if available_decks_count > 0 %}
     <div>
-        <h4>Add Decks</h4>
+        <h4>{% trans 'Add Decks' %}</h4>
         {{ form.available_decks }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Decks will be added to {{ tournament.name }}
+            {% trans 'Decks will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.decks.count > 0 %}
     <div>
-        <h4>Remove Decks</h4>
+        <h4>{% trans 'Remove Decks' %}</h4>
         {{ form.tournament_decks }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Decks will be removed and unable to be selected
+            {% trans 'Decks will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
 
     {% if available_vagabonds_count > 0 %}
     <div>
-        <h4>Add Vagabonds</h4>
+        <h4>{% trans 'Add Vagabonds' %}</h4>
         {{ form.available_vagabonds }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Vagabonds will be added to {{ tournament.name }}
+            {% trans 'Vagabonds will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.vagabonds.count > 0 %}
     <div>
-        <h4>Remove Vagabonds</h4>
+        <h4>{% trans 'Remove Vagabonds' %}</h4>
         {{ form.tournament_vagabonds }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Vagabonds will be removed and unable to be selected
+            {% trans 'Vagabonds will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
@@ -105,46 +105,46 @@
 
     {% if available_landmarks_count > 0 %}
     <div>
-        <h4>Add Landmarks</h4>
+        <h4>{% trans 'Add Landmarks' %}</h4>
         {{ form.available_landmarks }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Landmarks will be added to {{ tournament.name }}
+            {% trans 'Landmarks will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.landmarks.count > 0 %}
     <div>
-        <h4>Remove Landmarks</h4>
+        <h4>{% trans 'Remove Landmarks' %}</h4>
         {{ form.tournament_landmarks }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Landmarks will be removed and unable to be selected
+            {% trans 'Landmarks will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
 
     {% if available_hirelings_count > 0 %}
     <div>
-        <h4>Add Hirelings</h4>
+        <h4>{% trans 'Add Hirelings' %}</h4>
         {{ form.available_hirelings }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Hirelings will be added to {{ tournament.name }}
+            {% trans 'Hirelings will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.hirelings.count > 0 %}
     <div>
-        <h4>Remove Hirelings</h4>
+        <h4>{% trans 'Remove Hirelings' %}</h4>
         {{ form.tournament_hirelings }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Hirelings will be removed and unable to be selected
+            {% trans 'Hirelings will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
@@ -152,29 +152,29 @@
 
     {% if available_tweaks_count > 0 %}
     <div>
-        <h4>Add Tweaks</h4>
+        <h4>{% trans 'Add House Rules' %}</h4>
         {{ form.available_tweaks }}
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Tweaks will be added to {{ tournament.name }}
+            {% trans 'House Rules will be added to' %} {{ tournament.name }}
         </ul>
     </div>
     {% endif %}
     {% if tournament.tweaks.count > 0 %}
     <div>
-        <h4>Remove Tweaks</h4>
+        <h4>{% trans 'Remove House Rules' %}</h4>
         {{ form.tournament_tweaks }}
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Tweaks will be removed and unable to be selected
+            {% trans 'House Rules will be removed and unable to be selected' %}
         </ul>
     </div>
     {% endif %}
 
 
-    <button class="btn btn-primary mb-1" type="submit">Save Changes</button>
+    <button class="btn btn-primary mb-1" type="submit">{% trans 'Save Changes' %}</button>
 </form>
 {% endblock %}
 

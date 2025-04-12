@@ -1,10 +1,10 @@
-
+{% load i18n %}
 <div id="games-container">
 
     {% if page_obj.number == 1 %}
     <article class="media content-section">
         <div class="media-body">
-    <h3>Total Games ({{ games_count }})</h3> 
+    <h3>{% trans 'Total Games' %} ({{ games_count }})</h3> 
         </div>
     </article>
 
@@ -16,15 +16,19 @@
     <article class="media content-section">
         <div class="media-body">
         
-            <h2>Player Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+            <h2>{% if top_players and most_players %}
+                {% trans 'Player Leaderboards' %}
+                {% else %}
+                {% trans 'Player Leaderboard' %}
+                {% endif %}</h2>
     
             {% if top_players and most_players %}
             <ul class="nav nav-tabs" id="playerLeaderboardTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link active" id="player-winrate-tab" data-bs-toggle="tab" href="#player-winrate" role="tab" aria-controls="player-winrate" aria-selected="true">By Winrate</a>
+                    <a class="nav-link active" id="player-winrate-tab" data-bs-toggle="tab" href="#player-winrate" role="tab" aria-controls="player-winrate" aria-selected="true">{% trans 'By Winrate' %}</a>
                 </li>      
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="player-gameswon-tab" data-bs-toggle="tab" href="#player-gameswon" role="tab" aria-controls="player-gameswon" aria-selected="false">By Games Won</a>
+                    <a class="nav-link" id="player-gameswon-tab" data-bs-toggle="tab" href="#player-gameswon" role="tab" aria-controls="player-gameswon" aria-selected="false">{% trans 'By Games Won' %}</a>
                 </li>        
       
             </ul>
@@ -36,7 +40,7 @@
     
                     <div class="tab-pane active" id="player-winrate" role="tabpanel" aria-labelledby="player-winrate-tab">
                 {% else %}
-                <h4>By Winrate</h4>
+                <h4>{% trans 'By Winrate' %}</h4>
                 {% endif %}
                 {% with top_players as leaderboard_players %}
                     {% include 'the_gatehouse/partials/leaderboard.html' %}
@@ -51,7 +55,7 @@
                 {% if top_players and most_players %}
                     <div class="tab-pane" id="player-gameswon" role="tabpanel" aria-labelledby="player-gameswon-tab">
                 {% else %}
-                <h4>By Games Won</h4>
+                <h4>{% trans 'By Games Won' %}</h4>
                 {% endif %}
                 {% with most_players as leaderboard_players %}
                     {% include 'the_gatehouse/partials/leaderboard.html' %}
@@ -63,7 +67,7 @@
                 {% endif %}
             {% endif %}
             {% if leaderboard_threshold > 0 %}
-            <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+            <small class="mb-2">*{% trans 'Leaderboard Threshold of' %} {{ leaderboard_threshold }}</small>
             {% endif %}
         </div>
     </article>
@@ -76,15 +80,19 @@
     <article class="media content-section">
         <div class="media-body">
         
-            <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+            <h2>{% if top_factions and most_factions %}
+                    {% trans 'Faction Leaderboards' %}
+                {% else %}
+                    {% trans 'Faction Leaderboard' %}
+                {% endif %}</h2>
     
             {% if top_factions and most_factions %}
             <ul class="nav nav-tabs" id="factionLeaderboardTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link active" id="faction-winrate-tab" data-bs-toggle="tab" href="#faction-winrate" role="tab" aria-controls="faction-winrate" aria-selected="true">By Winrate</a>
+                    <a class="nav-link active" id="faction-winrate-tab" data-bs-toggle="tab" href="#faction-winrate" role="tab" aria-controls="faction-winrate" aria-selected="true">{% trans 'By Winrate' %}</a>
                 </li>  
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="faction-gameswon-tab" data-bs-toggle="tab" href="#faction-gameswon" role="tab" aria-controls="faction-gameswon" aria-selected="false">By Games Won</a>
+                    <a class="nav-link" id="faction-gameswon-tab" data-bs-toggle="tab" href="#faction-gameswon" role="tab" aria-controls="faction-gameswon" aria-selected="false">{% trans 'By Games Won' %}</a>
                 </li>        
           
             </ul>
@@ -96,7 +104,7 @@
     
                     <div class="tab-pane active" id="faction-winrate" role="tabpanel" aria-labelledby="faction-winrate-tab">
                 {% else %}
-                <h4>By Winrate</h4>
+                <h4>{% trans 'By Winrate' %}</h4>
                 {% endif %}
                 {% with top_factions as leaderboard_factions %}
                     {% include 'the_keep/partials/leaderboard.html' %}
@@ -111,7 +119,7 @@
                 {% if top_factions and most_factions %}
                     <div class="tab-pane" id="faction-gameswon" role="tabpanel" aria-labelledby="faction-gameswon-tab">
                 {% else %}
-                <h4>By Games Won</h4>
+                <h4>{% trans 'By Games Won' %}</h4>
                 {% endif %}
                 {% with most_factions as leaderboard_factions %}
                     {% include 'the_keep/partials/leaderboard.html' %}
@@ -123,7 +131,7 @@
                 {% endif %}
             {% endif %}
             {% if leaderboard_threshold > 0 %}
-            <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+            <small class="mb-2">*{% trans 'Leaderboard Threshold of' %} {{ leaderboard_threshold }}</small>
             {% endif %}
         </div>
     </article>
@@ -170,8 +178,7 @@
 
 
 {% else %}
-    No matching games recorded.
-
+    {% trans 'No matching games recorded.' %}
 {% endif %}
     </div>
 </div>

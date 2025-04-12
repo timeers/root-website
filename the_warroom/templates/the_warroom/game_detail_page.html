@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static i18n %}
 {% block title %} - Game{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
@@ -18,64 +18,49 @@
 
 
 {% block content %}
-{% if user.profile.player %}
-<div class="d-flex justify-content-between align-items-top">
 
-    <div class="d-flex flex-nowrap ml-auto">
-        
-       
-            <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'game-feedback' game.id %}">
-                <i class="bi bi-tools"></i> /
-                <i class="bi bi-megaphone-fill"></i>
-            </a>
-      
-        
-    </div>
-</div>
-{% endif %}
 
 {% include 'the_warroom/partials/game_detail.html' %}
 
 <article class="media content-section">
     <div class="media-body">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h2>{% if game.test_match %}Playtest{% else %}Game{% endif %} Details</h2>
-
-       
+            <h2>{% if game.test_match %}
+                {% trans 'Playtest Details' %}
+                {% else %}
+                {% trans 'Game Details' %}
+                {% endif %}</h2>
         </div>
         {% if game.round %}
         <div>
-            <a href="{{ game.round.tournament.get_absolute_url }}">{{ game.type }} {{ game.round }} Game</a>
+            <a href="{{ game.round.tournament.get_absolute_url }}">{{ game.type }} {{ game.round }} {% trans 'Game' %}</a>
         </div>
         {% endif %}
 
 
         {% if game.undrafted_faction %}
         <div>
-            Undrafted Faction: 
+            {% trans 'Undrafted Faction' %}: 
             <span class='root-title'>
-            <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">
-                <img class="faction-icon" src="{{ game.undrafted_faction.small_icon.url }}">
-            </a>
-            <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
-            {% if game.undrafted_vagabond %}
-                (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
-            {% endif %}
-        </span>
+                <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">
+                    <img class="faction-icon" src="{{ game.undrafted_faction.small_icon.url }}">
+                </a>
+                <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
+                {% if game.undrafted_vagabond %}
+                    (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
+                {% endif %}
+            </span>
         </div>
+        {% endif %}
+
+        {% if game.map.board_image %}
+            <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
         {% endif %}
 
         {% if game.random_clearing %}
         <div>
-            Random Clearings
+            {% trans 'Random Clearings' %}
         </div>
-        {% endif %}
-
-
-
-
-        {% if game.map.board_image %}
-            <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
         {% endif %}
 
         {% if scorecard_count %}
@@ -114,7 +99,7 @@
             <div>
                 <a class='btn btn-primary mt-1' href="{{ game.link }}">
                     <i class="bi bi-link"></i>
-                    Link to Game Thread
+                    {% trans 'Link to Game Thread' %}
                 </a>
             </div>
             {% endif %}
@@ -122,13 +107,13 @@
 
         {% if game.recorder %}
         <small>
-            Recorded by: {{ game.recorder.name }}
+            {% trans 'Recorded by' %}: {{ game.recorder.name }}
         </small>
         {% endif %}
 
         {% if game.test_match %}
         <div class='lore-content'>
-            <small>*Multihanded Playtests are not counted in Leaderboard standings</small>
+            <small>*{% trans 'Multihanded Playtests are not counted in Player Leaderboard standings' %}</small>
         </div>
         {% endif %}
     </div>
@@ -145,21 +130,21 @@
                 This cannot be undone and should be handled with care.
             </div>
         <small>
-            <a class="btn btn-secondary" href="{{ game.get_edit_url }}">Edit Game</a>
-            <a class="btn btn-danger" href="{{ game.get_delete_url }}">Delete Game</a>
+            <a class="btn btn-secondary" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
+            <a class="btn btn-danger" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
         </small>
         </div>
         </article>
 {% elif user.profile == game.recorder and not game.final %}
     <article class="media content-section">
         <div class="media-body">
-        <h2>Edit Options</h2>
+        <h2>{% trans 'Edit Options' %}</h2>
         <div>
-            This game is in progress and can still be edited.
+            {% trans 'This game is in progress and can still be edited.' %}
         </div>
     <small>
-        <a class="btn btn-secondary" href="{{ game.get_edit_url }}">Edit Game</a>
-        <a class="btn btn-danger" href="{{ game.get_delete_url }}">Delete Game</a>
+        <a class="btn btn-secondary" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
+        <a class="btn btn-danger" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
     </small>
     </div>
     </article>
@@ -168,14 +153,28 @@
     <div class="media-body">
     {% comment %} <h2>Update Details</h2> {% endcomment %}
     <div>
-        Change the Nickname, Notes or Discord Link for this game.
+        {% trans 'Change the Nickname, Notes or Discord Link for this game.' %}
     </div>
 <small>
-    <a class="btn btn-secondary" href="{% url 'game-update-info' game.pk %}">Update</a>
+    <a class="btn btn-secondary" href="{% url 'game-update-info' game.pk %}">{% trans 'Update' %}</a>
 </small>
 </div>
 </article>
 {% endif %}
+
+{% if user.profile.player %}
+
+    <!-- Show option to send Feedback -->
+    <div class='mb-2'>
+        <a href="{% url 'game-feedback' game.id %}" class='subtle-link'>
+            <small>
+                {% trans 'Is something missing or incorrect?' %}
+            </small>
+        </a>
+     </div>
+
+{% endif %}
+
 
 {% endblock content %}
 

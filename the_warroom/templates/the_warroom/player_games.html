@@ -23,10 +23,10 @@
     {% if user.profile == player %}
     <div class='d-flex align-items-center'>
         <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordscorecard">
-            New Scorecard +
+            {% trans 'New Scorecard' %} +
         </a>
         <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
-            New Game +
+            {% trans 'New Game' %} +
         </a>
     </div>
     {% endif %}
@@ -52,7 +52,7 @@
     <div class="media-body">
 
 
-    <h3>Filters</h3>
+    <h3>{% trans 'Filters' %}</h3>
 
 
 

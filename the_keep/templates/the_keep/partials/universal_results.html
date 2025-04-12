@@ -134,6 +134,16 @@
             {% endfor %}
         {% endif %}
 
+        {% if translations or translated_posts %}
+            <strong>{% trans 'Translations' %}</strong>
+            {% for result in translations %}
+                {% include 'the_keep/partials/post_translation_medium.html' %}
+            {% endfor %}
+            {% for result in translated_posts %}
+                {% include 'the_keep/partials/post_snippet_medium.html' %}
+            {% endfor %}
+        {% endif %}
+
         {% if color_group %}
             <strong>{% trans 'Color Match' %}</strong>
             <a href="{% url 'color-group' color_group.label %}">

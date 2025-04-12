@@ -206,7 +206,7 @@ class Game(models.Model):
     undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     link = models.CharField(max_length=300, null=True, blank=True)
     nickname = models.CharField(max_length=50, null=True, blank=True)
-    random_clearing = models.BooleanField(default=False)
+    random_clearing = models.BooleanField(default=True)
     notes = models.TextField(null=True, blank=True)
 
     # Automatic

@@ -250,7 +250,8 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     def test_func(self):
         obj = self.get_object()
         if self.request.user.profile.admin:
-            if not obj.designer.editor:
+            if not obj.designer.designer:
+                messages.warning(self.request, f'{obj.designer} is authorized to edit {obj.title}. Ensure you have their permission to edit before making any changes.')
                 return True
             elif self.request.user.profile != obj.designer:
                 messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designer}.')
@@ -1123,7 +1124,7 @@ def _search_components(request, slug=None):
         posts = posts.filter(designer=player)
     if search:
         # posts = posts.filter(title__icontains=search)
-        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search))
+        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search)|Q(translations__translated_title__icontains=search))
         
     if search_type:
         posts = posts.filter(component__icontains=search_type)
@@ -1444,7 +1445,13 @@ def confirm_stable(request, slug):
 
     # If GET request, render the confirmation form
     form = StatusConfirmForm()
-    return render(request, 'the_keep/confirm_stable.html', {'form': form, 'post': object})
+    context = {
+        'form': form, 
+        'post': object,
+        'post_title': post.title,
+        'post_component': post.component,
+    }
+    return render(request, 'the_keep/confirm_stable.html', context)
 
 @player_required
 def confirm_testing(request, slug):
@@ -1488,7 +1495,13 @@ def confirm_testing(request, slug):
 
     # If GET request, render the confirmation form
     form = StatusConfirmForm()
-    return render(request, 'the_keep/confirm_testing.html', {'form': form, 'post': object})
+    context = {
+        'form': form, 
+        'post': object,
+        'post_title': post.title,
+        'post_component': post.component,
+    }
+    return render(request, 'the_keep/confirm_testing.html', context)
 
 
 
@@ -1727,6 +1740,11 @@ def universal_search(request):
 
     # If the query is empty, set all results to empty QuerySets
     scorecards = ScoreCard.objects.none()
+    translations = PostTranslation.objects.none()
+    translated_posts = Post.objects.none()
+
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
 
     if not query:
         factions = Faction.objects.none()
@@ -1746,24 +1764,125 @@ def universal_search(request):
         color_group = None
     else:
         # If the query is not empty, perform the search as usual
-        factions = Faction.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        maps = Map.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        decks = Deck.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        vagabonds = Vagabond.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        landmarks = Landmark.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        hirelings = Hireling.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        tweaks = Tweak.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query), status__lte=view_status).order_by('status')
-        expansions = Expansion.objects.filter(Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
+        factions = Faction.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        maps = Map.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object),
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        decks = Deck.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object),
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        vagabonds = Vagabond.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        landmarks = Landmark.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        hirelings = Hireling.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        tweaks = Tweak.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
+            status__lte=view_status).annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language_object  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct().order_by('status')
+        expansions = Expansion.objects.filter(
+            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         players = Profile.objects.filter(Q(display_name__icontains=query)|Q(discord__icontains=query)|Q(dwd__icontains=query))
+        
         if request.user.is_authenticated:
             if request.user.profile.player:
                 scorecards = ScoreCard.objects.filter(game_group__icontains=query, effort=None, recorder=request.user.profile)
+        
         games = Game.objects.filter(nickname__icontains=query)     
         tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  
         rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
         pieces = Piece.objects.filter(Q(name__icontains=query), parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
+        if len(query) > 3:
+            translations = PostTranslation.objects.filter(translated_title__icontains=query).exclude(language=language_object)
+            translated_posts = Post.objects.filter(
+                title__icontains=query,
+                language__isnull=False,
+                status__lte=view_status,
+                translations__isnull=False).exclude(language=language_object).distinct().order_by('status')
 
     if color_group:
         color_count = 1
@@ -1774,7 +1893,7 @@ def universal_search(request):
                      landmarks.count() + hirelings.count() + expansions.count() + 
                      players.count() + games.count() + scorecards.count() + 
                      tournaments.count() + rounds.count() + tweaks.count() + 
-                     resources.count() + pieces.count() + color_count)
+                     resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count())
     
     if total_results == 0:
         no_results = True
@@ -1805,6 +1924,8 @@ def universal_search(request):
         'resources': resources[:result_count],
         'pieces': pieces[:result_count],
         'color_group': color_group,
+        'translations': translations[:result_count],
+        'translated_posts': translated_posts[:result_count],
         'no_results': no_results,
         'query': query,
     }

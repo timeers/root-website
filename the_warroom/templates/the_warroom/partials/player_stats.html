@@ -1,15 +1,21 @@
+{% load i18n %}
 <article class="media content-section">
     <div class="media-body">
     {% if top_factions or most_factions %}
-        <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+        <h2>{% if top_factions and most_factions %}
+                {% trans 'Faction Leaderboards' %}
+            {% else %}
+                {% trans 'Faction Leaderboard' %}
+            {% endif %}
+        </h2>
 
         {% if top_factions and most_factions %}
         <ul class="nav nav-tabs" id="leaderboardTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <a class="nav-link active" id="game-leaderboard-tab" data-bs-toggle="tab" href="#game-leaderboard" role="tab" aria-controls="game-leaderboard" aria-selected="true">By Games Won</a>
+                <a class="nav-link active" id="game-leaderboard-tab" data-bs-toggle="tab" href="#game-leaderboard" role="tab" aria-controls="game-leaderboard" aria-selected="true">{% trans 'By Games Won' %}</a>
             </li>        
             <li class="nav-item" role="presentation">
-                <a class="nav-link" id="winrate-leaderboard-tab" data-bs-toggle="tab" href="#winrate-leaderboard" role="tab" aria-controls="winrate-leaderboard" aria-selected="false">By Winrate</a>
+                <a class="nav-link" id="winrate-leaderboard-tab" data-bs-toggle="tab" href="#winrate-leaderboard" role="tab" aria-controls="winrate-leaderboard" aria-selected="false">{% trans 'By Winrate' %}</a>
             </li>            
         </ul>
         {% endif %}
@@ -20,7 +26,7 @@
 
                 <div class="tab-pane active" id="game-leaderboard" role="tabpanel" aria-labelledby="game-leaderboard-tab">
             {% else %}
-            <h4>By Winrate</h4>
+            <h4>{% trans 'By Winrate' %}</h4>
             {% endif %}
             {% with top_factions as leaderboard_factions %}
                 {% include 'the_keep/partials/leaderboard.html' %}
@@ -35,7 +41,7 @@
             {% if top_factions and most_factions %}
                 <div class="tab-pane" id="winrate-leaderboard" role="tabpanel" aria-labelledby="winrate-leaderboard-tab">
             {% else %}
-            <h4>By Games Won</h4>
+            <h4>{% trans 'By Games Won' %}</h4>
             {% endif %}
             {% with most_factions as leaderboard_factions %}
                 {% include 'the_keep/partials/leaderboard.html' %}
@@ -47,7 +53,7 @@
             {% endif %}
         {% endif %}
     {% else %}
-        <small>No games recorded.</small>
+        <small>{% trans 'No games recorded.' %}</small>
     {% endif %}
     </div>
 </article>

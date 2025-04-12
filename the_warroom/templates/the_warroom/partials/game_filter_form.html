@@ -1,15 +1,15 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags i18n %}
 <article class="media content-section">
     
     <div class="media-body">
-        <h2>Filter Games</h2>
+        <h2>{% trans 'Filter Games' %}</h2>
         <form hx-get="{% url object.component|lower|add:'-detail' object.slug %}" 
         hx-target="#games-container"
         hx-swap="innerHTML"
         id="gamefilterform">
        
         {{ form|crispy }}
-        <button class="btn btn-primary mb-3">Filter</button>
+        <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
         </form>
     </div>
 </article>

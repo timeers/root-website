@@ -1,9 +1,9 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - Link{% endblock %}
-{% load static %}
+{% load static i18n %}
 {% block content %}
 
-<h1>Link a Scorecard</h1>
+<h1>{% trans 'Link a Scorecard' %}</h1>
 
 
 {% with effort_link.game as game %}
@@ -11,7 +11,13 @@
 {% endwith %}
 
 
-<h2>{{ form.scorecard.field.queryset.count }} Available Scorecard{% if form.scorecard.field.queryset.count != 1 %}s{% endif %}</h2>
+<h2>{{ form.scorecard.field.queryset.count }} 
+    {% if form.scorecard.field.queryset.count != 1 %}
+        {% trans 'Available Scorecards' %}
+    {% else %}
+        {% trans 'Available Scorecard' %}
+    {% endif %}
+</h2>
 <h3>for {{ effort_link.faction.title }} Game</h3>
 
 

@@ -3,19 +3,29 @@
 {% block title %} - Stable{% endblock %}
 {% block content %}
 <article class="content-section">
-<h1>Mark {{ post.title }} as Stable?</h1>
+<h1>
+    {% blocktrans %}
+    Mark {{ post_title }} as Stable?
+    {% endblocktrans %}
+</h1>
 <div>
-It looks like {{ post.title }} might be in a stable state. 
+    {% blocktrans %}
+It looks like {{ post_title }} might be in a stable state. 
+{% endblocktrans %}
 </div>
 <div>
-If you think you will make any large changes to this {{ post.component }} you can always do this later.
+    {% blocktrans %}
+        If you think you will make any large changes to this {{ post_component }} you can always do this later.
+    {% endblocktrans %}
 </div>
 <div>
-By marking {{ post.title }} as "Stable" you convey to other users that they can confidently use it without any large rule gaps or balance issues.
-Of course this does not mean that this {{ post.component }} will be completely balanced. Much of the balance in Root comes from the player interaction.
+    {% blocktrans %}
+        By marking {{ post_title }} as "Stable" you convey to other users that they can confidently use it without any large rule gaps or balance issues.
+        Of course this does not mean that this {{ post_component }} will be completely balanced. Much of the balance in Root comes from the player interaction.
+    {% endblocktrans %}
 </div>
 <div>
-    If you are ready to confirm, click "Yes!"
+    {% trans 'If you are ready to confirm, click "Yes!"' %}
 </div>
 <form method="post">
     {% csrf_token %}

@@ -22,7 +22,7 @@
                 {{ form.deck.label_tag }} {{ form.deck }}
         </div>
         <div id="game-map-field">
-                {{ form.map.label_tag }} {{ form.map }}
+                {{ form.map.label_tag }} {{ form.map }} {{ form.random_clearing }} Random Clearings
         </div>
 
         <div id="game-landmarks-field">
@@ -34,7 +34,7 @@
 
 </div>
 
-        <h2>Players</h2>
+        <h2>{% trans 'Players' %}</h2>
         <div class="hidden">{{ formset.management_form }}</div>
         <div id="effort-form-list">
                 {% for form in formset %}
@@ -42,18 +42,18 @@
 
 
                         
-                        <div class="player-field">Player: {{ form.player }}</div>    
-                        <div class="faction-field">Faction: {{ form.faction }}</div>
-                        <div class="vagabond-field" style="display:none;">Vagabond: {{ form.vagabond }}</div>
-                        <div class="captains-field" style="display:none;">Captains: {{ form.captains }}</div>
-                        <div class="score-field">Score: {{ form.score }}</div>
-                        <div class="win-field">Win: {{ form.win }}</div>
-                        <div class="coalition-field" style="display:none;">Coalition: {{ form.coalition_with }}</div>
-                        <div class="dominance-field">Dominance: {{ form.dominance }}</div>
+                        <div class="player-field">{% trans 'Player' %}: {{ form.player }}</div>    
+                        <div class="faction-field">{% trans 'Faction' %}: {{ form.faction }}</div>
+                        <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ form.vagabond }}</div>
+                        <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ form.captains }}</div>
+                        <div class="score-field">{% trans 'Score' %}: {{ form.score }}</div>
+                        <div class="win-field">{% trans 'Win' %}: {{ form.win }}</div>
+                        <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ form.coalition_with }}</div>
+                        <div class="dominance-field">{% trans 'Dominance' %}: {{ form.dominance }}</div>
 
                         <button class="btn btn-warning btn-sm" type="button"
                                 onclick="deleteForm(this)">
-                                Remove
+                                {% trans 'Remove' %}
                         </button>
 
                         {% if form.instance.id %}
@@ -79,24 +79,24 @@
 
         <div id="empty-form" class="hidden effort-form form-control">
                 
-                        <div class="player-field">Player: {{ formset.empty_form.player }}</div>    
-                        <div class="faction-field">Faction: {{ formset.empty_form.faction }}</div>
-                        <div class="vagabond-field" style="display:none;">Vagabond: {{ formset.empty_form.vagabond }}</div>
-                        <div class="captains-field" style="display:none;">Captains: {{ formset.empty_form.captains }}</div>
-                        <div class="score-field">Score: {{ formset.empty_form.score }}</div>
-                        <div class="win-field">Win: {{ formset.empty_form.win }}</div>
-                        <div class="coalition-field" style="display:none;">Coalition: {{ formset.empty_form.coalition_with }}</div>
-                        <div class="dominance-field">Dominance: {{ formset.empty_form.dominance }}</div>
+                        <div class="player-field">{% trans 'Player' %}: {{ formset.empty_form.player }}</div>    
+                        <div class="faction-field">{% trans 'Faction' %}: {{ formset.empty_form.faction }}</div>
+                        <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ formset.empty_form.vagabond }}</div>
+                        <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ formset.empty_form.captains }}</div>
+                        <div class="score-field">{% trans 'Score' %}: {{ formset.empty_form.score }}</div>
+                        <div class="win-field">{% trans 'Win' %}: {{ formset.empty_form.win }}</div>
+                        <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ formset.empty_form.coalition_with }}</div>
+                        <div class="dominance-field">{% trans 'Dominance' %}: {{ formset.empty_form.dominance }}</div>
                         
                 <button class="btn btn-warning btn-sm" type="button"
                         onclick="clearForm(this)">
-                        Remove
+                        {% trans 'Remove' %}
                 </button>
         </div>
         <div>
-                <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">Add Player +</button>
+                <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">{% trans 'Add Player' %} +</button>
         </div>
-        <h2>Misc.</h2>
+        <h2>{% trans 'Misc.' %}</h2>
         <div class='form-control'>
                 <div id="game-undrafted_faction-field">
                         {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
@@ -116,7 +116,7 @@
                         {{ form.notes }}
                 </div>
                 <div class="mt-2" id="date-posted-field">
-                        Date: 
+                        {% trans 'Date' %}: 
                         {{ form.date_posted }}
                 </div>
         </div>

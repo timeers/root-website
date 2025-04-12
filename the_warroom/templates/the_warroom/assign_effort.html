@@ -1,13 +1,18 @@
 {% extends 'the_keep/base.html' %}
 {% block title %} - Link{% endblock %}
-{% load static %}
+{% load static i1 %}
 {% block content %}
 
-<h1>Link a Game</h1>
+<h1>{% trans 'Link a Game' %}</h1>
 {% with scorecard as object %}
 {% include 'the_warroom/partials/scorecard.html' %}
 {% endwith %}
-<h2>{{ form.effort.field.queryset.count }} Available Game{% if form.effort.field.queryset.count != 1 %}s{% endif %}</h2>
+<h2>{{ form.effort.field.queryset.count }} 
+    {% if form.effort.field.queryset.count != 1 %}
+        {% trans 'Available Games' %}
+    {% else %}
+        {% trans 'Available Game' %}
+    {% endif %}</h2>
 {% if scorecard.dominance %}
 <h3>for {{ scorecard.faction.title }} Dominance Scorecard</h3>
 {% else %}
@@ -29,7 +34,7 @@
                 {% include 'the_warroom/partials/scorecard_game_summary.html' %}
             {% endwith %}
             <button class="btn btn-warning link-button" id="link-scorecard" onclick="link(this)" data-effort-id="{{ effort_link.id }}">
-                <i class="bi bi-link"></i> Link
+                <i class="bi bi-link"></i> {% trans 'Link' %}
             </button>
         </div>
     {% endfor %}

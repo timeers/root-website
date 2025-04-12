@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static i18n %}
 {% block title %} - Games{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
@@ -18,23 +18,23 @@
     <div class="media-body">
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <div class='d-flex'>
-    <h1>Games</h1>
+    <h1>{% trans 'Games' %}</h1>
     </div>
     <div class='d-flex'>
         
         {% if user.profile.admin %}
         <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">
-            Series
+            {% trans 'Series' %}
         </a>
         {% endif %}
       
         {% if user.profile.player %}
         <a href="{% url 'scorecard-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="scorecards">
-            Scorecards
+            {% trans 'Scorecards' %}
         </a>
         {% endif %}
         <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
-            New Game +
+            {% trans 'New Game' %} +
         </a>
     </div>
 </div>
@@ -42,7 +42,7 @@
 </article>
 {% if in_progress %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h3>In Progress Games ({{ in_progress.count }})</h3>
+    <h3>{% trans 'In Progress Games' %} ({{ in_progress.count }})</h3>
         <button class="btn btn-info btn-sm ml-2 ms-2" 
         type="button" 
         data-bs-toggle="collapse" 
@@ -50,14 +50,14 @@
         aria-expanded="false" 
         aria-controls="collapseRegister" 
         id="collapseToggleButton">
-    View
+    {% trans 'View' %}
     </button>
  
     </div>   
     
     
     <div class="collapse" id="collapseRegister">
-        These games have not been submitted:
+        {% trans 'These games have not been submitted' %}:
         {% for game in in_progress %}
             {% include 'the_warroom/partials/game_detail_button.html' %}
         {% endfor %}
@@ -69,7 +69,7 @@
     <div class="media-body">
 
 
-    <h3>Filters</h3>
+    <h3>{% trans 'Filters' %}</h3>
 
 
 
@@ -82,25 +82,25 @@
             hx-swap="outerHTML"
             id="gamefilterform">
         <div class="mb-1">
-            Map:
+            {% trans 'Map' %}:
             {{ form.map }}
         </div>    
         <div class="mb-1">
-        Deck:
+        {% trans 'Deck' %}:
         {{ form.deck }}
         </div>
         <div class="mb-1">
-        Factions:
+        {% trans 'Factions' %}:
         {{ form.faction }}
-        Vagabonds:
+        {% trans 'Vagabonds' %}:
         {{ form.vagabond }}
         </div>
         <div class="mb-1">
-        Players:
+        {% trans 'Players' %}:
         {{ form.player }}
         </div>
 
-        <button class="btn btn-primary mb-3">Filter</button>
+        <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
     </form>
 
 

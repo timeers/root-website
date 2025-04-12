@@ -3,12 +3,14 @@
 {% block title %} - Testing{% endblock %}
 {% block content %}
 <article class="content-section">
-<h1>Ready for Testing?</h1>
+<h1>{% trans 'Ready for Testing?' %}</h1>
 <div>
-By marking {{ post.title }} as "Testing" you convey to other users that you are testing and fine tuning this {{ post.component }}, you can always undo this later.
+    {% blocktrans %}
+        By marking {{ post_title }} as "Testing" you convey to other users that you are testing and fine tuning this {{ post_component }}, you can always undo this later.
+    {% endblocktrans %}
 </div>
 <div>
-    If you have started testing, click "Yes!"
+    {% trans 'If you have started testing, click "Yes!"' %}
 </div>
 <form method="post">
     {% csrf_token %}

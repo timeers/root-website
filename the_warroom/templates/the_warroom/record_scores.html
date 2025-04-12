@@ -3,7 +3,12 @@
 {% block title %} - Record{% endblock %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: start;">
-    <legend>{% if object.id %}Update{% else %}Record{% endif %} Detailed Game Scores</legend>
+    <legend>{% if object.id %}
+            {% trans 'Update Detailed Game Scores' %}
+        {% else %}
+            {% trans 'Record Detailed Game Scores' %}
+        {% endif %}
+        </legend>
     {% if generic_view %}
         {% comment %} <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-detail" value="enabled" type="button">Less</button>
     {% else %} {% endcomment %}
@@ -32,7 +37,7 @@
     
 
     <div id="game-faction-select" class="{{ form.required_css_class }}" {% if object.id %}disabled{% endif %}>
-        <h4>Faction:</h4>
+        <h4>{% trans 'Faction' %}:</h4>
         {% if object.faction %}
             {{ object.faction }}
             <div style="display: none;">
@@ -50,14 +55,14 @@
         <div>
         {% if object.effort %}
             {% if object.game_group %}
-                Game: {{ object.game_group }}
+                {% trans 'Game' %}: {{ object.game_group }}
             {% endif %}
             <div style="display: none;">
                 {{ form.game_group }}
             </div>
         {% else %}
         {% if object.game_group and next_scorecard %}
-                Game: {{ object.game_group }}
+                {% trans 'Game' %}: {{ object.game_group }}
                 <div style="display: none;">
                     {{ form.game_group }}
                 </div>
@@ -69,7 +74,7 @@
                     id="{{ form.game_group.id_for_label }}" 
                     value="{% if game_group %}{{ game_group }}{% elif object.game_group %}{{ object.game_group }}{% endif %}" 
                     class="form-control" 
-                    placeholder="Game Nickname for Grouping">
+                    placeholder={% trans 'Game Nickname for Grouping' %}>
             </div>
         {% endif %}
         {% endif %}
@@ -78,7 +83,7 @@
     </div>
 
 
-    {% if score %}<h4>{{ score }} points:</h4>{% endif %}
+    {% if score %}<h4>{{ score }} {% trans 'points' %}:</h4>{% endif %}
 
     {% if message %}
         <div class="alert alert-warning" role="alert">
@@ -90,14 +95,14 @@
 
     <div id="form-turn-list">
         <div class="turn-header">
-            <div class="turn-column">Turn</div>
-            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">Faction Points</div>
-            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">Crafting Points</div>
-            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">Battle Points</div>
-            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">Other Points</div>
-            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">Total Points</div>
-            <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">Points</div>
-            <div class="turn-column dom-column hidden" id="id_dominance-column">Dom</div>
+            <div class="turn-column">{% trans 'Turn' %}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Faction Points' %}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Crafting Points' %}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Battle Points' %}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Other Points' %}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Total Points' %}</div>
+            <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Points' %}</div>
+            <div class="turn-column dom-column hidden" id="id_dominance-column">{% trans 'Dom' %}</div>
         </div>
 
         {% for form in formset %}
@@ -126,7 +131,11 @@
         {% endfor %}
 
         <div id="total-row" class="turn-form total-row">
-            <div id='total-label' class="turn-column">Total{% if not generic_view %}s{% endif %}</div>
+            <div id='total-label' class="turn-column">{% if not generic_view %}
+                    {% trans 'Totals' %}
+                {% else %}
+                    {% trans 'Total' %}
+                {% endif %}</div>
             <div id="total-faction" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
             <div id="total-crafting" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
             <div id="total-battle" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
@@ -154,9 +163,9 @@
         <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{{ formset.empty_form.generic_points }}</div>
         <div class="turn-column dom-column hidden">{{ formset.empty_form.dominance }}</div>
     </div>
-    <button class="btn btn-info btn-sm mb-2 mt-2" id="add-more" type="button">Add Turn +</button>
-    <button class="btn btn-danger btn-sm mb-2 mt-2 hidden" id="remove-turn" type="button">Remove Turn</button>
-    <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">Play Dominance</button>
+    <button class="btn btn-info btn-sm mb-2 mt-2" id="add-more" type="button">{% trans 'Add Turn' %} +</button>
+    <button class="btn btn-danger btn-sm mb-2 mt-2 hidden" id="remove-turn" type="button">{% trans 'Remove Turn' %}</button>
+    <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">{% trans 'Play Dominance' %}</button>
     <div id="game-description-field" class='mb-1'>
         {{ form.description }}
     </div>
@@ -165,13 +174,13 @@
         {% if previous_scorecard %}
             <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">
                 <i class="bi bi-arrow-left-short"></i>
-                Save and Go to {{previous_scorecard.faction}}
+                {% trans 'Save and Go to' %} {{previous_scorecard.faction}}
             </button>
         {% endif %}
     
         {% if next_scorecard %}
             <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">
-                Save and Go to {{next_scorecard.faction}}
+                {% trans 'Save and Go to' %} {{next_scorecard.faction}}
                 <i class="bi bi-arrow-right-short"></i>
             </button>
         {% endif %}
@@ -180,7 +189,7 @@
     <button class="btn btn-success mb-1 mt-1" type="submit">{% trans 'Save' %}</button>
     {% if not object.effort  %}
         {% if not previous_scorecard or not object.id%}
-            <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1 hidden" name="add_player" value="true">Save and add next Seat</button>
+            <button type="submit" id="save_and_add_next_seat" class="btn btn-primary mb-1 mt-1 hidden" name="add_player" value="true">{% trans 'Save and add next Seat' %}</button>
         {% endif %}
     {% endif %}
     {% if object.id %}

@@ -9,7 +9,7 @@
 
 <div>
     <h2 class='d-flex justify-content-center root-title'>
-        Available Translations
+        {% trans 'Available Translations' %}
     </h2>
 
     <a href="{{ object.get_absolute_url }}?lang={{object.language.code}}">
@@ -38,7 +38,7 @@
         <!-- Second div (Update Translation button) -->
         <div>
             <a href="{% url 'translation-update' slug=object.slug lang=translation.language.code %}" class="btn btn-sm btn-warning mb-4 ml-3">
-                Update
+                {% trans 'Update' %}
             </a>
         </div>
         {% endif %}

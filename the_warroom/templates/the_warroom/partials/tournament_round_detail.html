@@ -1,4 +1,4 @@
-
+{% load i18n %}
 
 
 {% block content %}
@@ -20,27 +20,27 @@
 
         {% if object.type == "Tournament" %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="rounds-tab" data-bs-toggle="tab" href="#rounds" role="tab" aria-controls="rounds" aria-selected="false">Rounds</a>
+            <a class="nav-link" id="rounds-tab" data-bs-toggle="tab" href="#rounds" role="tab" aria-controls="rounds" aria-selected="false">{% trans 'Rounds' %}</a>
         </li>
         {% else %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">Games</a>
+            <a class="nav-link" id="games-tab" data-bs-toggle="tab" href="#games" role="tab" aria-controls="games" aria-selected="false">{% trans 'Games' %}</a>
         </li>
         {% endif %}
 
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="leaderboards-tab" data-bs-toggle="tab" href="#leaderboards" role="tab" aria-controls="leaderboards" aria-selected="false">Leaderboards</a>
+            <a class="nav-link" id="leaderboards-tab" data-bs-toggle="tab" href="#leaderboards" role="tab" aria-controls="leaderboards" aria-selected="false">{% trans 'Leaderboards' %}</a>
         </li>
 
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="players-tab" data-bs-toggle="tab" href="#players" role="tab" aria-controls="players" aria-selected="false">Players</a>
+            <a class="nav-link" id="players-tab" data-bs-toggle="tab" href="#players" role="tab" aria-controls="players" aria-selected="false">{% trans 'Players' %}</a>
         </li>
 
 
         {% if object.type == "Tournament" %}
         {% if not object.open_assets %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false">{{ object.type }} Assets</a>
+            <a class="nav-link" id="assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false">{{ object.type }} {% trans 'Assets' %}</a>
         </li>
         {% endif %}
         {% endif %}
@@ -58,7 +58,7 @@
                 <div class="media-body">
             {% if user.profile.admin or user.profile == object.designer %}
             <div style="display: flex; justify-content: flex-end;">
-            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">Add Round +</a>
+            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">{% trans 'Add Round' %} +</a>
             </div>
             {% endif %}
             
@@ -139,15 +139,19 @@
     <article class="media content-section">
         <div class="media-body">
         
-            <h2>Player Leaderboard{% if top_players and most_players %}s{% endif %}</h2>
+            <h2>{% if top_players and most_players %}
+                    {% trans 'Player Leaderboards' %}
+                {% else %}
+                    {% trans 'Player Leaderboard' %}'
+                {% endif %}</h2>
     
             {% if top_players and most_players %}
             <ul class="nav nav-tabs" id="playerLeaderboardTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link active" id="player-winrate-tab" data-bs-toggle="tab" href="#player-winrate" role="tab" aria-controls="player-winrate" aria-selected="true">By Winrate</a>
+                    <a class="nav-link active" id="player-winrate-tab" data-bs-toggle="tab" href="#player-winrate" role="tab" aria-controls="player-winrate" aria-selected="true">{% trans 'By Winrate' %}</a>
                 </li>      
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="player-gameswon-tab" data-bs-toggle="tab" href="#player-gameswon" role="tab" aria-controls="player-gameswon" aria-selected="false">By Games Won</a>
+                    <a class="nav-link" id="player-gameswon-tab" data-bs-toggle="tab" href="#player-gameswon" role="tab" aria-controls="player-gameswon" aria-selected="false">{% trans 'By Games Won' %}</a>
                 </li>        
       
             </ul>
@@ -159,7 +163,7 @@
     
                     <div class="tab-pane active" id="player-winrate" role="tabpanel" aria-labelledby="player-winrate-tab">
                 {% else %}
-                <h4>By Winrate</h4>
+                <h4>{% trans 'By Winrate' %}</h4>
                 {% endif %}
                 {% with top_players as leaderboard_players %}
                     {% include 'the_gatehouse/partials/leaderboard.html' %}
@@ -174,7 +178,7 @@
                 {% if top_players and most_players %}
                     <div class="tab-pane" id="player-gameswon" role="tabpanel" aria-labelledby="player-gameswon-tab">
                 {% else %}
-                <h4>By Games Won</h4>
+                <h4>{% trans 'By Games Won' %}</h4>
                 {% endif %}
                 {% with most_players as leaderboard_players %}
                     {% include 'the_gatehouse/partials/leaderboard.html' %}
@@ -186,18 +190,18 @@
                 {% endif %}
             {% endif %}
             {% if leaderboard_threshold > 0 %}
-            <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+            <small class="mb-2">*{% trans 'Leaderboard Threshold of' %} {{ leaderboard_threshold }}</small>
             {% endif %}
         </div>
     </article>
     {% else %}
     <article class="media content-section">
         <div class="media-body">
-            <h2>Player Leaderboard</h2>
+            <h2>{% trans 'Player Leaderboard' %}</h2>
             {% if leaderboard_threshold > 0 %}
-            No Players have reached the Game Threshold of {{ leaderboard_threshold }}
+                {% trans 'No Players have reached the Game Threshold of' %} {{ leaderboard_threshold }}
             {% else %}
-            No Games have been Recorded
+                {% trans 'No Games have been Recorded' %}
             {% endif %}
         </div>
     </article>
@@ -210,15 +214,19 @@
     <article class="media content-section">
         <div class="media-body">
         
-            <h2>Faction Leaderboard{% if top_factions and most_factions %}s{% endif %}</h2>
+            <h2>{% if top_factions and most_factions %}
+                    {% trans 'Faction Leaderboards' %}
+                {% else %}
+                    {% trans 'Faction Leaderboard' %}
+                {% endif %}</h2>
     
             {% if top_factions and most_factions %}
             <ul class="nav nav-tabs" id="factionLeaderboardTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link active" id="faction-winrate-tab" data-bs-toggle="tab" href="#faction-winrate" role="tab" aria-controls="faction-winrate" aria-selected="true">By Winrate</a>
+                    <a class="nav-link active" id="faction-winrate-tab" data-bs-toggle="tab" href="#faction-winrate" role="tab" aria-controls="faction-winrate" aria-selected="true">{% trans 'By Winrate' %}</a>
                 </li>  
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="faction-gameswon-tab" data-bs-toggle="tab" href="#faction-gameswon" role="tab" aria-controls="faction-gameswon" aria-selected="false">By Games Won</a>
+                    <a class="nav-link" id="faction-gameswon-tab" data-bs-toggle="tab" href="#faction-gameswon" role="tab" aria-controls="faction-gameswon" aria-selected="false">{% trans 'By Games Won' %}</a>
                 </li>        
           
             </ul>
@@ -230,7 +238,7 @@
     
                     <div class="tab-pane active" id="faction-winrate" role="tabpanel" aria-labelledby="faction-winrate-tab">
                 {% else %}
-                <h4>By Winrate</h4>
+                <h4>{% trans 'By Winrate' %}</h4>
                 {% endif %}
                 {% with top_factions as leaderboard_factions %}
                     {% include 'the_keep/partials/leaderboard.html' %}
@@ -245,7 +253,7 @@
                 {% if top_factions and most_factions %}
                     <div class="tab-pane" id="faction-gameswon" role="tabpanel" aria-labelledby="faction-gameswon-tab">
                 {% else %}
-                <h4>By Games Won</h4>
+                <h4>{% trans 'By Games Won' %}</h4>
                 {% endif %}
                 {% with most_factions as leaderboard_factions %}
                     {% include 'the_keep/partials/leaderboard.html' %}
@@ -257,18 +265,18 @@
                 {% endif %}
             {% endif %}
             {% if leaderboard_threshold > 0 %}
-            <small class="mb-2">*Leaderboard Threshold of {{ leaderboard_threshold }}</small>
+            <small class="mb-2">*{% trans 'Leaderboard Threshold of' %} {{ leaderboard_threshold }}</small>
             {% endif %}
         </div>
     </article>
     {% else %}
     <article class="media content-section">
         <div class="media-body">
-            <h2>Faction Leaderboard</h2>
+            <h2>{% trans 'Faction Leaderboard' %}</h2>
             {% if leaderboard_threshold > 0 %}
-            No Factions have reached the Game Threshold of {{ leaderboard_threshold }}
+                {% trans 'No Factions have reached the Game Threshold of' %} {{ leaderboard_threshold }}
             {% else %}
-            No Games have been Recorded
+                {% trans 'No Games have been Recorded' %}
             {% endif %}
         </div>
     </article>
@@ -284,7 +292,7 @@
                 <div class="media-body">
             {% if user.profile.admin %}
             <div style="display: flex; justify-content: flex-end;">
-                <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">Manage Players</a>
+                <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">{% trans 'Manage Players' %}</a>
             </div>
             {% endif %}
           
@@ -293,10 +301,10 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Name</th>
-                        <th>Games</th>
-                        <th>Points</th>
-                        <th>Winrate</th>
+                        <th>{% trans 'Name' %}</th>
+                        <th>{% trans 'Games' %}</th>
+                        <th>{% trans 'Points' %}</th>
+                        <th>{% trans 'Winrate' %}</th>
                     </tr>
                 </thead>
                 <tbody class="effort-rows">
@@ -314,16 +322,16 @@
                     hx-swap="outerHTML">
                 {% endif %}
                     <td>
-                        Player Name
+                        {% trans 'Player Name' %}
                     </td>
                     <td>
-                        Games Played by Player
+                        {% trans 'Games Played by Player' %}
                     </td>
                     <td>
-                       Points Earned
+                       {% trans 'Points Earned' %}
                     </td>
                     <td>
-                        Total Win Rate
+                        {% trans 'Total Win Rate' %}
                     </td>
                 </tr>
 
@@ -345,12 +353,12 @@
                 <div class="media-body">
             {% if user.profile.admin %}
             <div style="display: flex; justify-content: flex-end;">
-            <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">Manage Assets</a>
+            <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">{% trans 'Manage Assets' %}</a>
             </div>
             {% endif %}
                 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseFactions" aria-expanded="false" aria-controls="collapseFactions">
-                <h2>Factions ({{ object.factions.count }})</h2>
+                <h2>{% trans 'Factions' %} ({{ object.factions.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseFactions">
@@ -370,7 +378,7 @@
 
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseDecks" aria-expanded="false" aria-controls="collapseDecks">
-                <h2>Decks ({{ object.decks.count }})</h2>
+                <h2>{% trans 'Decks' %} ({{ object.decks.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseDecks">
@@ -390,7 +398,7 @@
 
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseMaps" aria-expanded="false" aria-controls="collapseMaps">
-                <h2>Maps ({{ object.maps.count }})</h2>
+                <h2>{% trans 'Maps' %} ({{ object.maps.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseMaps">
@@ -409,7 +417,7 @@
             </div>
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseVagabonds" aria-expanded="false" aria-controls="collapseVagabonds">
-                <h2>Vagabonds ({{ object.vagabonds.count }})</h2>
+                <h2>{% trans 'Vagabonds' %} ({{ object.vagabonds.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseVagabonds">
@@ -422,7 +430,7 @@
 
             {% if object.landmarks.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseLandmarks" aria-expanded="false" aria-controls="collapseLandmarks">
-                <h2>Landmarks ({{ object.landmarks.count }})</h2>
+                <h2>{% trans 'Landmarks' %} ({{ object.landmarks.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseLandmarks">
@@ -436,7 +444,7 @@
 
             {% if object.hirelings.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseHirelings" aria-expanded="false" aria-controls="collapseHirelings">
-                <h2>Hirelings ({{ object.hirelings.count }})</h2>
+                <h2>{% trans 'Hirelings' %} ({{ object.hirelings.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseHirelings">
@@ -449,7 +457,7 @@
             {% endif %}
             {% if object.tweaks.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseTweaks" aria-expanded="false" aria-controls="collapseTweaks">
-                <h2>Tweaks ({{ object.tweaks.count }})</h2>
+                <h2>{% trans 'House Rules' %} ({{ object.tweaks.count }})</h2>
                 <i class="bi bi-chevron-down ml-2"></i>
             </div>
             <div class="collapse" id="collapseTweaks">
