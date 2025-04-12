@@ -1041,33 +1041,33 @@ tr.clickable-row:hover {
 
 
 
+@media (min-width: 768px) {
+  /* Apply animations only if "reduce motion" is set to "no-preference" */
+  @media (prefers-reduced-motion: no-preference) {
+    /* Check if the browser supports scroll timelines */
+    @supports (--css: variables) {
 
-/* Apply animations only if "reduce motion" is set to "no-preference" */
-@media (prefers-reduced-motion: no-preference) {
-  /* Check if the browser supports scroll timelines */
-  @supports (--css: variables) {
-
-      /* Start and End Position */
-      @keyframes foreground-right {
-        from {
-          transform: translateX(0);
+        /* Start and End Position */
+        @keyframes foreground-right {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(var(--offset-percent));
+          }
         }
-        to {
-          transform: translateX(var(--offset-percent));
+
+        /* Scroll timing of animation */
+        #progress-right {
+          animation: foreground-right ease-in-out forwards;
+          animation-timeline: scroll();
+          /* animation-timeline: scrollTimeline;  */
+          animation-range: 3vh var(--slide-speed);
         }
-      }
 
-      /* Scroll timing of animation */
-      #progress-right {
-        animation: foreground-right ease-in-out forwards;
-        animation-timeline: scroll();
-        /* animation-timeline: scrollTimeline;  */
-        animation-range: 3vh var(--slide-speed);
-      }
-
+    }
   }
 }
-
 
 @keyframes slideUp {
   0% {

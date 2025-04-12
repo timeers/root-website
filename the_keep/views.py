@@ -853,8 +853,21 @@ def color_group_view(request, color_name):
 def animal_match_view(request, slug):
     post = get_object_or_404(Post, slug=slug)
     matching_posts = post.matching_animals()
-    match_title = _("{} Components").format(post.animal)
-    description = _("Other {} Components:").format(post.animal)
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    # Try to get the translated animal name from PostTranslation
+    translated_animal = None
+    if language_object:
+        translation = post.translations.filter(language=language_object).first()
+        if translation and translation.translated_animal:
+            translated_animal = translation.translated_animal
+
+    # Use translated animal if it exists, otherwise fallback to post.animal
+    animal_name = translated_animal or post.animal or ""
+
+    match_title = _("{} Components").format(animal_name)
+    description = _("Other {} Components:").format(animal_name)
+    
     context = {
         'original_post': post,
         'posts': matching_posts,
