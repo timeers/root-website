@@ -33,7 +33,7 @@ class TurnInline(admin.StackedInline):
     extra = 0
 
 class ScoreCardAdmin(admin.ModelAdmin):
-    list_display = ('id', 'turn_count', 'faction__title', 'total_score', 'recorder', 'date_posted')
+    list_display = ('id', 'turn_count', 'faction__title', 'total_score', 'recorder', 'date_posted', 'final')
     inlines = [TurnInline]
 
     def turn_count(self, obj):
@@ -61,8 +61,8 @@ class EffortInline(admin.StackedInline):
     # fields = ['player', 'faction', 'score', 'win']
 
 class GameAdmin(admin.ModelAdmin):
-    list_display = ('id', 'recorder', 'date_posted', 'deck', 'map', 'type', 'platform', 'round', 'final')
-    search_fields = ['id', 'deck__title', 'map__title', 'type', 'platform', 'efforts__player__discord', 'efforts__faction__title']
+    list_display = ('id', 'nickname', 'recorder', 'date_posted', 'deck', 'map', 'type', 'platform', 'round', 'final')
+    search_fields = ['id', 'deck__title', 'map__title', 'type', 'platform', 'efforts__player__discord', 'efforts__faction__title', 'nickname']
     inlines = [EffortInline]
      
     def get_urls(self):

@@ -102,6 +102,7 @@
             <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Other Points' %}</div>
             <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Total Points' %}</div>
             <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Points' %}</div>
+            <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Total Score' %}</div>
             <div class="turn-column dom-column hidden" id="id_dominance-column">{% trans 'Dom' %}</div>
         </div>
 
@@ -114,6 +115,11 @@
                     {% if form.instance.id %}
                         <input type="hidden" name="form-{{ forloop.counter0 }}-id" value="{{ form.instance.id }}" 
                         id="id_form-{{ forloop.counter0 }}-id"/>
+                        
+                        {% comment %} <input type="checkbox"
+                        name="form-{{ forloop.counter0 }}-DELETE"
+                        id="id_form-{{ forloop.counter0 }}-DELETE"
+                        {% if form.DELETE.value %}checked{% endif %}> {% endcomment %}
                     {% endif %}
 
                 </div>
@@ -126,6 +132,7 @@
                     {{form.total_points}}
                 </div>
                 <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{{ form.generic_points }}</div>
+                <div class="turn-column running-total generic-column{% if not generic_view %} hidden{% endif %}" id="running-total-{{ forloop.counter0 }}">0</div>
                 <div class="turn-column dom-column hidden">{{ form.dominance }}</div>
             </div>
         {% endfor %}
@@ -142,6 +149,7 @@
             <div id="total-other" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
             <div id="total-total" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
             <div id="total-generic" class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">0</div>
+            <div id="total-score-generic" class="turn-column generic-column{% if not generic_view %} hidden{% endif %}"></div>
             <div id="total-dominance" class="turn-column dom-column hidden"></div>
         </div>
 
@@ -161,29 +169,52 @@
             {{formset.empty_form.total_points}}
         </div>
         <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{{ formset.empty_form.generic_points }}</div>
+        <div class="turn-column running-total generic-column{% if not generic_view %} hidden{% endif %}" id="running-total-__prefix__">0</div>
         <div class="turn-column dom-column hidden">{{ formset.empty_form.dominance }}</div>
     </div>
     <button class="btn btn-info btn-sm mb-2 mt-2" id="add-more" type="button">{% trans 'Add Turn' %} +</button>
     <button class="btn btn-danger btn-sm mb-2 mt-2 hidden" id="remove-turn" type="button">{% trans 'Remove Turn' %}</button>
+    {% comment %} <button class="btn btn-danger btn-sm mb-2 mt-2" id="delete-turn" type="button">{% trans 'Delete Turn' %}</button> {% endcomment %}
     <button class="btn btn-warning btn-sm mb-2 mt-2" id="toggle-dominance" type="button">{% trans 'Play Dominance' %}</button>
     <div id="game-description-field" class='mb-1'>
         {{ form.description }}
     </div>
 
     <div>
-        {% if previous_scorecard %}
+        {% if previous_effort %}
+                <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous-effort" value="true">
+                    <i class="bi bi-arrow-left-short"></i>
+                    {% trans 'Save and Go to' %} {{previous_effort.faction}}
+                </button>
+        {% elif previous_scorecard %}
+                <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">
+                    <i class="bi bi-arrow-left-short"></i>
+                    {% trans 'Save and Go to' %} {{previous_scorecard.faction}}
+                </button>
+        {% endif %}
+        {% comment %} {% if previous_scorecard %}
             <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="previous" value="true">
                 <i class="bi bi-arrow-left-short"></i>
                 {% trans 'Save and Go to' %} {{previous_scorecard.faction}}
             </button>
-        {% endif %}
-    
-        {% if next_scorecard %}
+        {% endif %} {% endcomment %}
+        {% if next_effort %}
+                <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next-effort" value="true">
+                    {% trans 'Save and Go to' %} {{next_effort.faction}}
+                    <i class="bi bi-arrow-right-short"></i>
+                </button>
+        {% elif next_scorecard %}
             <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">
                 {% trans 'Save and Go to' %} {{next_scorecard.faction}}
                 <i class="bi bi-arrow-right-short"></i>
             </button>
         {% endif %}
+        {% comment %} {% if next_scorecard %}
+            <button type="submit" class="btn btn-success mb-1 mt-1 mr-1" name="next" value="true">
+                {% trans 'Save and Go to' %} {{next_scorecard.faction}}
+                <i class="bi bi-arrow-right-short"></i>
+            </button>
+        {% endif %} {% endcomment %}
     </div>
 
     <button class="btn btn-success mb-1 mt-1" type="submit">{% trans 'Save' %}</button>
@@ -194,9 +225,13 @@
     {% endif %}
     {% if object.id %}
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'detail-scorecard' object.id %}">{% trans 'Cancel' %}</a>
-        <a class="btn btn-danger mb-1 mt-1" href="{% url 'delete-scorecard' object.id %}">{% trans 'Delete' %}</a>
+    {% elif game %}
+        <a class="btn btn-secondary mb-1 mt-1" href="{{ game.get_absolute_url }}">{% trans 'Cancel' %}</a>
     {% else %}
         <a class="btn btn-secondary mb-1 mt-1" href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
+    {% endif %}
+    {% if object.id %}
+        <a class="btn btn-danger mb-1 mt-1" href="{% url 'delete-scorecard' object.id %}">{% trans 'Delete' %}</a>
     {% endif %}
     <div class='hidden'>
         <!-- Auto fields for totals -->
@@ -208,7 +243,8 @@
         {{form.total_points}}
         {% comment %} {{form.dominance}}     {% endcomment %}
     </div>
-
+    <div id='form-trash-bin' display='none'>
+    </div>
     </form>
 </div>
 
@@ -227,6 +263,7 @@ $(document).ready(function () {
     const startingIndex = nextFormIndex
     const removeFormEl = document.getElementById('remove-turn');
     const addFormEl = document.getElementById('add-more');
+    const effort_score = {{ score|default:"null" }};
 
     show_hide_remove()
     setInitialDominance()
@@ -244,6 +281,9 @@ $(document).ready(function () {
         }
         if (event.target.id == 'toggle-detail') {
             toggle_detail(event);
+        }
+        if (event.target.id == 'delete-turn') {
+            delete_last_turn(event);
         }
     });
 
@@ -277,6 +317,73 @@ $(document).ready(function () {
 
 
     }
+
+    function delete_last_turn(event){
+        if (event) {
+            event.preventDefault();
+        }
+        
+        const formCopyTarget = document.getElementById("form-turn-list");
+        const lastChild = formCopyTarget.lastElementChild;
+        const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
+        const secondChild = formCopyTarget.children[1];  // Assuming the first is some template or non-form row
+    
+        if (secondToLastChild && secondToLastChild !== secondChild) {
+         
+            secondToLastChild.removeAttribute('id');
+            // Clear all inputs/selects inside it
+            const inputs = secondToLastChild.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                if (input.name.endsWith('-DELETE')) {
+                    input.checked = true; // ✅ mark for deletion
+                } else if (input.type === 'checkbox' || input.type === 'radio') {
+                    input.checked = false;
+                } else {
+                    input.value = '';
+                }
+            });
+    
+            // Optionally move it to a hidden div instead of deleting
+            let trashBin = document.getElementById("form-trash-bin");
+            if (!trashBin) {
+                trashBin = document.createElement("div");
+                trashBin.id = "form-trash-bin";
+                trashBin.style.display = "none";
+                document.body.appendChild(trashBin);
+            }
+            // Also hide it (in case you still want to display but invisible)
+            secondToLastChild.classList.add('hidden');
+            secondToLastChild.classList.remove('turn-form', 'active-form');
+            const childDivs = secondToLastChild.querySelectorAll('div');
+            childDivs.forEach(div => {
+                div.className = '';  // Clears all classes
+            });
+
+            trashBin.appendChild(secondToLastChild);
+    
+
+
+            // Update total form count (if you're maintaining it manually)
+            const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+            totalNewForms.value = parseInt(totalNewForms.value, 10) - 1;
+            nextFormIndex--;
+    
+            show_hide_remove();
+    
+        } else {
+            console.log("Unable to remove turn. Contact admin or delete and start over.");
+        }
+        console.log('finishing')
+        const turnRows = document.querySelectorAll('[id$="-turn_number"]');
+        turnRows.forEach((turnRow, index) => {
+            if (index < turnRows.length - 1) {
+                
+                updateOverallTotals();
+            }
+        });
+    }
+    
+
 
     function add_new_form(event) {
         if (nextFormIndex < 30){
@@ -351,6 +458,7 @@ $(document).ready(function () {
             nextFormIndex++;
 
             show_hide_remove()
+            updateOverallTotals()
         }
 
     }
@@ -405,12 +513,11 @@ $(document).ready(function () {
         const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
         const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
         const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
-
         const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
-
         // Update the total points display in the current turn form
         const totalPointsElement = turnForm.querySelector('.total-points');
         const totalPointsField = turnForm.querySelector('[name*="total_points"]');
+
         totalPointsField.value = totalPoints;
         if (totalPointsElement) {
             totalPointsElement.textContent = totalPoints;
@@ -438,6 +545,11 @@ $(document).ready(function () {
             const otherPointsField = turnForm.querySelector('[name*="other_points"]');
             const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
 
+            const RunningTotalElement = turnForm.querySelector('.running-total');
+    
+
+
+
             // Check if the fields exist before parsing
             if (factionPointsField && craftingPointsField && battlePointsField && otherPointsField && genericPointsField) {
                 const factionPoints = parseFloat(factionPointsField.value) || 0;
@@ -453,6 +565,9 @@ $(document).ready(function () {
                 totalGeneric += genericPoints;
                 grandTotal += factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
             }
+            if (RunningTotalElement) {
+                RunningTotalElement.textContent = grandTotal;
+            }
         });
 
 
@@ -462,7 +577,8 @@ $(document).ready(function () {
         document.getElementById("total-battle").textContent = totalBattle;
         document.getElementById("total-other").textContent = totalOther;
         document.getElementById("total-generic").textContent = totalGeneric;
-        document.getElementById("total-total").textContent = grandTotal;
+        const scoreDisplay = (effort_score !== null) ? `${grandTotal} / ${effort_score}` : `${grandTotal}`;
+        document.getElementById("total-total").textContent = scoreDisplay;
 
         document.getElementById("id_total_faction_points").value = totalFaction;
         document.getElementById("id_total_crafting_points").value = totalCrafting;

@@ -28,8 +28,16 @@ class Language(models.Model):
 
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
-    start_date = models.DateTimeField(default=timezone.now)
-    end_date = models.DateTimeField(default=timezone.now)
+    start_date = models.DateField(default=timezone.now)
+    end_date = models.DateField(default=timezone.now)
+    start_day_of_year = models.PositiveSmallIntegerField(default=1)
+    end_day_of_year = models.PositiveSmallIntegerField(default=1)
+
+    def save(self, *args, **kwargs):
+        # Set the day of the year fields based on the datetime fields
+        self.start_day_of_year = self.start_date.timetuple().tm_yday
+        self.end_day_of_year = self.end_date.timetuple().tm_yday
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

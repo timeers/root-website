@@ -428,6 +428,8 @@ class ScoreCard(models.Model):
     total_other_points = models.IntegerField(default=0)
     total_generic_points = models.IntegerField(default=0)
     dominance = models.BooleanField(default=False)
+    final = models.BooleanField(default=False)
+
 
     def efforts_available(self):
         if self.effort:

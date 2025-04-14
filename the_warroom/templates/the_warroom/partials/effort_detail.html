@@ -80,7 +80,11 @@
 {% if show_detail %}
 <td>   
     {% if effort.scorecard %}
-        <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-zoom-in"></i></a>
+        {% if effort.scorecard.final %}
+            <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-zoom-in"></i></a>
+        {% elif effort.scorecard.recorder == user.profile %}
+            <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' effort.scorecard.id %}"><i class="bi bi-pencil-square"></i></a>
+        {% endif %}
     {% elif effort.available_scorecard %}
         {% if user.is_authenticated %}
             {% if user.profile in participants %}

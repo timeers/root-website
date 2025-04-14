@@ -5,7 +5,8 @@ from django.apps import apps
 import uuid
 from urllib.parse import urljoin
 from django.utils import timezone 
-
+from datetime import date
+from django.db.models import Q, F
 
 def slugify_instance_discord(instance, save=False, new_slug=None):
     if new_slug is not None:
@@ -113,12 +114,22 @@ def build_absolute_uri(request, relative_url):
 
 
 def get_theme(request):
-    now = timezone.now()
+    # now = timezone.now()
     config = apps.get_model('the_gatehouse', 'Website').get_singular_instance()
     
     # Get the current holidays that are active
-    current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(start_date__lte=now, end_date__gte=now)
+    # current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(start_date__lte=now, end_date__gte=now)
     
+    today_doy = date.today().timetuple().tm_yday
+
+    current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(
+        Q(start_day_of_year__lte=today_doy, end_day_of_year__gte=today_doy) |  # Normal range
+        Q(start_day_of_year__gt=F('end_day_of_year'),  # Handles year wrap (e.g. Dec 25–Jan 5)
+        end_day_of_year__gte=today_doy) | 
+        Q(start_day_of_year__gt=F('end_day_of_year'),
+        start_day_of_year__lte=today_doy)
+    )
+
     # If there are any active holidays, get the most recent one
     if current_holidays.exists():
         current_holiday = current_holidays.order_by('-start_date').first()  # Get the holiday that started most recently

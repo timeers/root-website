@@ -309,7 +309,7 @@ def game_detail_view(request, id=None):
         # Add efforts directly to context to get the available_scorecard field
         efforts = obj.efforts.all().prefetch_related('faction', 'player', 'vagabond', 'scorecard')
         # Count the total number of scorecards linked to efforts
-        scorecard_count = ScoreCard.objects.filter(effort__in=obj.efforts.all()).distinct().count()
+        scorecard_count = ScoreCard.objects.filter(final=True, effort__in=obj.efforts.all()).distinct().count()
         if request.user.is_authenticated:
             for effort in efforts:
                 effort.available_scorecard = effort.available_scorecard(request.user)
@@ -581,7 +581,7 @@ def bookmark_game(request, object):
 # Create and edit a scorecard
 @player_onboard_required
 def scorecard_manage_view(request, id=None):
-    existing_scorecard = False
+    # existing_scorecard = False
     faction = request.GET.get('faction', None)
     effort_id = request.GET.get('effort', None)
     game_group = request.GET.get('game_group', None)
@@ -590,6 +590,7 @@ def scorecard_manage_view(request, id=None):
     else:
         faction_name = None
 
+    game = None
     next_scorecard = None
     previous_scorecard = None
     try:
@@ -604,9 +605,13 @@ def scorecard_manage_view(request, id=None):
         if not request.user.profile in participants:
             raise PermissionDenied() 
 
-
     except Effort.DoesNotExist:
         effort = None
+        next_effort = None
+        next_effort_scorecard = None
+        previous_effort = None
+        previous_effort_scorecard = None
+
 
     if id:
         obj = get_object_or_404(ScoreCard, id=id)
@@ -618,7 +623,8 @@ def scorecard_manage_view(request, id=None):
             # print(faction)
         if obj.effort != None:
             effort = obj.effort
-        existing_scorecard = True
+            game = effort.game
+        # existing_scorecard = True
 
 
         if not obj.effort:
@@ -657,6 +663,18 @@ def scorecard_manage_view(request, id=None):
 
 
 
+    if effort and game:
+        game_efforts = Effort.objects.filter(game=game).order_by('seat')
+
+        effort_list = list(game_efforts)
+        current_index = effort_list.index(effort)
+
+        # Get the next and previous scorecards
+        next_effort = effort_list[(current_index + 1) % len(effort_list)]
+        previous_effort = effort_list[(current_index - 1) % len(effort_list)]
+        next_effort_scorecard = getattr(next_effort, 'scorecard', None)
+        previous_effort_scorecard = getattr(previous_effort, 'scorecard', None)
+
 
     user = request.user
 
@@ -678,8 +696,9 @@ def scorecard_manage_view(request, id=None):
         score = effort.score
     else:
         score = None
-
-    if not obj.total_generic_points and obj.id and obj.total_points:
+    print(obj.total_points)
+    print(obj.total_points)
+    if not obj.total_generic_points and obj.id and obj.total_points and obj.total_points != 0:
         generic_view = False
     else:
         generic_view = True
@@ -696,10 +715,17 @@ def scorecard_manage_view(request, id=None):
         'previous_scorecard': previous_scorecard,
         'game_group': game_group,
         'generic_view': generic_view,
+        'next_effort': next_effort,
+        'next_effort_scorecard': next_effort_scorecard,
+        'previous_effort': previous_effort,
+        'previous_effort_scorecard': previous_effort_scorecard,
+        'game': game
     }
 
     # Handle form submission
     if form.is_valid() and formset.is_valid():
+        warning_message = False
+        print('valid form')
         # print(formset.cleaned_data)
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
@@ -715,39 +741,56 @@ def scorecard_manage_view(request, id=None):
             turn_dominance = child_form.cleaned_data.get('dominance')
             if turn_dominance:
                 dominance = True
-            # total_points += (
-            #     child_form.cleaned_data.get('faction_points', 0) +
-            #     child_form.cleaned_data.get('crafting_points', 0) +
-            #     child_form.cleaned_data.get('battle_points', 0) +
-            #     child_form.cleaned_data.get('other_points', 0) + 
-            #     child_form.cleaned_data.get('generic_points', 0) 
-            # )
             total_points += child_form.cleaned_data.get('total_points', 0)
+        if effort:
+            final_scorecard = True
+        else:
+            final_scorecard = False
         if effort and total_points != effort.score and effort.score:
+            final_scorecard = False
             # If points don't match effort.score
-            context['message'] = f"Error: The recorded points ({total_points}) do not match the total game points ({effort.score})."
-            if existing_scorecard == False:
-                parent.delete()
-            return render(request, 'the_warroom/record_scores.html', context)
+            warning_message = True
+            messages.info(request, f"Progress Saved. The recorded points, {total_points}, did not match the total game points, {effort.score}.")
+            # context['message'] = f"Error: The recorded points ({total_points}) do not match the total game points ({effort.score})."
+            # if existing_scorecard == False:
+            #     parent.delete()
+            # return render(request, 'the_warroom/record_scores.html', context)
+
 
         elif total_points < 0:
+            final_scorecard = False
             # If points are negative
-            context['message'] = f"Error: The recorded points ({total_points}) are negative."
-            if existing_scorecard == False:
-                parent.delete()
-            return render(request, 'the_warroom/record_scores.html', context)
+            warning_message = True
+            messages.info(request, f"Progress Saved. The recorded points, {total_points}, were negative.")
+            # context['message'] = f"Error: The recorded points ({total_points}) are negative."
+            # if existing_scorecard == False:
+            #     parent.delete()
+            # return render(request, 'the_warroom/record_scores.html', context)
+
+        elif effort and effort.score == 0 and total_points != 0 and not effort.dominance and not effort.coalition_with:
+            final_scorecard = False
+            warning_message = True
+            messages.info(request, f"Progress Saved. The recorded points, {total_points}, did not match the total game points, {effort.score}.")
+
 
         if (effort and dominance and not effort.dominance and not effort.coalition_with) or (effort and not dominance and effort.dominance) or (effort and not dominance and effort.coalition_with):
+            final_scorecard = False
             if dominance:
-                context['message'] = f"Dominance Error: The original effort does not have a Dominance Played."
+                warning_message = True
+                messages.info(request, f"Progress Saved. Dominance not found in game data.")
+                # context['message'] = f"Dominance Error: The original effort does not have a Dominance Played."
             else:
-                context['message'] = f"Dominance Error: The original effort has an active Dominance Played."
-            if existing_scorecard == False:
-                parent.delete()
-            return render(request, 'the_warroom/record_scores.html', context)
+                warning_message = True
+                messages.info(request, f"Progress Saved. Dominance missing.")
+                # context['message'] = f"Dominance Error: The original effort has an active Dominance Played."
+            # if existing_scorecard == False:
+            #     parent.delete()
+            # return render(request, 'the_warroom/record_scores.html', context)
 
         
         for turn_form in formset:
+            form_delete = turn_form.cleaned_data['delete']
+            print(form_delete)
             child = turn_form.save(commit=False)
             child.scorecard = parent  # Link the turn to the game
             child.save()
@@ -756,6 +799,16 @@ def scorecard_manage_view(request, id=None):
             parent.dominance = dominance
             # print("dominance", dominance)
             parent.save()  # Save the new or updated Game Score instance
+
+        if parent.final != final_scorecard:
+            parent.final = final_scorecard
+            parent.save()  # Save with the new final status
+
+        if not warning_message:
+            if final_scorecard:
+                messages.success(request, f"Scores Saved for {parent.faction}")
+            else:
+                messages.info(request, f"Progress Saved for {parent.faction}")
 
         # Check if the "next" button was clicked
         if request.POST.get('next'):
@@ -771,8 +824,20 @@ def scorecard_manage_view(request, id=None):
             game_group = parent.game_group
             encoded_game_group = quote(str(game_group))  # Encode the game_group value
             return redirect(f'{reverse("record-scorecard")}?game_group={encoded_game_group}')
-
-
+        if request.POST.get('next-effort'):
+            if next_effort_scorecard:
+                return redirect('update-scorecard', next_effort_scorecard.id)
+            else:
+                url = reverse('record-scorecard')
+                query_string = f'?faction={next_effort.faction.id}&effort={next_effort.id}'
+                return redirect(f'{url}{query_string}')
+        if request.POST.get('previous-effort'):
+            if previous_effort_scorecard:
+                return redirect('update-scorecard', previous_effort_scorecard.id)
+            else:
+                url = reverse('record-scorecard')
+                query_string = f'?faction={previous_effort.faction.id}&effort={previous_effort.id}'
+                return redirect(f'{url}{query_string}')
         context['message'] = "Scores Saved"
         return redirect(parent.get_absolute_url())
     return render(request, 'the_warroom/record_scores.html', context)
@@ -940,11 +1005,11 @@ def scorecard_list_view(request):
     all_scorecards = ScoreCard.objects.filter(recorder=request.user.profile).prefetch_related('turns', 'faction', 'effort')
 
     # QuerySets
-    unassigned_scorecards = all_scorecards.filter(effort=None)
+    unassigned_scorecards = all_scorecards.filter(final=False)
     unassigned_count = unassigned_scorecards.count()
     # if unassigned_count > 10:
     #     unassigned_scorecards = unassigned_scorecards[:10]
-    complete_scorecards = all_scorecards.exclude(effort=None).prefetch_related(
+    complete_scorecards = all_scorecards.exclude(final=False).prefetch_related(
         'effort__game', 'effort__player', 'effort__faction')
 
     
@@ -1114,7 +1179,7 @@ class TournamentDeleteView(DeleteView):
             # Handle the case where the deletion fails due to foreign key protection
             messages.error(request, f"The Tournament '{name}' cannot be deleted because games have already been recorded.")
             # Redirect back to the tournament detail page
-            return redirect(tournament.get_absolute_url())  # Make sure `tournament.get_absolute_url()` is correct
+            return redirect(tournament.get_absolute_url())
         except IntegrityError:
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this tournament.")

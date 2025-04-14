@@ -198,7 +198,7 @@ class Expansion(models.Model):
         super().save(*args, **kwargs)
         # Resize images before saving
         if self.picture:
-            resize_image(self.picture, 950)  # Resize expansion image
+            resize_image(self.picture, 1500)  # Resize expansion image
 
 class Post(models.Model):
     
@@ -411,9 +411,9 @@ class Post(models.Model):
         # if self.small_icon:
         resize_image(self.small_icon, 80)
         # if self.board_image:
-        resize_image(self.board_image, 950)  # Resize board_image
+        resize_image(self.board_image, 1500)  # Resize board_image
         # if self.board_2_image:
-        resize_image(self.board_2_image, 950)  # Resize board_image
+        resize_image(self.board_2_image, 1500)  # Resize board_image
         # if self.card_image:
         resize_image(self.card_image, 350)  # Resize card_image
         # if self.card_2_image:
@@ -636,8 +636,8 @@ class PostTranslation(models.Model):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
-        resize_image(self.translated_board_image, 950)  # Resize board_image
-        resize_image(self.translated_board_2_image, 950)  # Resize board_image
+        resize_image(self.translated_board_image, 1500)  # Resize board_image
+        resize_image(self.translated_board_2_image, 1500)  # Resize board_image
         resize_image(self.translated_card_image, 350)  # Resize card_image
         resize_image(self.translated_card_2_image, 350)  # Resize card_image
 

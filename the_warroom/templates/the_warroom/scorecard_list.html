@@ -75,7 +75,11 @@
                     </td>
 
                     <td>
-                        {{ object.game_group }}
+                        {% if object.effort.game.nickname %}
+                            {{object.effort.game.nickname}}
+                        {% else %}
+                            {{ object.game_group }}
+                        {% endif %}
                     </td>
                 </tr>
 

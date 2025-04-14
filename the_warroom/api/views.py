@@ -114,7 +114,7 @@ class GameScorecardView(APIView):
 class FactionAverageTurnScoreView(APIView):
     def get(self, request, slug, format=None):
         # Get all scorecards related to the given faction
-        scorecards = ScoreCard.objects.filter(faction__slug=slug, effort__isnull=False)
+        scorecards = ScoreCard.objects.filter(faction__slug=slug, effort__isnull=False, final=True)
         faction = Faction.objects.get(slug=slug)
 
         color = faction.color if faction.color else generate_neon_color()
@@ -137,7 +137,7 @@ class FactionAverageTurnScoreView(APIView):
 
         # Calculate the total points for each turn across all scorecards
         turn_averages = (
-            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10)  # Filter by the related scorecards
+            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10, scorecard__final=True)  # Filter by the related scorecards
             .values('turn_number')  # Group by turn number
             .annotate(
                 total_points_sum=Sum('total_points'),  # Calculate the total points per turn
@@ -177,8 +177,8 @@ class FactionAverageTurnScoreView(APIView):
             # average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
             # average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
     
-            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number']).count()
-            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'])
+            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
+            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
             running_total = 0
             for current_turn in current_turns:
                 running_total = running_total + current_turn.game_points()
@@ -233,11 +233,11 @@ class AverageTurnScoreView(APIView):
         if faction_type:
             # Filter by the provided faction type
             # print('Faction Type', faction_type)
-            scorecards = ScoreCard.objects.filter(effort__isnull=False, faction__type=faction_type)
+            scorecards = ScoreCard.objects.filter(effort__isnull=False, faction__type=faction_type, faction__official=True, final=True)
         else:
             faction_type = "A"
             # If no type is provided, get all scorecards with the original conditions
-            scorecards = ScoreCard.objects.filter(effort__isnull=False)
+            scorecards = ScoreCard.objects.filter(effort__isnull=False, final=True)
 
 
         # Check if there are no scorecards
@@ -258,7 +258,7 @@ class AverageTurnScoreView(APIView):
 
         # Calculate the total points for each turn across all scorecards
         turn_averages = (
-            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10)  # Filter by the related scorecards
+            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10, scorecard__final=True)  # Filter by the related scorecards
             .values('turn_number')  # Group by turn number
             .annotate(
                 total_points_sum=Sum('total_points'),  # Calculate the total points per turn
@@ -297,8 +297,8 @@ class AverageTurnScoreView(APIView):
             # average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
             # average_game_points += average_total_points
 
-            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number']).count()
-            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'])
+            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
+            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
             running_total = 0
             for current_turn in current_turns:
                 running_total = running_total + current_turn.game_points()
@@ -350,10 +350,10 @@ class PlayerScorecardView(APIView):
 
         if recorder:
             # Get all scorecards recorded by a player (via player slug)        
-            scorecards = ScoreCard.objects.filter(recorder__slug=slug, effort__isnull=False)
+            scorecards = ScoreCard.objects.filter(recorder__slug=slug, effort__isnull=False, final=True)
         else:
             # Get all scorecards related to the specified player (via player slug)        
-            scorecards = ScoreCard.objects.filter(effort__player__slug=slug)
+            scorecards = ScoreCard.objects.filter(effort__player__slug=slug, final=True)
 
         # Check if there are no scorecards
         if not scorecards.exists():
@@ -384,7 +384,7 @@ class PlayerScorecardView(APIView):
 
 
             turn_averages = (
-                TurnScore.objects.filter(scorecard__in=faction_scorecards, turn_number__lte=10)
+                TurnScore.objects.filter(scorecard__in=faction_scorecards, turn_number__lte=10, scorecard__final=True)
                 .values('turn_number')  # Group by turn number
                 .annotate(
                     total_points_sum=Sum('total_points'),
@@ -424,8 +424,8 @@ class PlayerScorecardView(APIView):
                 # average_other_points = avg['other_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
                 # average_game_points += average_total_points
                 print(faction.title, faction.id)
-                turn_count = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number']).count()
-                current_turns = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'])
+                turn_count = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
+                current_turns = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
                 running_total = 0
                 for current_turn in current_turns:
                     running_total = running_total + current_turn.game_points()

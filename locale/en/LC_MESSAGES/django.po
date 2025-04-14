@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-04-07 12:14-0700\n"
+"POT-Creation-Date: 2025-04-12 08:11-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -451,6 +451,8 @@ msgid "Universally unique identifier"
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/files.py:244
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:172
+#: the_keep/templates/the_keep/asset_list.html:57
 #: the_keep/templates/the_keep/asset_list.html:179
 msgid "File"
 msgstr ""
@@ -626,8 +628,8 @@ msgstr ""
 #: the_keep/templates/the_keep/asset_form.html:33
 #: the_keep/templates/the_keep/post_confirm_delete.html:9
 #: the_keep/templates/the_keep/post_form.html:54
-#: the_warroom/templates/the_warroom/partials/forms.html:135
-#: the_warroom/templates/the_warroom/record_scores.html:189
+#: the_warroom/templates/the_warroom/partials/forms.html:140
+#: the_warroom/templates/the_warroom/record_scores.html:198
 #: the_warroom/templates/the_warroom/tournament_form.html:23
 #: the_warroom/templates/the_warroom/tournament_round_form.html:29
 msgid "Delete"
@@ -1327,10 +1329,10 @@ msgstr ""
 #: the_keep/templates/the_keep/translation_form.html:14
 #: the_warroom/templates/the_warroom/game_delete.html:15
 #: the_warroom/templates/the_warroom/game_update.html:14
-#: the_warroom/templates/the_warroom/partials/forms.html:134
-#: the_warroom/templates/the_warroom/partials/forms.html:137
-#: the_warroom/templates/the_warroom/record_scores.html:188
-#: the_warroom/templates/the_warroom/record_scores.html:191
+#: the_warroom/templates/the_warroom/partials/forms.html:139
+#: the_warroom/templates/the_warroom/partials/forms.html:142
+#: the_warroom/templates/the_warroom/record_scores.html:197
+#: the_warroom/templates/the_warroom/record_scores.html:200
 #: the_warroom/templates/the_warroom/round_confirm_delete.html:11
 #: the_warroom/templates/the_warroom/score_delete.html:15
 #: the_warroom/templates/the_warroom/tournament_confirm_delete.html:11
@@ -1383,6 +1385,8 @@ msgid "Re-send Verification"
 msgstr ""
 
 #: templates/account/email.html:50 templates/socialaccount/connections.html:40
+#: the_warroom/templates/the_warroom/partials/forms.html:56
+#: the_warroom/templates/the_warroom/partials/forms.html:93
 msgid "Remove"
 msgstr ""
 
@@ -1957,7 +1961,7 @@ msgstr ""
 #: templates/the_tavern/game_comment_form.html:11
 #: templates/the_tavern/post_comment_form.html:12
 #: the_gatehouse/templates/the_gatehouse/discord_feedback.html:8
-#: the_warroom/templates/the_warroom/partials/forms.html:123
+#: the_warroom/templates/the_warroom/partials/forms.html:128
 msgid "Submit"
 msgstr ""
 
@@ -1996,19 +2000,23 @@ msgstr ""
 #: the_keep/templates/the_keep/partials/component_title.html:13
 #: the_keep/templates/the_keep/partials/leaderboard.html:6
 #: the_keep/templates/the_keep/partials/search_bar.html:28
+#: the_warroom/templates/the_warroom/partials/forms.html:46
+#: the_warroom/templates/the_warroom/partials/forms.html:83
 #: the_warroom/templates/the_warroom/partials/game_detail.html:68
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:65
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:52
+#: the_warroom/templates/the_warroom/record_scores.html:41
 #: the_warroom/templates/the_warroom/scorecard_list.html:56
 #: the_warroom/templates/the_warroom/scorecard_list.html:115
 msgid "Faction"
 msgstr ""
 
-#: the_gatehouse/forms.py:219 the_gatehouse/forms.py:286 the_keep/forms.py:480
+#: the_gatehouse/forms.py:219 the_gatehouse/forms.py:286 the_keep/forms.py:484
 #: the_keep/models.py:206 the_keep/templates/the_keep/asset_list.html:146
 #: the_keep/templates/the_keep/new.html:23
 #: the_keep/templates/the_keep/partials/search_bar.html:30
-#: the_warroom/templates/the_warroom/player_games.html:55
+#: the_warroom/templates/the_warroom/games_home.html:85
+#: the_warroom/templates/the_warroom/player_games.html:69
 msgid "Map"
 msgstr ""
 
@@ -2016,6 +2024,8 @@ msgstr ""
 #: the_keep/templates/the_keep/asset_list.html:145
 #: the_keep/templates/the_keep/new.html:18
 #: the_keep/templates/the_keep/partials/search_bar.html:29
+#: the_warroom/templates/the_warroom/partials/forms.html:47
+#: the_warroom/templates/the_warroom/partials/forms.html:84
 msgid "Vagabond"
 msgstr ""
 
@@ -2023,7 +2033,8 @@ msgstr ""
 #: the_keep/templates/the_keep/asset_list.html:147
 #: the_keep/templates/the_keep/new.html:28
 #: the_keep/templates/the_keep/partials/search_bar.html:31
-#: the_warroom/templates/the_warroom/player_games.html:59
+#: the_warroom/templates/the_warroom/games_home.html:89
+#: the_warroom/templates/the_warroom/player_games.html:73
 msgid "Deck"
 msgstr ""
 
@@ -2132,18 +2143,115 @@ msgstr ""
 #: the_keep/templates/the_keep/post_form.html:48
 #: the_keep/templates/the_keep/translation_form.html:13
 #: the_warroom/templates/the_warroom/game_update.html:13
-#: the_warroom/templates/the_warroom/record_scores.html:181
+#: the_warroom/templates/the_warroom/record_scores.html:190
 #: the_warroom/templates/the_warroom/tournament_form.html:18
 #: the_warroom/templates/the_warroom/tournament_round_form.html:24
 msgid "Save"
 msgstr ""
 
 #: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:6
+#: the_warroom/templates/the_warroom/partials/forms.html:45
+#: the_warroom/templates/the_warroom/partials/forms.html:82
 #: the_warroom/templates/the_warroom/partials/game_detail.html:66
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:63
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:51
 #: the_warroom/templates/the_warroom/scorecard_list.html:119
 msgid "Player"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:7
+#: the_keep/templates/the_keep/partials/game_stats.html:20
+#: the_keep/templates/the_keep/partials/leaderboard.html:7
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:307
+msgid "Winrate"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:8
+#: the_keep/templates/the_keep/partials/leaderboard.html:8
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:306
+#: the_warroom/templates/the_warroom/record_scores.html:105
+msgid "Points"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:9
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:65
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
+#: the_keep/templates/the_keep/partials/leaderboard.html:9
+#: the_keep/templates/the_keep/partials/universal_results.html:64
+#: the_keep/templates/the_keep/status_check.html:177
+#: the_warroom/templates/the_warroom/games_home.html:21
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:27
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:305
+#: the_warroom/templates/the_warroom/player_games.html:22
+msgid "Games"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:12
+#: the_keep/templates/the_keep/status_check.html:64
+msgid "Games Played"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:17
+msgid "Bookmarks"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:20
+#: the_keep/templates/includes/header.html:97
+msgid "Settings"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:76
+msgid "Posts"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:81
+msgid "Artwork"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:87
+msgid "Stats"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:92
+#: the_keep/templates/the_keep/asset_list.html:19
+#: the_keep/templates/the_keep/partials/universal_results.html:118
+msgid "Resources"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:145
+msgid "Average Game by Faction"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:162
+#: the_keep/templates/the_keep/asset_list.html:27
+msgid "New Resource"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:170
+#: the_keep/forms.py:1035 the_keep/templates/the_keep/asset_list.html:55
+#: the_keep/templates/the_keep/asset_list.html:177
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:304
+msgid "Name"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:171
+#: the_keep/templates/the_keep/asset_list.html:56
+#: the_keep/templates/the_keep/asset_list.html:178
+msgid "Category"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:173
+#: the_keep/templates/the_keep/asset_list.html:58
+#: the_keep/templates/the_keep/asset_list.html:180
+#: the_keep/templates/the_keep/resource_detail.html:44
+#: the_warroom/templates/the_warroom/partials/forms.html:119
+msgid "Date"
+msgstr ""
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:174
+#: the_keep/templates/the_keep/asset_list.html:59
+#: the_keep/templates/the_keep/asset_list.html:181
+msgid "Shared By"
 msgstr ""
 
 #: the_gatehouse/templates/the_gatehouse/user_bookmarks.html:19
@@ -2203,163 +2311,159 @@ msgid ""
 "Set to \"Inactive\" if you are no longer working on this project."
 msgstr ""
 
-#: the_keep/forms.py:460
+#: the_keep/forms.py:464
 msgid "Map Name"
 msgstr ""
 
-#: the_keep/forms.py:464
+#: the_keep/forms.py:468
 msgid "Number of Clearings"
 msgstr ""
 
-#: the_keep/forms.py:469
+#: the_keep/forms.py:473
 msgid "This map has fixed suits for each clearing by default"
 msgstr ""
 
-#: the_keep/forms.py:484
+#: the_keep/forms.py:488
 msgid "Card"
 msgstr ""
 
-#: the_keep/forms.py:488 the_keep/forms.py:537 the_keep/forms.py:597
+#: the_keep/forms.py:492 the_keep/forms.py:541 the_keep/forms.py:601
 msgid "Card Back"
 msgstr ""
 
-#: the_keep/forms.py:524
+#: the_keep/forms.py:528
 msgid "Deck Name"
 msgstr ""
 
-#: the_keep/forms.py:528
+#: the_keep/forms.py:532
 msgid "Card Count"
 msgstr ""
 
-#: the_keep/forms.py:581
+#: the_keep/forms.py:585
 msgid "Landmark Name"
 msgstr ""
 
-#: the_keep/forms.py:589
+#: the_keep/forms.py:593
 msgid "Landmark Art"
 msgstr ""
 
-#: the_keep/forms.py:593
+#: the_keep/forms.py:597
 msgid "Landmark Card Front"
 msgstr ""
 
-#: the_keep/forms.py:626
+#: the_keep/forms.py:630
 msgid "House Rule Name"
 msgstr ""
 
-#: the_keep/forms.py:634
+#: the_keep/forms.py:638
 msgid "House Rule Art"
 msgstr ""
 
-#: the_keep/forms.py:669
+#: the_keep/forms.py:673
 msgid "Hireling Name"
 msgstr ""
 
-#: the_keep/forms.py:674
+#: the_keep/forms.py:678
 msgid "Promoted"
 msgstr ""
 
-#: the_keep/forms.py:675
+#: the_keep/forms.py:679
 msgid "Demoted"
 msgstr ""
 
-#: the_keep/forms.py:685
+#: the_keep/forms.py:689
 msgid "Based On (Faction or other Hireling):"
 msgstr ""
 
-#: the_keep/forms.py:690
+#: the_keep/forms.py:694
 msgid "Other Side"
 msgstr ""
 
-#: the_keep/forms.py:693 the_keep/forms.py:757 the_keep/forms.py:867
-#: the_keep/forms.py:963
+#: the_keep/forms.py:697 the_keep/forms.py:761 the_keep/forms.py:871
+#: the_keep/forms.py:967
 msgid "Character Art"
 msgstr ""
 
-#: the_keep/forms.py:700
+#: the_keep/forms.py:704
 msgid "Hireling Color"
 msgstr ""
 
-#: the_keep/forms.py:707
+#: the_keep/forms.py:711
 msgid "Hireling Card"
 msgstr ""
 
-#: the_keep/forms.py:739
+#: the_keep/forms.py:743
 msgid "Vagabond Name"
 msgstr ""
 
-#: the_keep/forms.py:761
+#: the_keep/forms.py:765
 msgid "Vagabond Card"
 msgstr ""
 
-#: the_keep/forms.py:828
+#: the_keep/forms.py:832
 msgid "Faction Name"
 msgstr ""
 
-#: the_keep/forms.py:833 the_keep/models.py:974
+#: the_keep/forms.py:837 the_keep/models.py:999
 #: the_keep/templates/the_keep/partials/search_bar.html:45
 msgid "Insurgent"
 msgstr ""
 
-#: the_keep/forms.py:834 the_keep/models.py:973
+#: the_keep/forms.py:838 the_keep/models.py:998
 #: the_keep/templates/the_keep/partials/search_bar.html:44
 msgid "Militant"
 msgstr ""
 
-#: the_keep/forms.py:839 the_keep/models.py:978
+#: the_keep/forms.py:843 the_keep/models.py:1003
 #: the_keep/templates/the_keep/partials/vagabond_items.html:82
 msgid "None"
 msgstr ""
 
-#: the_keep/forms.py:840 the_keep/models.py:979
+#: the_keep/forms.py:844 the_keep/models.py:1004
 msgid "Low"
 msgstr ""
 
-#: the_keep/forms.py:841 the_keep/models.py:980
+#: the_keep/forms.py:845 the_keep/models.py:1005
 msgid "Moderate"
 msgstr ""
 
-#: the_keep/forms.py:842 the_keep/models.py:981
+#: the_keep/forms.py:846 the_keep/models.py:1006
 msgid "High"
 msgstr ""
 
-#: the_keep/forms.py:863
+#: the_keep/forms.py:867
 msgid "ADSET Card"
 msgstr ""
 
-#: the_keep/forms.py:871 the_keep/forms.py:981
+#: the_keep/forms.py:875 the_keep/forms.py:985
 msgid "Faction Board Front"
 msgstr ""
 
-#: the_keep/forms.py:875
+#: the_keep/forms.py:879
 msgid "Faction Board Back"
 msgstr ""
 
-#: the_keep/forms.py:879
+#: the_keep/forms.py:883
 msgid "Icon (Faction Head or Meeple)"
 msgstr ""
 
-#: the_keep/forms.py:886 the_keep/forms.py:974
+#: the_keep/forms.py:890 the_keep/forms.py:978
 msgid "Faction Color"
 msgstr ""
 
-#: the_keep/forms.py:953
+#: the_keep/forms.py:957
 msgid "Clockwork Faction Name"
 msgstr ""
 
-#: the_keep/forms.py:967
+#: the_keep/forms.py:971
 msgid "Icon (Meeple or Relationship Marker)"
 msgstr ""
 
-#: the_keep/forms.py:1010
+#: the_keep/forms.py:1014
 msgid "Give a brief explanation on how to use this Clockwork Faction..."
 msgstr ""
 
-#: the_keep/forms.py:1031 the_keep/templates/the_keep/asset_list.html:177
-msgid "Name"
-msgstr ""
-
-#: the_keep/forms.py:1064
+#: the_keep/forms.py:1068
 msgid "File Type"
 msgstr ""
 
@@ -2452,7 +2556,7 @@ msgstr ""
 msgid "Abandoned"
 msgstr ""
 
-#: the_keep/models.py:212 the_keep/models.py:975
+#: the_keep/models.py:212 the_keep/models.py:1000
 #: the_keep/templates/the_keep/partials/search_bar.html:34
 msgid "Clockwork"
 msgstr ""
@@ -2503,6 +2607,7 @@ msgid "My Posts"
 msgstr ""
 
 #: the_keep/templates/includes/header.html:79
+#: the_keep/templates/the_keep/asset_list.html:24
 msgid "New Post"
 msgstr ""
 
@@ -2518,10 +2623,6 @@ msgstr ""
 msgid "Users"
 msgstr ""
 
-#: the_keep/templates/includes/header.html:97
-msgid "Settings"
-msgstr ""
-
 #: the_keep/templates/includes/header.html:106
 msgid "Login"
 msgstr ""
@@ -2530,6 +2631,27 @@ msgstr ""
 #: the_keep/templates/the_keep/expansion_confirm_delete.html:17
 #: the_keep/templates/the_keep/post_confirm_delete.html:14
 msgid "Yes, Delete"
+msgstr ""
+
+#: the_keep/templates/the_keep/asset_list.html:34
+msgid "Shared"
+msgstr ""
+
+#: the_keep/templates/the_keep/asset_list.html:42
+#: the_keep/templates/the_keep/home.html:34
+#: the_keep/templates/the_keep/home.html:49
+#: the_keep/templates/the_keep/home.html:66
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
+#: the_warroom/templates/the_warroom/games_home.html:53
+msgid "View"
+msgstr ""
+
+#: the_keep/templates/the_keep/asset_list.html:99
+msgid "No results found"
+msgstr ""
+
+#: the_keep/templates/the_keep/asset_list.html:120
+msgid "Pinned"
 msgstr ""
 
 #: the_keep/templates/the_keep/asset_list.html:143
@@ -2550,27 +2672,73 @@ msgstr ""
 msgid "Video"
 msgstr ""
 
-#: the_keep/templates/the_keep/asset_list.html:178
-msgid "Category"
+#: the_keep/templates/the_keep/confirm_stable.html:7
+#, python-format
+msgid ""
+"\n"
+"    Mark %(post_title)s as Stable?\n"
+"    "
 msgstr ""
 
-#: the_keep/templates/the_keep/asset_list.html:180
-#: the_keep/templates/the_keep/resource_detail.html:44
-msgid "Date"
+#: the_keep/templates/the_keep/confirm_stable.html:12
+#, python-format
+msgid ""
+"\n"
+"It looks like %(post_title)s might be in a stable state. \n"
 msgstr ""
 
-#: the_keep/templates/the_keep/asset_list.html:181
-msgid "Shared By"
+#: the_keep/templates/the_keep/confirm_stable.html:17
+#, python-format
+msgid ""
+"\n"
+"        If you think you will make any large changes to this "
+"%(post_component)s you can always do this later.\n"
+"    "
 msgstr ""
 
-#: the_keep/templates/the_keep/confirm_stable.html:23
-#: the_keep/templates/the_keep/confirm_testing.html:16
+#: the_keep/templates/the_keep/confirm_stable.html:22
+#, python-format
+msgid ""
+"\n"
+"        By marking %(post_title)s as \"Stable\" you convey to other users "
+"that they can confidently use it without any large rule gaps or balance "
+"issues.\n"
+"        Of course this does not mean that this %(post_component)s will be "
+"completely balanced. Much of the balance in Root comes from the player "
+"interaction.\n"
+"    "
+msgstr ""
+
+#: the_keep/templates/the_keep/confirm_stable.html:28
+msgid "If you are ready to confirm, click \"Yes!\""
+msgstr ""
+
+#: the_keep/templates/the_keep/confirm_stable.html:33
+#: the_keep/templates/the_keep/confirm_testing.html:18
 msgid "Yes!"
 msgstr ""
 
-#: the_keep/templates/the_keep/confirm_stable.html:24
-#: the_keep/templates/the_keep/confirm_testing.html:17
+#: the_keep/templates/the_keep/confirm_stable.html:34
+#: the_keep/templates/the_keep/confirm_testing.html:19
 msgid "Not yet..."
+msgstr ""
+
+#: the_keep/templates/the_keep/confirm_testing.html:6
+msgid "Ready for Testing?"
+msgstr ""
+
+#: the_keep/templates/the_keep/confirm_testing.html:8
+#, python-format
+msgid ""
+"\n"
+"        By marking %(post_title)s as \"Testing\" you convey to other users "
+"that you are testing and fine tuning this %(post_component)s, you can always "
+"undo this later.\n"
+"    "
+msgstr ""
+
+#: the_keep/templates/the_keep/confirm_testing.html:13
+msgid "If you have started testing, click \"Yes!\""
 msgstr ""
 
 #: the_keep/templates/the_keep/expansion_detail.html:26
@@ -2583,7 +2751,9 @@ msgstr ""
 
 #: the_keep/templates/the_keep/expansion_detail.html:58
 #: the_keep/templates/the_keep/partials/universal_results.html:8
-#: the_warroom/templates/the_warroom/player_games.html:63
+#: the_warroom/templates/the_warroom/games_home.html:93
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:361
+#: the_warroom/templates/the_warroom/player_games.html:77
 msgid "Factions"
 msgstr ""
 
@@ -2592,38 +2762,35 @@ msgid "The Archive"
 msgstr ""
 
 #: the_keep/templates/the_keep/home.html:25
-msgid "Discover fan content by status, type, reach value or designer."
+msgid "Discover more ways to play Root."
 msgstr ""
 
 #: the_keep/templates/the_keep/home.html:27
-#: the_keep/templates/the_keep/home.html:42
-#: the_keep/templates/the_keep/home.html:59
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
-msgid "View"
+msgid "Find factions, maps, and more made by the Root community."
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:35
+#: the_keep/templates/the_keep/home.html:42
 msgid "The Battlefield"
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:38
-msgid "Record games and playtests of Root!"
+#: the_keep/templates/the_keep/home.html:45
+msgid "Record your games of Root!"
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:40
-msgid "Compare Faction standings and matchups."
+#: the_keep/templates/the_keep/home.html:47
+msgid "Track stats and compare faction matchups."
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:50
+#: the_keep/templates/the_keep/home.html:57
 msgid "The Workshop"
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:54
+#: the_keep/templates/the_keep/home.html:61
 msgid "Submit your fan content."
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:56
-msgid "Access PNP resources & templates."
+#: the_keep/templates/the_keep/home.html:63
+msgid "Search PNP resources & templates to make your own Factions."
 msgstr ""
 
 #: the_keep/templates/the_keep/new.html:9
@@ -2653,6 +2820,7 @@ msgid "Based on"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:9
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:32
 msgid "Leaderboards"
 msgstr ""
 
@@ -2662,24 +2830,38 @@ msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:14
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:30
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:28
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:43
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:92
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:107
+#: the_warroom/templates/the_warroom/partials/player_stats.html:18
+#: the_warroom/templates/the_warroom/partials/player_stats.html:29
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:151
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:166
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:226
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:241
 msgid "By Winrate"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:17
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:42
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:31
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:58
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:95
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:122
+#: the_warroom/templates/the_warroom/partials/player_stats.html:15
+#: the_warroom/templates/the_warroom/partials/player_stats.html:44
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:154
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:181
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:229
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:256
 msgid "By Games Won"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:65
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:68
-#: the_keep/templates/the_keep/partials/leaderboard.html:9
-#: the_keep/templates/the_keep/partials/universal_results.html:64
-#: the_keep/templates/the_keep/status_check.html:171
-#: the_warroom/templates/the_warroom/player_games.html:19
-msgid "Games"
-msgstr ""
-
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
+#: the_warroom/templates/the_warroom/game_detail_page.html:36
+#: the_warroom/templates/the_warroom/record_scores.html:59
+#: the_warroom/templates/the_warroom/record_scores.html:66
 msgid "Game"
 msgstr ""
 
@@ -2712,12 +2894,26 @@ msgstr ""
 msgid "Crafting Ability"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/leaderboard.html:7
-msgid "Winrate"
+#: the_keep/templates/the_keep/partials/game_stats.html:11
+#: the_keep/templates/the_keep/partials/game_stats.html:23
+msgid "Recorded Games"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/leaderboard.html:8
-msgid "Points"
+#: the_keep/templates/the_keep/partials/game_stats.html:13
+msgid "Filtered Games"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/game_stats.html:19
+msgid "Recorded Wins"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/game_stats.html:21
+msgid "Points (1/2 for Coalition Wins)"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/game_stats.html:24
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:7
+msgid "Total Games"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/links.html:8
@@ -2725,6 +2921,7 @@ msgid "Links"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/links.html:8
+#: the_warroom/templates/the_warroom/assign_effort.html:37
 msgid "Link"
 msgstr ""
 
@@ -2753,28 +2950,22 @@ msgid "Request Invite to WR"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/links.html:50
-#: the_keep/templates/the_keep/partials/links.html:77
 msgid "Join on Discord for Link"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/links.html:56
-#: the_keep/templates/the_keep/partials/links.html:83
 msgid "Log In for Link"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/links.html:67
+#: the_keep/templates/the_keep/partials/links.html:65
 msgid "French Root Thread"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/links.html:72
-msgid "Request Invite to FR"
-msgstr ""
-
-#: the_keep/templates/the_keep/partials/links.html:91
 msgid "Print & Play Files"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/links.html:97
+#: the_keep/templates/the_keep/partials/links.html:78
 msgid "STL Files"
 msgstr ""
 
@@ -2825,27 +3016,13 @@ msgid "Save All"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/post.html:25
+#: the_keep/templates/the_keep/partials/post_snippet_medium.html:30
 msgid "Official"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/post.html:27
+#: the_keep/templates/the_keep/partials/post_snippet_medium.html:32
 msgid "Fan Made"
-msgstr ""
-
-#: the_keep/templates/the_keep/partials/post_snippet_medium.html:26
-#, python-format
-msgid ""
-"\n"
-"                            Official %(result.component)s\n"
-"                        "
-msgstr ""
-
-#: the_keep/templates/the_keep/partials/post_snippet_medium.html:30
-#, python-format
-msgid ""
-"\n"
-"                            Fan Made %(result.component)s\n"
-"                        "
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/related_posts.html:5
@@ -2866,6 +3043,7 @@ msgstr ""
 
 #: the_keep/templates/the_keep/partials/search_bar.html:35
 #: the_keep/templates/the_keep/partials/universal_results.html:50
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:460
 msgid "House Rules"
 msgstr ""
 
@@ -2902,23 +3080,29 @@ msgid "No results found for"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:15
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:381
 msgid "Decks"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:22
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:401
 msgid "Maps"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:29
-#: the_warroom/templates/the_warroom/player_games.html:65
+#: the_warroom/templates/the_warroom/games_home.html:95
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:420
+#: the_warroom/templates/the_warroom/player_games.html:79
 msgid "Vagabonds"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:36
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:433
 msgid "Landmarks"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:43
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:447
 msgid "Hirelings"
 msgstr ""
 
@@ -2927,14 +3111,17 @@ msgid "Expansions"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:68
+#: the_warroom/templates/the_warroom/game_detail_page.html:112
 msgid "Recorded by"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:75
+#: the_warroom/templates/the_warroom/games_home.html:27
 msgid "Series"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:93
+#: the_warroom/templates/the_warroom/games_home.html:33
 msgid "Scorecards"
 msgstr ""
 
@@ -2942,19 +3129,19 @@ msgstr ""
 msgid "Profiles"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/universal_results.html:118
-msgid "Resources"
-msgstr ""
-
 #: the_keep/templates/the_keep/partials/universal_results.html:129
 msgid "Pieces"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/universal_results.html:138
+msgid "Translations"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/universal_results.html:148
 msgid "Color Match"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/universal_results.html:143
+#: the_keep/templates/the_keep/partials/universal_results.html:153
 msgid "Components"
 msgstr ""
 
@@ -3032,8 +3219,22 @@ msgstr ""
 
 #: the_keep/templates/the_keep/post_detail.html:35
 #: the_keep/templates/the_keep/post_games.html:29
-#: the_keep/templates/the_keep/status_check.html:193
+#: the_keep/templates/the_keep/status_check.html:201
+#: the_warroom/templates/the_warroom/game_detail_page.html:174
 msgid "Is something missing or incorrect?"
+msgstr ""
+
+#: the_keep/templates/the_keep/post_detail.html:43
+msgid "Translation by"
+msgstr ""
+
+#: the_keep/templates/the_keep/post_translations.html:12
+msgid "Available Translations"
+msgstr ""
+
+#: the_keep/templates/the_keep/post_translations.html:41
+#: the_warroom/templates/the_warroom/game_detail_page.html:162
+msgid "Update"
 msgstr ""
 
 #: the_keep/templates/the_keep/post_translations.html:58
@@ -3064,72 +3265,96 @@ msgstr ""
 msgid "Progress"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:55
-msgid "Stability"
-msgstr ""
-
-#: the_keep/templates/the_keep/status_check.html:99
+#: the_keep/templates/the_keep/status_check.html:56
 msgid "Recorded Stats"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:107
-msgid "Games Played"
-msgstr ""
-
-#: the_keep/templates/the_keep/status_check.html:113
+#: the_keep/templates/the_keep/status_check.html:70
 msgid "Unique Players"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:123
+#: the_keep/templates/the_keep/status_check.html:80
 msgid "Wins"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:129
+#: the_keep/templates/the_keep/status_check.html:86
 msgid "Losses"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:141
+#: the_keep/templates/the_keep/status_check.html:98
 msgid "Official Factions"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:148
+#: the_keep/templates/the_keep/status_check.html:105
 msgid "Official Maps"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:156
+#: the_keep/templates/the_keep/status_check.html:113
 msgid "Official Decks"
 msgstr ""
 
-#: the_keep/templates/the_keep/status_check.html:183
+#: the_keep/templates/the_keep/status_check.html:130
+msgid "Stability"
+msgstr ""
+
+#: the_keep/templates/the_keep/status_check.html:189
 msgid "No Games Recorded"
 msgstr ""
 
-#: the_keep/views.py:843 the_keep/views.py:854
+#: the_keep/views.py:845 the_keep/views.py:868
 msgid "{} Components"
 msgstr ""
 
-#: the_keep/views.py:855
+#: the_keep/views.py:869
 msgid "Other {} Components:"
 msgstr ""
 
-#: the_keep/views.py:1425
+#: the_keep/views.py:1440
 msgid "{} has not yet met the stability requirements."
 msgstr ""
 
-#: the_keep/views.py:1430 the_keep/views.py:1475
+#: the_keep/views.py:1445 the_keep/views.py:1496
 msgid "You are not authorized to make this change."
 msgstr ""
 
-#: the_keep/views.py:1441
+#: the_keep/views.py:1456
 msgid "{} has been marked as \"Stable\"."
 msgstr ""
 
-#: the_keep/views.py:1470
+#: the_keep/views.py:1491
 msgid "{} has not yet recorded a playtest."
 msgstr ""
 
-#: the_keep/views.py:1485
+#: the_keep/views.py:1506
 msgid "{} has been marked as \"Testing\"."
+msgstr ""
+
+#: the_warroom/forms.py:40 the_warroom/forms.py:118
+msgid "Game Nickname (optional)"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/assign_effort.html:6
+msgid "Link a Game"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/assign_effort.html:12
+msgid "Available Games"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/assign_effort.html:14
+msgid "Available Game"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/assign_scorecard.html:6
+msgid "Link a Scorecard"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/assign_scorecard.html:16
+msgid "Available Scorecards"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/assign_scorecard.html:18
+msgid "Available Scorecard"
 msgstr ""
 
 #: the_warroom/templates/the_warroom/game_delete.html:14
@@ -3139,29 +3364,464 @@ msgstr ""
 msgid "Yes, delete"
 msgstr ""
 
+#: the_warroom/templates/the_warroom/game_detail_page.html:29
+msgid "Playtest Details"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:31
+msgid "Game Details"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:43
+msgid "Undrafted Faction"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:62
+msgid "Random Clearings"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:104
+msgid "Link to Game Thread"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:118
+msgid "Multihanded Playtests are not counted in Player Leaderboard standings"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:135
+#: the_warroom/templates/the_warroom/game_detail_page.html:148
+msgid "Edit Game"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:136
+#: the_warroom/templates/the_warroom/game_detail_page.html:149
+msgid "Delete Game"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:143
+msgid "Edit Options"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:145
+msgid "This game is in progress and can still be edited."
+msgstr ""
+
+#: the_warroom/templates/the_warroom/game_detail_page.html:159
+msgid "Change the Nickname, Notes or Discord Link for this game."
+msgstr ""
+
 #: the_warroom/templates/the_warroom/game_update.html:9
 msgid "Update Game"
 msgstr ""
 
-#: the_warroom/templates/the_warroom/partials/forms.html:125
-msgid "Save Progress"
+#: the_warroom/templates/the_warroom/games_home.html:37
+#: the_warroom/templates/the_warroom/player_games.html:30
+msgid "New Game"
 msgstr ""
 
+#: the_warroom/templates/the_warroom/games_home.html:45
+msgid "In Progress Games"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/games_home.html:60
+msgid "These games have not been submitted"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/games_home.html:72
+#: the_warroom/templates/the_warroom/player_games.html:56
+msgid "Filters"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/games_home.html:99
+#: the_warroom/templates/the_warroom/partials/forms.html:37
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:36
+#: the_warroom/templates/the_warroom/player_games.html:83
+msgid "Players"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/games_home.html:103
+#: the_warroom/templates/the_warroom/partials/game_filter_form.html:12
+#: the_warroom/templates/the_warroom/player_games.html:87
+msgid "Filter"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:48
+#: the_warroom/templates/the_warroom/partials/forms.html:85
+msgid "Captains"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:49
+#: the_warroom/templates/the_warroom/partials/forms.html:86
 #: the_warroom/templates/the_warroom/partials/game_detail.html:69
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:66
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:53
 msgid "Score"
 msgstr ""
 
+#: the_warroom/templates/the_warroom/partials/forms.html:50
+#: the_warroom/templates/the_warroom/partials/forms.html:87
+msgid "Win"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:51
+#: the_warroom/templates/the_warroom/partials/forms.html:88
+msgid "Coalition"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:52
+#: the_warroom/templates/the_warroom/partials/forms.html:89
+msgid "Dominance"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:97
+msgid "Add Player"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:99
+msgid "Misc."
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/forms.html:130
+msgid "Save Progress"
+msgstr ""
+
 #: the_warroom/templates/the_warroom/partials/game_detail.html:72
-#: the_warroom/templates/the_warroom/record_scores.html:11
+#: the_warroom/templates/the_warroom/record_scores.html:16
 msgid "Detail"
 msgstr ""
 
-#: the_warroom/templates/the_warroom/player_games.html:69
-msgid "Players"
+#: the_warroom/templates/the_warroom/partials/game_filter_form.html:5
+msgid "Filter Games"
 msgstr ""
 
-#: the_warroom/templates/the_warroom/player_games.html:73
-msgid "Filter"
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:20
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:143
+msgid "Player Leaderboards"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:22
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:145
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:200
+msgid "Player Leaderboard"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:70
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:134
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:193
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:268
+msgid "Leaderboard Threshold of"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:84
+#: the_warroom/templates/the_warroom/partials/player_stats.html:6
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:218
+msgid "Faction Leaderboards"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:86
+#: the_warroom/templates/the_warroom/partials/player_stats.html:8
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:220
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:275
+msgid "Faction Leaderboard"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/game_list_home.html:182
+msgid "No matching games recorded."
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/player_stats.html:56
+msgid "No games recorded."
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:6
+#: the_warroom/templates/the_warroom/record_scores.html:99
+msgid "Turn"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:8
+#: the_warroom/templates/the_warroom/record_scores.html:100
+msgid "Faction Points"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:9
+#: the_warroom/templates/the_warroom/record_scores.html:101
+msgid "Crafting Points"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:10
+#: the_warroom/templates/the_warroom/record_scores.html:102
+msgid "Battle Points"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:11
+#: the_warroom/templates/the_warroom/record_scores.html:103
+msgid "Other Points"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:13
+msgid "Turn Total"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:15
+#: the_warroom/templates/the_warroom/partials/scorecard.html:59
+#: the_warroom/templates/the_warroom/record_scores.html:106
+msgid "Dom"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:74
+#: the_warroom/templates/the_warroom/record_scores.html:138
+msgid "Total"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:89
+msgid "Notes"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/scorecard.html:93
+msgid "Recorded on"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:23
+msgid "Rounds"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:43
+msgid "Assets"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:61
+msgid "Add Round"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:202
+msgid "No Players have reached the Game Threshold of"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:204
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:279
+msgid "No Games have been Recorded"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:277
+msgid "No Factions have reached the Game Threshold of"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:295
+msgid "Manage Players"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:325
+msgid "Player Name"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:328
+msgid "Games Played by Player"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:331
+msgid "Points Earned"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:334
+msgid "Total Win Rate"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:356
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:6
+msgid "Manage Assets"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/player_games.html:27
+msgid "New Scorecard"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_game.html:6
+msgid "Update Game Data"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_game.html:6
+msgid "Record New Game"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_game.html:18
+msgid "Register New Player"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_game.html:26
+msgid "Register Player"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_game.html:30
+msgid ""
+"If a player is missing you can add them here (if they do not have Discord "
+"choose a unique name for them)."
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:7
+msgid "Update Detailed Game Scores"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:9
+msgid "Record Detailed Game Scores"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:78
+msgid "Game Nickname for Grouping"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:87
+msgid "points"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:104
+msgid "Total Points"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:136
+msgid "Totals"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:167
+msgid "Add Turn"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:168
+msgid "Remove Turn"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:169
+msgid "Play Dominance"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:178
+#: the_warroom/templates/the_warroom/record_scores.html:184
+msgid "Save and Go to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/record_scores.html:193
+msgid "Save and add next Seat"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/score_delete.html:9
+msgid "Delete Scorecard?"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/score_delete.html:13
+msgid "Are you sure you want to delete the selected scorecard"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:13
+msgid "Add Factions"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:18
+msgid "Factions will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:24
+msgid "Remove Factions"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:29
+msgid "Factions will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:37
+msgid "Add Maps"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:42
+msgid "Maps will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:48
+msgid "Remove Maps"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:53
+msgid "Maps will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:61
+msgid "Add Decks"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:66
+msgid "Decks will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:72
+msgid "Remove Decks"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:77
+msgid "Decks will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:84
+msgid "Add Vagabonds"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:89
+msgid "Vagabonds will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:95
+msgid "Remove Vagabonds"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:100
+msgid "Vagabonds will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:108
+msgid "Add Landmarks"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:113
+msgid "Landmarks will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:119
+msgid "Remove Landmarks"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:124
+msgid "Landmarks will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:131
+msgid "Add Hirelings"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:136
+msgid "Hirelings will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:142
+msgid "Remove Hirelings"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:147
+msgid "Hirelings will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:155
+msgid "Add House Rules"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:160
+msgid "House Rules will be added to"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:166
+msgid "Remove House Rules"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:171
+msgid "House Rules will be removed and unable to be selected"
+msgstr ""
+
+#: the_warroom/templates/the_warroom/tournament_manage_assets.html:177
+msgid "Save Changes"
 msgstr ""

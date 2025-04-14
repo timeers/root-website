@@ -485,6 +485,8 @@ class EffortCreateForm(forms.ModelForm):
         return cleaned_data
 
 class TurnScoreCreateForm(forms.ModelForm):
+    delete = forms.BooleanField(required=False, initial=False, widget=forms.CheckboxInput(attrs={'class': 'delete-form-checkbox'}))
+
     class Meta:
         model = TurnScore
         fields = ['id', 'turn_number', 
