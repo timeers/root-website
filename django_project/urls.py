@@ -23,7 +23,7 @@ from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
 from the_keep.api_views import get_options_for_platform
 from the_warroom.api_views import get_options_for_tournament
-from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline
+from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline, set_language_custom
 
 
 
@@ -71,6 +71,7 @@ urlpatterns = [
 
     path('__debug__/', include("debug_toolbar.urls")),
 
+    path('set-language/', set_language_custom, name='set_language_custom'),
 ]
 
 if settings.DEBUG:

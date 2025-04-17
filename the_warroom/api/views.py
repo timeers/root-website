@@ -118,7 +118,6 @@ class FactionAverageTurnScoreView(APIView):
         faction = Faction.objects.get(slug=slug)
 
         color = faction.color if faction.color else generate_neon_color()
-        print('faction average')
         # Check if there are no scorecards
         if not scorecards.exists():
             # Handle case where there are no scorecards
@@ -148,9 +147,9 @@ class FactionAverageTurnScoreView(APIView):
             )
             .order_by('turn_number')  # Optional: to order by turn number
         )
-        print('turn averages')
-        print(turn_averages)
-        print('end')
+        # print('turn averages')
+        # print(turn_averages)
+        # print('end')
         # Calculate the count of the scorecards
         scorecard_count = scorecards.count()
 

@@ -27,13 +27,19 @@
             <div>
                 {% if result.component %}
                     {% if result.official %}
-                            {% trans 'Official' %} {{ result.component }}
+                        {% blocktrans with result_component=result.component %}
+                            Official {{ result_component }}
+                        {% endblocktrans %}
                     {% else %}
-                            {% trans 'Fan Made' %} {{ result.component }}
+                        {% blocktrans with result_component=result.component %}
+                            Fan Made {{ result_component }}
+                        {% endblocktrans %}
                     {% endif %}
                 {% endif %}
                 {% if result.designer %}
-                by {{ result.designer.display_name }}
+                    {% blocktrans with result_designer=result.designer.display_name %}
+                        by {{ result_designer }}
+                    {% endblocktrans %}
                 {% endif %}
             </div>
         </div>

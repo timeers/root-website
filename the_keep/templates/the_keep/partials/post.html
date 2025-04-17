@@ -24,7 +24,11 @@
                         {% if object.official %}
                                 {% trans 'Official' %} {{ object.component }}
                         {% else %}
+                            {% if object.component == 'Tweak' %}
+                                {% trans 'House Rule' %}
+                            {% else %}
                                 {% trans 'Fan Made' %} {{ object.component }}
+                            {% endif %}
                         {% endif %}
                         </small>
                     </div>

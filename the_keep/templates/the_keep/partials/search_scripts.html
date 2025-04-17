@@ -1,3 +1,4 @@
+{% load i18n %}
 <script>
 
 
@@ -9,7 +10,7 @@ let isInitialLoad = true;
     $(document).ready(function() {
             // Initialize Select2 on the designer select box
             $('#designer-select').select2({
-                placeholder: "Select Designer",  // Optional: display this as the placeholder
+                placeholder: "{% trans 'Select Designer' %}",  // Optional: display this as the placeholder
                 allowClear: true,  // Enable the "clear" button (X)
                 width: '200px'
             });

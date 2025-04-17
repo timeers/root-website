@@ -8,6 +8,7 @@ from django.db.models.signals import pre_save, post_save
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, IntegerField
 from django.db.models.functions import Cast, Abs
 from django.utils import timezone 
+from django.utils.translation import get_language
 # from datetime import timedelta
 from django.urls import reverse
 from django.core.cache import cache
@@ -101,6 +102,22 @@ class ColorChoices(models.TextChoices):
             if hex_code == color.value:
                 return color.name.capitalize()  # Return the color name, properly capitalized
         return None
+
+
+    @classmethod
+    def get_color_label_by_hex(cls, hex_code):
+        """
+        Given a hex code, return the corresponding color label from ColorChoices.
+        Hex code should be case-insensitive (e.g., '#ff0000', '#FF0000', '#Ff0000' all work).
+        """
+
+        normalized_hex = hex_code.upper()  # Make it case-insensitive
+        # Loop through each choice and match by the 'hex' part of the color (first part of the tuple)
+        for color in cls:
+            if normalized_hex == color.value.upper():
+                return color.label
+        return None
+
 
 class StatusChoices(models.TextChoices):
     STABLE = '1', _('Stable')
@@ -1254,6 +1271,39 @@ class Hireling(Post):
 
 
 
+PIECE_NAME_TRANSLATIONS = {
+    'Warrior': {
+        'fr': 'Guerrier',      # French
+        'es': 'Guerrero',      # Spanish
+        'de': 'Krieger',       # German
+        'it': 'Guerriero',     # Italian
+        'pt': 'Guerreiro',     # Portuguese
+        'nl': 'Strijder',      # Dutch
+        'pl': 'Wojownik',      # Polish
+        'ru': 'Воин',          # Russian
+        'ja': '戦士',           # Japanese
+        'zh-hans': '战士',     # Chinese (Simplified)
+        'zh-hant': '戰士',     # Chinese (Traditional)
+        'ko': '전사',           # Korean
+        'tr': 'Savaşçı',       # Turkish
+    },
+    'Warriors': {
+        'fr': 'Guerriers',
+        'es': 'Guerreros',
+        'de': 'Krieger',
+        'it': 'Guerrieri',
+        'pt': 'Guerreiros',
+        'nl': 'Strijders',
+        'pl': 'Wojownicy',
+        'ru': 'Воины',
+        'ja': '戦士たち',
+        'zh-hans': '战士们',
+        'zh-hant': '戰士們',
+        'ko': '전사들',
+        'tr': 'Savaşçılar',
+    }
+}
+
 
 # Game Pieces for Factions and Hirelings
 class Piece(models.Model):
@@ -1272,7 +1322,9 @@ class Piece(models.Model):
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
 
     def __str__(self):
-        return f"{self.name} (x{self.quantity})"
+        lang = get_language()
+        translations = PIECE_NAME_TRANSLATIONS.get(self.name, {})
+        return translations.get(lang, self.name)
 
     def  get_absolute_url(self):
         match self.parent.component:

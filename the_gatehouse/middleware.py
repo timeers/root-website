@@ -13,10 +13,10 @@ class SetLanguageMiddleware:
             if request.user.profile.language:
                 language = request.user.profile.language.code if hasattr(request.user.profile, 'language') else None
 
-        # # This Part will see if there is already a session language set and if not will use the browser's language
-        # if not language and 'language' in request.session:
-        #     # If no language set from the user, fall back to the session language
-        #     language = request.session['language']
+        # This Part will see if there is already a session language set and if not will use the browser's language
+        if not language and 'language' in request.session:
+            # If no language set from the user, fall back to the session language
+            language = request.session['language']
 
         # if not language:
         #     # If no language preference is set, use the browser's language

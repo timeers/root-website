@@ -1,12 +1,13 @@
 {% extends 'the_keep/base.html' %}
-{% block title %} - Scorecard{% endblock %}
+{% load i18n %}
+{% block title %} - {% trans 'Scorecard' %}{% endblock %}
 {% block content %}
 
 
 
 <div style="display: flex; align-items: center;">
 
-    <a href="{% url 'scorecard-home' %}">Scorecards </a>
+    <a href="{% url 'scorecard-home' %}">{% trans 'Scorecards' %} </a>
     <i class="bi bi-chevron-right"></i>
 
 
@@ -21,7 +22,7 @@
 <div class="chart-container">
     <div class="chart">
         <div style="display: flex; justify-content: space-between; align-items: start;">
-            <h1>Points per Turn</h1>
+            <h1>{% trans 'Points per Turn' %}</h1>
             {% if user.profile == object.recorder %}
                 <div class='d-flex'>
 
@@ -29,7 +30,7 @@
                         {% if object.effort %}
 
                             <div>
-                                <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">View Game</a>
+                                <a class="btn btn-primary btn-sm ml-1 ms-1 mb-1" href="{% url 'game-detail' object.effort.game.id %}">{% trans 'View Game' %}</a>
                             </div>
 
                         {% endif %}
@@ -57,7 +58,7 @@
             <a href="{% url 'faction-detail' object.faction.slug %}">
                 <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
                 {{ object.faction }}
-            </a> - {{ object.turns.count }} Turns
+            </a> - {{ object.turns.count }} {% trans 'Turns' %}
         </div>
         {% if object.effort %}
 
@@ -71,7 +72,7 @@
         {% endif %}
     {% endif %}
         <small>
-            Recorded by <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
+            {% trans 'Recorded by' %} <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
         </small>
         </div>
     </article>
@@ -183,7 +184,7 @@ Promise.all([
                 labels: allTurnNumbers,  // Turn numbers for x-axis from combined dataset
                 datasets: [
                     {
-                        label: 'This Game',  // Label for the scorecard line chart
+                        label: "{% trans 'This Game' %}",  // Label for the scorecard line chart
                         data: completeScorecardGamePoints,  // Game points for y-axis (scorecard)
                         borderColor: color,  // Line color for scorecard
                         backgroundColor: color,  // Fill color under the line for scorecard
@@ -191,7 +192,7 @@ Promise.all([
                         tension: 0.1  // Smooth curve for scorecard line
                     },
                     {
-                        label: 'Faction Average',  // Label for the faction average line chart
+                        label: "{% trans 'Faction Average' %}",  // Label for the faction average line chart
                         data: completeFactionGamePoints,  // Average game points for y-axis (faction)
                         borderColor: color,  // Line color for faction average (different color)
                         backgroundColor: color,  // Fill color under the line for faction
@@ -207,7 +208,7 @@ Promise.all([
                     x: {
                         title: {
                             display: false,
-                            text: 'Turn Number'  // Label for x-axis
+                            text: "{% trans 'Turn Number' %}"  // Label for x-axis
                         },
                         min: minTurnNumber,  // Set the min value for the x-axis
                         max: maxTurnNumber,  // Set the max value for the x-axis
@@ -218,7 +219,7 @@ Promise.all([
                     y: {
                         title: {
                             display: false,
-                            text: 'Game Points'  // Label for y-axis
+                            text: "{% trans 'Game Points' %}"  // Label for y-axis
                         },
                         beginAtZero: true,  // Start y-axis from 0
                         ticks: {
@@ -240,10 +241,10 @@ Promise.all([
         // Prepare data for Pie Chart
         const pieData = {
             labels: [
-                'Faction Points',
-                'Crafting Points',
-                'Battle Points',
-                'Other Points'
+                "{% trans 'Faction Points' %}",
+                "{% trans 'Crafting Points' %}",
+                "{% trans 'Battle Points' %}",
+                "{% trans 'Other Points' %}"
             ],
             datasets: [{
                 data: [

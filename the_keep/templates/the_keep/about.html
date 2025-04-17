@@ -4,7 +4,7 @@
 
 {% block content %}
 
-<h1>{% trans 'About' %}</h1>
+<h1 class='root-title'>{% trans 'About' %}</h1>
 
 <div class='mb-4'>
     Welcome to the {{site_title}}, an unofficial collection of components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.
@@ -46,5 +46,15 @@
 <div class='mb-4'>
     All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Leder Games.
 </div>
+{% comment %} <div class="video-container mb-1">
+<iframe width="560" height="315" 
+    src="https://www.youtube-nocookie.com/embed/avvqQqPX7a4?si=n0K7iba7NC16sM6T" 
+    title="YouTube video player" 
+    frameborder="0" 
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+    referrerpolicy="strict-origin-when-cross-origin" 
+    allowfullscreen>
+</iframe>
+</div> {% endcomment %}
 {% endblock content %}
 

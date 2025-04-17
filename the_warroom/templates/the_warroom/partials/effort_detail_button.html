@@ -1,4 +1,4 @@
-{% load static %}
+{% load static i18n %}
 <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
     {% if user.profile.player %}
     <td>
@@ -11,9 +11,9 @@
             {% endif %}
         {% else %}
             {% if effort.faction.type == "C" %}
-            Clockwork
+            {% trans 'Clockwork' %}
             {% else %}
-            Player {{ effort.seat }}
+            {% trans 'Player' %} {{ effort.seat }}
             {% endif %}
         {% endif %}
     </td>

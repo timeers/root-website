@@ -79,6 +79,81 @@ class ExpansionDetailView(DetailView):
         
         return context
 
+
+def expansion_detail_view(request, slug):
+
+    language_code = get_language()
+    language_code_object = Language.objects.filter(code=language_code).first()
+
+
+    expansion = get_object_or_404(Expansion, slug=slug)
+
+    posts = Post.objects.filter(expansion=expansion).annotate(
+        selected_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_code_object  # Assuming you want the current language
+                ).values('translated_title')[:1],
+                output_field=models.CharField()
+            ),
+            'title'  # Fall back to the default title if there's no translation
+        ),
+        selected_description=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_code_object
+                ).values('translated_description')[:1],
+                output_field=models.TextField()
+            ),
+            'description'  # Fall back to the default description if there's no translation
+        ),
+        selected_lore=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_code_object
+                ).values('translated_lore')[:1],
+                output_field=models.TextField()
+            ),
+            'lore'  # Fall back to the default lore if there's no translation
+        )
+    )
+    factions = posts.filter(component='Faction')
+    maps = posts.filter(component='Map')
+    decks = posts.filter(component='Deck')
+    vagabonds = posts.filter(component='Vagabond')
+    landmarks = posts.filter(component='Landmark')
+    hirelings = posts.filter(component='Hireling')
+    clockworks = posts.filter(component='Clockwork')
+    tweaks = posts.filter(component='Tweak')
+
+    links_count = expansion.count_links(request.user)
+
+    if expansion.open_roster and (expansion.end_date > timezone.now() or not expansion.end_date):
+        open_expansion = True
+    else:
+        open_expansion = False
+
+
+    context = {
+        'expansion': expansion,
+        'posts': posts,
+        'factions': factions,
+        'maps': maps,
+        'decks': decks,
+        'vagabonds': vagabonds,
+        'landmarks': landmarks,
+        'hirelings': hirelings,
+        'clockworks': clockworks,
+        'tweaks': tweaks,
+        'links_count': links_count,
+        'open_expansion': open_expansion,
+    }
+
+    return render(request, 'the_keep/expansion_detail_new.html', context)
+
 class ExpansionFactionsListView(ListView):
     model = Faction
     context_object_name = 'objects'
@@ -251,7 +326,8 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         obj = self.get_object()
         if self.request.user.profile.admin:
             if not obj.designer.designer:
-                messages.warning(self.request, f'{obj.designer} is authorized to edit {obj.title}. Ensure you have their permission to edit before making any changes.')
+                if obj.designer.editor and self.request.method != "POST":
+                    messages.warning(self.request, f'{obj.designer} is authorized to edit {obj.title}. Ensure you have their permission to edit before making any changes.')
                 return True
             elif self.request.user.profile != obj.designer:
                 messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designer}.')
@@ -472,12 +548,12 @@ def translations_view(request, slug):
     # Get a list of other available translations
     other_translations = object.translations.all()
     languages_count = Language.objects.all().count() - 1
-    print(languages_count)
+    # print(languages_count)
     if languages_count > other_translations.count():
         available_languages = True
     else:
         available_languages = False
-    print(available_languages)
+    # print(available_languages)
     context = {
         'object': object,
         'other_translations': other_translations,
@@ -548,6 +624,7 @@ def ultimate_component_view(request, slug):
     language_code_override = request.GET.get('lang', None)
     
     if language_code_override:
+        language_code = language_code_override
         language_code_object = Language.objects.filter(code=language_code_override).first()
         if language_code_object:
             language = language_code_object
@@ -556,7 +633,7 @@ def ultimate_component_view(request, slug):
         language_code_object = Language.objects.filter(code=language_code).first()
         if language_code_object:
             language = language_code_object
-
+    # print(language_code_object.code)
     post = get_object_or_404(Post, slug=slug)
     component_mapping = {
             "Map": Map,
@@ -622,12 +699,29 @@ def ultimate_component_view(request, slug):
         object_card_2_image_url = None
 
 
-    # full_url = request.build_absolute_uri()
-    if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {object.component}: {object.title}')
+    if object.based_on:
+        translation = PostTranslation.objects.filter(
+            post=object.based_on,
+            language=language
+        ).values_list('translated_title', flat=True).first()
+
+        based_on_title = translation or object.based_on.title
     else:
-        send_discord_message(f'{get_uuid(request)} viewed {object.component}: {object.title}')
-    print('Request received')
+        based_on_title = None
+
+
+    if language_code_override:
+        if request.user.is_authenticated:
+            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({language_code_object.code}) viewed {object.component}: {object.title} ({language_code_override})')
+        else:
+            send_discord_message(f'{get_uuid(request)} ({language_code_object.code}) viewed {object.component}: {object.title} ({language_code_override})')
+    else:
+        if request.user.is_authenticated:
+            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({language_code_object.code}) viewed {object.component}: {object.title}')
+        else:
+            send_discord_message(f'{get_uuid(request)} ({language_code_object.code}) viewed {object.component}: {object.title}')
+
+
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
     if request.user.is_authenticated:
@@ -635,10 +729,30 @@ def ultimate_component_view(request, slug):
 
         
     related_posts = Post.objects.filter(based_on=object, status__lte=view_status)
+
+
+
     # Add the post that the current object is based on (if it exists)
     if object.based_on:
         related_posts |= Post.objects.filter(id=object.based_on.id, status__lte=view_status)
         related_posts |= Post.objects.filter(based_on=object.based_on, status__lte=view_status).exclude(id=object.id)
+
+    if object.component == 'Vagabond':
+        related_posts |= Post.objects.filter(title='Vagabond')
+
+    related_posts = related_posts.annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language=language  # Assuming you want the current language
+                    ).values('translated_title')[:1],
+                    output_field=models.CharField()
+                ),
+                'title'  # Fall back to the default title if there's no translation
+            )
+        ).distinct()
+    
     # Start with the base queryset
     games = object.get_games_queryset()
 
@@ -753,15 +867,18 @@ def ultimate_component_view(request, slug):
 
     if object.color_group:
         color_group = ColorChoices.get_color_group_by_hex(object.color_group)
+        color_label = ColorChoices.get_color_label_by_hex(object.color_group)
         object_color = object.color_group
     else:
         if object.based_on and object.based_on.color_group:
             color_group = ColorChoices.get_color_group_by_hex(object.based_on.color_group)
+            color_label = ColorChoices.get_color_label_by_hex(object.based_on.color_group)
             object_color = object.based_on.color_group
         else:
             color_group = None
+            color_label = None
             object_color = None
-       
+
 
     context = {
         'object': object,
@@ -787,6 +904,7 @@ def ultimate_component_view(request, slug):
         'scorecard_count': scorecard_count,
         'detail_scorecard_count': detail_scorecard_count,
         'color_group': color_group,
+        'color_label': color_label,
         'object_color': object_color,
         'object_title': object_title,
         'object_lore': object_lore,
@@ -799,6 +917,9 @@ def ultimate_component_view(request, slug):
 
         'object_translation': object_translation,
         'available_translations': available_translations,
+        'language_code': language_code,
+
+        'based_on_title': based_on_title,
 
         'crafting_ability_value': crafting_ability_value,
         'card_wealth_value': card_wealth_value,
@@ -807,10 +928,7 @@ def ultimate_component_view(request, slug):
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
-    ## This section would translate the whole page to the override language including header and footer 
-    # if language_code_override:
-    #     with translation.override(language_code_override):
-    #         return render(request, 'the_keep/post_detail.html', context)
+
     return render(request, 'the_keep/post_detail.html', context)
 
 
@@ -827,10 +945,46 @@ def ultimate_component_view(request, slug):
 
 def color_group_view(request, color_name):
 
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+
     color_name = str(color_name).capitalize()
     color_group = ColorChoices.get_color_by_name(color_name)
+    color_label = ColorChoices.get_color_label_by_hex(color_group)
 
-    matching_colors = Post.objects.filter(Q(color_group=color_group) | Q(based_on__color_group=color_group)).distinct()
+
+    matching_colors = Post.objects.filter(Q(color_group=color_group) | Q(based_on__color_group=color_group)).annotate(
+                selected_title=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object  # Assuming you want the current language
+                        ).values('translated_title')[:1],
+                        output_field=models.CharField()
+                    ),
+                    'title'  # Fall back to the default title if there's no translation
+                ),
+                selected_description=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object
+                        ).values('translated_description')[:1],
+                        output_field=models.TextField()
+                    ),
+                    'description'  # Fall back to the default description if there's no translation
+                ),
+                selected_lore=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object
+                        ).values('translated_lore')[:1],
+                        output_field=models.TextField()
+                    ),
+                    'lore'  # Fall back to the default lore if there's no translation
+                )
+            ).distinct()
 
     if not color_group:
         # Get the referring URL
@@ -842,7 +996,7 @@ def color_group_view(request, color_name):
         else:
             return redirect('archive-home')
         
-    match_title = _("{} Components").format(color_name)
+    match_title = _("{} Components").format(color_label)
     context = {
         'posts': matching_colors,
         'match_title': match_title,
@@ -851,8 +1005,74 @@ def color_group_view(request, color_name):
     return render(request, 'the_keep/similar_posts.html', context)
 
 def animal_match_view(request, slug):
-    post = get_object_or_404(Post, slug=slug)
-    matching_posts = post.matching_animals()
+
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    # post = get_object_or_404(Post, slug=slug)
+    post = Post.objects.filter(slug=slug).annotate(
+                selected_title=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object  # Assuming you want the current language
+                        ).values('translated_title')[:1],
+                        output_field=models.CharField()
+                    ),
+                    'title'  # Fall back to the default title if there's no translation
+                ),
+                selected_description=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object
+                        ).values('translated_description')[:1],
+                        output_field=models.TextField()
+                    ),
+                    'description'  # Fall back to the default description if there's no translation
+                ),
+                selected_lore=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object
+                        ).values('translated_lore')[:1],
+                        output_field=models.TextField()
+                    ),
+                    'lore'  # Fall back to the default lore if there's no translation
+                )
+            ).first()
+    matching_posts = post.matching_animals().annotate(
+                selected_title=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object  # Assuming you want the current language
+                        ).values('translated_title')[:1],
+                        output_field=models.CharField()
+                    ),
+                    'title'  # Fall back to the default title if there's no translation
+                ),
+                selected_description=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object
+                        ).values('translated_description')[:1],
+                        output_field=models.TextField()
+                    ),
+                    'description'  # Fall back to the default description if there's no translation
+                ),
+                selected_lore=Coalesce(
+                    Subquery(
+                        PostTranslation.objects.filter(
+                            post=OuterRef('pk'),
+                            language=language_object
+                        ).values('translated_lore')[:1],
+                        output_field=models.TextField()
+                    ),
+                    'lore'  # Fall back to the default lore if there's no translation
+                )
+            ).distinct()
     language = get_language()
     language_object = Language.objects.filter(code=language).first()
     # Try to get the translated animal name from PostTranslation

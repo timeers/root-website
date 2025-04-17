@@ -206,6 +206,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_NEW_POST_WEBHOOK_URL']
         embed_title = "Report Received"
         embed_color = 0x00FF00  # Green color for new
+    elif category == 'New Game':
+        webhook_url = config['DISCORD_NEW_GAME_WEBHOOK_URL']
+        embed_title = "New Game Recorded"
+        embed_color = 0xFF0000  # Red color for report
     else:
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
         embed_title = "Activity"

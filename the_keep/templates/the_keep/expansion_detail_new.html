@@ -51,64 +51,72 @@
         {% endif %}
 
 
-        {% if expansion.get_posts %}
-            {% if expansion.get_factions %}
+        {% if posts %}
+            {% if factions %}
             <h2>
-                {% if expansion.get_factions.count != 1 %}
+                {% if factions.count != 1 %}
                         {% trans 'Factions' %} 
                 {% else %}
                         {% trans 'Faction' %} 
                 {% endif %}
         </h2>
-            {% for object in expansion.get_factions %}
+            {% for object in factions %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 
             {% endfor %}
             {% endif %}
-            {% if expansion.get_decks %}
-            <h2>Deck{% if expansion.get_decks.count != 1 %}s{% endif %}</h2>
-            {% for object in expansion.get_decks %}
+            {% if decks %}
+            <h2>Deck{% if decks.count != 1 %}s{% endif %}</h2>
+            {% for object in decks %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 
             {% endfor %}
             {% endif %}
-            {% if expansion.get_maps %}
-            <h2>Map{% if expansion.get_maps.count != 1 %}s{% endif %}</h2>
-            {% for object in expansion.get_maps %}
+            {% if maps %}
+            <h2>Map{% if maps.count != 1 %}s{% endif %}</h2>
+            {% for object in maps %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 
             {% endfor %}
             {% endif %}
-            {% if expansion.get_vagabonds %}
-            <h2>Vagabond{% if expansion.get_vagabonds.count != 1 %}s{% endif %}</h2>
-            {% for object in expansion.get_vagabonds %}
+            {% if vagabonds %}
+            <h2>Vagabond{% if vagabonds.count != 1 %}s{% endif %}</h2>
+            {% for object in vagabonds %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 
             {% endfor %}
             {% endif %}
-            {% if expansion.get_hirelings %}
-            <h2>Hireling{% if expansion.get_hirelings.count != 1 %}s{% endif %}</h2>
-            {% for object in expansion.get_hirelings %}
+            {% if hirelings %}
+            <h2>Hireling{% if hirelings.count != 1 %}s{% endif %}</h2>
+            {% for object in hirelings %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 
             {% endfor %}
             {% endif %}
-            {% if expansion.get_landmarks %}
-            <h2>Landmark{% if expansion.get_landmarks.count != 1 %}s{% endif %}</h2>
-            {% for object in expansion.get_landmarks %}
+            {% if landmarks %}
+            <h2>Landmark{% if landmarks.count != 1 %}s{% endif %}</h2>
+            {% for object in landmarks %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 
             {% endfor %}
             {% endif %}
-            {% if expansion.get_clockwork %}
-            <h2>Clockwork Faction{% if expansion.get_clockwork.count != 1 %}s{% endif %}</h2>
-            {% for object in expansion.get_clockwork %}
+            {% if clockworks %}
+            <h2>Clockwork Faction{% if clockworks.count != 1 %}s{% endif %}</h2>
+            {% for object in clockworks %}
+                
+                    {% include 'the_keep/partials/post.html' %}
+                
+            {% endfor %}
+            {% endif %}
+            {% if tweaks %}
+            <h2>House Rule{% if tweaks.count != 1 %}s{% endif %}</h2>
+            {% for object in tweaks %}
                 
                     {% include 'the_keep/partials/post.html' %}
                 

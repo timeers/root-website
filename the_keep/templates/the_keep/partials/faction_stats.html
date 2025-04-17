@@ -1,15 +1,20 @@
-
-
+{% load i18n %}
 
 {% if scorecard_count %}
 <article class="media content-section" id="factionCharts">
     <div class="media-body">
         <div class="chart-container">
             <div class="chart" id="lineChartContainer">
-                <h2 class='root-title'>Points Breakdown</h2>
+                <h2 class='root-title'>{% trans 'Points Breakdown' %}</h2>
                 {% if detail_scorecard_count %}
                 <div id='pieDescription'>
-                    Point categories for this faction are based on {{ detail_scorecard_count }} user submitted scorecard{% if detail_scorecard_count != 1 %}s{% endif %}.<br>
+                    {% if detail_scorecard_count != 1 %}
+                        {% blocktrans with detail_scorecard_count=detail_scorecard_count %}
+                        Point categories for this faction are based on {{ detail_scorecard_count }} user submitted scorecards.
+                        {% endblocktrans %}
+                    {% else %}
+                        {% trans 'Point categories for this faction are based on 1 user submitted scorecard.' %}
+                    {% endif %}<br>
                     Faction points are scored with faction abilities, crafting points are from crafting items, battle points are from removing cardboard in battle, other points are anything else.
                 </div>
                 {% endif %}
@@ -28,7 +33,7 @@
 
         </div>
     </div>
-    Chart based on:
+    {% trans 'Chart based on:' %}
     <div id="titleGames">
        
     </div>
@@ -155,12 +160,16 @@
             typeName = 'Insurgent Faction';
         } {% endcomment %}
         // Replace the text content in the divs
-        document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} Plays`;
+        const playsLabel = "{% trans 'Plays' %}";
+        const insurgentLabel = "{% trans 'Insurgent Plays' %}";
+        const militantLabel = "{% trans 'Militant Plays' %}";
+        const totalLabel = "{% trans 'Total Plays' %}";
+        document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} ${playsLabel}`;
         //document.getElementById('typeGames').innerHTML = `${typeData.count} ${typeName} Plays`;
-        document.getElementById('insurgentGames').innerHTML = `${insurgentData.count} Insurgent Plays`;
-        document.getElementById('militantGames').innerHTML = `${militantData.count} Militant Plays`;
-        document.getElementById('totalGames').innerHTML = `${averageData.count} Total Plays`;
-
+        document.getElementById('insurgentGames').innerHTML = `${insurgentData.count} ${insurgentLabel}`;
+        document.getElementById('militantGames').innerHTML = `${militantData.count} ${militantLabel}`;
+        document.getElementById('totalGames').innerHTML = `${averageData.count} ${totalLabel}`;
+        const averageLabel = "{% trans 'Average' %}";
         // Initialize the Combined Line Chart (for both Scorecard and Faction Average Data)
         const lineCtx = document.getElementById('scorecardChart').getContext('2d');
         const gamePointsChart = new Chart(lineCtx, {
@@ -169,7 +178,7 @@
                 labels: allTurnNumbers,  // Turn numbers for x-axis from combined dataset
                 datasets: [
                     {
-                        label: `${factionData.faction_name} Average`,  // Label for the faction average line chart
+                        label: `${factionData.faction_name} ${averageLabel}`,  // Label for the faction average line chart
                         data: completeFactionGamePoints,  // Average game points for y-axis (faction)
                         borderColor: color,  // Line color for faction average (different color)
                         backgroundColor: color,  // Fill color under the line for faction
@@ -186,7 +195,7 @@
                         borderDash: [4, 2]
                     }, {% endcomment %}
                     {
-                        label: 'Insurgent Factions',  // Label for the faction average line chart
+                        label: "{% trans 'Insurgent Factions' %}",  // Label for the faction average line chart
                         data: completeInsurgentGamePoints,  // Average game points for y-axis (faction)
                         borderColor: '#9D9A9A',  // Line color for faction average (different color)
                         backgroundColor: '#9D9A9A',  // Fill color under the line for faction
@@ -195,7 +204,7 @@
                         borderDash: [7, 5]
                     },
                     {
-                        label: 'Militant Factions',  // Label for the faction average line chart
+                        label: "{% trans 'Militant Factions' %}",  // Label for the faction average line chart
                         data: completeMilitantGamePoints,  // Average game points for y-axis (faction)
                         borderColor: '#FE0000',  // Line color for faction average (different color)
                         backgroundColor: '#FE0000',  // Fill color under the line for faction
@@ -204,7 +213,7 @@
                         borderDash: [7, 5]
                     },
                     {
-                        label: 'All Factions',  // Label for the scorecard line chart
+                        label: "{% trans 'All Factions' %}",  // Label for the scorecard line chart
                         data: completeAverageGamePoints,  // Game points for y-axis (scorecard)
                         borderColor: '#000000',  // Line color for scorecard
                         backgroundColor: '#000000',  // Fill color under the line for scorecard
@@ -221,7 +230,7 @@
                     x: {
                         title: {
                             display: false,
-                            text: 'Turn Number'  // Label for x-axis
+                            text: "{% trans 'Turn Number' %}"  // Label for x-axis
                         },
                         min: minTurnNumber,  // Set the min value for the x-axis
                         max: maxTurnNumber,  // Set the max value for the x-axis
@@ -232,7 +241,7 @@
                     y: {
                         title: {
                             display: false,
-                            text: 'Game Points'  // Label for y-axis
+                            text: "{% trans 'Game Points' %}"  // Label for y-axis
                         },
                         beginAtZero: true  // Start y-axis from 0
                     }
@@ -256,10 +265,10 @@
         // Prepare data for Pie Chart
         const pieData = {
             labels: [
-                'Faction Points',
-                'Crafting Points',
-                'Battle Points',
-                'Other Points'
+                "{% trans 'Faction Points' %}",
+                "{% trans 'Crafting Points' %}",
+                "{% trans 'Battle Points' %}",
+                "{% trans 'Other Points' %}"
             ],
             datasets: [{
                 data: [

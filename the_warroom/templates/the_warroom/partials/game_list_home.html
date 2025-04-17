@@ -4,7 +4,7 @@
     {% if page_obj.number == 1 %}
     <article class="media content-section">
         <div class="media-body">
-    <h3>{% trans 'Total Games' %} ({{ games_count }})</h3> 
+    <h3 class='root-title'>{% trans 'Total Games' %} ({{ games_count }})</h3> 
         </div>
     </article>
 
@@ -16,7 +16,7 @@
     <article class="media content-section">
         <div class="media-body">
         
-            <h2>{% if top_players and most_players %}
+            <h2 class='root-title'>{% if top_players and most_players %}
                 {% trans 'Player Leaderboards' %}
                 {% else %}
                 {% trans 'Player Leaderboard' %}
@@ -80,7 +80,7 @@
     <article class="media content-section">
         <div class="media-body">
         
-            <h2>{% if top_factions and most_factions %}
+            <h2 class='root-title'>{% if top_factions and most_factions %}
                     {% trans 'Faction Leaderboards' %}
                 {% else %}
                     {% trans 'Faction Leaderboard' %}

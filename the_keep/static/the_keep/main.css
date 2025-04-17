@@ -1297,7 +1297,7 @@ tr.clickable-row:hover {
 .text-overlay {
   top: 20%;
   position: absolute;
-  left: 20px;  /* Padding on the left */
+  left: 35px;  /* Padding on the left */
   color: white;
   text-align: center;
   padding: 0 10px;
@@ -1313,7 +1313,7 @@ tr.clickable-row:hover {
 
 .text-overlay-right {
   left: auto;
-  right: 20px;  /* Align text to the right side */
+  right: 35px;  /* Align text to the right side */
 }
 
 @media (max-width: 500px) {
@@ -1339,4 +1339,20 @@ tr.clickable-row:hover {
   right: 0;
   z-index: 99;  /* Ensure it's above other content */
   padding: 10px;
+}
+
+.video-container {
+  position: relative;
+  padding-bottom: 56.25%; /* 16:9 ratio */
+  height: 0;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.video-container iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }

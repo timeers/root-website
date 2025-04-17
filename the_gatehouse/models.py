@@ -10,6 +10,7 @@ from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, W
 from django.db.models.functions import Cast
 from django.apps import apps
 from django.utils import timezone 
+from django.utils.translation import gettext as _
 from the_keep.utils import validate_hex_color, delete_old_image
 
 class MessageChoices(models.TextChoices):

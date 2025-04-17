@@ -1,11 +1,13 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.http import JsonResponse, Http404
+from django.http import JsonResponse, Http404, HttpResponseBadRequest
 from django.db import connection
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import activate
+# from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import ListView, UpdateView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator, EmptyPage
@@ -17,7 +19,7 @@ from django.db.models import Count, Q
 
 from .forms import (UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, 
                     MessageForm)
-from .models import Profile
+from .models import Profile, Language
 from .discordservice import send_rich_discord_message, send_discord_message
 from .utils import build_absolute_uri
 
@@ -68,8 +70,8 @@ def user_settings(request):
                 except Tournament.DoesNotExist:
                     # Handle the case where the tournament doesn't exist
                     messages.error(request, 'Could not find the Root TTS League.')
-
-            messages.success(request, f'Account updated!')
+            
+            messages.success(request, _('Account updated!'))
             return redirect(request.user.profile.get_absolute_url())
         
     else:
@@ -1186,3 +1188,31 @@ def status_check(request):
     return JsonResponse({'status': 'ok'}, status=200)
 
 
+
+
+def set_language_custom(request):
+    lang_code = request.POST.get('language')
+
+    # Validate language code
+    if lang_code not in dict(settings.LANGUAGES):
+        return HttpResponseBadRequest("Invalid language code")
+
+    # Activate it for the current request
+    activate(lang_code)
+
+    # Save it to the session
+    request.session['language'] = lang_code
+    request.session['django_language'] = lang_code
+
+    # Optional: Save it to the user's profile
+    if request.user.is_authenticated:
+        profile = getattr(request.user, 'profile', None)
+        if profile and hasattr(profile, 'language'):
+            lang_obj = Language.objects.filter(code=lang_code).first()
+            if lang_obj:
+                profile.language = lang_obj
+                profile.save()
+
+    # Redirect back (use ?next= in your form or JS to set this)
+    next_url = request.POST.get('next') or request.META.get('HTTP_REFERER', '/')
+    return redirect(next_url)

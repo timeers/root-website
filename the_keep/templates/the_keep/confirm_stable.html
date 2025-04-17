@@ -1,25 +1,25 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %} - Stable{% endblock %}
+{% block title %} - {% trans 'Stable' %}{% endblock %}
 {% block content %}
 <article class="content-section">
 <h1>
-    {% blocktrans %}
+    {% blocktrans  with post_title=post_title %}
     Mark {{ post_title }} as Stable?
     {% endblocktrans %}
 </h1>
 <div>
-    {% blocktrans %}
+    {% blocktrans with post_title=post_title %}
 It looks like {{ post_title }} might be in a stable state. 
 {% endblocktrans %}
 </div>
 <div>
-    {% blocktrans %}
+    {% blocktrans  with post_component=post_component %}
         If you think you will make any large changes to this {{ post_component }} you can always do this later.
     {% endblocktrans %}
 </div>
 <div>
-    {% blocktrans %}
+    {% blocktrans with post_title=post_title post_component=post_component %}
         By marking {{ post_title }} as "Stable" you convey to other users that they can confidently use it without any large rule gaps or balance issues.
         Of course this does not mean that this {{ post_component }} will be completely balanced. Much of the balance in Root comes from the player interaction.
     {% endblocktrans %}

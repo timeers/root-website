@@ -1,11 +1,11 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %} - Testing{% endblock %}
+{% block title %} - {% trans 'Testing' %}{% endblock %}
 {% block content %}
 <article class="content-section">
 <h1>{% trans 'Ready for Testing?' %}</h1>
 <div>
-    {% blocktrans %}
+    {% blocktrans with post_title=post_title post_component=post_component %}
         By marking {{ post_title }} as "Testing" you convey to other users that you are testing and fine tuning this {{ post_component }}, you can always undo this later.
     {% endblocktrans %}
 </div>

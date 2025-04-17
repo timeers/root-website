@@ -5,9 +5,9 @@
         {% endif %}
         {{ piece.quantity }}
         {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}
-        {{ piece.name }}
+        {{ piece }}
     </div>
-    {% if user.profile.admin or object.designer == user.profile and user.profile.designer %}
+    {% if user.profile.admin or object.designer == user.profile and user.profile.editor %}
         <div class="d-flex">
             <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons"
                 hx-get="{% url 'update-piece' piece.id %}?piece={{ piece.type }}&slug={{ object.slug }}"
@@ -19,7 +19,7 @@
             <button class="btn btn-outline-danger btn-sm ml-1 mb-1 hidden-buttons"
                     hx-delete="{% url 'delete-piece' piece.id %}"
                     hx-target="#piece-{{ piece.id }}"
-                    hx-confirm="Are you sure you want to delete {{ piece.name }}?"
+                    hx-confirm="Are you sure you want to delete {{ piece }}?"
                     hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
                 <i class="bi bi-trash3"></i>
             </button>

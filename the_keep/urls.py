@@ -29,7 +29,8 @@ from .views import (
     color_group_view,
     animal_match_view,
     status_check,
-    translations_view, create_post_translation
+    translations_view, create_post_translation,
+    expansion_detail_view
 )
 from .api_views import search_posts
 from . import views
@@ -54,7 +55,8 @@ urlpatterns = [
     path('new/vagabond/', VagabondCreateView.as_view(), name='vagabond-create'),
     path('new/expansion/', ExpansionCreateView.as_view(), name='expansion-create'),
     
-    path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
+    # path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
+    path('expansion/<slug:slug>/', expansion_detail_view, name='expansion-detail'),
     path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),

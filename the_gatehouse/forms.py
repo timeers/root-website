@@ -26,29 +26,31 @@ class UserUpdateForm(forms.ModelForm):
 # Removed League checkbox
 class ProfileUpdateForm(forms.ModelForm):
     STATUS_CHOICES = [
-        ('1', 'Stable Only'),
-        ('2', 'Testing and Above'),
-        ('3', 'Development and Above'),
-        ('4', 'All (include Inactive)'),
+        ('1', _('Stable Only')),
+        ('2', _('Testing and Above')),
+        ('3', _('Development and Above')),
+        ('4', _('All (include Inactive)')),
     ]
     view_status = forms.ChoiceField(
         choices=STATUS_CHOICES, initial="4",
         required=True,
-        help_text='Choose what is visible to you.',
-        label="Status Visiblity"
+        help_text=_('Choose what is visible to you.'),
+        label=_("Status Visiblity")
     )
     class Meta:
         model = Profile     
-        fields = ['image', 'dwd', 'weird', 'view_status'] # 'league' to add yourself to RDL tournament
+        fields = ['image', 'dwd', 'weird', 'view_status', 'language'] # 'league' to add yourself to RDL tournament
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root TTS League',
-            'weird' : 'Show Fan Content',
+            'weird' : _('Show Fan Content'),
         }
 
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.fields['language'].empty_label = _("Set Automatically")
 
         # Check if the instance has a value for dwd
         if self.instance and self.instance.dwd and not self.instance.admin:
@@ -177,13 +179,13 @@ class UserManageForm(forms.ModelForm):
 class PlayerCreateForm(forms.ModelForm):
     discord = forms.CharField(
         required=True,  # Make it required
-        widget=forms.TextInput(attrs={'maxlength': '32', 'placeholder': 'Discord Username'}),  # Max length handled here
-        label='Discord Username'
+        widget=forms.TextInput(attrs={'maxlength': '32', 'placeholder': _('Discord Username')}),  # Max length handled here
+        label=_('Discord Username')
     )
     display_name = forms.CharField(
         required=False,
-        widget=forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Display Name (optional)'}), 
-        label='Display Name (optional)'
+        widget=forms.TextInput(attrs={'maxlength': '50', 'placeholder': _('Display Name (optional)')}), 
+        label=_('Display Name (optional)')
     )
     class Meta:
         model = Profile
@@ -196,15 +198,15 @@ class PlayerCreateForm(forms.ModelForm):
         discord = discord.lower()
         
         if len(discord) > 32:
-            raise forms.ValidationError('Player names cannot be longer than 32 characters.')
+            raise forms.ValidationError(_('Player names cannot be longer than 32 characters.'))
 
         # Regular expression for allowed characters: letters, numbers, underscores, and periods
         if not re.match(r'^[a-z0-9_.]+$', discord):
-            raise forms.ValidationError('Please only use numbers, letters, underscores _ , or periods.')
+            raise forms.ValidationError(_('Please only use numbers, letters, underscores _ , or periods.'))
         
         # Optional: Check if the username already exists (if necessary)
         if Profile.objects.filter(discord=discord).exists():
-            raise forms.ValidationError('This Discord username is already registered.')
+            raise forms.ValidationError(_('This Discord username is already registered.'))
         
         return discord
 
@@ -269,7 +271,7 @@ class MessageForm(forms.Form):
                 self.fields['author'].required = True  # Make the author field required
                 self.fields['author'].label = 'Contact Info'
             # If no author is passed in, change the widget to a visible TextInput
-            self.fields['author'].widget = forms.TextInput(attrs={'maxlength': '50', 'placeholder': 'Discord Username or Email'})
+            self.fields['author'].widget = forms.TextInput(attrs={'maxlength': '50', 'placeholder': _('Discord Username or Email')})
 
         # Limit choices for title based on message_category
         if message_category == 'feedback':

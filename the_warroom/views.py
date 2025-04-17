@@ -35,8 +35,8 @@ from the_gatehouse.views import (player_required, admin_required,
                                  admin_required_class_based_view, player_required_class_based_view,
                                  tester_required, player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
-from the_gatehouse.discordservice import send_discord_message
-from the_gatehouse.utils import get_uuid, get_theme
+from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
+from the_gatehouse.utils import get_uuid, get_theme, build_absolute_uri
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -65,7 +65,7 @@ class GameListView(ListView):
             return 'the_warroom/partials/game_list_home.html'
         
         if self.request.user.is_authenticated:
-            send_discord_message(f'{self.request.user} on Game Page')
+            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) on Game Page')
         else:
             send_discord_message(f'{get_uuid(self.request)} on Game Page')
         return 'the_warroom/games_home.html'
@@ -504,7 +504,8 @@ def manage_game(request, id=None):
                 parent.final = False  # Save as draft
             else:
                 parent.final = True  # Finalize the game
-                send_discord_message(f'{user} Recorded a Game')
+                # send_discord_message(f'{user} Recorded a Game')
+
             if not parent.recorder:
                 parent.recorder = request.user.profile  # Set the recorder
             # parent.date_posted = timezone.now()
@@ -549,6 +550,21 @@ def manage_game(request, id=None):
             parent.status = StatusChoices(game_status)
             parent.save()
             context['message'] = "Game Saved"
+
+
+            if parent.final:
+                fields = []
+                fields.append({
+                        'name': 'Recorder:',
+                        'value': user.profile.name
+                    })
+                if parent.nickname:
+                    game_title = parent.nickname
+                else:
+                    game_title = f"{parent.platform} Game"
+                send_rich_discord_message(f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
+
+
             return redirect(parent.get_absolute_url())
         else:
             context['message'] = 'Game not Saved. Please correct errors below.'

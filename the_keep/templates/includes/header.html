@@ -51,6 +51,8 @@
                     </li>
               {% endif %} {% endcomment %}
 
+
+
               {% if user.is_authenticated %}
 
                 {{ django_language }}
@@ -60,7 +62,7 @@
                       <img class="user-icon img-fluid mr-1" src="{{ user.profile.image.url }}">
                       {{ user.profile.name }}
                     </a>
-                    <ul class="dropdown-menu">
+                    <ul class="dropdown-menu dropdown-menu-right">
                       <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle"></i> {% trans 'Profile' %}</a></li>
                       <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
                       {% if user_games_count %}
@@ -102,8 +104,36 @@
 
 
               {% else %}
+
+  
+
+
                   <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">{% trans 'Login' %}</a>
                   <a class="nav-item nav-link" href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
+
+
+                  {% get_current_language as LANGUAGE_CODE %}
+                  {% get_available_languages as LANGUAGES %}
+                  
+                  <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                      <i class="bi bi-translate"></i>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-right">
+                      <form action="{% url 'set_language_custom' %}" method="post" id="language-form">
+                        {% csrf_token %}
+                        {% for code, name in LANGUAGES %}
+                          {% get_language_info for code as lang %}
+                          <li>
+                            <button type="submit" name="language" value="{{ code }}" class="dropdown-item {% if code == LANGUAGE_CODE %}active{% endif %}">
+                              {{ lang.name_local|capfirst }}
+                            </button>
+                          </li>
+                        {% endfor %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                      </form>
+                    </ul>
+                  </li>
               {% endif %}
                 {% comment %} <li class="nav-item">
                     <a class="nav-link" href="{% url 'keep-about' %}">About</a>

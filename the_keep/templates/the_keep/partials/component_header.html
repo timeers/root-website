@@ -57,7 +57,11 @@
                 {{ object_animal }}
 
             {% endif %}
-            {{ object.component }}
+            {% if object.component == 'Tweak' %}
+                {% trans 'House Rule' %}
+            {% else %}
+                {{ object.component }}
+            {% endif %}
                 {% trans 'by' %} 
             <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
@@ -84,7 +88,11 @@
                 </div>
                 {% endif %}
                 {% if object.based_on %}
-                    {% trans 'Based on' %}: <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">{{ object.based_on }}</a>
+                    <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">
+                        {% blocktrans %}
+                        Based on {{ based_on_title }}
+                        {% endblocktrans %}
+                    </a>
                     {% trans 'by' %} 
                     {% if user.profile.player %}
                         <a class="mr-2" href="{% url 'player-detail' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
@@ -134,7 +142,7 @@
         {%if color_group %}
         <!-- For color button -->
         <a class='btn btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
-            {{ color_group }}
+            {{ color_label }}
         </a>
         {% endif %}
 
