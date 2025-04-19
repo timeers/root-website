@@ -10,8 +10,11 @@
     <a href="{% url 'scorecard-home' %}">{% trans 'Scorecards' %} </a>
     <i class="bi bi-chevron-right"></i>
 
-
+    {% if object_title %}
+    {{ object_title }}
+    {% else %}
      {{ object.faction }}
+     {% endif %}
 
 </div>
 
@@ -57,7 +60,11 @@
         <div>
             <a href="{% url 'faction-detail' object.faction.slug %}">
                 <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
-                {{ object.faction }}
+                {% if object_title %}
+                    {{ object_title }}
+                {% else %}
+                    {{ object.faction }}
+                {% endif %}
             </a> - {{ object.turns.count }} {% trans 'Turns' %}
         </div>
         {% if object.effort %}

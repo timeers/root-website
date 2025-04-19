@@ -6,6 +6,11 @@
     {% include 'the_keep/partials/component_meta.html' %}
 {% endblock meta %}
 
+{% comment %} Canonical for SEO? {% endcomment %}
+{% block canonical %}
+    <link rel="canonical" href="{{ absolute_uri }}">
+{% endblock %}
+
 {% block content %}
 
 

@@ -29,41 +29,37 @@
         {% endif %}
       
         {% if user.profile.player %}
-        <a href="{% url 'scorecard-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="scorecards">
-            {% trans 'Scorecards' %}
-        </a>
+            <a class="btn btn-sm btn-success mb-3 ml-1" href="{% url 'record-scorecard' %}">
+                {% trans 'New Scorecard' %} +
+            </a>
         {% endif %}
         <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
             {% trans 'New Game' %} +
         </a>
+        {% if user_active_count %}
+            <div class="position-relative d-inline-block ml-1">
+                <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
+                    <i class="bi bi-pencil-square"></i>
+                    <span class="ml-1">{% trans 'In Progress' %}</span>
+                </a>
+                    {% if user_active_games_count %}
+                    <span class="notification-badge">
+                        {{ user_active_games_count }}
+                    </span>
+                    {% endif %}
+            </div>
+        {% endif %}
+
+
+
+
+
+
     </div>
 </div>
 </div>
 </article>
-{% if in_progress %}
-<div style="display: flex; justify-content: space-between; align-items: center;">
-    <h3>{% trans 'In Progress Games' %} ({{ in_progress.count }})</h3>
-        <button class="btn btn-info btn-sm ml-2 ms-2" 
-        type="button" 
-        data-bs-toggle="collapse" 
-        data-bs-target="#collapseRegister" 
-        aria-expanded="false" 
-        aria-controls="collapseRegister" 
-        id="collapseToggleButton">
-    {% trans 'View' %}
-    </button>
- 
-    </div>   
-    
-    
-    <div class="collapse" id="collapseRegister">
-        {% trans 'These games have not been submitted' %}:
-        {% for game in in_progress %}
-            {% include 'the_warroom/partials/game_detail_button.html' %}
-        {% endfor %}
-    </div>
 
-{% endif %}
 
 <article class="media content-section">
     <div class="media-body">

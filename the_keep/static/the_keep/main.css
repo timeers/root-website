@@ -984,6 +984,15 @@ tr.clickable-row:hover {
   object-fit: cover; /* Makes sure the image covers the container area */
   overflow: visible;
 }
+/* For dynamic picture container */
+.background-image-wrapper picture {
+  width: 100%; /* Ensures the image doesn't overflow the container */
+  height: 100%; /* Maintain the aspect ratio */
+  min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
+  min-width: 100vw;
+  object-fit: cover; /* Makes sure the image covers the container area */
+  overflow: visible;
+}
 
 .background-image-padding {
   height: 60vh; /* You can adjust based on your needs */
@@ -1355,4 +1364,30 @@ tr.clickable-row:hover {
   left: 0;
   width: 100%;
   height: 100%;
+}
+
+
+.notification-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background-color: red;
+  color: white;
+  border: 2px solid white;
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  line-height: 1;
+  box-sizing: border-box;
 }

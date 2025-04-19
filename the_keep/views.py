@@ -32,7 +32,7 @@ from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Lang
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
-from the_gatehouse.discordservice import send_discord_message
+from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme
 from .models import (
     Post, Expansion,
@@ -62,22 +62,22 @@ from django.db.models.functions import Coalesce
 # activity_logger = logging.getLogger("user_activity")
 
 
-class ExpansionDetailView(DetailView):
-    model = Expansion
+# class ExpansionDetailView(DetailView):
+#     model = Expansion
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+#     def get_context_data(self, **kwargs):
+#         context = super().get_context_data(**kwargs)
         
-        links_count = self.object.count_links(self.request.user)
-        # Add links_count to context
-        context['links_count'] = links_count
+#         links_count = self.object.count_links(self.request.user)
+#         # Add links_count to context
+#         context['links_count'] = links_count
 
-        if self.object.open_roster and (self.object.end_date > timezone.now() or not self.object.end_date):
-            context['open_expansion'] = True
-        else:
-            context['open_expansion'] = False
+#         if self.object.open_roster and (self.object.end_date > timezone.now() or not self.object.end_date):
+#             context['open_expansion'] = True
+#         else:
+#             context['open_expansion'] = False
         
-        return context
+#         return context
 
 
 def expansion_detail_view(request, slug):
@@ -152,7 +152,7 @@ def expansion_detail_view(request, slug):
         'open_expansion': open_expansion,
     }
 
-    return render(request, 'the_keep/expansion_detail_new.html', context)
+    return render(request, 'the_keep/expansion_detail.html', context)
 
 class ExpansionFactionsListView(ListView):
     model = Faction
@@ -241,7 +241,18 @@ class PostCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         if not form.instance.designer:
             form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
-        return super().form_valid(form)
+
+        response = super().form_valid(form)
+
+        post = self.object
+        fields = []
+        fields.append({
+                'name': 'Posted by:',
+                'value': self.request.user.profile.name
+            })
+        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category=f'Post Created', title=f'Posted {post.component}', fields=fields)
+
+        return response
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -320,7 +331,18 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         # if not self.request.user.profile.admin:
         #     form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()  # Set the updated timestamp
-        return super().form_valid(form)
+        response = super().form_valid(form)
+
+        post = self.object
+        fields = []
+        fields.append({
+                'name': 'Edited by:',
+                'value': self.request.user.profile.name
+            })
+        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category=f'Post Edited', title=f'Edited {post.component}', fields=fields)
+
+
+        return response
 
     def test_func(self):
         obj = self.get_object()
@@ -622,6 +644,7 @@ def ultimate_component_view(request, slug):
     #     language = request.user.profile.language
 
     language_code_override = request.GET.get('lang', None)
+    user_language = get_language()
     
     if language_code_override:
         language_code = language_code_override
@@ -629,7 +652,7 @@ def ultimate_component_view(request, slug):
         if language_code_object:
             language = language_code_object
     else:
-        language_code = get_language()
+        language_code = user_language
         language_code_object = Language.objects.filter(code=language_code).first()
         if language_code_object:
             language = language_code_object
@@ -712,14 +735,14 @@ def ultimate_component_view(request, slug):
 
     if language_code_override:
         if request.user.is_authenticated:
-            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({language_code_object.code}) viewed {object.component}: {object.title} ({language_code_override})')
+            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({user_language}) viewed {object.component}: {object.title} ({language_code_override})')
         else:
-            send_discord_message(f'{get_uuid(request)} ({language_code_object.code}) viewed {object.component}: {object.title} ({language_code_override})')
+            send_discord_message(f'{get_uuid(request)} ({user_language}) viewed {object.component}: {object.title} ({language_code_override})')
     else:
         if request.user.is_authenticated:
-            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({language_code_object.code}) viewed {object.component}: {object.title}')
+            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({user_language}) viewed {object.component}: {object.title}')
         else:
-            send_discord_message(f'{get_uuid(request)} ({language_code_object.code}) viewed {object.component}: {object.title}')
+            send_discord_message(f'{get_uuid(request)} ({user_language}) viewed {object.component}: {object.title}')
 
 
     # print(f'Stable Ready: {stable_ready}')
@@ -879,7 +902,7 @@ def ultimate_component_view(request, slug):
             color_label = None
             object_color = None
 
-
+    absolute_uri = build_absolute_uri(request, object.get_absolute_url())
     context = {
         'object': object,
         'games_total': games.count(),
@@ -925,6 +948,8 @@ def ultimate_component_view(request, slug):
         'card_wealth_value': card_wealth_value,
         'aggression_value': aggression_value,
         'complexity_value': complexity_value,
+
+        'absolute_uri': absolute_uri,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -1280,6 +1305,10 @@ def list_view(request, slug=None):
 
 
 def search_view(request, slug=None):
+    
+    if not request.htmx:
+        return redirect('archive-home')
+    
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # Get all designers (Profiles) who have at least one post
     view_status = 4
@@ -1314,6 +1343,8 @@ def search_view(request, slug=None):
         'is_search_view': True,
         'slug': slug,
         }
+
+    
     return render(request, "the_keep/partials/search_results.html", context)
 
 
@@ -1403,7 +1434,7 @@ def _search_components(request, slug=None):
             ),
             'lore'  # Fall back to the default lore if there's no translation
         )
-    )
+    ).distinct()
 
 
 
@@ -1480,25 +1511,25 @@ def delete_piece(request, id):
 
 
 
-# Not used. Might reuse for bookmarks
-def activity_list(request):
-    from itertools import chain
-    from operator import attrgetter
-    # Retrieve the objects
-    game_list = Game.objects.all().order_by('-date_posted')[:50]
-    post_list = Post.objects.all().order_by('-date_posted')[:50]
+# # Not used. Might reuse for bookmarks
+# def activity_list(request):
+#     from itertools import chain
+#     from operator import attrgetter
+#     # Retrieve the objects
+#     game_list = Game.objects.all().order_by('-date_posted')[:50]
+#     post_list = Post.objects.all().order_by('-date_posted')[:50]
     
-    # Combine both lists
-    combined_list = list(chain(game_list, post_list))
+#     # Combine both lists
+#     combined_list = list(chain(game_list, post_list))
 
-    # Sort combined list by date_posted (latest first)
-    sorted_combined_list = sorted(combined_list, key=attrgetter('date_posted'), reverse=True)
+#     # Sort combined list by date_posted (latest first)
+#     sorted_combined_list = sorted(combined_list, key=attrgetter('date_posted'), reverse=True)
 
-    context = {
-        'sorted_combined_list': sorted_combined_list
-    }
+#     context = {
+#         'sorted_combined_list': sorted_combined_list
+#     }
     
-    return render(request, 'the_keep/activity_list.html', context)
+#     return render(request, 'the_keep/activity_list.html', context)
 
 @player_required
 def status_check(request, slug):

@@ -9,7 +9,8 @@ from .views import (GameListView, GameUpdateView, #GameListViewHX,
                     TournamentCreateView, TournamentUpdateView, TournamentDeleteView, tournaments_home,
                     round_manage_view, tournament_manage_players, tournament_manage_assets,
                     round_manage_players, RoundDeleteView,
-                    tournament_players_pagination, round_players_pagination, round_games_pagination)
+                    tournament_players_pagination, round_players_pagination, round_games_pagination,
+                    in_progress_view)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -19,6 +20,7 @@ urlpatterns = [
     path("game/<int:pk>/update/", GameUpdateView.as_view(), name='game-update-info'),
     path("game/<int:id>/", game_detail_view, name='game-detail'),
 
+    path('battlefield/active/', in_progress_view, name='in-progress'),
     path('battlefield/', GameListView.as_view(), name='games-home'),
     path('warroom/', GameListView.as_view()),
     path('games/', GameListView.as_view()),

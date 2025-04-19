@@ -41,7 +41,7 @@ def get_default_language():
 
 def convert_animals_to_singular(text):
     # Remove any instances of "and" from the input string
-    text = text.replace("and", ",")
+    text = text.replace(" and ", ", ")
     # Replace slashes with commas to unify the separator
     text = text.replace("/", ",")
     
@@ -52,14 +52,16 @@ def convert_animals_to_singular(text):
     singular_words = [p.singular_noun(word) or word for word in words]
     
     # Capitalize the first letter of each word
-    capitalized_words = [word.capitalize() for word in singular_words]
+    capitalized_words = [word.title() for word in singular_words]
 
     # Join the words with commas except for the last one
     if len(capitalized_words) > 1:
-        return ", ".join(capitalized_words[:-1]) + " and " + capitalized_words[-1]
+        final_string = ", ".join(capitalized_words[:-1]) + " and " + capitalized_words[-1]
     else:
         # If there's only one word, just return it
-        return capitalized_words[0]
+        final_string = capitalized_words[0]
+    # only return the first 50 characters
+    return final_string[:50]
 
 class ColorChoices(models.TextChoices):
     RED = ('#FF0000', _('Red'))
@@ -233,7 +235,7 @@ class Post(models.Model):
 
     title = models.CharField(max_length=40)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
-    animal = models.CharField(max_length=25, null=True, blank=True)
+    animal = models.CharField(max_length=50, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     lore = models.TextField(null=True, blank=True)
@@ -281,6 +283,8 @@ class Post(models.Model):
 
 
     objects = PostManager()
+
+
 
     @classmethod
     def get_color_group(cls, color_group):
@@ -425,12 +429,14 @@ class Post(models.Model):
                 })
             send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
 
+
+
         # if self.small_icon:
         resize_image(self.small_icon, 80)
         # if self.board_image:
-        resize_image(self.board_image, 1500)  # Resize board_image
+        resize_image(self.board_image, 1200)  # Resize board_image
         # if self.board_2_image:
-        resize_image(self.board_2_image, 1500)  # Resize board_image
+        resize_image(self.board_2_image, 1200)  # Resize board_image
         # if self.card_image:
         resize_image(self.card_image, 350)  # Resize card_image
         # if self.card_2_image:
@@ -492,11 +498,11 @@ class Post(models.Model):
 
             # Optionally, save the image to a new BytesIO buffer
             img_io = BytesIO()
-            small_icon_copy.save(img_io, format='PNG')  # Save as a PNG, or another format as needed
+            small_icon_copy.save(img_io, format='WEBP', quality=80)  # Save as a PNG, or another format as needed
             img_io.seek(0)
             # Now you can assign the img_io to your model field or save it to a new ImageField
             # Generate a unique filename using UUID
-            unique_filename = f"{uuid.uuid4().hex}.png"
+            unique_filename = f"{uuid.uuid4().hex}.webp"
 
             # Save to small_icon field with unique filename
             self.small_icon.save(unique_filename, img_io, save=False)
@@ -520,11 +526,11 @@ class Post(models.Model):
 
             # Optionally, save the image to a new BytesIO buffer
             img_io = BytesIO()
-            picture_copy.save(img_io, format='PNG')  # Save as a PNG, or another format as needed
+            picture_copy.save(img_io, format='WEBP', quality=80)  # Save as a PNG, or another format as needed
             img_io.seek(0)
             # Now you can assign the img_io to your model field or save it to a new ImageField
             # Generate a unique filename using UUID
-            unique_filename = f"{uuid.uuid4().hex}.png"
+            unique_filename = f"{uuid.uuid4().hex}.webp"
 
             # Save to picture field with unique filename
             self.picture.save(unique_filename, img_io, save=False)

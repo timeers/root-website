@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load static i18n %}
-{% block title %} - Games{% endblock %}
+{% block title %} - {% trans 'Games' %}{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
@@ -16,18 +16,40 @@
 <div class="d-flex justify-content-between align-items-center">
 {% comment %} <div style="display: flex; align-items: center;"> {% endcomment %}
     <div class='d-flex'>
-        <a href="{% url 'player-detail' player.slug %}">{{ player.name }}'s Profile</a>
+        <a href="{% url 'player-detail' player.slug %}">
+            {% if user.profile != player %}
+            {{ player.name }}'s 
+            {% endif %}
+            {% trans 'Profile' %}
+        </a>
         <i class="bi bi-chevron-right"></i>
         {% trans 'Games' %}
     </div>
     {% if user.profile == player %}
     <div class='d-flex align-items-center'>
-        <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordscorecard">
+        <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success mt-1 ml-1 mb-3" id="recordscorecard">
             {% trans 'New Scorecard' %} +
         </a>
-        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
+        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mt-1 ml-1 mb-3" id="recordgame">
             {% trans 'New Game' %} +
         </a>
+
+
+        {% if user_active_count %}
+            <div class="position-relative d-inline-block mt-1 ml-1 mb-3">
+                <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
+                    <i class="bi bi-pencil-square"></i>
+                    <span class="ml-1">{% trans 'In Progress' %}</span>
+                </a>
+                {% if user_active_games_count %}
+                    <span class="notification-badge">
+                        {{ user_active_games_count }}
+                    </span>
+                {% endif %}
+            </div>
+        {% endif %}
+
+
     </div>
     {% endif %}
 </div>
@@ -38,8 +60,11 @@
     </div>
         <div class="media-body">
             <div class='d-flex flex-nowrap'>
-            <h1 class="account-heading root-title">{{ player.name }}'s Games</h1>
-
+            {% if user.profile == player %}
+                <h1 class="account-heading root-title">{% trans 'My Games' %}</h1>
+            {% else %}
+                <h1 class="account-heading root-title">{{ player.name }}'s {% trans 'Games' %}</h1>
+            {% endif %}
             </div>
 
             
@@ -61,7 +86,7 @@
             hx-swap="outerHTML"
             id="gamefilterform">
         <div class="mb-1">
-            {{ player.name }} Playing as:
+            {{ player.name }} {% trans 'Playing as:' %}
             {{ form.faction }}
         </div>   
         <div class="mb-1">

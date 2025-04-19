@@ -24,7 +24,7 @@ from the_tavern import views as comment_views
 from the_keep.api_views import get_options_for_platform
 from the_warroom.api_views import get_options_for_tournament
 from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline, set_language_custom
-
+# from django.views.i18n import JavaScriptCatalog
 
 
 urlpatterns = [
@@ -72,6 +72,7 @@ urlpatterns = [
     path('__debug__/', include("debug_toolbar.urls")),
 
     path('set-language/', set_language_custom, name='set_language_custom'),
+    # path('jsi18n/', JavaScriptCatalog.as_view(), name='javascript-catalog'),
 ]
 
 if settings.DEBUG:

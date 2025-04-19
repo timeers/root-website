@@ -4,96 +4,69 @@
 {% block content %}
 
 
-<div style="display: flex; justify-content: space-between; align-items: center;">
-        
-    <div class='d-flex'>
-        <h1 class='root-title'>Scorecards</h1>
-
-    </div>  
-    <div class='d-flex'>
-        {% if user.profile.admin %}
-        <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">
-            Series
-        </a>
-        {% endif %}
-
-        <a href="{% url 'games-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="games">
-            Games
-        </a>
-
-
-        {% if user.profile.player %}
-            <a class="btn btn-sm btn-success mb-3 ml-1" href="{% url 'record-scorecard' %}">New Scorecard +</a>
-        {% endif %}
-    </div>
-</div>
-
-{% if unassigned_scorecards %}
-
-<div style="display: flex; justify-content: space-between; align-items: center;">
-    <h3>Unassigned Scorecards ({{ unassigned_count }})</h3>
-    <button class="btn btn-info btn-sm ml-2 ms-2" 
-        type="button" 
-        data-bs-toggle="collapse" 
-        data-bs-target="#collapseRegister" 
-        aria-expanded="false" 
-        aria-controls="collapseRegister" 
-        id="collapseToggleButton">
-    View
-    </button>
-    </div>   
-    
-    
-    <div class="collapse" id="collapseRegister">
-
-        These scorecards have not been linked with a game:
-
-        <article class="media content-section">
-            <div class="media-body">
-        <table>
-            <thead>
-                <tr>
-                    <th>{% trans 'Faction' %}</th>
-                    <th style="text-align: center;">Points</th>
-                    <th style="text-align: center;">Turn</th>
-                    <th>Game</th>
-            
-                </tr>
-            </thead>
-            <tbody class="effort-rows">
-                {% for object in unassigned_scorecards %}
-                <tr data-href="{{ object.get_absolute_url }}">
-                    <td>
-                        <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
-                        {{  object.faction }}
-                    </td>
-                    <td style="text-align: center;">
-                        {{ object.total_points }}
-                    </td>
-                    <td style="text-align: center;">
-                        {{ object.turns.count }}
-                    </td>
-
-                    <td>
-                        {% if object.effort.game.nickname %}
-                            {{object.effort.game.nickname}}
-                        {% else %}
-                            {{ object.game_group }}
-                        {% endif %}
-                    </td>
-                </tr>
-
-                {% endfor %}
-
-            </tbody>
-        </table>
+<div class="d-flex justify-content-between align-items-center">
+    {% comment %} <div style="display: flex; align-items: center;"> {% endcomment %}
+        <div class='d-flex'>
+            <a href="{% url 'player-detail' user.profile.slug %}">
+                {% trans 'Profile' %}
+            </a>
+            <i class="bi bi-chevron-right"></i>
+            {% trans 'Scorecards' %}
         </div>
-        </article>
+        <div class='d-flex'>
+            {% comment %} {% if user.profile.admin %}
+            <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary mt-1 ml-1 mb-3" id="series">
+                {% trans 'Series' %}
+            </a>
+            {% endif %}
+    
+            <a href="{% url 'games-home' %}" class="btn btn-sm btn-primary mt-1 ml-1 mb-3" id="games">
+                {% trans 'Games' %}
+            </a> {% endcomment %}
+    
+    
+            {% if user.profile.player %}
+                <a class="btn btn-sm btn-success mb-3 mt-1 ml-1" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %} +</a>
+            {% endif %}
+            {% if user.profile.player %}
+            <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mt-1 ml-1 mb-3" id="recordgame">
+                {% trans 'New Game' %} +
+            </a>
+            {% endif %}
+            {% if user_active_scorecards_count %}
+                <div class="position-relative d-inline-block mt-1 ml-1">
+                    <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
+                        <i class="bi bi-pencil-square"></i>
+                        <span class="ml-1">{% trans 'In Progress' %}</span>
+                    </a>
+                        <span class="notification-badge">
+                            {{ user_active_scorecards_count }}
+                        </span>
+                </div>
+            {% endif %}
+    
+        </div>
+    
+    
 
-
+       
     </div>
 
-{% endif %}
+
+    <div class="media content-section">
+        <div class="article-img-container">
+            <img class="article-img" src="{{ user.profile.image.url }}">
+        </div>
+            <div class="media-body">
+                <div class='d-flex flex-nowrap'>
+                    <h1 class="account-heading root-title">{% trans 'My Scorecards' %}</h1>
+                </div>
+    
+                
+            </div>
+    
+    </div>
+
 
 
 
@@ -101,24 +74,24 @@
 
 {% if complete_scorecards %}
 <div class="content-section" id="scorecardContainer">
-    <h3>Your Recorded Average by Faction</h3>
+    <h3>{% trans 'Your Recorded Average by Faction' %}</h3>
 <div>
     <canvas id="scorecardChart" width="400" height="400"></canvas>
 </div>
-<small>*Based on the data you've recorded. Data for your plays can be found in the profile stats tab.</small>
+<small>*{% trans "Based on the data you've recorded. Data for your plays can be found in the profile stats tab." %}</small>
 </div>
 
 
 
 <article class="media content-section">
     <div class="media-body">
-        <h3>Completed Scorecards</h3>
+        <h3>{% trans 'Completed Scorecards' %}</h3>
 <table>
     <thead>
         <tr>
             <th>{% trans 'Faction' %}</th>
-            <th style="text-align: center;">Points</th>
-            <th style="text-align: center;">Turns</th>
+            <th style="text-align: center;">{% trans 'Points' %}</th>
+            <th style="text-align: center;">{% trans 'Turns' %}</th>
 
             <th>{% trans 'Player' %}</th>
 
@@ -134,7 +107,7 @@
 </div>
 </article>
 {% else %}
-    You have not recorded any scorecards
+    {% trans 'You have not recorded any scorecards' %}
 {% endif %}
 
 
@@ -188,8 +161,9 @@
             }
 
             // Sort turn numbers in ascending order
+            const turnLabel = "{% trans 'Turn' %}";
             turnNumbers.sort((a, b) => a - b);
-            labels.push(...turnNumbers.map(turn => `Turn ${turn}`));  // Prepare x-axis labels
+            labels.push(...turnNumbers.map(turn => `${turnLabel} ${turn}`));  // Prepare x-axis labels
 
             // Iterate over the factions to create datasets for each
             for (const faction in data) {

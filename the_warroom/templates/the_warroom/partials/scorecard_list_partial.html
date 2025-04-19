@@ -7,7 +7,7 @@
     hx-swap="afterend">
             <!-- hx-include="#gamefilterform"> -->
     {% else %}
-        <tr data-href="{{ object.get_absolute_url }}">
+        <tr data-href="{{ object.get_absolute_url }}" class="clickable-row">
     {% endif %}
 
 
@@ -15,7 +15,11 @@
  
         <td>
             <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
-            {{  object.faction }}
+            {% if object.selected_title %}
+                {{ object.selected_title }}
+            {% else %}
+                {{  object.faction }}
+            {% endif %}
         </td>
         <td style="text-align: center;">
             {{ object.total_points }}

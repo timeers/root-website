@@ -2,12 +2,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from the_warroom.models import ScoreCard, TurnScore
-from the_keep.models import Faction
+from the_keep.models import Faction, PostTranslation
 from the_gatehouse.models import Profile
 from .serializers import ScoreCardDetailSerializer, FactionAverageTurnScoreSerializer
-from django.db.models import Avg, Sum, Count
-
+from django.db.models import Avg, Sum, Count, Prefetch
+from django.utils.translation import get_language
 from collections import defaultdict
+
 
 from randomcolor import RandomColor
 
@@ -66,6 +67,12 @@ class GameScorecardView(APIView):
         # Get all scorecards related to the specified game (via game primary key)
         scorecards = ScoreCard.objects.filter(effort__game__pk=pk)
 
+        current_lang_code = get_language()
+        translations = PostTranslation.objects.filter(language__code=current_lang_code)
+        scorecards = scorecards.select_related('faction').prefetch_related(
+            Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
+        )
+
         # Check if there are no scorecards
         if not scorecards.exists():
             print('No scorecards')
@@ -77,6 +84,9 @@ class GameScorecardView(APIView):
         all_scorecards_data = []
 
         for scorecard in scorecards:
+            translated_title = scorecard.faction.title  # fallback
+            if hasattr(scorecard.faction, 'filtered_translations') and scorecard.faction.filtered_translations:
+                translated_title = scorecard.faction.filtered_translations[0].translated_title
             # Retrieve all turns related to this scorecard
             turns = scorecard.turns.all()
 
@@ -94,7 +104,8 @@ class GameScorecardView(APIView):
             # Prepare the data for this scorecard (similar to the ScoreCardDetailView)
             scorecard_data = {
                 "scorecard_id": scorecard.id,
-                "faction": scorecard.faction.title,  # Assuming Faction model has a title
+                # "faction": scorecard.faction.title,  # Assuming Faction model has a title
+                "faction": translated_title,
                 "color": color,
                 "turns": turn_data  # This contains the turn data for the chart
             }
@@ -354,6 +365,12 @@ class PlayerScorecardView(APIView):
             # Get all scorecards related to the specified player (via player slug)        
             scorecards = ScoreCard.objects.filter(effort__player__slug=slug, final=True)
 
+        current_lang_code = get_language()
+        translations = PostTranslation.objects.filter(language__code=current_lang_code)
+        scorecards = scorecards.select_related('faction').prefetch_related(
+            Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
+        )
+
         # Check if there are no scorecards
         if not scorecards.exists():
             print('No scorecards')
@@ -373,6 +390,10 @@ class PlayerScorecardView(APIView):
         # Loop through each faction and calculate averages
         for faction, faction_scorecards in faction_groups.items():
 
+
+            translated_title = faction.title  # fallback to default
+            if hasattr(faction, 'filtered_translations') and faction.filtered_translations:
+                translated_title = faction.filtered_translations[0].translated_title
             # # Calculate the average number of Turns for the filtered scorecards
             # turn_count = scorecards.annotate(num_turns=Count('turns')) 
             # # Calculate the total number of turn objects and the total number of scorecards
@@ -406,7 +427,8 @@ class PlayerScorecardView(APIView):
 
             # Initialize the data for the current faction
             faction_average_data = {
-                "faction": faction.title, 
+                # "faction": faction.title, 
+                "faction": translated_title, 
                 "color": faction.color,
                 "count": faction_scorecard_count,
                 "averages": [],
@@ -422,7 +444,7 @@ class PlayerScorecardView(APIView):
                 # average_battle_points = avg['battle_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
                 # average_other_points = avg['other_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
                 # average_game_points += average_total_points
-                print(faction.title, faction.id)
+                # print(faction.title, faction.id)
                 turn_count = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
                 current_turns = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
                 running_total = 0

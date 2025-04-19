@@ -86,7 +86,9 @@ class ExpansionCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
             if leder_games_link and not "ledergames.com/products" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')
-            
+            if pnp_link and not "itch.io/jam" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox, Google Drive and Rootjam')
+
             return cleaned_data
 
 class PostImportForm(forms.ModelForm):
@@ -446,6 +448,8 @@ class PostCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
+            if pnp_link and not "itch.io/jam" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox, Google Drive and Rootjam')
             if leder_games_link:
                 if not "ledergames.com/products" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')
@@ -673,7 +677,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label=_('Hireling Name'),
         required=True
     )
-    animal = forms.CharField(required=True)
+    animal = forms.CharField(required=True, max_length=35)
     TYPE_CHOICES = [
         ('P', _('Promoted')),
         ('D', _('Demoted')),
@@ -743,7 +747,7 @@ class VagabondCreateForm(PostCreateForm):
         label=_('Vagabond Name'),
         required=True
     )
-    animal = forms.CharField(required=True)
+    animal = forms.CharField(required=True, max_length=35)
     starting_torch = forms.IntegerField(initial=1, min_value=0, max_value=2)
     starting_coins = forms.IntegerField(initial=0, min_value=0, max_value=4)
     starting_boots = forms.IntegerField(initial=0, min_value=0, max_value=4)
@@ -832,7 +836,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label=_('Faction Name'),
         required=True
     )
-    animal = forms.CharField(required=True)
+    animal = forms.CharField(required=True, max_length=35)
     TYPE_CHOICES = [
         ('I', _('Insurgent')),
         ('M', _('Militant')),
@@ -957,7 +961,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label=_('Clockwork Faction Name'),
         required=True
     )
-    animal = forms.CharField(required=True)
+    animal = forms.CharField(required=True, max_length=35)
 
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.filter(component__in=['Faction']),

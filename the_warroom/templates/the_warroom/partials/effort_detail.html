@@ -31,8 +31,11 @@
                     <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Win">
                 {% endif %}
             </div>
-
-            {{ effort.faction }}
+            {% if effort.translated_faction_title %}
+                {{ effort.translated_faction_title }}
+            {% else %}
+                {{ effort.faction }}
+            {% endif %}
         </a>
         {% if effort.vagabond %}
             (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
@@ -81,7 +84,7 @@
 <td>   
     {% if effort.scorecard %}
         {% if effort.scorecard.final %}
-            <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-zoom-in"></i></a>
+            <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-graph-up"></i></a>
         {% elif effort.scorecard.recorder == user.profile %}
             <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' effort.scorecard.id %}"><i class="bi bi-pencil-square"></i></a>
         {% endif %}

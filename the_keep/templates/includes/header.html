@@ -17,7 +17,9 @@
         <div class="collapse navbar-collapse" id="navbarToggle">
           <div class="navbar-nav align-items-center mr-auto">
             <a class="nav-item nav-link" href="{% url 'archive-home' %}">{% trans 'Archive' %}</a>
-            <a class="nav-item nav-link" href="{% url 'games-home' %}">{% trans 'Battlefield' %}</a>
+            <a class="nav-item nav-link position-relative" href="{% url 'games-home' %}">
+              {% trans 'Battlefield' %}
+            </a>
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">{% trans 'Workshop' %}</a>
           </div>
 
@@ -68,16 +70,23 @@
                       {% if user_games_count %}
                       <li><a class="dropdown-item" href="{% url 'player-games' user.profile.slug %}"><i class="bi bi-collection-play-fill"></i> {% trans 'My Games' %} ({{ user_games_count }})</a></li>
                       {% endif %}
-                      {% if user_posts_count %}
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection-fill"></i> {% trans 'My Posts' %} ({{ user_posts_count }})</a></li>
+                      {% if user_scorecard_count %}
+                      <li><a class="dropdown-item" href="{% url 'scorecard-home' %}"><i class="bi bi-graph-up"></i> {% trans 'My Scorecards' %} ({{ user_scorecard_count }})</a></li>
                       {% endif %}
+                      {% comment %} {% if user_posts_count %}
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection-fill"></i> {% trans 'My Posts' %} ({{ user_posts_count }})</a></li>
+                      {% endif %} {% endcomment %}
 
                       
                       {% if user_recent_posts or user.profile.designer %}
                       <li><hr class="dropdown-divider"></li>
                       {% endif %}
 
+                      {% if user.profile.designer %}
                       <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square"></i> {% trans 'New Post' %}</a></li>
+                      {% else %}
+                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square"></i> {% trans 'Request Post' %}</a></li>
+                      {% endif %}
 
                       {% if user_recent_posts %}
                       <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6>

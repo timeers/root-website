@@ -1,0 +1,109 @@
+{% extends 'the_keep/base.html' %}
+{% block title %} - In Progress{% endblock %}
+{% load i18n %}
+{% block content %}
+
+<article class="media content-section">
+    <div class="media-body">
+    <h1 class='root-title'>{% trans 'In Progress' %}</h1>
+    {% if in_progress_games_count and in_progress_scorecards_count %}
+        {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count in_progress_games_count=in_progress_games_count %}
+            You have {{ in_progress_scorecards_count }} unlinked Scorecard(s) and {{ in_progress_games_count }} in progress Game(s). Once complete each Scorecard should be linked to a matching Game and each Game should be finalized by clicking "Submit".
+        {% endblocktrans %}
+    {% elif in_progress_games_count %}
+        {% blocktrans with in_progress_games_count=in_progress_games_count %}
+            You have {{ in_progress_games_count }} in progress Game(s) and no unlinked Scorecards. Once the game is completed, click "Submit" to finalize it.
+        {% endblocktrans %}
+    {% elif in_progress_scorecards_count %}
+        {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count %}
+            You have {{ in_progress_scorecards_count }} unlinked Scorecard(s) and no in process Games. Once complete, link each Scorecard to a matching Game.
+        {% endblocktrans %}
+    {% else %}
+        {% trans "You're all up to date. You have no in progress games."%}
+    {% endif %}
+    </div>
+</article>
+{% comment %} <div class="notification-wrapper">
+    Test Test Test
+    <span class="notification-badge">{{ user_active_count }}</span>
+</div> {% endcomment %}
+
+{% if in_progress_scorecards %}
+<article class="media content-section">
+    <div class="media-body">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 class='root-title'>{% trans 'Scorecards' %} ({{ in_progress_scorecards_count }})</h3>
+        </div>   
+    
+            {% trans 'These scorecards have not been linked with a game:' %}
+    
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>{% trans 'Faction' %}</th>
+                        <th style="text-align: center;">{% trans 'Points' %}</th>
+                        <th style="text-align: center;">{% trans 'Turn' %}</th>
+                        <th>{% trans 'Game' %}</th>
+                
+                    </tr>
+                </thead>
+                <tbody class="effort-rows">
+                    {% for object in in_progress_scorecards %}
+                    <tr data-href="{{ object.get_absolute_url }}" class="clickable-row">
+                        <td>
+                            <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
+                            {% if object.selected_title %}
+                                {{ object.selected_title }}
+                            {% else %}
+                                {{  object.faction }}
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            {{ object.total_points }}
+                        </td>
+                        <td style="text-align: center;">
+                            {{ object.turns.count }}
+                        </td>
+    
+                        <td>
+                            {% if object.effort.game.nickname %}
+                                {{object.effort.game.nickname}}
+                            {% elif object.game_group %}
+                                {{ object.game_group }}
+                            {% endif %}
+                        </td>
+                    </tr>
+    
+                    {% endfor %}
+    
+                </tbody>
+            </table>
+        </div>
+    </article>
+    
+    
+
+{% endif %}
+
+
+
+{% if in_progress_games %}
+    <article class="media content-section">
+        <div class="media-body">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 class='root-title'>{% trans 'Games' %} ({{ in_progress_games_count }})</h3>
+            </div>   
+                
+
+                {% trans 'These games have not been submitted' %}:
+
+        </div>
+    </article>
+        {% for game in in_progress_games %}
+            {% include 'the_warroom/partials/game_detail_button.html' %}
+        {% endfor %}
+
+{% endif %}
+
+{% endblock %}

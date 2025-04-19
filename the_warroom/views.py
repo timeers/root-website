@@ -14,10 +14,12 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.db import IntegrityError
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch
-from django.db.models.functions import Cast
+from django.db import IntegrityError, models
+
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
+from django.utils.translation import get_language
 from urllib.parse import quote
 
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
@@ -28,9 +30,9 @@ from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter, PlayerGameFilter
 
-from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices
+from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 
-from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage
+from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  tester_required, player_onboard_required, admin_onboard_required)
@@ -296,6 +298,8 @@ class PlayerGameListView(ListView):
 # @player_onboard_required
 def game_detail_view(request, id=None):
     # hx_url = reverse("game-hx-detail", kwargs={"id": id})
+    current_lang_code = get_language()
+
     participants = []
     efforts = []
     scorecard_count = 0
@@ -306,8 +310,23 @@ def game_detail_view(request, id=None):
             participants.append(effort.player)
         if obj.recorder:
             participants.append(obj.recorder)
+
+
+        # Filter translations by current language
+        translations = PostTranslation.objects.filter(language__code=current_lang_code)
         # Add efforts directly to context to get the available_scorecard field
-        efforts = obj.efforts.all().prefetch_related('faction', 'player', 'vagabond', 'scorecard')
+        efforts = obj.efforts.all().prefetch_related(
+            'player', 'vagabond', 'scorecard',
+            Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
+        )
+
+        for effort in efforts:
+            if hasattr(effort.faction, 'filtered_translations') and effort.faction.filtered_translations:
+                effort.translated_faction_title = effort.faction.filtered_translations[0].translated_title
+            else:
+                effort.translated_faction_title = effort.faction.title
+
+
         # Count the total number of scorecards linked to efforts
         scorecard_count = ScoreCard.objects.filter(final=True, effort__in=obj.efforts.all()).distinct().count()
         if request.user.is_authenticated:
@@ -866,6 +885,10 @@ def scorecard_detail_view(request, id=None):
         obj = ScoreCard.objects.get(id=id)
     except ObjectDoesNotExist:
         obj = None
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    object_translation = obj.faction.translations.filter(language=language_object).first()
+    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
     next_scorecard = None   
     previous_scorecard = None
@@ -891,6 +914,7 @@ def scorecard_detail_view(request, id=None):
         'object': obj,
         'previous_scorecard': previous_scorecard,
         'next_scorecard': next_scorecard,
+        'object_title': object_title,
     }
 
     return render(request, "the_warroom/score_detail.html", context)
@@ -1017,16 +1041,30 @@ def scorecard_delete_view(request, id=None):
 @player_required
 def scorecard_list_view(request):
     active_profile = request.user.profile
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('turns', 'faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
 
-    all_scorecards = ScoreCard.objects.filter(recorder=request.user.profile).prefetch_related('turns', 'faction', 'effort')
+
+    complete_scorecards = complete_scorecards.annotate(
+        selected_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('faction__pk'),
+                    language__code=language_object.code
+                ).values('translated_title')[:1]
+            ),
+            F('faction__title')  # Fallback to the original faction title
+        )
+    )
 
     # QuerySets
-    unassigned_scorecards = all_scorecards.filter(final=False)
-    unassigned_count = unassigned_scorecards.count()
+    # unassigned_scorecards = all_scorecards.filter(final=False)
+    # unassigned_count = unassigned_scorecards.count()
     # if unassigned_count > 10:
     #     unassigned_scorecards = unassigned_scorecards[:10]
-    complete_scorecards = all_scorecards.exclude(final=False).prefetch_related(
-        'effort__game', 'effort__player', 'effort__faction')
+    # complete_scorecards = all_scorecards.exclude(final=False).prefetch_related(
+    #     'effort__game', 'effort__player', 'effort__faction')
 
     
     # Pagination (the rest of your pagination logic stays the same)
@@ -1040,10 +1078,10 @@ def scorecard_list_view(request):
         page_obj = paginator.get_page(paginator.num_pages)
 
     context = {
-        'unassigned_scorecards': unassigned_scorecards,
+
         'complete_scorecards': page_obj,
         'active_profile': active_profile,
-        'unassigned_count': unassigned_count,
+
     }
 
     if request.htmx:
@@ -1667,3 +1705,41 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this Tournament Round.")
             return redirect(round.get_absolute_url())
+        
+
+@player_required
+def in_progress_view(request):
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    user_profile = request.user.profile
+    prefetch_game = [
+        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+        'hirelings', 'landmarks', 'tweaks', 'map', 'deck'
+    ]
+    in_progress_games = Game.objects.filter(recorder=user_profile, final=False).prefetch_related(*prefetch_game)
+    prefetch_scorecard = [
+        'faction', 'effort__game'
+    ]
+    in_progress_scorecards = ScoreCard.objects.filter(recorder=user_profile, final=False).prefetch_related(*prefetch_scorecard)
+    
+    in_progress_scorecards = in_progress_scorecards.annotate(
+        selected_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('faction__pk'),
+                    language__code=language_object.code
+                ).values('translated_title')[:1]
+            ),
+            F('faction__title')  # Fallback to the original faction title
+        )
+    )
+
+    context = {
+        'in_progress_games': in_progress_games,
+        'in_progress_games_count': in_progress_games.count(),
+        'in_progress_scorecards': in_progress_scorecards,
+        'in_progress_scorecards_count': in_progress_scorecards.count(),
+
+    }
+
+    return render(request, 'the_warroom/in_progress.html', context)

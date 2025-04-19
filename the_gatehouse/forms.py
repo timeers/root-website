@@ -34,7 +34,7 @@ class ProfileUpdateForm(forms.ModelForm):
     view_status = forms.ChoiceField(
         choices=STATUS_CHOICES, initial="4",
         required=True,
-        help_text=_('Choose what is visible to you.'),
+        help_text=_("Pick what you want to see. If you hide something, it won’t show up in your searches or game setup."),
         label=_("Status Visiblity")
     )
     class Meta:
@@ -51,7 +51,7 @@ class ProfileUpdateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields['language'].empty_label = _("Set Automatically")
-
+        self.fields['language'].help_text = _("Select your preferred language. When available, component content will be shown in this language by default.")
         # Check if the instance has a value for dwd
         if self.instance and self.instance.dwd and not self.instance.admin:
             # Disable the Direwolf Digital field if DWD has a value (don't want users to change their names)

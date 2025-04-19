@@ -4,16 +4,17 @@
 {% if posts %}
     {% for object in posts %}
         
-
+    
             {% if forloop.last and posts.has_next %}
-            <div hx-trigger="revealed" 
+            <div id="{{ forloop.counter }}" 
+            hx-trigger="revealed" 
             hx-get="{% url 'search' %}"
             hx-vals='{"page": "{{ posts.next_page_number }}", "search": "{{ search }}", "search_type": "{{ search_type }}", "designer": "{{ designer }}", "faction_type": "{{ faction_type }}", "reach_value": "{{ reach_value }}", "status": "{{ status }}"}'
             hx-target="#search-contents"
             hx-swap="beforeend"
             hx-indicator="#spinner">
             {% else %}
-            <div>
+            <div id="{{ forloop.counter }}">
             {% endif %}
             
             {% include 'the_keep/partials/post.html' %}

@@ -21,7 +21,11 @@
             <div class='d-flex'>
 
             <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary ml-1 mb-3">
-                {% trans 'New Post' %}
+                {% if user.profile.designer %}
+                    {% trans 'New Post' %}
+                {% else %}
+                    {% trans 'Request Post' %}
+                {% endif %}
             </a>
 
             <a class="btn btn-sm btn-success ml-1 mb-3" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>

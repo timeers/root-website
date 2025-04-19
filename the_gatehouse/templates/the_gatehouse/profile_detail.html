@@ -13,16 +13,28 @@
             </div>
             {% endif %}
             {% if player == user.profile %}
-            <div>
-                <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill"></i> {% trans 'Bookmarks' %}</i></a> 
-            </div>
-            <div>
-                <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected"></i> {% trans 'Settings' %}</a> 
-            </div>
+                <div>
+                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill"></i> {% trans 'Bookmarks' %}</i></a> 
+                </div>
+                <div>
+                    <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected"></i> {% trans 'Settings' %}</a> 
+                </div>
+                {% if user_active_games_count or user_active_scorecard_count %}
+                <div class="position-relative d-inline-block mt-1 mb-1 ml-1">
+                    <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
+                        <i class="bi bi-pencil-square"></i>
+                        <span class="ml-1">{% trans 'In Progress' %}</span>
+                    </a>
+                        <span class="notification-badge">
+                            {{ user_active_count }}
+                        </span>
+                </div>
+
+                {% endif %}
             {% elif user.profile.admin %}
-            <div>
-                <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'manage-user' player.slug %}"><i class="bi bi-pencil-square"></i></a>
-            </div>
+                <div>
+                    <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'manage-user' player.slug %}"><i class="bi bi-pencil-square"></i></a>
+                </div>
             {% elif user.profile.player %}
                 <div>
                     <a class="btn btn-secondary btn-sm mt-1 mb-1 ml-1" href="{% url 'player-feedback' player.slug %}">

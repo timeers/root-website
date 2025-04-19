@@ -1,7 +1,5 @@
 from django.urls import path
 from .views import (
-    ExpansionDetailView,
-
     MapCreateView, DeckCreateView, HirelingCreateView, VagabondCreateView, 
     LandmarkCreateView, FactionCreateView, ExpansionCreateView, ClockworkCreateView,
     MapUpdateView, DeckUpdateView, HirelingUpdateView, VagabondUpdateView, 
@@ -14,7 +12,7 @@ from .views import (
 
     # ComponentDetailListView,
     bookmark_post,
-    list_view, activity_list,
+    list_view,
     search_view,
     add_piece, delete_piece,
     ultimate_component_view,
@@ -40,7 +38,8 @@ urlpatterns = [
     path("archive/", list_view, name='archive-home'),
     # path("new/", activity_list, name='activity-list'),
  
-    path("search/", search_view, name='search'),
+    # used for search
+    path("hx/search/", search_view, name='search'),
     path('universal-search/', universal_search, name='universal-search'),
     path('api/search/', search_posts, name='api-search-posts'),
 
@@ -57,7 +56,7 @@ urlpatterns = [
     
     # path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
     path('expansion/<slug:slug>/', expansion_detail_view, name='expansion-detail'),
-    path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
+    # path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
 

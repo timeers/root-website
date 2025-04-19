@@ -1,11 +1,39 @@
 <!-- Background Images -->
-{% if background_image %}
+{% comment %} {% if background_image %}
 
     <img class="background-image" src="{{ background_image.image.url }}" alt="{{ background_image.alt }}" fetchpriority="high">
     {% for foreground_image in foreground_images %}
         <div class='background-image-wrapper' style="{{ foreground_image.style }}">
             <img id='progress-right' src="{{ foreground_image.image.url }}" alt="{{ foreground_image.alt }}">
         </div>
+    {% endfor %}
+{% endif %} {% endcomment %}
+
+{% if background_image %}
+    {% if background_image.small_image %}
+        <picture>
+            <!-- Load a smaller version on small screens -->
+            <source media="(max-width: 500px)" srcset="{{ background_image.small_image.url }}">
+            <!-- Default image for larger screens -->
+            <img class="background-image" src="{{ background_image.image.url }}" alt="{{ background_image.alt }}" fetchpriority="high">
+        </picture>
+    {% else %}
+        <img class="background-image" src="{{ background_image.image.url }}" alt="{{ background_image.alt }}" fetchpriority="high">
+    {% endif %}
+
+    {% for foreground_image in foreground_images %}
+        {% if foreground_image.small_image %}
+            <div class='background-image-wrapper' style="{{ foreground_image.style }}">
+                <picture>
+                    <source media="(max-width: 500px)" srcset="{{ foreground_image.small_image.url }}">
+                    <img id='progress-right' src="{{ foreground_image.image.url }}" alt="{{ foreground_image.alt }}">
+                </picture>
+            </div>
+        {% else %}
+            <div class='background-image-wrapper' style="{{ foreground_image.style }}">
+                <img id='progress-right' src="{{ foreground_image.small_image.url }}" alt="{{ foreground_image.alt }}">
+            </div>
+        {% endif %}
     {% endfor %}
 
 {% endif %}
