@@ -14,7 +14,7 @@
                 <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
             </div>
             <div class='d-flex flex-nowrap'>
-                <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h2>
+                <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object_title }}</h2>
             </div>
         </div>
     </a>
@@ -34,17 +34,27 @@
 
     <div>
     {% if object.status == '5' %}
-        This {{ object_component }} has been abandoned by the designer and no further development is planned.
+        {% blocktrans %}
+            This {{ object_component }} has been abandoned by the designer and no further development is planned.
+        {% endblocktrans %}
     {% elif object.status == '4' %}
-        This {{ object_component }} is not currently being worked on and is considered inactive.<br>
-        The designer, if they choose, can make this {{ object_component }} active again.
+        {% blocktrans %}
+            This {{ object_component }} is not currently being worked on and is considered inactive.<br>
+            The designer, if they choose, can make this {{ object_component }} active again.
+        {% endblocktrans %}
     {% elif object.status == '3' %}
-        This {{ object_component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
-        Once a game has been recorded the designer can choose the "Testing" status.
+        {% blocktrans %}
+            This {{ object_component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
+            Once a game has been recorded the designer can choose the "Testing" status.
+        {% endblocktrans %}
     {% elif object.status == '2' %}
-        This {{ object_component }} is being tested. It has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
+        {% blocktrans %}
+            This {{ object_component }} is being tested. It has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
+        {% endblocktrans %}
     {% elif object.status == '1' %}
-        This {{ object_component }} is considered stable and no major changes are expected.
+        {% blocktrans %}
+            This {{ object_component }} is considered stable and no major changes are expected.
+        {% endblocktrans %}
     {% endif %}
     </div>
 </article>
@@ -128,42 +138,69 @@
     <article class="content-section">
         <div>
             <h2 class='root-title'>{% trans 'Stability' %}</h2>
-            There are two ways to mark this {{ object_component }} as Stable:<br>
+            {% blocktrans %}
+                There are two ways to mark this {{ object_component }} as Stable:
+            {% endblocktrans %}
+            <br>
             <li>
-            If this {{ object_component }} has a Stable Weird Root thread you can request to have the status changed.<br>
+                {% blocktrans %}
+                    If this {{ object_component }} has a Stable Weird Root thread you can request to have the status changed.
+                {% endblocktrans %}
+                    <br>
             </li>
             <li>
-            The designer can mark this {{ object_component }} as stable once these requirements have been met:<br>
+                {% blocktrans %}
+                    The designer can mark this {{ object_component }} as stable once these requirements have been met:
+                {% endblocktrans %}
+                    <br>
             </li>
             <ol>
                 {% if object_component == 'Faction' or object_component == 'Vagabond' or object_component == 'Clockwork' %}
                 <li>
-                    At Least 1 Win and 1 Loss against other players
+                    {% trans 'At Least 1 Win and 1 Loss against other players' %}
                 </li>
                 {% endif %}
                 <li>
+                    {% blocktrans %}
                     {{ play_threshold }} Games Recorded
+                    {% endblocktrans %}
                 </li>
                 <li>
+                    {% blocktrans %}
                     With {{ player_threshold }} Unique Players
+                    {% endblocktrans %}
                 </li>
 
                 <li>
-                    {% if object_component == 'Faction' or object_component == 'Vagabond' %}Against{% else %}With{% endif %} the {{ official_faction_threshold }} Official Factions 
+                    {% if object_component == 'Faction' or object_component == 'Vagabond' %}
+                        {% blocktrans %}
+                            Against the {{ official_faction_threshold }} Official Factions 
+                        {% endblocktrans %}
+                    {% else %}
+                        {% blocktrans %}
+                            With the {{ official_faction_threshold }} Official Factions 
+                        {% endblocktrans %}
+                    {% endif %}
                 </li>
                 {% if object_component != 'Map' %}
                 <li>
+                    {% blocktrans %}
                     On the {{ official_map_threshold }} Official Maps
+                    {% endblocktrans %}
                 </li>
                 {% endif %}
                 {% if object_component != 'Deck' %}
                 <li>
+                    {% blocktrans %}
                     With {{ official_deck_threshold }} of the Official Decks
+                    {% endblocktrans %}
                 </li>
                 {% endif %}
 
             </ol>
+            {% blocktrans %}
             Meeting these requirements does not necessarily mean that a {{ object_component }} is considered Stable. For example, a {{ object_component }} might undergo major changes halfway through playtesting, and as a result, more than 10 games may be necessary before the designer is ready to mark the {{ object_component }} as 'Stable.'
+            {% endblocktrans %}
         </div>
     </article>
 {% endif %}
@@ -177,7 +214,15 @@
                         <h3 class='root-title'>{% trans 'Games' %}</h3>
                     </div>
                     <div>
-                        View {{ play_count }} Game{% if play_count != 1 %}s{% endif %}
+                        {% if play_count != 1 %}
+                        {% blocktrans %}
+                        View {{ play_count }} Games
+                        {% endblocktrans %}
+                        {% else %}
+                        {% blocktrans %}
+                        View {{ play_count }} Game
+                        {% endblocktrans %}
+                        {% endif %}
                     </div>
                 </a>
             </article>

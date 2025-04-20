@@ -65,13 +65,43 @@
                       {{ user.profile.name }}
                     </a>
                     <ul class="dropdown-menu dropdown-menu-right">
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle"></i> {% trans 'Profile' %}</a></li>
-                      <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
-                      {% if user_games_count %}
-                      <li><a class="dropdown-item" href="{% url 'player-games' user.profile.slug %}"><i class="bi bi-collection-play-fill"></i> {% trans 'My Games' %} ({{ user_games_count }})</a></li>
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle mr-1"></i> {% trans 'Profile' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill mr-1"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
+                      {% if user_games_count or user_active_games_count %}
+                        <li>
+                          <a class="dropdown-item d-flex align-items-center" href="{% url 'player-games' user.profile.slug %}">
+                            <span class="position-relative">
+                              <i class="bi bi-collection-play-fill mr-1"></i>
+                              {% if user_active_games_count %}
+                                <span class="notification-badge">
+                                  {{ user_active_games_count }}
+                                </span>
+                              {% endif %}
+                            </span>
+                            <span class='ml-1'>
+                            {% trans 'My Games' %} ({{ user_games_count }})
+                            </span>
+                          </a>
+                        </li>
                       {% endif %}
-                      {% if user_scorecard_count %}
-                      <li><a class="dropdown-item" href="{% url 'scorecard-home' %}"><i class="bi bi-graph-up"></i> {% trans 'My Scorecards' %} ({{ user_scorecard_count }})</a></li>
+                      {% if user_scorecard_count or user_active_scorecards_count %}
+                        
+                        <li>
+                          <a class="dropdown-item d-flex align-items-center" href="{% url 'scorecard-home' %}">
+                            <span class="position-relative">
+                              <i class="bi bi-graph-up mr-1"></i>
+                              {% if user_active_scorecards_count %}
+                                <span class="notification-badge">
+                                  {{ user_active_scorecards_count }}
+                                </span>
+                              {% endif %}
+                            </span>
+                            <span class='ml-1'>
+                            {% trans 'My Scorecards' %} ({{ user_scorecard_count }})
+                            </span>
+                          </a>
+                        </li>
+                      
                       {% endif %}
                       {% comment %} {% if user_posts_count %}
                       <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection-fill"></i> {% trans 'My Posts' %} ({{ user_posts_count }})</a></li>
@@ -83,29 +113,29 @@
                       {% endif %}
 
                       {% if user.profile.designer %}
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square"></i> {% trans 'New Post' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square mr-1"></i> {% trans 'New Post' %}</a></li>
                       {% else %}
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square"></i> {% trans 'Request Post' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square mr-1"></i> {% trans 'Request Post' %}</a></li>
                       {% endif %}
 
                       {% if user_recent_posts %}
                       <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6>
                         {% for user_post in user_recent_posts %}
-                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
+                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon mr-1" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
                         {% endfor %}
                         
                       {% endif %}
                       <li><hr class="dropdown-divider"></li>
 
                       {% if user.is_superuser %}
-                          <li><a class="dropdown-item" href="{% url 'admin:index' %}"><i class="bi bi-shield-lock-fill"></i> {% trans 'Admin Site' %}</a></li>
+                          <li><a class="dropdown-item" href="{% url 'admin:index' %}"><i class="bi bi-shield-lock-fill mr-1"></i> {% trans 'Admin Site' %}</a></li>
                       {% endif %}
                       {% if user.profile.admin %}
-                          <li><a class="dropdown-item" href="{% url 'players-list' %}"><i class="bi bi-people-fill"></i> {% trans 'Users' %}</a></li>
+                          <li><a class="dropdown-item" href="{% url 'players-list' %}"><i class="bi bi-people-fill mr-1"></i> {% trans 'Users' %}</a></li>
                       {% endif %}
 
-                      <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected"></i> {% trans 'Settings' %}</a></li>
-                      <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open"></i> {% trans 'Sign Out' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected mr-1"></i> {% trans 'Settings' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open mr-1"></i> {% trans 'Sign Out' %}</a></li>
                     </ul>
                   </li>
 

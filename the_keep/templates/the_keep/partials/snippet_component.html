@@ -1,4 +1,4 @@
-{% load i18n %}
+{% comment %} {% load i18n %}
 <a href="{% url object.component|lower|add:'-detail' object.slug %}">
 <article class="media content-section">
 <div class="article-img-container">
@@ -25,4 +25,4 @@
         <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
 </div>
 </article>
-</a>
+</a> {% endcomment %}

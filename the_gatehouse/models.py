@@ -243,7 +243,7 @@ class ForegroundImage(models.Model):
         super().save(*args, **kwargs)
 
         # if self.small_image:
-        resize_image(self.small_image, 768)
+        resize_image(self.small_image, 992)
 
 
 class Profile(models.Model):

@@ -3,9 +3,9 @@
 
 {% block title %}
 {% if not object.id %}
-     - New
+     - {% trans 'New' %}
 {% else %}
-     - Edit
+     - {% trans 'Edit' %}
 {% endif %}
 {% endblock %}
 {% block content %}

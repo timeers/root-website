@@ -3,22 +3,29 @@
 
 {% block title %}
 {% if not object.id %}
-     - New
+     - {% trans 'New Resource' %}
 {% else %}
-     - Edit
+     - {% trans 'Edit Resource' %}
 {% endif %}
 {% endblock %}
+
 {% block content %}
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="form-group">
-                <legend class="border-bottom mb-4">{% if object.id %}Update{% else %}Post{% endif %} Link to{% if object.pinned %} Pinned{% endif %} Resource</legend>
+                <legend class="border-bottom mb-4">
+                    {% if object.id %}
+                        {% trans 'Update Link to Resource' %}
+                    {% else %}
+                        {% trans 'Post Link to Resource' %}
+                    {% endif %} 
+                </legend>
                 <div class='mb-4'>
                 {% if object.id and object.pinned %}
-                If the link is updated, this resource will no longer be pinned. If an update is needed please contact an admin to have the resource repinned.
+                    {% trans 'If the link is updated, this resource will no longer be pinned. If an update is needed please contact an admin to have the resource repinned.' %}
                 {% else %}
-                Resources will be publicly posted to your profile.
+                    {% trans 'Resources will be publicly posted to your profile.' %}
                 {% endif %}
                 </div>
                 {{ form | crispy }}

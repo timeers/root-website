@@ -86,8 +86,8 @@ class ExpansionCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
             if leder_games_link and not "ledergames.com/products" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')
-            if pnp_link and not "itch.io/jam" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link:
-                    raise ValidationError('PNP links must be to Dropbox, Google Drive and Rootjam')
+            if pnp_link and not "itch.io/jam" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox, Google Drive or Rootjam')
 
             return cleaned_data
 
@@ -448,8 +448,8 @@ class PostCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
-            if pnp_link and not "itch.io/jam" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link:
-                    raise ValidationError('PNP links must be to Dropbox, Google Drive and Rootjam')
+            if pnp_link and not "itch.io/jam" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox, Google Drive or Rootjam')
             if leder_games_link:
                 if not "ledergames.com/products" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')

@@ -783,7 +783,8 @@ def ultimate_component_view(request, slug):
     testing_ready = None
     if request.user.is_authenticated:
         if object.designer == request.user.profile:
-            stable_ready = object.stable_check()
+            stable_ready_result = object.stable_check()
+            stable_ready = stable_ready_result.stable_ready
             if object.status == '3' and games.count() > 0:
                 testing_ready = True
 
@@ -1548,22 +1549,42 @@ def status_check(request, slug):
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=slug)
 
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    object_translation = object.translations.filter(language=language_object).first()
+    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else object.title
+
+
+
     stable = object.stable_check()
 
-    play_count = stable[1]
-    play_threshold = stable[4]
-    player_count = stable[2]
-    player_threshold = stable[5]
-    official_faction_count = stable[3]
-    official_faction_threshold = stable[6]
-    official_map_count = stable[7]
-    official_map_threshold = stable[8]
-    official_deck_count = stable[9]
-    official_deck_threshold = stable[10]
+    play_count = stable.play_count
+    play_threshold = stable.game_threshold
+    player_count = stable.unique_players
+    player_threshold = stable.player_threshold
+    official_faction_count = stable.official_faction_count
+    official_faction_threshold = stable.faction_threshold
+    official_map_count = stable.official_map_count
+    official_map_threshold = stable.map_threshold
+    official_deck_count = stable.official_deck_count
+    official_deck_threshold = stable.deck_threshold
+
+    # play_count = stable[1]
+    # play_threshold = stable[4]
+    # player_count = stable[2]
+    # player_threshold = stable[5]
+    # official_faction_count = stable[3]
+    # official_faction_threshold = stable[6]
+    # official_map_count = stable[7]
+    # official_map_threshold = stable[8]
+    # official_deck_count = stable[9]
+    # official_deck_threshold = stable[10]
     
     if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
-        win_count = stable[11]
-        loss_count = stable[12]
+        win_count = stable.win_count
+        loss_count = stable.loss_count
+        # win_count = stable[11]
+        # loss_count = stable[12]
         if win_count != 0:
             win_completion = '100%'
         else:
@@ -1632,6 +1653,7 @@ def status_check(request, slug):
         'object': object,
         'object_color': object_color,
         'object_component': object.component,
+        'object_title': object_title,
 
         'play_count': play_count,
         'play_threshold': play_threshold,
@@ -1686,8 +1708,8 @@ def confirm_stable(request, slug):
 
     stable = object.stable_check()
     # print(stable)
-
-    if stable[0] == False:
+    # if stable[0] == False:
+    if stable.stable_ready == False:
         messages.info(request, _('{} has not yet met the stability requirements.').format(object))
         return redirect('status-check', slug=object.slug)
     
