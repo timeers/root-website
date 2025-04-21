@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-04-20 00:47+0000\n"
-"PO-Revision-Date: 2025-04-19 13:17-0700\n"
+"POT-Creation-Date: 2025-04-21 00:12+0000\n"
+"PO-Revision-Date: 2025-04-20 17:19-0700\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: fr\n"
@@ -33,6 +33,14 @@ msgstr ""
 
 #: django_project/settings.py:201
 msgid "Dutch"
+msgstr ""
+
+#: django_project/settings.py:202
+msgid "Polish"
+msgstr ""
+
+#: django_project/settings.py:203
+msgid "Russian"
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/contrib/messages/apps.py:16
@@ -2065,8 +2073,8 @@ msgstr "Rapport d'erreur"
 msgid "Feature Request"
 msgstr "Demande de fonctionnalité"
 
-#: the_gatehouse/forms.py:220 the_gatehouse/forms.py:287 the_keep/models.py:230
-#: the_keep/templates/the_keep/asset_list.html:148
+#: the_gatehouse/forms.py:220 the_gatehouse/forms.py:287 the_keep/models.py:259
+#: the_keep/models.py:1793 the_keep/templates/the_keep/asset_list.html:148
 #: the_keep/templates/the_keep/expansion_detail.html:62
 #: the_keep/templates/the_keep/new.html:13
 #: the_keep/templates/the_keep/partials/component_title.html:13
@@ -2075,50 +2083,57 @@ msgstr "Demande de fonctionnalité"
 #: the_warroom/templates/the_warroom/in_progress.html:45
 #: the_warroom/templates/the_warroom/partials/forms.html:46
 #: the_warroom/templates/the_warroom/partials/forms.html:83
-#: the_warroom/templates/the_warroom/partials/game_detail.html:68
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:65
-#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:52
+#: the_warroom/templates/the_warroom/partials/game_detail.html:77
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:76
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:60
 #: the_warroom/templates/the_warroom/record_scores.html:41
 #: the_warroom/templates/the_warroom/scorecard_list.html:94
 msgid "Faction"
 msgstr "Faction"
 
 #: the_gatehouse/forms.py:221 the_gatehouse/forms.py:288 the_keep/forms.py:488
-#: the_keep/models.py:225 the_keep/templates/the_keep/asset_list.html:150
+#: the_keep/models.py:254 the_keep/models.py:1794
+#: the_keep/templates/the_keep/asset_list.html:150
 #: the_keep/templates/the_keep/new.html:23
 #: the_keep/templates/the_keep/partials/search_bar.html:30
 #: the_warroom/templates/the_warroom/games_home.html:81
+#: the_warroom/templates/the_warroom/partials/game_detail.html:36
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:37
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:32
 #: the_warroom/templates/the_warroom/player_games.html:94
 msgid "Map"
 msgstr ""
 
-#: the_gatehouse/forms.py:222 the_gatehouse/forms.py:290 the_keep/models.py:228
-#: the_keep/templates/the_keep/asset_list.html:149
+#: the_gatehouse/forms.py:222 the_gatehouse/forms.py:290 the_keep/models.py:257
+#: the_keep/models.py:1796 the_keep/templates/the_keep/asset_list.html:149
 #: the_keep/templates/the_keep/new.html:18
 #: the_keep/templates/the_keep/partials/search_bar.html:29
 #: the_warroom/templates/the_warroom/partials/forms.html:47
 #: the_warroom/templates/the_warroom/partials/forms.html:84
 msgid "Vagabond"
-msgstr ""
+msgstr "Vagabond"
 
-#: the_gatehouse/forms.py:223 the_gatehouse/forms.py:289 the_keep/models.py:226
-#: the_keep/templates/the_keep/asset_list.html:151
+#: the_gatehouse/forms.py:223 the_gatehouse/forms.py:289 the_keep/models.py:255
+#: the_keep/models.py:1795 the_keep/templates/the_keep/asset_list.html:151
 #: the_keep/templates/the_keep/new.html:28
 #: the_keep/templates/the_keep/partials/search_bar.html:31
 #: the_warroom/templates/the_warroom/games_home.html:85
+#: the_warroom/templates/the_warroom/partials/game_detail.html:35
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:36
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:31
 #: the_warroom/templates/the_warroom/player_games.html:98
 msgid "Deck"
-msgstr ""
+msgstr "Jeu de Cartes"
 
-#: the_gatehouse/forms.py:224 the_gatehouse/forms.py:291 the_keep/models.py:229
-#: the_keep/templates/the_keep/asset_list.html:152
+#: the_gatehouse/forms.py:224 the_gatehouse/forms.py:291 the_keep/models.py:258
+#: the_keep/models.py:1797 the_keep/templates/the_keep/asset_list.html:152
 #: the_keep/templates/the_keep/new.html:33
 #: the_keep/templates/the_keep/partials/search_bar.html:32
 msgid "Landmark"
-msgstr ""
+msgstr "Point de repère"
 
-#: the_gatehouse/forms.py:225 the_gatehouse/forms.py:292 the_keep/models.py:227
-#: the_keep/templates/the_keep/asset_list.html:153
+#: the_gatehouse/forms.py:225 the_gatehouse/forms.py:292 the_keep/models.py:256
+#: the_keep/models.py:1798 the_keep/templates/the_keep/asset_list.html:153
 #: the_keep/templates/the_keep/new.html:43
 #: the_keep/templates/the_keep/partials/component_title.html:9
 #: the_keep/templates/the_keep/partials/hireling_otherside.html:6
@@ -2148,6 +2163,7 @@ msgstr "Courrier indésirable"
 
 #: the_gatehouse/forms.py:231 the_gatehouse/forms.py:283
 #: the_gatehouse/forms.py:293 the_gatehouse/forms.py:316
+#: the_keep/models.py:1801 the_keep/models.py:1811
 #: the_keep/templates/the_keep/asset_list.html:156
 #: the_keep/templates/the_keep/asset_list.html:170
 msgid "Other"
@@ -2180,6 +2196,10 @@ msgstr "Coordonnées (facultatif)"
 #: the_gatehouse/forms.py:250
 msgid "Does Clearing Priority fill you with a sense of urgency?"
 msgstr "Es-tu un robot ?"
+
+#: the_gatehouse/forms.py:272
+msgid "Contact Info"
+msgstr "Coordonnées"
 
 #: the_gatehouse/forms.py:274
 msgid "Discord Username or Email"
@@ -2244,9 +2264,10 @@ msgstr "Sauvegarder"
 #: the_warroom/templates/the_warroom/partials/effort_detail_button.html:16
 #: the_warroom/templates/the_warroom/partials/forms.html:45
 #: the_warroom/templates/the_warroom/partials/forms.html:82
-#: the_warroom/templates/the_warroom/partials/game_detail.html:66
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:63
-#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:51
+#: the_warroom/templates/the_warroom/partials/game_detail.html:75
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:74
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:59
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:81
 #: the_warroom/templates/the_warroom/scorecard_list.html:98
 msgid "Player"
 msgstr "Joueur"
@@ -2303,6 +2324,8 @@ msgstr "Paramètres"
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:26
 #: the_warroom/templates/the_warroom/games_home.html:43
 #: the_warroom/templates/the_warroom/in_progress.html:8
+#: the_warroom/templates/the_warroom/partials/game_detail.html:14
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:14
 #: the_warroom/templates/the_warroom/player_games.html:43
 #: the_warroom/templates/the_warroom/scorecard_list.html:42
 msgid "In Progress"
@@ -2413,50 +2436,50 @@ msgstr ""
 "favoris.\n"
 "                "
 
-#: the_gatehouse/views.py:74
+#: the_gatehouse/views.py:75
 msgid "Account updated!"
 msgstr "Compte mis à jour !"
 
-#: the_gatehouse/views.py:875 the_gatehouse/views.py:967
+#: the_gatehouse/views.py:876 the_gatehouse/views.py:968
 msgid "Thank you for your feedback!"
 msgstr "Merci pour votre retour !"
 
-#: the_gatehouse/views.py:876 the_gatehouse/views.py:878
-#: the_gatehouse/views.py:879 the_gatehouse/views.py:968
+#: the_gatehouse/views.py:877 the_gatehouse/views.py:879
+#: the_gatehouse/views.py:880 the_gatehouse/views.py:969
 msgid "Your request has been received"
 msgstr "Votre demande a été reçue"
 
-#: the_gatehouse/views.py:877 the_gatehouse/views.py:969
+#: the_gatehouse/views.py:878 the_gatehouse/views.py:970
 msgid "Your report has been received"
 msgstr "Votre rapport a été reçu"
 
-#: the_gatehouse/views.py:884
+#: the_gatehouse/views.py:885
 #, python-brace-format
 msgid "Report {subject}"
 msgstr "Rapport {subject}"
 
-#: the_gatehouse/views.py:886
+#: the_gatehouse/views.py:887
 msgid "Request Invite to Weird Root"
 msgstr "Demande d'invitation à Weird Root"
 
-#: the_gatehouse/views.py:888
+#: the_gatehouse/views.py:889
 msgid "Request Invite to French Root"
 msgstr ""
 
-#: the_gatehouse/views.py:890
+#: the_gatehouse/views.py:891
 msgid "Request a New Post"
 msgstr "Demander un nouveau message"
 
-#: the_gatehouse/views.py:892
+#: the_gatehouse/views.py:893
 #, python-brace-format
 msgid "Send {category}"
-msgstr ""
+msgstr "Envoyer {category}"
 
-#: the_gatehouse/views.py:894
+#: the_gatehouse/views.py:895
 msgid "Send Feedback"
 msgstr "Envoyer des commentaires"
 
-#: the_gatehouse/views.py:970 the_gatehouse/views.py:971
+#: the_gatehouse/views.py:971 the_gatehouse/views.py:972
 msgid ""
 "Your request has been received, you should receive a Discord DM once an "
 "admin sees your request."
@@ -2527,11 +2550,11 @@ msgstr ""
 msgid "Hireling Name"
 msgstr ""
 
-#: the_keep/forms.py:682
+#: the_keep/forms.py:682 the_keep/models.py:1510
 msgid "Promoted"
 msgstr "Promu"
 
-#: the_keep/forms.py:683
+#: the_keep/forms.py:683 the_keep/models.py:1511
 msgid "Demoted"
 msgstr "Rétrogradé"
 
@@ -2568,30 +2591,30 @@ msgstr ""
 msgid "Faction Name"
 msgstr ""
 
-#: the_keep/forms.py:841 the_keep/models.py:1022
+#: the_keep/forms.py:841 the_keep/models.py:1278
 #: the_keep/templates/the_keep/partials/search_bar.html:45
 msgid "Insurgent"
 msgstr "Insurgé"
 
-#: the_keep/forms.py:842 the_keep/models.py:1021
+#: the_keep/forms.py:842 the_keep/models.py:1277
 #: the_keep/templates/the_keep/partials/search_bar.html:44
 msgid "Militant"
 msgstr "Militant"
 
-#: the_keep/forms.py:847 the_keep/models.py:1026
+#: the_keep/forms.py:847 the_keep/models.py:1282
 #: the_keep/templates/the_keep/partials/vagabond_items.html:82
 msgid "None"
 msgstr "Aucun"
 
-#: the_keep/forms.py:848 the_keep/models.py:1027
+#: the_keep/forms.py:848 the_keep/models.py:1283
 msgid "Low"
 msgstr "Faible"
 
-#: the_keep/forms.py:849 the_keep/models.py:1028
+#: the_keep/forms.py:849 the_keep/models.py:1284
 msgid "Moderate"
 msgstr "Modérée"
 
-#: the_keep/forms.py:850 the_keep/models.py:1029
+#: the_keep/forms.py:850 the_keep/models.py:1285
 msgid "High"
 msgstr "Élevée"
 
@@ -2633,109 +2656,122 @@ msgstr ""
 msgid "File Type"
 msgstr "Type de fichier"
 
-#: the_keep/models.py:67
+#: the_keep/models.py:96
 msgid "Red"
 msgstr "Rouge"
 
-#: the_keep/models.py:68
+#: the_keep/models.py:97
 msgid "Orange"
 msgstr "Orange"
 
-#: the_keep/models.py:69
+#: the_keep/models.py:98
 msgid "Yellow"
 msgstr "Jaune"
 
-#: the_keep/models.py:70
+#: the_keep/models.py:99
 msgid "Green"
 msgstr "Vert"
 
-#: the_keep/models.py:71
+#: the_keep/models.py:100
 msgid "Blue"
 msgstr "Bleu"
 
-#: the_keep/models.py:72
+#: the_keep/models.py:101
 msgid "Purple"
 msgstr "Violet"
 
-#: the_keep/models.py:73
+#: the_keep/models.py:102
 msgid "White"
 msgstr "Blanc"
 
-#: the_keep/models.py:74
+#: the_keep/models.py:103
 msgid "Grey"
 msgstr "Gris"
 
-#: the_keep/models.py:75
+#: the_keep/models.py:104
 msgid "Black"
 msgstr "Noir"
 
-#: the_keep/models.py:76
+#: the_keep/models.py:105
 msgid "Pink"
 msgstr "Rose"
 
-#: the_keep/models.py:77
+#: the_keep/models.py:106
 msgid "Brown"
 msgstr "Brun"
 
-#: the_keep/models.py:78
+#: the_keep/models.py:107
 msgid "Tan"
 msgstr "Tanné"
 
-#: the_keep/models.py:125 the_keep/templates/the_keep/confirm_stable.html:3
+#: the_keep/models.py:154 the_keep/templates/the_keep/confirm_stable.html:3
 #: the_keep/templates/the_keep/partials/component_header.html:11
 #: the_keep/templates/the_keep/partials/component_header.html:122
-#: the_keep/templates/the_keep/partials/post.html:41
+#: the_keep/templates/the_keep/partials/post.html:45
 #: the_keep/templates/the_keep/partials/search_bar.html:65
 #: the_keep/templates/the_keep/partials/status.html:4
 msgid "Stable"
 msgstr "Écurie"
 
-#: the_keep/models.py:126 the_keep/templates/the_keep/confirm_testing.html:3
+#: the_keep/models.py:155 the_keep/templates/the_keep/confirm_testing.html:3
 #: the_keep/templates/the_keep/partials/component_header.html:18
 #: the_keep/templates/the_keep/partials/component_header.html:126
-#: the_keep/templates/the_keep/partials/post.html:50
+#: the_keep/templates/the_keep/partials/post.html:54
 #: the_keep/templates/the_keep/partials/search_bar.html:66
 #: the_keep/templates/the_keep/partials/status.html:7
 msgid "Testing"
 msgstr "Essai"
 
-#: the_keep/models.py:127
+#: the_keep/models.py:156
 #: the_keep/templates/the_keep/partials/component_header.html:130
-#: the_keep/templates/the_keep/partials/post.html:59
+#: the_keep/templates/the_keep/partials/post.html:63
 #: the_keep/templates/the_keep/partials/search_bar.html:67
 #: the_keep/templates/the_keep/partials/status.html:10
 msgid "Development"
 msgstr "Développement"
 
-#: the_keep/models.py:128
+#: the_keep/models.py:157
 #: the_keep/templates/the_keep/partials/component_header.html:134
-#: the_keep/templates/the_keep/partials/post.html:68
+#: the_keep/templates/the_keep/partials/post.html:72
 #: the_keep/templates/the_keep/partials/search_bar.html:68
 #: the_keep/templates/the_keep/partials/status.html:13
 msgid "Inactive"
 msgstr "Inactif"
 
-#: the_keep/models.py:129
+#: the_keep/models.py:158
 #: the_keep/templates/the_keep/partials/component_header.html:138
-#: the_keep/templates/the_keep/partials/post.html:77
+#: the_keep/templates/the_keep/partials/post.html:81
 #: the_keep/templates/the_keep/partials/status.html:16
 msgid "Abandoned"
 msgstr "Abandonné"
 
-#: the_keep/models.py:231 the_keep/models.py:1023
+#: the_keep/models.py:260 the_keep/models.py:1279
 #: the_keep/templates/the_keep/partials/search_bar.html:34
 #: the_warroom/templates/the_warroom/partials/effort_detail.html:14
 #: the_warroom/templates/the_warroom/partials/effort_detail_button.html:14
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:79
 msgid "Clockwork"
 msgstr ""
 
-#: the_keep/models.py:232 the_keep/templates/the_keep/new.html:48
+#: the_keep/models.py:261 the_keep/templates/the_keep/new.html:48
 #: the_keep/templates/the_keep/partials/component_header.html:61
 #: the_keep/templates/the_keep/partials/component_title.html:17
-#: the_keep/templates/the_keep/partials/post.html:28
+#: the_keep/templates/the_keep/partials/post.html:30
 #: the_keep/templates/the_keep/post_form.html:19
 msgid "House Rule"
 msgstr "Règle de la Maison"
+
+#: the_keep/models.py:1799 the_keep/templates/the_keep/asset_list.html:154
+msgid "Icons"
+msgstr ""
+
+#: the_keep/models.py:1800 the_keep/templates/the_keep/asset_list.html:155
+msgid "Guide"
+msgstr ""
+
+#: the_keep/models.py:1810 the_keep/templates/the_keep/asset_list.html:169
+msgid "Video"
+msgstr "Vidéo"
 
 #: the_keep/templates/includes/footer.html:6
 #: the_keep/templates/the_keep/about.html:7
@@ -2795,7 +2831,7 @@ msgstr ""
 
 #: the_keep/templates/includes/header.html:136
 msgid "Users"
-msgstr ""
+msgstr "Utilisateurs"
 
 #: the_keep/templates/includes/header.html:152
 msgid "Login"
@@ -2808,32 +2844,33 @@ msgid "Yes, Delete"
 msgstr "Oui, supprimer"
 
 #: the_keep/templates/the_keep/asset_form.html:8
-#, fuzzy
-#| msgid "Resources"
 msgid "Edit Resource"
-msgstr "Ressources"
+msgstr "Modifier la ressource"
 
 #: the_keep/templates/the_keep/asset_form.html:19
 msgid "Update Link to Resource"
-msgstr ""
+msgstr "Mettre à jour le lien vers la ressource"
 
 #: the_keep/templates/the_keep/asset_form.html:21
 msgid "Post Link to Resource"
-msgstr ""
+msgstr "Publier un lien vers la ressource"
 
 #: the_keep/templates/the_keep/asset_form.html:26
 msgid ""
 "If the link is updated, this resource will no longer be pinned. If an update "
 "is needed please contact an admin to have the resource repinned."
 msgstr ""
+"Si le lien est mis à jour, cette ressource ne sera plus épinglée. Si une "
+"mise à jour est nécessaire, veuillez contacter un administrateur pour qu'il "
+"la réépingle."
 
 #: the_keep/templates/the_keep/asset_form.html:28
 msgid "Resources will be publicly posted to your profile."
-msgstr ""
+msgstr "Les ressources seront publiées publiquement sur votre profil."
 
 #: the_keep/templates/the_keep/asset_list.html:38
 msgid "Shared"
-msgstr ""
+msgstr "Commun"
 
 #: the_keep/templates/the_keep/asset_list.html:46
 #: the_keep/templates/the_keep/home.html:37
@@ -2849,25 +2886,13 @@ msgstr "Aucun résultat trouvé"
 
 #: the_keep/templates/the_keep/asset_list.html:124
 msgid "Pinned"
-msgstr ""
+msgstr "Épinglé"
 
 #: the_keep/templates/the_keep/asset_list.html:147
 #: the_keep/templates/the_keep/partials/search_bar.html:43
 #: the_keep/templates/the_keep/partials/search_bar.html:50
 msgid "All"
 msgstr "Tout"
-
-#: the_keep/templates/the_keep/asset_list.html:154
-msgid "Icons"
-msgstr ""
-
-#: the_keep/templates/the_keep/asset_list.html:155
-msgid "Guide"
-msgstr ""
-
-#: the_keep/templates/the_keep/asset_list.html:169
-msgid "Video"
-msgstr "Vidéo"
 
 #: the_keep/templates/the_keep/confirm_stable.html:7
 #, python-format
@@ -2881,10 +2906,7 @@ msgstr ""
 "    "
 
 #: the_keep/templates/the_keep/confirm_stable.html:12
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "It looks like %(post_title)s might be in a stable state. \n"
+#, python-format
 msgid ""
 "\n"
 "        It looks like %(post_title)s might be in a stable state. \n"
@@ -2892,6 +2914,7 @@ msgid ""
 msgstr ""
 "\n"
 "Il semble que %(post_title)s soit dans un état stable. \n"
+" "
 
 #: the_keep/templates/the_keep/confirm_stable.html:17
 #, python-format
@@ -2963,8 +2986,7 @@ msgstr "Si vous avez commencé les tests, cliquez sur \"Oui !\""
 #: the_keep/templates/the_keep/expansion_detail.html:26
 #: the_keep/templates/the_keep/partials/component_header.html:65
 #: the_keep/templates/the_keep/partials/component_header.html:96
-#: the_keep/templates/the_keep/partials/post.html:93
-#: the_keep/templates/the_keep/partials/snippet_component.html:22
+#: the_keep/templates/the_keep/partials/post.html:97
 msgid "by"
 msgstr "par"
 
@@ -2974,7 +2996,7 @@ msgstr "par"
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:361
 #: the_warroom/templates/the_warroom/player_games.html:102
 msgid "Factions"
-msgstr ""
+msgstr "Factions"
 
 #: the_keep/templates/the_keep/home.html:25
 msgid "The Archive"
@@ -3016,7 +3038,7 @@ msgstr ""
 
 #: the_keep/templates/the_keep/new.html:9
 msgid "Post a New"
-msgstr ""
+msgstr "Publier un nouveau"
 
 #: the_keep/templates/the_keep/new.html:38
 #: the_keep/templates/the_keep/partials/component_title.html:19
@@ -3029,7 +3051,7 @@ msgstr ""
 
 #: the_keep/templates/the_keep/partials/asset_list_table.html:34
 msgid "No Pinned Resources Found"
-msgstr ""
+msgstr "Aucune ressource épinglée trouvée"
 
 #: the_keep/templates/the_keep/partials/component_header.html:25
 #: the_keep/templates/the_keep/post_form.html:8
@@ -3037,7 +3059,7 @@ msgid "Edit"
 msgstr "Modifier"
 
 #: the_keep/templates/the_keep/partials/component_header.html:86
-#: the_keep/templates/the_keep/partials/post.html:96
+#: the_keep/templates/the_keep/partials/post.html:100
 msgid "Art by"
 msgstr "Art par"
 
@@ -3094,6 +3116,12 @@ msgstr "Par Jeux Gagnés"
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:68
 #: the_warroom/templates/the_warroom/game_detail_page.html:36
 #: the_warroom/templates/the_warroom/in_progress.html:48
+#: the_warroom/templates/the_warroom/partials/game_detail.html:18
+#: the_warroom/templates/the_warroom/partials/game_detail.html:31
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:18
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:31
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:14
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:27
 #: the_warroom/templates/the_warroom/record_scores.html:59
 #: the_warroom/templates/the_warroom/record_scores.html:66
 msgid "Game"
@@ -3152,6 +3180,17 @@ msgid ""
 msgstr ""
 "Les catégories de points pour cette faction sont basées sur la carte de "
 "score soumise par 1 utilisateur."
+
+#: the_keep/templates/the_keep/partials/faction_stats.html:18
+msgid ""
+"Faction points are scored with faction abilities, crafting points are from "
+"crafting items, battle points are from removing cardboard in battle, other "
+"points are anything else."
+msgstr ""
+"Les points de faction sont marqués avec les capacités de faction, les points "
+"d'artisanat proviennent de la fabrication d'objets, les points de bataille "
+"proviennent du retrait de carton au combat, les autres points sont tout "
+"autre chose."
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:36
 msgid "Chart based on:"
@@ -3349,12 +3388,26 @@ msgid "Save All"
 msgstr "Tout Sauvegarder"
 
 #: the_keep/templates/the_keep/partials/post.html:25
-msgid "Official"
-msgstr "Officiel"
+#, python-format
+msgid ""
+"\n"
+"                                Official %(component)s\n"
+"                            "
+msgstr ""
+"\n"
+"                        %(component)s Officiel\n"
+"                        "
 
-#: the_keep/templates/the_keep/partials/post.html:30
-msgid "Fan Made"
-msgstr "Réalisé par Fan"
+#: the_keep/templates/the_keep/partials/post.html:32
+#, python-format
+msgid ""
+"\n"
+"                                    Fan Made %(component)s\n"
+"                                "
+msgstr ""
+"\n"
+"                        %(component)s Réalisé par Fan\n"
+"                        "
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:30
 #, python-format
@@ -3424,28 +3477,6 @@ msgstr "Statut (Tous)"
 msgid "No Results"
 msgstr "Aucun Résultat"
 
-#: the_keep/templates/the_keep/partials/snippet_component.html:14
-#, python-format
-msgid ""
-"\n"
-"                Official %(object.component)s\n"
-"            "
-msgstr ""
-"\n"
-"                %(object.component)s Officiel\n"
-"            "
-
-#: the_keep/templates/the_keep/partials/snippet_component.html:18
-#, python-format
-msgid ""
-"\n"
-"                Fan Made %(object.component)s\n"
-"            "
-msgstr ""
-"\n"
-"                %(object.component)s Fabriqué par les fans \n"
-"            "
-
 #: the_keep/templates/the_keep/partials/universal_results.html:4
 msgid "No results found for"
 msgstr "Aucun résultat trouvé pour"
@@ -3475,7 +3506,7 @@ msgstr "Points de Repère"
 #: the_keep/templates/the_keep/partials/universal_results.html:43
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:447
 msgid "Hirelings"
-msgstr ""
+msgstr "Embauchés"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:57
 msgid "Expansions"
@@ -3497,7 +3528,7 @@ msgstr ""
 #: the_warroom/templates/the_warroom/score_detail.html:10
 #: the_warroom/templates/the_warroom/scorecard_list.html:15
 msgid "Scorecards"
-msgstr ""
+msgstr "Cartes de pointage"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:104
 msgid "Profiles"
@@ -3604,7 +3635,7 @@ msgstr "Traduction par"
 
 #: the_keep/templates/the_keep/post_form.html:6
 msgid "New"
-msgstr ""
+msgstr "Nouveau"
 
 #: the_keep/templates/the_keep/post_games.html:39
 #: the_keep/templates/the_keep/post_games.html:43
@@ -3659,6 +3690,10 @@ msgid ""
 "no further development is planned.\n"
 "        "
 msgstr ""
+"\n"
+"Ce %(object_component)s a été abandonné par le concepteur et aucun "
+"développement supplémentaire n'est prévu.\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:41
 #, python-format
@@ -3670,6 +3705,12 @@ msgid ""
 "active again.\n"
 "        "
 msgstr ""
+"\n"
+"Ce composant %(object_component)s n'est pas actuellement en cours de "
+"traitement et est considéré comme inactif.<br>\n"
+"Le concepteur peut, s'il le souhaite, réactiver ce composant "
+"%(object_component)s.\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:46
 #, python-format
@@ -3681,6 +3722,12 @@ msgid ""
 "\"Testing\" status.\n"
 "        "
 msgstr ""
+"\n"
+"Ce composant %(object_component)s est encore en phase de conception et "
+"pourrait subir des modifications majeures avant d'être considéré comme "
+"stable.<br>\n"
+"Une fois le jeu enregistré, le concepteur peut choisir le statut « Test ».\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:51
 #, python-format
@@ -3691,6 +3738,11 @@ msgid ""
 "stable.<br>\n"
 "        "
 msgstr ""
+"\n"
+"Ce composant %(object_component)s est en cours de test. Il est désormais "
+"jouable, mais des modifications et des ajustements pourraient être "
+"nécessaires avant sa stabilité.\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:55
 #, python-format
@@ -3700,6 +3752,10 @@ msgid ""
 "changes are expected.\n"
 "        "
 msgstr ""
+"\n"
+"Ce %(object_component)s est considéré comme stable et aucun changement "
+"majeur n'est attendu.\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:66
 msgid "Recorded Stats"
@@ -3719,26 +3775,22 @@ msgstr "Pertes"
 
 #: the_keep/templates/the_keep/status_check.html:108
 msgid "Official Factions"
-msgstr ""
+msgstr "Factions officielles"
 
 #: the_keep/templates/the_keep/status_check.html:115
 msgid "Official Maps"
-msgstr ""
+msgstr "Cartes officielles"
 
 #: the_keep/templates/the_keep/status_check.html:123
 msgid "Official Decks"
-msgstr ""
+msgstr "Decks officiels"
 
 #: the_keep/templates/the_keep/status_check.html:140
 msgid "Stability"
 msgstr "Stabilité"
 
 #: the_keep/templates/the_keep/status_check.html:141
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                Fan Made %(object.component)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "                There are two ways to mark this %(object_component)s as "
@@ -3746,8 +3798,8 @@ msgid ""
 "            "
 msgstr ""
 "\n"
-"                %(object.component)s Fabriqué par les fans \n"
-"            "
+"Il existe deux manières de marquer ce %(object_component)s comme stable :\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:146
 #, python-format
@@ -3757,13 +3809,13 @@ msgid ""
 "thread you can request to have the status changed.\n"
 "                "
 msgstr ""
+"\n"
+"Si ce %(object_component)s a un thread racine étrange stable, vous pouvez "
+"demander que le statut soit modifié.\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:152
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                            Fan Made %(result_component)s\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                    The designer can mark this %(object_component)s as "
@@ -3771,49 +3823,38 @@ msgid ""
 "                "
 msgstr ""
 "\n"
-"                        %(result_component)s Réalisé par Fan\n"
-"                        "
+"Le concepteur peut marquer ce %(object_component)s comme stable une fois ces "
+"exigences satisfaites :\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:160
 msgid "At Least 1 Win and 1 Loss against other players"
-msgstr ""
+msgstr "Au moins 1 victoire et 1 défaite contre d'autres joueurs"
 
 #: the_keep/templates/the_keep/status_check.html:164
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        by %(result_designer)s\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "                    %(play_threshold)s Games Recorded\n"
 "                    "
 msgstr ""
 "\n"
-"                        par %(result_designer)s\n"
-"                        "
+"%(play_threshold)s Parties enregistrées\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:169
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        by %(result_designer)s\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "                    With %(player_threshold)s Unique Players\n"
 "                    "
 msgstr ""
 "\n"
-"                        par %(result_designer)s\n"
-"                        "
+"Avec %(player_threshold)s joueurs uniques\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:176
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                            Official %(result_component)s\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                            Against the %(official_faction_threshold)s "
@@ -3821,15 +3862,11 @@ msgid ""
 "                        "
 msgstr ""
 "\n"
-"                        %(result_component)s Officiel\n"
-"                        "
+"Contre les factions officielles %(official_faction_threshold)s\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:180
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                            Official %(result_component)s\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                            With the %(official_faction_threshold)s Official "
@@ -3837,38 +3874,30 @@ msgid ""
 "                        "
 msgstr ""
 "\n"
-"                        %(result_component)s Officiel\n"
-"                        "
+"Avec les factions officielles %(official_faction_threshold)s\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:187
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        by %(result_designer)s\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "                    On the %(official_map_threshold)s Official Maps\n"
 "                    "
 msgstr ""
 "\n"
-"                        par %(result_designer)s\n"
-"                        "
+"Sur les cartes officielles %(official_map_threshold)s\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:194
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                            Official %(result_component)s\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                    With %(official_deck_threshold)s of the Official Decks\n"
 "                    "
 msgstr ""
 "\n"
-"                        %(result_component)s Officiel\n"
-"                        "
+"Avec %(official_deck_threshold)s des decks officiels\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:201
 #, python-format
@@ -3881,66 +3910,65 @@ msgid ""
 "designer is ready to mark the %(object_component)s as 'Stable.'\n"
 "            "
 msgstr ""
+"\n"
+"Le respect de ces exigences ne signifie pas nécessairement qu'un composant "
+"%(object_component)s est considéré comme stable. Par exemple, un composant "
+"%(object_component)s peut subir des modifications majeures à mi-parcours des "
+"tests, et par conséquent, plus de dix parties peuvent être nécessaires avant "
+"que le concepteur soit prêt à le qualifier de « Stable ».\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:218
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        Based on %(based_on_title)s\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                        View %(play_count)s Games\n"
 "                        "
 msgstr ""
 "\n"
-"                        Basé sur %(based_on_title)s\n"
-"                        "
+"Voir %(play_count)s jeux\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:222
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        Based on %(based_on_title)s\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                        View %(play_count)s Game\n"
 "                        "
 msgstr ""
 "\n"
-"                        Basé sur %(based_on_title)s\n"
-"                        "
+"Voir %(play_count)s Jeu\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:234
 msgid "No Games Recorded"
 msgstr "Aucun jeu enregistré"
 
-#: the_keep/views.py:1024 the_keep/views.py:1113
+#: the_keep/views.py:1050 the_keep/views.py:1139
 msgid "{} Components"
 msgstr "{} Composants"
 
-#: the_keep/views.py:1114
+#: the_keep/views.py:1140
 msgid "Other {} Components:"
 msgstr "Autres composants {} :"
 
-#: the_keep/views.py:1691
+#: the_keep/views.py:1738
 msgid "{} has not yet met the stability requirements."
 msgstr "{} n'a pas encore satisfait aux exigences de stabilité."
 
-#: the_keep/views.py:1696 the_keep/views.py:1747
+#: the_keep/views.py:1743 the_keep/views.py:1794
 msgid "You are not authorized to make this change."
 msgstr "Vous n'êtes pas autorisé à effectuer cette modification."
 
-#: the_keep/views.py:1707
+#: the_keep/views.py:1754
 msgid "{} has been marked as \"Stable\"."
 msgstr "{} a été marqué comme « Stable »."
 
-#: the_keep/views.py:1742
+#: the_keep/views.py:1789
 msgid "{} has not yet recorded a playtest."
 msgstr "{} n'a pas encore enregistré de playtest."
 
-#: the_keep/views.py:1757
+#: the_keep/views.py:1804
 msgid "{} has been marked as \"Testing\"."
 msgstr "{} a été marqué comme « Test »."
 
@@ -4130,13 +4158,13 @@ msgstr "Ces jeux n'ont pas été soumis"
 #: the_warroom/templates/the_warroom/partials/forms.html:48
 #: the_warroom/templates/the_warroom/partials/forms.html:85
 msgid "Captains"
-msgstr ""
+msgstr "Capitaines"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:49
 #: the_warroom/templates/the_warroom/partials/forms.html:86
-#: the_warroom/templates/the_warroom/partials/game_detail.html:69
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:66
-#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:53
+#: the_warroom/templates/the_warroom/partials/game_detail.html:78
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:77
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:61
 msgid "Score"
 msgstr "Score"
 
@@ -4167,7 +4195,42 @@ msgstr "Divers"
 msgid "Save Progress"
 msgstr "Enregistrer la Progression"
 
-#: the_warroom/templates/the_warroom/partials/game_detail.html:72
+#: the_warroom/templates/the_warroom/partials/game_detail.html:22
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:22
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:18
+msgid "Solo"
+msgstr "Solo"
+
+#: the_warroom/templates/the_warroom/partials/game_detail.html:25
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:25
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:21
+msgid "Co-op"
+msgstr "Coopérative"
+
+#: the_warroom/templates/the_warroom/partials/game_detail.html:29
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:29
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:25
+msgid "Playtest"
+msgstr "Test de Jeu"
+
+#: the_warroom/templates/the_warroom/partials/game_detail.html:49
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:45
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:40
+msgid "Landmarks:"
+msgstr "Points de Repère :"
+
+#: the_warroom/templates/the_warroom/partials/game_detail.html:55
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:54
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:46
+msgid "Hirelings:"
+msgstr "Les mercenaires :"
+
+#: the_warroom/templates/the_warroom/partials/game_detail.html:61
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:60
+msgid "House Rules:"
+msgstr "Règles de la maison :"
+
+#: the_warroom/templates/the_warroom/partials/game_detail.html:81
 #: the_warroom/templates/the_warroom/record_scores.html:16
 msgid "Detail"
 msgstr "Détail"
@@ -4237,6 +4300,10 @@ msgstr "Remarques"
 #: the_warroom/templates/the_warroom/partials/scorecard.html:93
 msgid "Recorded on"
 msgstr "Enregistré"
+
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:104
+msgid "Faction N/A"
+msgstr "Faction N/A"
 
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:23
 msgid "Rounds"
@@ -4535,6 +4602,32 @@ msgstr ""
 #: the_warroom/templates/the_warroom/tournament_manage_assets.html:177
 msgid "Save Changes"
 msgstr "Enregistrer les Modifications"
+
+#~ msgid "Official"
+#~ msgstr "Officiel"
+
+#~ msgid "Fan Made"
+#~ msgstr "Réalisé par Fan"
+
+#, python-format
+#~ msgid ""
+#~ "\n"
+#~ "                Official %(object.component)s\n"
+#~ "            "
+#~ msgstr ""
+#~ "\n"
+#~ "                %(object.component)s Officiel\n"
+#~ "            "
+
+#, python-format
+#~ msgid ""
+#~ "\n"
+#~ "                Fan Made %(object.component)s\n"
+#~ "            "
+#~ msgstr ""
+#~ "\n"
+#~ "                %(object.component)s Fabriqué par les fans \n"
+#~ "            "
 
 #~ msgid "Choose what is visible to you."
 #~ msgstr "Choisissez ce qui est visible pour vous."

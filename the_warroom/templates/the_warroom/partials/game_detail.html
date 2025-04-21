@@ -11,20 +11,29 @@
         
         <small class="text-muted">
                 {% if not game.final %}
-                    In Progress 
+                    {% trans 'In Progress' %} 
                 {% endif  %}
                 {% if game.round %}
                     {% if game.platform == "Root Digital" %}{{ game.type }}{% endif %}
-                     {{ game.round.tournament.name }} Game |
+                     {{ game.round.tournament.name }} {% trans 'Game' %} |
                 {% else %}
                     {% if game.platform == "Root Digital" %}{{ game.type }}{% endif %}
-                    {% if game.solo %}Solo {% endif %}
-                    {% if game.coop %}Co-op {% endif %}
-                    {{ game.platform }} {% if game.test_match %}Playtest{% else %}Game{% endif %} |
+                    {% if game.solo %}
+                        {% trans 'Solo' %} 
+                    {% endif %}
+                    {% if game.coop %}
+                        {% trans 'Co-op' %} 
+                    {% endif %}
+                    {{ game.platform }} 
+                    {% if game.test_match %}
+                        {% trans 'Playtest' %}
+                    {% else %}
+                        {% trans 'Game' %}
+                    {% endif %} |
                 {% endif %}
             {{ game.date_posted|date:"F j, Y" }} |
-            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} Deck</a> -
-            <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} Map</a>
+            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} {% trans 'Deck' %}</a> -
+            <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} {% trans 'Map' %}</a>
         </small>
         <div class="d-flex flex-nowrap">
 
@@ -37,19 +46,19 @@
         <div class="article-metadata">
             <small class="text-muted">
                 {% if game.landmarks.count > 0 %}
-                    Landmarks:
+                    {% trans 'Landmarks:' %}
                     {% for landmark in game.landmarks.all %}
                     <a href="{% url 'landmark-detail' landmark.slug %}">{{ landmark.title }}</a>{% if not forloop.last %} | {% endif %}
                     {% endfor %}
                 {% endif %}
                 {% if game.hirelings.count > 0 %}
-                    Hirelings:
+                    {% trans 'Hirelings:' %}
                     {% for hireling in game.hirelings.all %}
                     <a href="{% url 'hireling-detail' hireling.slug %}">{{ hireling.title }}</a>{% if not forloop.last %} | {% endif %}
                     {% endfor %}
                 {% endif %}
                 {% if game.tweaks.count > 0 %}
-                    Tweaks:
+                    {% trans 'House Rules:' %}
                     {% for tweak in game.tweaks.all %}
                     <a href="{% url 'tweak-detail' tweak.slug %}">{{ tweak.title }}</a>{% if not forloop.last %} | {% endif %}
                     {% endfor %}

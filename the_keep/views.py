@@ -817,13 +817,38 @@ def ultimate_component_view(request, slug):
         efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
     else:
         efforts = Effort.objects.filter(game__in=filtered_games)
-    
-    attribute_map = {
-        "L": '28%',
-        "M": '59%',
-        "H": '98%',
-        "N": '2%',
-    }
+
+    if language_code == 'ru' or language_code == 'pl':
+        # Special width for languages with large "low" translation
+        attribute_map = {
+            "L": '50%',     
+            "M": '76%',
+            "H": '100%',
+            "N": '2%',
+        }
+    elif language_code == 'nl':
+
+        attribute_map = {
+            "L": '30%',
+            "M": '59%',
+            "H": '100%',
+            "N": '2%',
+        }
+    elif language_code == 'fr':
+        attribute_map = {
+            "L": '37%',
+            "M": '65%',
+            "H": '100%',
+            "N": '2%',
+        }
+    else:
+        attribute_map = {
+            "L": '28%',
+            "M": '59%',
+            "H": '100%',
+            "N": '2%',
+        }
+        
     if object.component == 'Faction':
         complexity_value = attribute_map.get(object.complexity, 1)
         aggression_value = attribute_map.get(object.aggression, 1)

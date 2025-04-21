@@ -6,7 +6,8 @@ from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import activate
+from django.utils.translation import activate, get_language
+
 # from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import ListView, UpdateView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -1060,8 +1061,14 @@ def post_feedback(request, slug):
 
     post = get_object_or_404(Post, slug=slug)
 
+    language = get_language()
+    language_object = Language.objects.filter(code=language).first()
+    object_translation = post.translations.filter(language=language_object).first()
+    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else post.title
+
+
     message_category = 'report'
-    feedback_subject = f'{post.component}: {post.title}'
+    feedback_subject = f'{post.get_component_display()}: {object_title}'
 
     context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
 

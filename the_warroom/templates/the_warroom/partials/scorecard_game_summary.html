@@ -11,17 +11,25 @@
         <div class="article-metadata">
             <small class="text-muted">
                     {% if game.round %}
-                        {{ game.type }} {{ game.round.tournament.name }} Game |
+                        {{ game.type }} {{ game.round.tournament.name }} {% trans 'Game' %} |
                     {% else %}
                         {{ game.type }} 
-                        {% if game.solo %}Solo {% endif %}
-                        {% if game.coop %}Co-op {% endif %}
+                        {% if game.solo %}
+                            {% trans 'Solo' %} 
+                        {% endif %}
+                        {% if game.coop %}
+                            {% trans 'Co-op' %} 
+                        {% endif %}
                         {{ game.platform }} 
-                         {% if game.test_match %}Playtest{% else %}Game{% endif %} |
+                         {% if game.test_match %}
+                            {% trans 'Playtest' %}
+                        {% else %}
+                            {% trans 'Game' %}
+                        {% endif %} |
                     {% endif %}
                 {{ game.date_posted|date:"F j, Y" }} |
-                {{ game.deck }} Deck -
-                {{ game.map }} Map
+                {{ game.deck }} {% trans 'Deck' %} -
+                {{ game.map }} {% trans 'Map' %}
             </small>
         </div>
     
@@ -29,13 +37,13 @@
             <div class="article-metadata">
                 <small class="text-muted">
                     {% if game.landmarks.count > 0 %}
-                        Landmarks:
+                        {% trans 'Landmarks:' %}
                         {% for landmark in game.landmarks.all %}
                             {{ landmark.title }}{% if not forloop.last %} | {% endif %}
                         {% endfor %}
                     {% endif %}
                     {% if game.hirelings.count > 0 %}
-                        Hirelings:
+                        {% trans 'Hirelings:' %}
                         {% for hireling in game.hirelings.all %}
                             {{ hireling.title }}{% if not forloop.last %} | {% endif %}
                         {% endfor %}
@@ -68,9 +76,9 @@
                     {% endif %}
                 {% else %}
                     {% if effort.faction.type == "C" %}
-                    Clockwork
+                    {% trans 'Clockwork' %}
                     {% else %}
-                    Player {{ effort.seat }}
+                    {% trans 'Player' %} {{ effort.seat }}
                     {% endif %}
                 {% endif %}
             </td>
@@ -93,7 +101,7 @@
                         ({{ effort.captains }})
                     {% endif %}
                 {% else %}
-                    Faction N/A
+                    {% trans 'Faction N/A' %}
                 {% endif %}
             </td>
             <td>

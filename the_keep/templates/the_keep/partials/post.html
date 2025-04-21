@@ -22,12 +22,16 @@
                     <div>
                         <small>
                         {% if object.official %}
-                                {% trans 'Official' %} {{ object.component }}
+                            {% blocktrans with component=object.get_component_display %}
+                                Official {{ component }}
+                            {% endblocktrans %}
                         {% else %}
                             {% if object.component == 'Tweak' %}
                                 {% trans 'House Rule' %}
                             {% else %}
-                                {% trans 'Fan Made' %} {{ object.component }}
+                                {% blocktrans with component=object.get_component_display %}
+                                    Fan Made {{ component }}
+                                {% endblocktrans %}
                             {% endif %}
                         {% endif %}
                         </small>

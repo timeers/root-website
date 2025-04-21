@@ -269,7 +269,7 @@ class MessageForm(forms.Form):
         else:
             if message_category in ['report', 'request']:
                 self.fields['author'].required = True  # Make the author field required
-                self.fields['author'].label = 'Contact Info'
+                self.fields['author'].label = _('Contact Info')
             # If no author is passed in, change the widget to a visible TextInput
             self.fields['author'].widget = forms.TextInput(attrs={'maxlength': '50', 'placeholder': _('Discord Username or Email')})
 

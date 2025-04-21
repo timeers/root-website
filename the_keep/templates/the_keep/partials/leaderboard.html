@@ -16,7 +16,12 @@
             <td>
            
                     <img class="faction-icon" src="{{ faction.small_icon.url }}">
-                    {{ faction.title }}
+                    
+                    {% if faction.selected_title %}
+                        {{ faction.selected_title }}
+                    {% else %}
+                        {{ faction.title }}
+                    {% endif %}
              
             </td>
             <td>

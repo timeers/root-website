@@ -5,9 +5,12 @@ import inflect
 
 from django.db import models
 from django.db.models.signals import pre_save, post_save
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, IntegerField
-from django.db.models.functions import Cast, Abs
-from django.db.models.query import QuerySet
+from django.db.models import (
+    Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, OuterRef, Subquery
+    )
+from django.db.models.functions import Cast, Coalesce
+# from django.db.models.query import QuerySet
+
 from django.utils import timezone 
 from django.utils.translation import get_language
 # from datetime import timedelta
@@ -1359,16 +1362,13 @@ class Faction(Post):
         Otherwise, get the top factions across all factions.
         The `limit` parameter controls how many factions to return.
         """
+
+        language = get_language()
         # Start with the base queryset for factions
         queryset = cls.objects.all()
 
         # Filter for finished games only
         queryset = queryset.filter(efforts__in=effort_qs, efforts__game__final=True)
-        # queryset = queryset.annotate(
-        #     total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
-        #     win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-        #     coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
-        # )
 
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
@@ -1400,6 +1400,20 @@ class Faction(Post):
                 output_field=FloatField()
             )
         )
+
+        queryset = queryset.annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'), 
+                        language__code=language
+                    ).values('translated_title')[:1]
+                ),
+                F('title')  # Fallback
+            )
+        )
+
+
         # Now we can order the queryset
         if top_quantity:
             # If top_quantity is True, order by total_efforts (most efforts) first
@@ -1493,8 +1507,8 @@ class Faction(Post):
 
 class Hireling(Post):
     class TypeChoices(models.TextChoices):
-        PROMOTED = 'P', 'Promoted'
-        DEMOTED = 'D', 'Demoted'
+        PROMOTED = 'P', _('Promoted')
+        DEMOTED = 'D', _('Demoted')
 
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     # promoted = models.ForeignKey('self', on_delete=models.SET_NULL, related_name='demoted_side', blank=True, null=True)
@@ -1774,16 +1788,18 @@ def check_for_image(folder, image_png_name):
 
 
 class PNPAsset(models.Model):
+
     class CategoryChoices(models.TextChoices):
-        FACTION = 'Faction'
-        MAP = 'Map'
-        DECK = 'Deck'
-        VAGABOND = 'Vagabond'
-        LANDMARK = 'Landmark'
-        HIRELING = 'Hireling'
-        ICONS = 'Icons'
-        GUIDE = 'Guide'
-        OTHER = 'Other'
+        FACTION = 'Faction', _('Faction')
+        MAP = 'Map', _('Map')
+        DECK = 'Deck', _('Deck')
+        VAGABOND = 'Vagabond', _('Vagabond')
+        LANDMARK = 'Landmark', _('Landmark')
+        HIRELING = 'Hireling', _('Hireling')
+        ICONS = 'Icons', _('Icons')
+        GUIDE = 'Guide', _('Guide')
+        OTHER = 'Other', _('Other')
+
     class FileChoices(models.TextChoices):
         PDF = 'PDF', 'PDF'
         XCF = 'XCF', 'XCF'
@@ -1791,8 +1807,8 @@ class PNPAsset(models.Model):
         JPEG = 'JPEG', 'JPEG'
         DOC = 'DOC', 'DOC'
         PSD = 'PSD', 'PSD'
-        VIDEO = 'Video', 'Video'
-        OTHER = 'Other'
+        VIDEO = 'Video', _('Video')
+        OTHER = 'Other', _('Other')
 
     date_updated = models.DateTimeField(default=timezone.now)
     title = models.CharField(max_length=50)
