@@ -50,6 +50,12 @@
     <!--Footer-->
     {% include 'includes/footer.html' %}
 
+    {% comment %} Lightbox {% endcomment %}
+    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+        <img id="lightbox-img" class="lightbox-content" src="" alt="Full image" />
+    </div>
+      
+
     <!-- Optional JavaScript -->
     <!-- jQuery first, then Popper.js, then Bootstrap JS -->
     <!-- <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script> -->
@@ -129,8 +135,23 @@
                 }
             }
         });
+          
+
 
     });
+    function openLightbox(thumb) {
+        const lightbox = document.getElementById("lightbox");
+        const fullImage = document.getElementById("lightbox-img");
+        fullImage.src = thumb.getAttribute("data-full");  // load full image
+        lightbox.style.display = "flex";                 // show the overlay
+      }
+      
+    function closeLightbox() {
+        const lightbox = document.getElementById("lightbox");
+        const fullImage = document.getElementById("lightbox-img");
+        fullImage.src = "";                               // unload the image
+        lightbox.style.display = "none";                  // hide the overlay
+      }
 </script>
 
   </body>

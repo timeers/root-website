@@ -151,32 +151,35 @@
                   <a class="nav-item nav-link" href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
 
 
-                  {% get_current_language as LANGUAGE_CODE %}
-                  {% get_available_languages as LANGUAGES %}
                   
-                  <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                      <i class="bi bi-translate"></i>
-                    </a>
-                    <ul class="dropdown-menu dropdown-menu-right">
-                      <form action="{% url 'set_language_custom' %}" method="post" id="language-form">
-                        {% csrf_token %}
-                        {% for code, name in LANGUAGES %}
-                          {% get_language_info for code as lang %}
-                          <li>
-                            <button type="submit" name="language" value="{{ code }}" class="dropdown-item {% if code == LANGUAGE_CODE %}active{% endif %}">
-                              {{ lang.name_local|capfirst }}
-                            </button>
-                          </li>
-                        {% endfor %}
-                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                      </form>
-                    </ul>
-                  </li>
+                  <a class="nav-item nav-link" href="{% url 'keep-about' %}">{% trans 'About' %}</a>
+                  
+                  
               {% endif %}
-                {% comment %} <li class="nav-item">
-                    <a class="nav-link" href="{% url 'keep-about' %}">About</a>
-                </li> {% endcomment %}
+   
+
+              {% get_current_language as LANGUAGE_CODE %}
+              {% get_available_languages as LANGUAGES %}
+
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="bi bi-translate"></i>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-right">
+                  <form action="{% url 'set_language_custom' %}" method="post" id="language-form">
+                    {% csrf_token %}
+                    {% for code, name in LANGUAGES %}
+                      {% get_language_info for code as lang %}
+                      <li>
+                        <button type="submit" name="language" value="{{ code }}" class="dropdown-item {% if code == LANGUAGE_CODE %}active{% endif %}">
+                          {{ lang.name_local|capfirst }}
+                        </button>
+                      </li>
+                    {% endfor %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  </form>
+                </ul>
+              </li>
           </div>
         </div>
       </div>

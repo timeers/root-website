@@ -20,7 +20,10 @@
             {% csrf_token %}
         <!-- Login with Discord Form -->
         <button type="submit" class="btn btn-primary">
-            <i class="fa fa-external-link"></i> Continue to {{ provider.name }}
+            <i class="fa fa-external-link"></i> 
+            {% blocktrans with provider.name as provider %}
+            Continue to {{ provider }}
+            {% endblocktrans %}
         </button>
         {% endslot %}
     {% endelement %}

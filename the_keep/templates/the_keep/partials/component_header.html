@@ -54,14 +54,26 @@
                     <img class="faction-icon" src="{{ object.small_icon.url }}">
                 {% endif %}
 
-                {{ object_animal }}
+                {% if object.component == 'Tweak' %}
+                    {% blocktrans %}
+                        {{ object_animal }} House Rule
+                    {% endblocktrans %}
+                {% else %}
+                    {% blocktrans with object_component=object.get_component_display %}
+                        {{ object_animal }} {{ object_component }}
+                    {% endblocktrans %}
+                {% endif %}
+            
+            {% else %}
+
+                {% if object.component == 'Tweak' %}
+                    {% trans 'House Rule' %}
+                {% else %}
+                    {{ object.get_component_display }}
+                {% endif %}
 
             {% endif %}
-            {% if object.component == 'Tweak' %}
-                {% trans 'House Rule' %}
-            {% else %}
-                {{ object.component }}
-            {% endif %}
+
                 {% trans 'by' %} 
             <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 

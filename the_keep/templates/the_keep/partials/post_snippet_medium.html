@@ -3,7 +3,11 @@
     <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
         {% if result.picture %}
         <div class="d-flex align-items-center mr-1">
-            <img class="lg-faction-icon" src="{{ result.picture.url }}" alt="{{ result.title }}">
+            {% if result.small_picture %}
+                <img class="lg-faction-icon" src="{{ result.small_picture.url }}" alt="{{ result.title }}">
+            {% else %}
+                <img class="lg-faction-icon" src="{{ result.picture.url }}" alt="{{ result.title }}">
+            {% endif %}
         </div>
         {% endif %}
         <div>

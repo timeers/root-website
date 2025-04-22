@@ -13,7 +13,7 @@ from django.db.models.functions import Cast
 from django.apps import apps
 from django.utils import timezone 
 from django.utils.translation import gettext as _
-from the_keep.utils import validate_hex_color, delete_old_image, resize_image
+from the_keep.utils import validate_hex_color, delete_old_image
 
 class MessageChoices(models.TextChoices):
     DANGER = 'danger'
@@ -48,8 +48,6 @@ class Holiday(models.Model):
 
 class Theme(models.Model):
     name = models.CharField(max_length=100)
-    artist = models.CharField(max_length=100, null=True, blank=True)
-    artist_link = models.CharField(max_length=400, null=True, blank=True)
     theme_artists = models.ManyToManyField('Profile', blank=True, related_name='theme_artwork')
     theme_color = models.CharField(
         max_length=7,
@@ -84,7 +82,6 @@ class BackgroundImage(models.Model):
     artist = models.CharField(max_length=100, blank=True, null=True)
     background_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(upload_to='background_images')
-    small_image = models.ImageField(upload_to='background_images', null=True, blank=True)
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     background_color = models.CharField(
@@ -94,34 +91,35 @@ class BackgroundImage(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
-    
-    def process_and_save_small_image(self, image_field_name):
-        """
-        Process the image field, resize it, and save it to the `small_image` field.
-        This method can be used by any subclass of Post to reuse the image processing logic.
-        """
-        # Get the image from the specified field
-        image = getattr(self, image_field_name)
+    small_image = models.ImageField(upload_to='background_images', null=True, blank=True)
 
-        if image:
-            # Open the image from the ImageFieldFile
-            img = Image.open(image)
-                # Convert the image to RGB if it's in a mode like 'P' (palette-based)
-            # if img.mode != 'RGB':
-            #     img = img.convert('RGB')
-            # Create a copy of the image
-            small_image_copy = img.copy()
+    # def process_and_save_small_image(self, image_field_name):
+    #     """
+    #     Process the image field, resize it, and save it to the `small_image` field.
+    #     This method can be used by any subclass of Post to reuse the image processing logic.
+    #     """
+    #     # Get the image from the specified field
+    #     image = getattr(self, image_field_name)
 
-            # Optionally, save the image to a new BytesIO buffer
-            img_io = BytesIO()
-            small_image_copy.save(img_io, format='WEBP', quality=80)  # Save as a WebP, or another format as needed
-            img_io.seek(0)
-            # Now you can assign the img_io to your model field or save it to a new ImageField
-            # Generate a unique filename using UUID
-            unique_filename = f"{uuid.uuid4().hex}.webp"
+    #     if image:
+    #         # Open the image from the ImageFieldFile
+    #         img = Image.open(image)
+    #             # Convert the image to RGB if it's in a mode like 'P' (palette-based)
+    #         # if img.mode != 'RGB':
+    #         #     img = img.convert('RGB')
+    #         # Create a copy of the image
+    #         small_image_copy = img.copy()
 
-            # Save to small_image field with unique filename
-            self.small_image.save(unique_filename, img_io, save=False)
+    #         # Optionally, save the image to a new BytesIO buffer
+    #         img_io = BytesIO()
+    #         small_image_copy.save(img_io, format='WEBP', quality=80)  # Save as a WebP, or another format as needed
+    #         img_io.seek(0)
+    #         # Now you can assign the img_io to your model field or save it to a new ImageField
+    #         # Generate a unique filename using UUID
+    #         unique_filename = f"{uuid.uuid4().hex}.webp"
+
+    #         # Save to small_image field with unique filename
+    #         self.small_image.save(unique_filename, img_io, save=False)
 
 
 
@@ -136,27 +134,17 @@ class BackgroundImage(models.Model):
     def save(self, *args, **kwargs):
         # Check if the image field has changed (only works if the instance is already saved)
         field_name = 'image'
-        if self.pk:  # If the object already exists in the database
-            old_instance = BackgroundImage.objects.get(pk=self.pk)
-            # List of fields to check and delete old images if necessary
+        old_instance = BackgroundImage.objects.get(pk=self.pk)
+        # List of fields to check and delete old images if necessary
 
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image:
-                delete_old_image(old_image)
-
-            if old_image != new_image or not self.small_image:
-                delete_old_image(getattr(old_instance, 'small_image'))
-                self.process_and_save_small_image(field_name)
-
-        else:
-            self.process_and_save_small_image(field_name)
-
+        old_image = getattr(old_instance, field_name)
+        new_image = getattr(self, field_name)
+        if old_image != new_image:
+            delete_old_image(old_image)
+            delete_old_image(getattr(old_instance, 'small_image'))
 
         super().save(*args, **kwargs)
 
-        # if self.small_image:
-        resize_image(self.small_image, 768)
 
 class ForegroundImage(models.Model):
     class LocationChoices(models.IntegerChoices):
@@ -173,44 +161,46 @@ class ForegroundImage(models.Model):
     foreground_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
     image = models.ImageField(upload_to='foreground_images')
-    small_image = models.ImageField(upload_to='foreground_images', null=True, blank=True)
+    
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     depth = models.IntegerField(default=-1)
     start_position = models.TextField(default='0vw')
     slide = models.TextField(default='0vw')
     speed = models.TextField(default='50vh')
-
+    small_image = models.ImageField(upload_to='foreground_images', null=True, blank=True)
+    
     def style(self):
         return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position };'
     
-    def process_and_save_small_image(self, image_field_name):
-        """
-        Process the image field, resize it, and save it to the `small_image` field.
-        This method can be used by any subclass of Post to reuse the image processing logic.
-        """
-        # Get the image from the specified field
-        image = getattr(self, image_field_name)
+    # def process_and_save_small_image(self, image_field_name):
+    #     """
+    #     Process the image field, resize it, and save it to the `small_image` field.
+    #     This method can be used by any subclass of Post to reuse the image processing logic.
+    #     """
+    #     # Get the image from the specified field
+    #     image = getattr(self, image_field_name)
+    #     print('processing')
+    #     if image:
+    #         print('found image')
+    #         # Open the image from the ImageFieldFile
+    #         img = Image.open(image)
+    #             # Convert the image to RGB if it's in a mode like 'P' (palette-based)
+    #         # if img.mode != 'RGB':
+    #         #     img = img.convert('RGB')
+    #         # Create a copy of the image
+    #         small_image_copy = img.copy()
+            
+    #         # Optionally, save the image to a new BytesIO buffer
+    #         img_io = BytesIO()
+    #         small_image_copy.save(img_io, format='WEBP', quality=80)  # Save as a WebP, or another format as needed
+    #         img_io.seek(0)
+    #         # Now you can assign the img_io to your model field or save it to a new ImageField
+    #         # Generate a unique filename using UUID
+    #         unique_filename = f"{uuid.uuid4().hex}.webp"
 
-        if image:
-            # Open the image from the ImageFieldFile
-            img = Image.open(image)
-                # Convert the image to RGB if it's in a mode like 'P' (palette-based)
-            # if img.mode != 'RGB':
-            #     img = img.convert('RGB')
-            # Create a copy of the image
-            small_image_copy = img.copy()
-
-            # Optionally, save the image to a new BytesIO buffer
-            img_io = BytesIO()
-            small_image_copy.save(img_io, format='WEBP', quality=80)  # Save as a WebP, or another format as needed
-            img_io.seek(0)
-            # Now you can assign the img_io to your model field or save it to a new ImageField
-            # Generate a unique filename using UUID
-            unique_filename = f"{uuid.uuid4().hex}.webp"
-
-            # Save to small_image field with unique filename
-            self.small_image.save(unique_filename, img_io, save=False)
+    #         # Save to small_image field with unique filename
+    #         self.small_image.save(unique_filename, img_io, save=False)
 
 
     def alt(self):
@@ -223,27 +213,16 @@ class ForegroundImage(models.Model):
     def save(self, *args, **kwargs):
         # Check if the image field has changed (only works if the instance is already saved)
         field_name = 'image'
-        if self.pk:  # If the object already exists in the database
-            old_instance = ForegroundImage.objects.get(pk=self.pk)
-            # List of fields to check and delete old images if necessary
+        old_instance = ForegroundImage.objects.get(pk=self.pk)
 
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image:
-                delete_old_image(old_image)
-
-            if old_image != new_image or not self.small_image:
-                delete_old_image(getattr(old_instance, 'small_image'))
-                self.process_and_save_small_image(field_name)
-
-        else:
-            self.process_and_save_small_image(field_name)
+        old_image = getattr(old_instance, field_name)
+        new_image = getattr(self, field_name)
+        if old_image != new_image:
+            delete_old_image(old_image)
+            delete_old_image(getattr(old_instance, 'small_image'))
 
 
         super().save(*args, **kwargs)
-
-        # if self.small_image:
-        resize_image(self.small_image, 992)
 
 
 class Profile(models.Model):

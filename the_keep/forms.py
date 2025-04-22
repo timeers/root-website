@@ -991,7 +991,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['color', 'color_group', 'small_icon', 'animal', 'based_on', 'board_image'] + bottom_fields
+        fields = top_fields + ['picture', 'color', 'color_group', 'small_icon', 'animal', 'based_on', 'board_image'] + bottom_fields
 
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')

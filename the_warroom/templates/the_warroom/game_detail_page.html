@@ -54,7 +54,26 @@
         {% endif %}
 
         {% if game.map.board_image %}
-            <div><img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"></div>
+            <div>
+                {% comment %} <img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"> {% endcomment %}
+        
+
+
+                <picture>
+                    {% if game.map.small_board_image %}
+                        <source media="(max-width: 500px)" srcset="{{ game.map.small_board_image.url }}">
+                    {% endif %}
+                    <img 
+                        class="rounded-corner-img responsive-img zoomable"
+                        src="{{ game.map.board_image.url }}"
+                        data-full="{{ game.map.board_image.url }}"
+                        onclick="openLightbox(this)"
+                        alt="{{ game.map.title }}"
+                        loading="lazy"
+                    >
+                </picture>
+
+            </div>
         {% endif %}
 
         {% if game.random_clearing %}

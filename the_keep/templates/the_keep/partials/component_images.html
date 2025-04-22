@@ -3,21 +3,80 @@
 <div class='d-flex flex-wrap justify-content-around align-items-center gap-3'>
     {% if object_card_image_url %}
     <div>
-        <img class="mb-1 adset-img" src="{{ object_card_image_url }}">
+        {% comment %} <img class="mb-1 adset-img" src="{{ object_card_image_url }}"> {% endcomment %}
+        <picture>
+            <img 
+                class="mb-1 adset-img zoomable"
+                src="{{ object_card_image_url }}"
+                data-full="{{ object_card_image_url }}"
+                onclick="openLightbox(this)"
+                alt="Card image"
+                loading="lazy"
+            >
+        </picture>
+
     </div>
     {% endif %}
     {% if object_card_2_image_url %}
     <div>
-        <img class="mb-1 adset-img" src="{{ object_card_2_image_url }}">
+        {% comment %} <img class="mb-1 adset-img" src="{{ object_card_2_image_url }}"> {% endcomment %}
+        <picture>
+            <img 
+                class="mb-1 adset-img zoomable"
+                src="{{ object_card_2_image_url }}"
+                data-full="{{ object_card_2_image_url }}"
+                onclick="openLightbox(this)"
+                alt="Other Card Image"
+                loading="lazy"
+            >
+        </picture>
     </div>
     {% endif %}
 </div>
 {% endif %}
 
-{% if object_board_image_url %}
+{% comment %} {% if object_board_image_url %}
     <img class="rounded-corner-img responsive-img mb-1" src="{{ object_board_image_url }}">
 {% endif %}
 
 {% if object_board_2_image_url %}
     <img class="rounded-corner-img responsive-img" src="{{ object_board_2_image_url }}">
+{% endif %} {% endcomment %}
+
+
+{% if object_board_image_url %}
+
+    <picture>
+        {% if small_board_image_url %}
+            <source media="(max-width: 500px)" srcset="{{ small_board_image_url }}">
+        {% endif %}
+        <img 
+            class="rounded-corner-img responsive-img zoomable"
+            src="{{ object_board_image_url }}"
+            data-full="{{ object_board_image_url }}"
+            onclick="openLightbox(this)"
+            alt="Board image"
+            loading="lazy"
+        >
+    </picture>
+
+
+{% endif %}
+
+{% if object_board_2_image_url %}
+
+    <picture>
+        {% if small_board_2_image_url %}
+            <source media="(max-width: 500px)" srcset="{{ small_board_2_image_url }}">
+        {% endif %}
+        <img 
+            class="rounded-corner-img responsive-img zoomable"
+            src="{{ object_board_2_image_url }}"
+            data-full="{{ object_board_2_image_url }}"
+            onclick="openLightbox(this)"
+            alt="Board image"
+            loading="lazy"
+        >
+    </picture>
+
 {% endif %}

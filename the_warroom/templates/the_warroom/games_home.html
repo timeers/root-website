@@ -7,9 +7,9 @@
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
 <meta property="og:site_name" content="{{site_title}}">
-<meta property="og:title" content="The Battlefield">
-<meta property="og:description" content="Record and view games of Root to track Faction and Player stats">
-<meta name="description" content="Record and view games of Root to track Faction and Player stats">
+<meta property="og:title" content="{% trans 'The Battlefield' %}">
+<meta property="og:description" content="{% trans 'Record and view games of Root to track Faction and Player stats' %}">
+<meta name="description" content="{% trans 'Record and view games of Root to track Faction and Player stats' %}">
 {% endblock meta%}
 
 
@@ -28,14 +28,26 @@
         </a>
         {% endif %}
       
-        {% if user.profile.player %}
+        {% comment %} {% if user.profile.player %}
             <a class="btn btn-sm btn-success mb-3 ml-1" href="{% url 'record-scorecard' %}">
                 {% trans 'New Scorecard' %} +
             </a>
         {% endif %}
         <a href="{% url 'record-game' %}" class="btn btn-sm btn-success ml-1 mb-3" id="recordgame">
             {% trans 'New Game' %} +
-        </a>
+        </a> {% endcomment %}
+
+        <div class="btn-group ml-1 mb-3">
+            <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                {% trans 'Record' %} +
+            </button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'record-game' %}">New Game</a></li>
+              <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">New Scorecard</a></li>
+            </ul>
+        </div>
+
+
         {% if user_active_count %}
             <div class="position-relative d-inline-block ml-1">
                 <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">

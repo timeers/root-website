@@ -18,13 +18,13 @@ from django.urls import reverse
 from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 
-import json
+# import json
 from PIL import Image
 from io import BytesIO
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title
 from the_gatehouse.models import Profile, Language
-from .utils import validate_hex_color, resize_image, delete_old_image, hex_to_rgb
+from .utils import validate_hex_color, delete_old_image, hex_to_rgb
 import random
 from django.conf import settings
 from the_gatehouse.discordservice import send_rich_discord_message
@@ -245,8 +245,10 @@ class Expansion(models.Model):
         
         super().save(*args, **kwargs)
         # Resize images before saving
-        if self.picture:
-            resize_image(self.picture, 1500)  # Resize expansion image
+        # if self.picture:
+            # resize_image(self.picture, 1200)  # Resize expansion image
+            # resize_image_to_webp(self.picture, 1200, instance=self, field_name='picture')
+            
 
 class Post(models.Model):
     
@@ -286,11 +288,14 @@ class Post(models.Model):
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
+
     picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
     board_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_image = models.ImageField(upload_to='cards', null=True, blank=True)
     board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
     card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
+
+
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
     color = models.CharField(
         max_length=7,
@@ -308,6 +313,12 @@ class Post(models.Model):
     sorting = models.IntegerField(default=10)
     component_snippet = models.CharField(max_length=100, null=True, blank=True)
     date_updated = models.DateTimeField(default=timezone.now)
+
+    small_picture = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_board_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_card_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_board_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_card_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
 
 
 
@@ -460,18 +471,24 @@ class Post(models.Model):
 
 
 
-        # if self.small_icon:
-        resize_image(self.small_icon, 80)
-        # if self.board_image:
-        resize_image(self.board_image, 1200)  # Resize board_image
-        # if self.board_2_image:
-        resize_image(self.board_2_image, 1200)  # Resize board_image
-        # if self.card_image:
-        resize_image(self.card_image, 350)  # Resize card_image
-        # if self.card_2_image:
-        resize_image(self.card_2_image, 350)  # Resize card_image
-        # if self.picture:
-        resize_image(self.picture, 350)
+        # # if self.small_icon:
+        # # resize_image(self.small_icon, 80)
+        # resize_image_to_webp(self.small_icon, 80, instance=self, field_name='small_icon')
+        # # if self.board_image:
+        # # resize_image(self.board_image, 1200)  # Resize board_image
+        # resize_image_to_webp(self.board_image, 1200, instance=self, field_name='board_image')
+        # # if self.board_2_image:
+        # # resize_image(self.board_2_image, 1200)  # Resize board_image
+        # resize_image_to_webp(self.board_2_image, 1200, instance=self, field_name='board_2_image')
+        # # if self.card_image:
+        # # resize_image(self.card_image, 350)  # Resize card_image
+        # resize_image_to_webp(self.card_image, 350, instance=self, field_name='card_image')
+        # # if self.card_2_image:
+        # # resize_image(self.card_2_image, 350)  # Resize card_image
+        # resize_image_to_webp(self.card_2_image, 350, instance=self, field_name='card_2_image')
+        # # if self.picture:
+        # # resize_image(self.picture, 350)
+        # resize_image_to_webp(self.picture, 350, instance=self, field_name='picture')
 
     def _delete_old_image(self, old_image):
         """Helper method to delete old image if it exists."""
@@ -527,7 +544,7 @@ class Post(models.Model):
 
             # Optionally, save the image to a new BytesIO buffer
             img_io = BytesIO()
-            small_icon_copy.save(img_io, format='WEBP', quality=80)  # Save as a PNG, or another format as needed
+            small_icon_copy.save(img_io, format='WEBP', quality=80)  # Save as a webp, or another format as needed
             img_io.seek(0)
             # Now you can assign the img_io to your model field or save it to a new ImageField
             # Generate a unique filename using UUID
@@ -555,7 +572,7 @@ class Post(models.Model):
 
             # Optionally, save the image to a new BytesIO buffer
             img_io = BytesIO()
-            picture_copy.save(img_io, format='WEBP', quality=80)  # Save as a PNG, or another format as needed
+            picture_copy.save(img_io, format='WEBP', quality=80)  # Save as a webp, or another format as needed
             img_io.seek(0)
             # Now you can assign the img_io to your model field or save it to a new ImageField
             # Generate a unique filename using UUID
@@ -676,6 +693,11 @@ class PostTranslation(models.Model):
     translated_board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
     translated_card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
 
+    small_board_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_card_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_board_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_card_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+
     class Meta:
         unique_together = ('post', 'language')
 
@@ -688,10 +710,14 @@ class PostTranslation(models.Model):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
-        resize_image(self.translated_board_image, 1500)  # Resize board_image
-        resize_image(self.translated_board_2_image, 1500)  # Resize board_image
-        resize_image(self.translated_card_image, 350)  # Resize card_image
-        resize_image(self.translated_card_2_image, 350)  # Resize card_image
+        # resize_image(self.translated_board_image, 1200)  # Resize board_image
+        # resize_image(self.translated_board_2_image, 1200)  # Resize board_image
+        # resize_image(self.translated_card_image, 350)  # Resize card_image
+        # resize_image(self.translated_card_2_image, 350)  # Resize card_image
+        # resize_image_to_webp(self.translated_board_image, 1200, instance=self, field_name='translated_board_image')
+        # resize_image_to_webp(self.translated_board_2_image, 1200, instance=self, field_name='translated_board_2_image')
+        # resize_image_to_webp(self.translated_card_image, 350, instance=self, field_name='translated_card_image')
+        # resize_image_to_webp(self.translated_card_2_image, 350, instance=self, field_name='translated_card_2_image')
 
     def get_absolute_url(self):
         parent_url = self.post.get_absolute_url()
@@ -1726,8 +1752,10 @@ class Piece(models.Model):
         
         super().save(*args, **kwargs)
         # Resize images before saving
-        if self.small_icon:
-            resize_image(self.small_icon, 80)  # Resize small_icon
+        # if self.small_icon:
+        #     # resize_image(self.small_icon, 80)  # Resize small_icon
+        #     resize_image_to_webp(self.small_icon, 80, instance=self, field_name='small_icon')
+
 
     def delete(self, *args, **kwargs):
         # Delete the old image file from storage before deleting the instance

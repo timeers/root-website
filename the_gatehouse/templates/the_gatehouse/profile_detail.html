@@ -230,7 +230,54 @@
 
 {% block scripts %}
 <script>
-    let isDomReady = false;
+    document.addEventListener('DOMContentLoaded', function () {
+        // Auto-activate the tab from the hash
+        const hash = window.location.hash;
+        if (hash) {
+            const tabTrigger = document.querySelector(`#profileTabs a[href="${hash}"]`);
+            if (tabTrigger) {
+                const tab = new bootstrap.Tab(tabTrigger);
+                tab.show();
+            }
+        }
+    
+        // Ensure first tab is active if no hash
+        if (!hash) {
+            const firstTab = document.querySelector('#profileTabs a');
+            if (firstTab) {
+                new bootstrap.Tab(firstTab).show();
+            }
+        }
+    
+        // On tab change: update the URL hash & HX triggers
+        document.querySelectorAll('#profileTabs a').forEach(tab => {
+            tab.addEventListener('shown.bs.tab', function (event) {
+                // Update the URL without scrolling
+                const newHash = event.target.getAttribute('href');
+                history.replaceState(null, null, newHash);
+    
+                // Update HTMX triggers
+                updateHxTriggers();
+            });
+        });
+    
+        // Call once on load to set triggers correctly for default tab
+        updateHxTriggers();
+    });
+    
+    function updateHxTriggers() {
+        const tabPanes = document.querySelectorAll('.tab-pane');
+        tabPanes.forEach(tabPane => {
+            const hxElements = tabPane.querySelectorAll('[hx-trigger]');
+            const isActive = tabPane.classList.contains('active');
+    
+            hxElements.forEach(el => {
+                el.setAttribute('hx-trigger', isActive ? 'revealed' : 'click');
+            });
+        });
+    }
+    
+    {% comment %} let isDomReady = false;
 
     // Function to update the hx-trigger of elements in all tabs
     function updateHxTriggers() {
@@ -308,7 +355,7 @@
     //         });
     //     });
         updateHxTriggers();
-    });
+    }); {% endcomment %}
 </script>
 
 

@@ -709,6 +709,20 @@ def ultimate_component_view(request, slug):
     else:
         object_board_2_image_url = None
 
+
+    small_board_image = object_translation.small_board_image if object_translation and object_translation.translated_board_image else object.small_board_image
+    small_board_2_image = object_translation.small__board_2_image if object_translation and object_translation.translated_board_2_image else object.small_board_2_image
+    if small_board_image:
+        small_board_image_url = small_board_image.url
+    else:
+        small_board_image_url = None
+    
+    if small_board_2_image:
+        small_board_2_image_url = small_board_2_image.url
+    else:
+        small_board_2_image_url = None
+    
+
     object_card_image = object_translation.translated_card_image if object_translation and object_translation.translated_card_image else object.card_image
     if object_card_image:
         object_card_image_url = object_card_image.url
@@ -848,7 +862,7 @@ def ultimate_component_view(request, slug):
             "H": '100%',
             "N": '2%',
         }
-        
+
     if object.component == 'Faction':
         complexity_value = attribute_map.get(object.complexity, 1)
         aggression_value = attribute_map.get(object.aggression, 1)
@@ -963,6 +977,10 @@ def ultimate_component_view(request, slug):
         'object_board_2_image_url': object_board_2_image_url,
         'object_card_image_url': object_card_image_url,
         'object_card_2_image_url': object_card_2_image_url,
+
+        'small_board_image_url': small_board_image_url,
+        'small_board_2_image_url': small_board_2_image_url,
+
 
         'object_translation': object_translation,
         'available_translations': available_translations,

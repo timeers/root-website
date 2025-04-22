@@ -2,6 +2,7 @@ import random
 from django.utils.text import slugify
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.conf import settings
 import re
 from PIL import Image
 import os
@@ -11,7 +12,6 @@ def resize_image(image_field, max_size):
     """Helper function to resize the image if necessary."""
     try:
         if image_field and os.path.exists(image_field.path):  # Check if the image exists
-            print('resizing')
             img = Image.open(image_field.path)
 
             # Resize if the image is larger than the max_size
@@ -33,6 +33,130 @@ def resize_image(image_field, max_size):
         
     except Exception as e:
         print(f"Error resizing image: {e}")
+
+
+# def resize_image_to_webp(image_field, max_size, instance=None, field_name=None):
+#     """Resize and convert the image to WebP format if needed."""
+          
+#     print(image_field)
+#     try:
+#         if not image_field or not os.path.exists(image_field.path):
+#             print("Image field is empty or file does not exist.")
+#             return
+
+#         original_path = image_field.path
+#         file_ext = os.path.splitext(original_path)[1].lower()
+
+#         # Open image
+#         img = Image.open(original_path)
+
+#         # Skip if already WebP and smaller than or equal to max size
+#         if file_ext == '.webp' and img.width <= max_size and img.height <= max_size:
+#             print("Image is already WebP and within max size — skipping.")
+#             return
+
+#         # Resize if too large
+#         if img.width > max_size or img.height > max_size:
+#             if img.width > img.height:
+#                 ratio = max_size / img.width
+#                 new_size = (max_size, int(img.height * ratio))
+#             else:
+#                 ratio = max_size / img.height
+#                 new_size = (int(img.width * ratio), max_size)
+
+#             img = img.resize(new_size, Image.LANCZOS)
+#             print(f"Image resized to: {new_size}")
+#         else:
+#             print("Image is already within size limits — skipping resize.")
+
+#         # Check if the image has an alpha channel
+#         if img.mode in ("RGBA", "LA"):
+#             img = img.convert("RGBA")  # Keep transparency
+#         else:
+#             img = img.convert("RGB")  # No transparency needed
+
+#         # Save new WebP version
+#         base, _ = os.path.splitext(original_path)
+#         # Save as WebP
+#         new_path = base + ".webp"
+#         img.save(new_path, 'WEBP', quality=80)
+
+#         # Remove the original file
+#         if file_ext != '.webp':
+#             delete_old_image(image_field)
+#             # os.remove(original_path)
+
+#         # 🧠 Update the field with the new path (if instance and field name provided)
+#         if instance and field_name:
+#             relative_path = os.path.relpath(new_path, settings.MEDIA_ROOT)
+#             getattr(instance, field_name).name = relative_path
+#             instance.save(update_fields=[field_name])
+
+#     except Exception as e:
+#         print(f"Error resizing image: {e}")
+
+
+def resize_image_to_webp(image_field, max_size=None):
+    """
+    Resize and convert an image to WebP if needed.
+    Returns the relative path to the new file if converted, or None if unchanged.
+    """
+    try:
+        if not image_field or not os.path.exists(image_field.path):
+            print("Image field is empty or file does not exist.")
+            return None
+
+        original_path = image_field.path
+        file_ext = os.path.splitext(original_path)[1].lower()
+
+        img = Image.open(original_path)
+
+        # Skip if already WebP and small enough
+        if file_ext == '.webp' and img.width <= max_size and img.height <= max_size:
+            print("Image is already WebP and within max size — skipping.")
+            return None
+
+        # Resize if too large
+        if max_size:
+            if img.width > max_size or img.height > max_size:
+                if img.width > img.height:
+                    ratio = max_size / img.width
+                    new_size = (max_size, int(img.height * ratio))
+                else:
+                    ratio = max_size / img.height
+                    new_size = (int(img.width * ratio), max_size)
+
+                img = img.resize(new_size, Image.LANCZOS)
+                print(f"Image resized to: {new_size}")
+            else:
+                print("Image is within size limits — no resize needed.")
+        else:
+            print('No max size')
+
+        # Ensure correct mode for WebP
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGBA")
+        else:
+            img = img.convert("RGB")
+
+        # Save new WebP version
+        base, _ = os.path.splitext(original_path)
+        new_path = base + ".webp"
+        img.save(new_path, 'WEBP', quality=80)
+
+        # Delete original if it wasn’t already WebP
+        if file_ext != '.webp' and os.path.exists(original_path):
+            delete_old_image(image_field)
+            # os.remove(original_path)
+
+        # Return relative path for model field assignment
+        return os.path.relpath(new_path, settings.MEDIA_ROOT)
+
+    except Exception as e:
+        print(f"Error resizing image: {e}")
+        return None
+
+
 
 def delete_old_image(old_image):
     """Helper method to delete old image if it exists."""

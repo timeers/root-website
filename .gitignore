@@ -23,6 +23,7 @@ media/small_component_icons/
 media/cards/
 media/background_images/
 media/foreground_images/
+media/small_images/
 
 # Django stuff:
 *.log
