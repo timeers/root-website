@@ -216,16 +216,7 @@ def tester_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.player and request.user.profile.tester:
-            if request.user.profile.tester_onboard == False:
-                # Capture the current URL the user is visiting
-                next_url = request.GET.get('next', request.path)
-                
-                # Redirect to onboarding page with `next` as a query parameter
-                return redirect(f'{reverse("onboard-user", args=["tester"])}?next={next_url}')
-
-                # return redirect('onboard-user', user_type = 'tester')
-            else:
-                return view_func(request, *args, **kwargs) 
+            return view_func(request, *args, **kwargs) 
         else:
             raise PermissionDenied()  # 403 Forbidden
     return wrapper

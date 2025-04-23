@@ -29,7 +29,7 @@ from django.views.generic import (
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
 from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
-from the_gatehouse.views import (designer_required_class_based_view, designer_required, 
+from the_gatehouse.views import (designer_required_class_based_view, designer_required, tester_required,
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
 from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
@@ -505,7 +505,7 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 def about(request, *args, **kwargs):
     return render(request, 'the_keep/about.html', {'title': 'About'})
 
-@admin_onboard_required
+@tester_required
 def home(request, *args, **kwargs):
 
     faction_count = Faction.objects.filter(status__lte=4, official=False).count()
@@ -716,7 +716,7 @@ def ultimate_component_view(request, slug):
         small_board_image_url = small_board_image.url
     else:
         small_board_image_url = None
-    
+
     if small_board_2_image:
         small_board_2_image_url = small_board_2_image.url
     else:
