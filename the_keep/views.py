@@ -505,9 +505,11 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 def about(request, *args, **kwargs):
     return render(request, 'the_keep/about.html', {'title': 'About'})
 
-@tester_required
+
 def home(request, *args, **kwargs):
 
+    if not request.user.is_authenticated or not request.user.profile.tester:
+        return redirect('archive-home')
     faction_count = Faction.objects.filter(status__lte=4, official=False).count()
     deck_count = Deck.objects.filter(status__lte=4, official=False).count()
     map_count = Map.objects.filter(status__lte=4, official=False).count()
