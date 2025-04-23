@@ -273,7 +273,7 @@ class Profile(models.Model):
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
     player_onboard = models.BooleanField(default=False)
-    tester_onboard = models.BooleanField(default=False)
+    # tester_onboard = models.BooleanField(default=False)
     editor_onboard = models.BooleanField(default=False)
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)

@@ -541,13 +541,13 @@ def onboard_user(request, user_type=None):
                 messages.info(request, "Welcome!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
-        elif user_type == 'tester' and not profile.tester_onboard:
-            if profile.tester:
-                profile.tester_onboard = True
-                profile.save()
-                messages.info(request, "Enjoy!")
-            else:
-                messages.warning(request, f"You do not have access to the {user_type} role")
+        # elif user_type == 'tester' and not profile.tester_onboard:
+        #     if profile.tester:
+        #         profile.tester_onboard = True
+        #         profile.save()
+        #         messages.info(request, "Enjoy!")
+        #     else:
+        #         messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'editor' and not profile.editor_onboard:
             if profile.editor:
                 profile.editor_onboard = True
@@ -597,7 +597,7 @@ def onboard_decline(request, user_type=None):
     "designer": "P",
     "editor": "P",
     "player": "P",
-    'tester': "T",
+    # 'tester': "T",
     }
     print(user_type)
     print(decline_choices[user_type])
@@ -608,10 +608,10 @@ def onboard_decline(request, user_type=None):
         # Refused admin become designers. Refused designers become players. Refused players become banned (deactivated)
         # print(decline_type)
         if decline_type:
-            if decline_type == "T":
-                profile.tester = False
-            else:
-                profile.group = decline_type
+            # if decline_type == "T":
+            #     profile.tester = False
+            # else:
+            profile.group = decline_type
         else:
              profile.gourp = "B"
         
@@ -626,11 +626,11 @@ def onboard_decline(request, user_type=None):
             case "editor":
                 profile.editor_onboard = False
                 messages.error(request, "Contact an Administrator if you would like to edit your posts")
-            case "tester":
-                profile.tester_onboard = False
-                messages.error(request, "Contact an Administrator if you want to record detailed game data")
+            # case "tester":
+            #     profile.tester_onboard = False
+            #     messages.error(request, "Contact an Administrator if you want to record detailed game data")
             case "player":
-                profile.tester_onboard = False
+                # profile.tester_onboard = False
                 messages.warning(request, "Once you accept you will be able to record games")
             case _:
                 profile.player_onboard = False

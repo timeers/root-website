@@ -227,8 +227,8 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap4"
 
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
-LOGIN_REDIRECT_URL = 'archive-home'
-HOME_URL = 'archive-home'
+LOGIN_REDIRECT_URL = 'site-home'
+HOME_URL = 'site-home'
 LOGIN_URL = 'discord_login'
 
 ACCOUNT_EMAIL_REQUIRED = False

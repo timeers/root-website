@@ -35,7 +35,7 @@ from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tw
 from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
-                                 tester_required, player_onboard_required, admin_onboard_required)
+                                 player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
 from the_gatehouse.utils import get_uuid, get_theme, build_absolute_uri

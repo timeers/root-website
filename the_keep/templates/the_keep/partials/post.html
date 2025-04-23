@@ -3,7 +3,27 @@
 <article class="media content-section post-card">
 
     <div class="article-img-container">
-        <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+
+
+
+        <picture>
+            {% if object.small_picture %}
+                <source media="(max-width: 500px)" srcset="{{ object.small_picture.url }}">
+            {% endif %}
+            <img 
+                class="article-img"
+                src="{{ object.picture.url }}"
+                alt="{{ object.title }} Image"
+                loading="lazy"
+            >
+        </picture>
+
+
+
+        {% comment %} <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}"> {% endcomment %}
+    
+    
+    
     </div>
         <div class="media-body">
            

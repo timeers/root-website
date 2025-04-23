@@ -951,7 +951,7 @@ tr.clickable-row:hover {
   top: var(--header-padding); /* moves image down for header */
   left: 50%;               /* Position it at 50% of the viewport width */
   transform: translateX(-50%);
-  z-index: -5; /* Furthest Back */
+  z-index: -100; /* Furthest Back */
   width: auto; /* You can set specific width/height for each image if needed */
   height: 60vh; /* 60% of the viewport height */
   min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
@@ -1056,26 +1056,46 @@ tr.clickable-row:hover {
     /* Check if the browser supports scroll timelines */
     @supports (--css: variables) {
 
-        /* Start and End Position */
-        @keyframes foreground-right {
+        /* Fallback animation for browsers that DON'T support scroll-timeline */
+        #progress-right {
+          transform: translateX(var(--offset-percent)); /* Set initial position */
+          animation: fallback-slide 2.5s ease-in-out forwards;
+          animation-delay: 0.7s;
+        }
+
+        @keyframes fallback-slide {
           from {
-            transform: translateX(0);
+            transform: translateX(var(--offset-percent));
           }
           to {
-            transform: translateX(var(--offset-percent));
+            transform: translateX(0);
           }
         }
 
-        /* Scroll timing of animation */
-        #progress-right {
-          animation: foreground-right ease-in-out forwards;
-          animation-timeline: scroll();
-          /* animation-timeline: scrollTimeline;  */
-          animation-range: 3vh var(--slide-speed);
+        /* Scroll-based animation for browsers that support scroll-timeline */
+        @supports (animation-timeline: scroll()) {
+            /* Start and End Position */
+            @keyframes foreground-right {
+              from {
+                transform: translateX(0); /* Initial state */
+              }
+              to {
+                transform: translateX(var(--offset-percent)); /* Final state based on scroll */
+              }
+            }
+
+            /* Scroll timing of animation */
+            #progress-right {
+              transform: none; /* Remove transform as scroll-timeline will handle it */
+              animation: foreground-right ease-in-out forwards;
+              animation-timeline: scroll();
+              animation-range: 3vh var(--slide-speed);
+            }
         }
 
     }
   }
+
 }
 
 @keyframes slideUp {

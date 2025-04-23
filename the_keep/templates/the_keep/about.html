@@ -2,6 +2,19 @@
 {% block title %} - About{% endblock %}
 {% load static i18n %}
 
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+{% comment %} <meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" /> {% endcomment %}
+<meta property="og:site_name" content="{{site_title}}">
+<meta property="og:title" content="About - The {{site_title}}">
+<meta property="og:description" content="The {{site_title}} is an unofficial collection of components for Root, the board game by Leder Games. The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. You can post game results to track your stats and search community resources to help make your own creations.">
+<meta name="description" content="The {{site_title}} is an unofficial collection of components for Root, the board game by Leder Games. The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. You can post game results to track your stats and search community resources to help make your own creations.">
+{% endblock meta%}
+
+
 {% block content %}
 
 <h1 class='root-title text-center'>{% trans 'About' %}</h1>

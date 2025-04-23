@@ -137,10 +137,19 @@ def resize_image_to_webp(image_field, max_size=None):
         # Convert image mode
         img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")
 
-        # Use same directory, different filename
+        # Determine the target directory
         original_dir = os.path.dirname(original_path)
         unique_filename = f"{uuid.uuid4().hex}.webp"
-        new_path = os.path.join(original_dir, unique_filename)
+
+        # Redirect if in 'default_images' folder
+        if 'default_images' in original_path:
+            target_dir = original_dir.replace('default_images', 'component_pictures')
+            os.makedirs(target_dir, exist_ok=True)
+        else:
+            target_dir = original_dir
+
+        new_path = os.path.join(target_dir, unique_filename)
+
 
         # Save image
         img.save(new_path, format='WEBP', quality=80)

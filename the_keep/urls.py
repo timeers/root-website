@@ -34,7 +34,10 @@ from .api_views import search_posts
 from . import views
 
 urlpatterns = [
-
+    path('', views.home, name='site-home'),
+    path('home/', views.home),
+    path('about/', views.about, name='keep-about'),
+    
     path("archive/", list_view, name='archive-home'),
     # path("new/", activity_list, name='activity-list'),
  
@@ -101,9 +104,7 @@ urlpatterns = [
     path("translations/<slug:slug>/update/<str:lang>/", create_post_translation, name='translation-update'),
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
-    path('about/', views.about, name='keep-about'),
 
-    path('newhome/', views.home, name='site-home'),
 
     path('piece/add/', add_piece, name='add-piece'),
     path('piece/update/<int:id>', add_piece, name='update-piece'),

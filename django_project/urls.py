@@ -29,8 +29,10 @@ from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline, 
 
 urlpatterns = [
 
-    path('woodland-admin/', admin.site.urls),
 
+
+    path('woodland-admin/', admin.site.urls),
+    
     # path('register/', user_views.register, name='register'),
 
     # path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),

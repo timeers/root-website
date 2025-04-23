@@ -1,6 +1,20 @@
 {% extends 'the_keep/base.html' %}
 {% load crispy_forms_tags %}
 {% block title %} - Log In{% endblock %}
+
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+{% comment %} <meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" /> {% endcomment %}
+<meta property="og:site_name" content="{{site_title}}">
+<meta property="og:title" content="Log In - The {{site_title}}">
+<meta property="og:description" content="Log in to the {{site_title}} to record games and update your profile.">
+<meta name="description" content="Log in to the {{site_title}} to record games and update your profile.">
+{% endblock meta%}
+
 {% block content %}
     <div class="content-section">
         <form method="POST">

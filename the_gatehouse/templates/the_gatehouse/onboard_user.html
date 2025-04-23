@@ -29,11 +29,11 @@
     <div>Have fun creating and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
-{% elif user_type == 'tester' and active_user.tester %}
+{% comment %} {% elif user_type == 'tester' and active_user.tester %}
     <div>Thank you for your interest in recording detailed game data.</div> 
     <div>By accepting you agree to only submit accurate game data to the best of your knowledge.</div>
     <div>Have fun and enjoy!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %} {% endcomment %}
 
 {% elif user_type == 'player' and active_user.player %}
     <div>Thank you for logging in. We're happy to have you here.</div> 
