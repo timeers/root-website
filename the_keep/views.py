@@ -518,21 +518,24 @@ def home(request, *args, **kwargs):
     official_map_count = Map.objects.filter(status__lte=4, official=True).count()
     game_count = Game.objects.filter(final=True).count()
 
-
     if request.user.is_authenticated:
-        theme = request.user.profile.theme
-    else:
-        theme = None
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
+    
 
-    background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # Group the images by location
-    grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-    # Select a random image from each location
-    foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-    # If using PostgreSQL or another database that supports 'distinct' on a field:
-    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
+    # if request.user.is_authenticated:
+    #     theme = request.user.profile.theme
+    # else:
+    #     theme = None
+
+    # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # # Group the images by location
+    # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+    # # Select a random image from each location
+    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+    # # If using PostgreSQL or another database that supports 'distinct' on a field:
+    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
 
 
     context = {
@@ -1288,7 +1291,7 @@ def bookmark_post(request, object):
 def list_view(request, slug=None):
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Archive')
     
     theme = get_theme(request)
 
@@ -2009,9 +2012,9 @@ class PNPAssetListView(ListView):
 
 
         if self.request.user.is_authenticated:
-            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) on Resource Page')
+            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')
         else:
-            send_discord_message(f'{get_uuid(self.request)} on Resource Page')
+            send_discord_message(f'{get_uuid(self.request)} viewing The Workshop')
 
         return super().render_to_response(context, **response_kwargs)
     

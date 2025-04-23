@@ -67,9 +67,9 @@ class GameListView(ListView):
             return 'the_warroom/partials/game_list_home.html'
         
         if self.request.user.is_authenticated:
-            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) on Game Page')
+            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Battlefield')
         else:
-            send_discord_message(f'{get_uuid(self.request)} on Game Page')
+            send_discord_message(f'{get_uuid(self.request)} viewing The Battlefield')
         return 'the_warroom/games_home.html'
     
     def get_queryset(self):
