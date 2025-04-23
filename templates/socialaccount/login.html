@@ -8,9 +8,9 @@
 <article class="media content-section">
     <div class="media-body">
 
-    {% element h1 %}
+    <h1 class='root-title'>
         {% blocktrans with provider.name as provider %}Sign In{% endblocktrans %}
-    {% endelement %}
+    </h1>
     {% element p %}
         {% blocktrans with provider.name as provider %}You are about to sign in using your existing {{ provider }} Account. You will be redirected to Discord to review these permissions.{% endblocktrans %}
     {% endelement %}

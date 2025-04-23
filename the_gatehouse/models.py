@@ -92,7 +92,10 @@ class BackgroundImage(models.Model):
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
     small_image = models.ImageField(upload_to='background_images', null=True, blank=True)
-
+    
+    def __str__(self):
+        return self.name
+    
     # def process_and_save_small_image(self, image_field_name):
     #     """
     #     Process the image field, resize it, and save it to the `small_image` field.
@@ -169,10 +172,13 @@ class ForegroundImage(models.Model):
     slide = models.TextField(default='0vw')
     speed = models.TextField(default='50vh')
     small_image = models.ImageField(upload_to='foreground_images', null=True, blank=True)
-    
+
     def style(self):
         return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position };'
     
+    def __str__(self):
+        return self.name
+
     # def process_and_save_small_image(self, image_field_name):
     #     """
     #     Process the image field, resize it, and save it to the `small_image` field.
@@ -255,7 +261,7 @@ class Profile(models.Model):
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
-    tester = models.BooleanField(default=True)
+    tester = models.BooleanField(default=False)
     weird = models.BooleanField(default=True)
     in_weird_root = models.BooleanField(default=False)
     in_woodland_warriors = models.BooleanField(default=False)

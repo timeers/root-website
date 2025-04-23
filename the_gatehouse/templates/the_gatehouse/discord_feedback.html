@@ -1,7 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% load crispy_forms_tags i18n %}
 {% block content %}
-<h1>{{ title }}</h1>
+<h1 class='root-title'>{{ title }}</h1>
 <form method="POST">
     {% csrf_token %}
     {{ form | crispy }}

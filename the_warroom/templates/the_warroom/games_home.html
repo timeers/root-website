@@ -18,9 +18,9 @@
     <div class="media-body">
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <div class='d-flex'>
-    <h1 class='root-title'>{% trans 'Games' %}</h1>
+        <h1 class='root-title'>{% trans 'Games' %}</h1>
     </div>
-    <div class='d-flex'>
+    <div class='d-flex flex-wrap justify-content-end'>
         
         {% if user.profile.admin %}
         <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">

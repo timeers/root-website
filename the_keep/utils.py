@@ -7,6 +7,7 @@ import re
 from PIL import Image
 import os
 import math
+import uuid
 
 def resize_image(image_field, max_size):
     """Helper function to resize the image if necessary."""
@@ -133,23 +134,24 @@ def resize_image_to_webp(image_field, max_size=None):
         else:
             print('No max size')
 
-        # Ensure correct mode for WebP
-        if img.mode in ("RGBA", "LA", "P"):
-            img = img.convert("RGBA")
-        else:
-            img = img.convert("RGB")
+        # Convert image mode
+        img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")
 
-        # Save new WebP version
-        base, _ = os.path.splitext(original_path)
-        new_path = base + ".webp"
-        img.save(new_path, 'WEBP', quality=80)
+        # Use same directory, different filename
+        original_dir = os.path.dirname(original_path)
+        unique_filename = f"{uuid.uuid4().hex}.webp"
+        new_path = os.path.join(original_dir, unique_filename)
+
+        # Save image
+        img.save(new_path, format='WEBP', quality=80)
+        print(f"Saved WebP image: {new_path}")
 
         # Delete original if it wasn’t already WebP
         if file_ext != '.webp' and os.path.exists(original_path):
             delete_old_image(image_field)
             # os.remove(original_path)
 
-        # Return relative path for model field assignment
+        # Return path relative to MEDIA_ROOT
         return os.path.relpath(new_path, settings.MEDIA_ROOT)
 
     except Exception as e:

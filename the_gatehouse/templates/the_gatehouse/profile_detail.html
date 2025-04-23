@@ -62,7 +62,15 @@
                         <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
                 {% endif %}
                 {% endif %}
-                
+                {% if player.credit_link %}
+                <div>
+                    <a class='clickable-link' style="font-size: 1.2rem;" href='{{ player.credit_link }}'>
+                        {% blocktrans with artist_name=player.display_name %}
+                        Find {{ artist_name }}'s Artwork Here
+                        {% endblocktrans %}
+                    </a>
+                </div>
+                {% endif %}
             </div>
             <div class="d-flex flex-column justify-content-between">
             {% comment %} {% if user.profile.player and player != user.profile  %}

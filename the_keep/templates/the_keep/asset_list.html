@@ -14,11 +14,12 @@
 {% block content %}
 <article class="media content-section mt-2 mb-5">
     <div class="media-body">
+
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class='d-flex'>
-                <h1>{% trans 'Resources' %}</h1>
+                <h1 class='root-title'>{% trans 'Resources' %}</h1>
             </div>
-            <div class='d-flex'>
+            <div class='d-flex flex-wrap justify-content-end'>
                 
                 {% if user.is_authenticated and user.profile.assets.count != 0 %}
                     <a href="{% url 'profile' %}#assets" class="btn btn-sm btn-secondary ml-1 mb-3">{% trans 'My Resources' %}</a>
@@ -37,6 +38,7 @@
                 
             </div>
         </div>
+
     </div>
 </article>
         {% comment %} {% if shared_assets %}

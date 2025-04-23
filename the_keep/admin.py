@@ -21,6 +21,10 @@ class PostTranslationInline(admin.StackedInline):
     model = PostTranslation
     extra = 0
 
+class TranslationAdmin(admin.ModelAdmin):
+    list_display = ('translated_title', 'language', 'post__title', 'post__language')
+    search_fields = ('translated_title', 'post__title')
+
 class PNPAssetAdmin(admin.ModelAdmin):
     list_display = ('title', 'category', 'date_updated', 'shared_by__display_name', 'pinned')
     search_fields = ('title', 'description')
@@ -1116,3 +1120,4 @@ admin.site.register(Vagabond, VagabondAdmin)
 admin.site.register(Hireling, HirelingAdmin)
 admin.site.register(Faction, FactionAdmin)
 admin.site.register(Expansion, ExpansionAdmin)
+admin.site.register(PostTranslation, TranslationAdmin)

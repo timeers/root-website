@@ -4,47 +4,47 @@
 
 {% block content %}
 
-<h1 class='root-title'>{% trans 'About' %}</h1>
+<h1 class='root-title text-center'>{% trans 'About' %}</h1>
 
-<div class='mb-4'>
+<div class='mb-4 text-center'>
     Welcome to the {{site_title}}, an unofficial collection of components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.
-    The goal of the site is to provide an easy place to search for Fan Content made by the Root community. You can post game results to track your stats and search community resources to help make your own creations.
+    The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. You can post game results to track your stats and search community resources to help make your own creations.
 </div>
 
 
-<div class='mb-4'>
+<div class='mb-4 text-center'>
     <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
     {% if user.is_authenticated %}
-        <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
-    {% else %}
-        <img class="mt-2 responsive-img" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
+        <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
+    {% comment %} {% else %}
+        <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"> {% endcomment %}
     {% endif %}
 </div>
 
 
-<div class='mb-4 lore-content'>
+<div class='mb-4 text-center lore-content' style="font-size: 1.3rem;">
     Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
-    {% comment %} {% if user.profile.player %} {% endcomment %}
-        You can also find a more detailed FAQ and give feedback at the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj">RDB Feedback Discord</a>.
-    {% comment %} {% else %}
-        You can also find a more detailed FAQ and give feedback at the RDB Feedback Discord.
-    {% endif %} {% endcomment %}
+    You can also find a more detailed FAQ and give feedback on the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj">RDB Feedback Discord</a>.
 </div>
 
-<div class='mb-4'>
-    <div>
+<div class='mb-4 text-center'>
+    <div class='text-center my-3' style="font-size: 1.2rem; font-weight: 600;">
         Thank you for checking out the {{site_title}}.
     </div>
     <div>
         Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
     </div>
     <div>
-        Thank you to <a class='clickable-link' href="{% url 'player-detail' 'tinthefoil' %}">Tin (the Foil)</a> for providing original art for the site. Check out their wonderful work <a class='clickable-link' href='https://linktr.ee/tinthefoil'>here<a>.
+        A huge thanks to <a class='clickable-link' href="{% url 'player-detail' 'tinthefoil' %}">Tin (the Foil)</a> for providing the fantastic art for the site. You can check out Tin's wonderful work <a class='clickable-link' href='https://linktr.ee/tinthefoil'>here<a>.
     </div>
 </div>
 
-<div class='mb-4'>
+<div class='mb-1 text-center'>
     All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Leder Games.
+</div>
+<div class='mb-4 text-center'>
+    All content on this website is inspired by the board game Root, published by Leder Games. This content is only intended for personal enjoyment.
+    The content provided here is not for commercial use and it is shared in the spirit of celebrating the game and its wonderful community.
 </div>
 {% comment %} <div class="video-container mb-1">
 <iframe width="560" height="315" 
