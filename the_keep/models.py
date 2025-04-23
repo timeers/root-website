@@ -683,15 +683,18 @@ class PostTranslation(models.Model):
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
 
     translated_title = models.CharField(max_length=40, null=True, blank=True)
-    translated_lore = models.TextField(null=True, blank=True)
-    translated_description = models.TextField(null=True, blank=True)
-    translated_animal = models.CharField(max_length=25, null=True, blank=True)
-
 
     translated_board_image = models.ImageField(upload_to='boards', null=True, blank=True)
     translated_card_image = models.ImageField(upload_to='cards', null=True, blank=True)
     translated_board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
     translated_card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
+    
+    translated_lore = models.TextField(null=True, blank=True)
+    translated_description = models.TextField(null=True, blank=True)
+    translated_animal = models.CharField(max_length=25, null=True, blank=True)
+
+
+
 
     small_board_image = models.ImageField(upload_to='small_images', null=True, blank=True)
     small_card_image = models.ImageField(upload_to='small_images', null=True, blank=True)
@@ -746,27 +749,27 @@ class Deck(Post):
         self.component_snippet = f"{self.card_total} Card"
 
         # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Post.objects.get(pk=self.pk)
+        # if self.pk:  # If the object already exists in the database
+        #     old_instance = Post.objects.get(pk=self.pk)
            
-            if self.card_image:
-                field_name = 'card_image'
-            else:
-                field_name = 'picture'
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image or not self.small_icon:
-                delete_old_image(getattr(old_instance,'small_icon'))
-                self.process_and_save_small_icon(field_name)
-                delete_old_image(getattr(old_instance,'picture'))
-                self.process_and_save_picture(field_name)
-        else:
-            if self.card_image:
-                field_name = 'card_image'
-            else:
-                field_name = 'picture'
-            self.process_and_save_small_icon(field_name)
-            self.process_and_save_picture(field_name)
+        #     if self.card_image:
+        #         field_name = 'card_image'
+        #     else:
+        #         field_name = 'picture'
+        #     old_image = getattr(old_instance, field_name)
+        #     new_image = getattr(self, field_name)
+        #     if old_image != new_image or not self.small_icon:
+        #         delete_old_image(getattr(old_instance,'small_icon'))
+        #         self.process_and_save_small_icon(field_name)
+        #         delete_old_image(getattr(old_instance,'picture'))
+        #         self.process_and_save_picture(field_name)
+        # else:
+        #     if self.card_image:
+        #         field_name = 'card_image'
+        #     else:
+        #         field_name = 'picture'
+        #     self.process_and_save_small_icon(field_name)
+        #     self.process_and_save_picture(field_name)
 
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -853,19 +856,19 @@ class Landmark(Post):
             self.picture = 'default_images/landmark.png'
 
         # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Post.objects.get(pk=self.pk)
+        # if self.pk:  # If the object already exists in the database
+        #     old_instance = Post.objects.get(pk=self.pk)
            
 
-            field_name = 'picture'
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image or not self.small_icon:
-                delete_old_image(getattr(old_instance,'small_icon'))
-                self.process_and_save_small_icon(field_name)
-        else:
-            field_name = 'picture'
-            self.process_and_save_small_icon(field_name)
+        #     field_name = 'picture'
+        #     old_image = getattr(old_instance, field_name)
+        #     new_image = getattr(self, field_name)
+        #     if old_image != new_image or not self.small_icon:
+        #         delete_old_image(getattr(old_instance,'small_icon'))
+        #         self.process_and_save_small_icon(field_name)
+        # else:
+        #     field_name = 'picture'
+        #     self.process_and_save_small_icon(field_name)
     
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -948,18 +951,18 @@ class Tweak(Post):
         if not self.picture:
             self.picture = 'default_images/tweak.png'
         # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Post.objects.get(pk=self.pk)
+        # if self.pk:  # If the object already exists in the database
+        #     old_instance = Post.objects.get(pk=self.pk)
 
-            field_name = 'picture'
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image or not self.small_icon:
-                delete_old_image(getattr(old_instance,'small_icon'))
-                self.process_and_save_small_icon(field_name)
-        else:
-            field_name = 'picture'
-            self.process_and_save_small_icon(field_name)
+        #     field_name = 'picture'
+        #     old_image = getattr(old_instance, field_name)
+        #     new_image = getattr(self, field_name)
+        #     if old_image != new_image or not self.small_icon:
+        #         delete_old_image(getattr(old_instance,'small_icon'))
+        #         self.process_and_save_small_icon(field_name)
+        # else:
+        #     field_name = 'picture'
+        #     self.process_and_save_small_icon(field_name)
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -1045,28 +1048,28 @@ class Map(Post):
 
         self.component_snippet = f"{self.clearings} Clearing"
 
-        # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Post.objects.get(pk=self.pk)
+        # # Check if the image field has changed (only works if the instance is already saved)
+        # if self.pk:  # If the object already exists in the database
+        #     old_instance = Post.objects.get(pk=self.pk)
            
-            if self.board_image:
-                field_name = 'board_image'
-            else:
-                field_name = 'picture'
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image or not self.small_icon:
-                delete_old_image(getattr(old_instance,'small_icon'))
-                self.process_and_save_small_icon(field_name)
-                delete_old_image(getattr(old_instance,'picture'))
-                self.process_and_save_picture(field_name)
-        else:
-            if self.board_image:
-                field_name = 'board_image'
-            else:
-                field_name = 'picture'
-            self.process_and_save_small_icon(field_name)
-            self.process_and_save_picture(field_name)
+        #     if self.board_image:
+        #         field_name = 'board_image'
+        #     else:
+        #         field_name = 'picture'
+        #     old_image = getattr(old_instance, field_name)
+        #     new_image = getattr(self, field_name)
+        #     if old_image != new_image or not self.small_icon:
+        #         # delete_old_image(getattr(old_instance,'small_icon'))
+        #         self.process_and_save_small_icon(field_name)
+        #         # delete_old_image(getattr(old_instance,'picture'))
+        #         self.process_and_save_picture(field_name)
+        # else:
+        #     if self.board_image:
+        #         field_name = 'board_image'
+        #     else:
+        #         field_name = 'picture'
+        #     self.process_and_save_small_icon(field_name)
+        #     self.process_and_save_picture(field_name)
             
 
         super().save(*args, **kwargs)
@@ -1185,19 +1188,19 @@ class Vagabond(Post):
             self.picture = animal_default_picture(self)
 
         # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Post.objects.get(pk=self.pk)
+        # if self.pk:  # If the object already exists in the database
+        #     old_instance = Post.objects.get(pk=self.pk)
 
-            field_name = 'picture'
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image or not self.small_icon:
-                delete_old_image(getattr(old_instance,'small_icon'))
-                self.process_and_save_small_icon(field_name)
-        else:
+        #     field_name = 'picture'
+        #     old_image = getattr(old_instance, field_name)
+        #     new_image = getattr(self, field_name)
+        #     if old_image != new_image or not self.small_icon:
+        #         delete_old_image(getattr(old_instance,'small_icon'))
+        #         self.process_and_save_small_icon(field_name)
+        # else:
 
-            field_name = 'picture'
-            self.process_and_save_small_icon(field_name)
+        #     field_name = 'picture'
+        #     self.process_and_save_small_icon(field_name)
 
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -1550,18 +1553,18 @@ class Hireling(Post):
         # Call the parent class's save() method (this saves self to the database)
 
         # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Post.objects.get(pk=self.pk)
+        # if self.pk:  # If the object already exists in the database
+        #     old_instance = Post.objects.get(pk=self.pk)
 
-            field_name = 'picture'
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image or not self.small_icon:
-                delete_old_image(getattr(old_instance,'small_icon'))
-                self.process_and_save_small_icon(field_name)
-        else:
-            field_name = 'picture'
-            self.process_and_save_small_icon(field_name)
+        #     field_name = 'picture'
+        #     old_image = getattr(old_instance, field_name)
+        #     new_image = getattr(self, field_name)
+        #     if old_image != new_image or not self.small_icon:
+        #         delete_old_image(getattr(old_instance,'small_icon'))
+        #         self.process_and_save_small_icon(field_name)
+        # else:
+        #     field_name = 'picture'
+        #     self.process_and_save_small_icon(field_name)
 
 
 

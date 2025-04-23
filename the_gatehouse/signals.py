@@ -10,7 +10,7 @@ from .models import Profile  # Adjust the import based on your project structure
 from .discordservice import get_discord_display_name, check_user_guilds, send_discord_message
 from django.contrib.auth.models import Group
 from the_keep.utils import resize_image_to_webp, delete_old_image
-from the_keep.models import Post, Piece, PostTranslation
+from the_keep.models import Post, Piece, PostTranslation, Map, Deck, Vagabond, Landmark, Hireling, Tweak
 from the_gatehouse.models import ForegroundImage, BackgroundImage
 # logger = logging.getLogger("user_activity")
 
@@ -154,20 +154,6 @@ IMAGE_FIELDS_CONFIG = {
     },
 }
 
-SMALL_IMAGE_FIELDS = {
-    'picture': ('small_picture', 150),
-    'board_image': ('small_board_image', 800),
-    'card_image': ('small_card_image', 200),
-    'board_2_image': ('small_board_2_image', 800),
-    'card_2_image': ('small_card_2_image', 200),
-}
-
-SMALL_TRANS_IMAGE_FIELDS = {
-    'translated_board_image': ('small_board_image', 800),
-    'translated_card_image': ('small_card_image', 200),
-    'translated_board_2_image': ('small_board_2_image', 800),
-    'translated_card_2_image': ('small_card_2_image', 200),
-}
 
 @receiver(post_save)
 def handle_image_resize_to_webp(sender, instance, **kwargs):
@@ -202,43 +188,221 @@ def handle_image_resize_to_webp(sender, instance, **kwargs):
         instance.save(update_fields=updated_fields)
 
 
-@receiver(post_save, sender=ForegroundImage)
-@receiver(post_save, sender=BackgroundImage)
-def generate_small_image(sender, instance, created, **kwargs):
-    image_field = instance.image
 
-    if not image_field or not hasattr(image_field, 'path') or not os.path.exists(image_field.path):
+
+SMALL_IMAGE_FIELDS = {
+    'picture': ('small_picture', 150),
+    'board_image': ('small_board_image', 800),
+    'card_image': ('small_card_image', 200),
+    'board_2_image': ('small_board_2_image', 800),
+    'card_2_image': ('small_card_2_image', 200),
+}
+
+
+
+IMAGE_FIELD_CONFIG = {
+    PostTranslation: {
+        'fields': {
+            'translated_board_image': ('small_board_image', 800),
+            'translated_card_image': ('small_card_image', 200),
+            'translated_board_2_image': ('small_board_2_image', 800),
+            'translated_card_2_image': ('small_card_2_image', 200),
+        },
+        'flag': '_processed_small_images',
+    },
+    Map: {
+        'fields': {
+            'board_image': [
+                ('small_icon', 100),
+                ('picture', 350),
+            ],
+        },
+        'flag': '_processed_map_images',
+    },
+    Deck: {
+        'fields': {
+            'card_image': [
+                ('small_icon', 100),
+                ('picture', 350),
+            ],
+        },
+        'flag': '_processed_deck_images',
+    },
+    Vagabond: {
+        'fields': {
+            'picture': [('small_icon', 100)],
+        },
+        'flag': '_processed_other_images',
+    },
+    Hireling: {
+        'fields': {
+            'picture': [('small_icon', 100)],
+        },
+        'flag': '_processed_other_images',
+    },
+    Landmark: {
+        'fields': {
+            'picture': [('small_icon', 100)],
+        },
+        'flag': '_processed_other_images',
+    },
+    Tweak: {
+        'fields': {
+            'picture': [('small_icon', 100)],
+        },
+        'flag': '_processed_other_images',
+    },
+    ForegroundImage: {
+        'fields': {
+            'image': ('small_image', 992),
+        },
+        'flag': '_processed_image',
+    },
+    BackgroundImage: {
+        'fields': {
+            'image': ('small_image', 992),
+        },
+        'flag': '_processed_image',
+    },
+}
+
+
+
+
+
+
+
+
+
+
+# SMALL_TRANS_IMAGE_FIELDS = {
+#     'translated_board_image': ('small_board_image', 800),
+#     'translated_card_image': ('small_card_image', 200),
+#     'translated_board_2_image': ('small_board_2_image', 800),
+#     'translated_card_2_image': ('small_card_2_image', 200),
+# }
+
+# MAP_IMAGE_FIELDS = {
+#     'board_image': [
+#         ('small_icon', 100),
+#         ('picture', 350),
+#     ],
+# }
+
+# DECK_IMAGE_FIELDS = {
+#     'card_image': [
+#         ('small_icon', 100),
+#         ('picture', 350),
+#     ],
+# }
+
+# OTHER_IMAGE_FIELDS = {
+#     'picture': [
+#         ('small_icon', 100),
+#     ],
+# }
+
+
+
+@receiver(post_save)
+def process_small_images(sender, instance, **kwargs):
+    config = IMAGE_FIELD_CONFIG.get(sender)
+    if not config:
         return
 
-    # If small_image already exists and is newer, skip
-    if instance.small_image and os.path.exists(instance.small_image.path):
-        image_time = os.path.getmtime(image_field.path)
-        small_image_time = os.path.getmtime(instance.small_image.path)
-        if small_image_time >= image_time:
-            return  # Already processed
+    flag = config.get('flag', '_processed_image')
+    if hasattr(instance, flag):
+        return
 
-    try:
-        img = Image.open(image_field.path)
-        img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+    updated_fields = []
 
-        # Resize
-        max_size = 992
-        if img.width > max_size or img.height > max_size:
-            ratio = min(max_size / img.width, max_size / img.height)
-            new_size = (int(img.width * ratio), int(img.height * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
+    for original_field, targets in config['fields'].items():
+        original_file = getattr(instance, original_field, None)
+        if not original_file or not hasattr(original_file, 'path') or not os.path.exists(original_file.path):
+            continue
 
-        img_io = BytesIO()
-        img.save(img_io, format='WEBP', quality=80)
-        img_io.seek(0)
+        # Always treat targets as a list
+        if not isinstance(targets, list):
+            targets = [targets]
 
-        # Save to model
-        unique_filename = f"{uuid.uuid4().hex}.webp"
-        instance.small_image.save(unique_filename, img_io, save=False)
-        instance.save(update_fields=['small_image'])
+        for small_field_name, max_size in targets:
+            small_file = getattr(instance, small_field_name, None)
 
-    except Exception as e:
-        print(f"Error processing small image: {e}")
+            if small_file and hasattr(small_file, 'path') and os.path.exists(small_file.path):
+                orig_time = os.path.getmtime(original_file.path)
+                small_time = os.path.getmtime(small_file.path)
+                if small_time >= orig_time:
+                    continue
+
+            try:
+                img = Image.open(original_file.path)
+                img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+
+                if img.width > max_size or img.height > max_size:
+                    ratio = min(max_size / img.width, max_size / img.height)
+                    new_size = (int(img.width * ratio), int(img.height * ratio))
+                    img = img.resize(new_size, Image.LANCZOS)
+
+                img_io = BytesIO()
+                img.save(img_io, format='WEBP', quality=80)
+                img_io.seek(0)
+
+                if small_file and hasattr(small_file, 'path') and os.path.exists(small_file.path):
+                    try:
+                        delete_old_image(small_file)
+                    except Exception as e:
+                        print(f"Error deleting old image: {e}")
+
+                unique_name = f"{uuid.uuid4().hex}.webp"
+                getattr(instance, small_field_name).save(unique_name, ContentFile(img_io.read()), save=False)
+                updated_fields.append(small_field_name)
+
+            except Exception as e:
+                print(f"Error processing {small_field_name}: {e}")
+
+    if updated_fields:
+        setattr(instance, flag, True)
+        instance.save(update_fields=updated_fields)
+
+
+
+# @receiver(post_save, sender=ForegroundImage)
+# @receiver(post_save, sender=BackgroundImage)
+# def generate_small_image(sender, instance, created, **kwargs):
+#     image_field = instance.image
+
+#     if not image_field or not hasattr(image_field, 'path') or not os.path.exists(image_field.path):
+#         return
+
+#     # If small_image already exists and is newer, skip
+#     if instance.small_image and os.path.exists(instance.small_image.path):
+#         image_time = os.path.getmtime(image_field.path)
+#         small_image_time = os.path.getmtime(instance.small_image.path)
+#         if small_image_time >= image_time:
+#             return  # Already processed
+
+#     try:
+#         img = Image.open(image_field.path)
+#         img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+
+#         # Resize
+#         max_size = 992
+#         if img.width > max_size or img.height > max_size:
+#             ratio = min(max_size / img.width, max_size / img.height)
+#             new_size = (int(img.width * ratio), int(img.height * ratio))
+#             img = img.resize(new_size, Image.LANCZOS)
+
+#         img_io = BytesIO()
+#         img.save(img_io, format='WEBP', quality=80)
+#         img_io.seek(0)
+
+#         # Save to model
+#         unique_filename = f"{uuid.uuid4().hex}.webp"
+#         instance.small_image.save(unique_filename, img_io, save=False)
+#         instance.save(update_fields=['small_image'])
+
+#     except Exception as e:
+#         print(f"Error processing small image: {e}")
 
 
 
@@ -309,64 +473,252 @@ def generate_small_images(sender, instance, **kwargs):
 
 
 
-@receiver(post_save, sender=PostTranslation)
-def generate_translated_small_images(sender, instance, **kwargs):
+# @receiver(post_save, sender=PostTranslation)
+# def generate_translated_small_images(sender, instance, **kwargs):
     
-    # Prevent recursion
-    if hasattr(instance, '_processed_small_images'):
-        return
+#     # Prevent recursion
+#     if hasattr(instance, '_processed_small_images'):
+#         return
 
-    updated_fields = []
-    for original_field_name, (small_field_name, max_size) in SMALL_TRANS_IMAGE_FIELDS.items():
-        original_field = getattr(instance, original_field_name, None)
-        small_field = getattr(instance, small_field_name, None)
+#     updated_fields = []
+#     for original_field_name, (small_field_name, max_size) in SMALL_TRANS_IMAGE_FIELDS.items():
+#         original_field = getattr(instance, original_field_name, None)
+#         small_field = getattr(instance, small_field_name, None)
 
-        if not original_field or not hasattr(original_field, 'path') or not os.path.exists(original_field.path):
-            continue
+#         if not original_field or not hasattr(original_field, 'path') or not os.path.exists(original_field.path):
+#             continue
 
-        # Check if small image already exists and is newer
-        if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
-            image_time = os.path.getmtime(original_field.path)
-            small_image_time = os.path.getmtime(small_field.path)
-            if small_image_time >= image_time:
-                continue  # Already processed
+#         # Check if small image already exists and is newer
+#         if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#             image_time = os.path.getmtime(original_field.path)
+#             small_image_time = os.path.getmtime(small_field.path)
+#             if small_image_time >= image_time:
+#                 continue  # Already processed
 
-        try:
-            img = Image.open(original_field.path)
-            img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+#         try:
+#             img = Image.open(original_field.path)
+#             img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
 
-            # Resize if necessary
-            if img.width > max_size or img.height > max_size:
-                ratio = min(max_size / img.width, max_size / img.height)
-                new_size = (int(img.width * ratio), int(img.height * ratio))
-                img = img.resize(new_size, Image.LANCZOS)
+#             # Resize if necessary
+#             if img.width > max_size or img.height > max_size:
+#                 ratio = min(max_size / img.width, max_size / img.height)
+#                 new_size = (int(img.width * ratio), int(img.height * ratio))
+#                 img = img.resize(new_size, Image.LANCZOS)
 
-            # Save to memory
-            img_io = BytesIO()
-            img.save(img_io, format='WEBP', quality=80)
-            img_io.seek(0)
+#             # Save to memory
+#             img_io = BytesIO()
+#             img.save(img_io, format='WEBP', quality=80)
+#             img_io.seek(0)
 
-            # 🧹 Delete the old small image file (if it exists)
-            if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
-                try:
-                    # os.remove(small_field.path)
-                    delete_old_image(small_field)
-                    print(f"Deleted old small image: {small_field.path}")
-                except Exception as e:
-                    print(f"Could not delete old small image: {e}")
-
-
-            # Generate unique name and save to small field
-            unique_filename = f"{uuid.uuid4().hex}.webp"
-            getattr(instance, small_field_name).save(unique_filename, ContentFile(img_io.read()), save=False)
-            updated_fields.append(small_field_name)
+#             # 🧹 Delete the old small image file (if it exists)
+#             if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                 try:
+#                     # os.remove(small_field.path)
+#                     delete_old_image(small_field)
+#                     print(f"Deleted old small image: {small_field.path}")
+#                 except Exception as e:
+#                     print(f"Could not delete old small image: {e}")
 
 
-        except Exception as e:
-            print(f"Error processing {small_field_name}: {e}")
+#             # Generate unique name and save to small field
+#             unique_filename = f"{uuid.uuid4().hex}.webp"
+#             getattr(instance, small_field_name).save(unique_filename, ContentFile(img_io.read()), save=False)
+#             updated_fields.append(small_field_name)
 
-    # # Save all updated fields at once
-    # instance.save(update_fields=[small for _, (small, _) in SMALL_IMAGE_FIELDS.items()])
-    if updated_fields:
-        instance._processed_small_images = True  # Prevent recursion
-        instance.save(update_fields=updated_fields)
+
+#         except Exception as e:
+#             print(f"Error processing {small_field_name}: {e}")
+
+#     # # Save all updated fields at once
+#     # instance.save(update_fields=[small for _, (small, _) in SMALL_IMAGE_FIELDS.items()])
+#     if updated_fields:
+#         instance._processed_small_images = True  # Prevent recursion
+#         instance.save(update_fields=updated_fields)
+
+
+
+
+# @receiver(post_save, sender=Map)
+# def generate_map_images(sender, instance, **kwargs):
+    
+#     # Prevent recursion
+#     if hasattr(instance, '_processed_map_images'):
+#         return
+#     print('processing map')
+#     updated_fields = []
+#     for original_field_name, targets in MAP_IMAGE_FIELDS.items():
+#         original_field = getattr(instance, original_field_name, None)
+
+#         if not original_field or not hasattr(original_field, 'path') or not os.path.exists(original_field.path):
+#             continue
+
+#         for small_field_name, max_size in targets:
+#             small_field = getattr(instance, small_field_name, None)
+
+#             # Check if small image already exists and is newer
+#             if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                 image_time = os.path.getmtime(original_field.path)
+#                 small_image_time = os.path.getmtime(small_field.path)
+#                 if small_image_time >= image_time:
+#                     continue  # Already processed
+
+#             try:
+#                 img = Image.open(original_field.path)
+#                 img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+
+#                 # Resize if necessary
+#                 if img.width > max_size or img.height > max_size:
+#                     ratio = min(max_size / img.width, max_size / img.height)
+#                     new_size = (int(img.width * ratio), int(img.height * ratio))
+#                     img = img.resize(new_size, Image.LANCZOS)
+
+#                 # Save to memory
+#                 img_io = BytesIO()
+#                 img.save(img_io, format='WEBP', quality=80)
+#                 img_io.seek(0)
+
+#                 if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                     try:
+#                         delete_old_image(small_field)
+#                     except Exception as e:
+#                         print(f"Could not delete old small image: {e}")
+
+#                 unique_filename = f"{uuid.uuid4().hex}.webp"
+#                 getattr(instance, small_field_name).save(unique_filename, ContentFile(img_io.read()), save=False)
+#                 updated_fields.append(small_field_name)
+
+#             except Exception as e:
+#                 print(f"Error processing {small_field_name}: {e}")
+
+
+#     # # Save all updated fields at once
+#     # instance.save(update_fields=[small for _, (small, _) in SMALL_IMAGE_FIELDS.items()])
+#     if updated_fields:
+#         instance._processed_map_images = True  # Prevent recursion
+#         instance.save(update_fields=updated_fields)
+
+
+
+
+# @receiver(post_save, sender=Deck)
+# def generate_deck_images(sender, instance, **kwargs):
+    
+#     # Prevent recursion
+#     if hasattr(instance, '_processed_deck_images'):
+#         return
+#     print('processing deck')
+#     updated_fields = []
+#     for original_field_name, targets in DECK_IMAGE_FIELDS.items():
+#         original_field = getattr(instance, original_field_name, None)
+
+#         if not original_field or not hasattr(original_field, 'path') or not os.path.exists(original_field.path):
+#             continue
+
+#         for small_field_name, max_size in targets:
+#             small_field = getattr(instance, small_field_name, None)
+
+#             # Check if small image already exists and is newer
+#             if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                 image_time = os.path.getmtime(original_field.path)
+#                 small_image_time = os.path.getmtime(small_field.path)
+#                 if small_image_time >= image_time:
+#                     continue  # Already processed
+
+#             try:
+#                 img = Image.open(original_field.path)
+#                 img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+
+#                 # Resize if necessary
+#                 if img.width > max_size or img.height > max_size:
+#                     ratio = min(max_size / img.width, max_size / img.height)
+#                     new_size = (int(img.width * ratio), int(img.height * ratio))
+#                     img = img.resize(new_size, Image.LANCZOS)
+
+#                 # Save to memory
+#                 img_io = BytesIO()
+#                 img.save(img_io, format='WEBP', quality=80)
+#                 img_io.seek(0)
+
+#                 if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                     try:
+#                         delete_old_image(small_field)
+#                     except Exception as e:
+#                         print(f"Could not delete old small image: {e}")
+
+#                 unique_filename = f"{uuid.uuid4().hex}.webp"
+#                 getattr(instance, small_field_name).save(unique_filename, ContentFile(img_io.read()), save=False)
+#                 updated_fields.append(small_field_name)
+
+#             except Exception as e:
+#                 print(f"Error processing {small_field_name}: {e}")
+
+
+#     # # Save all updated fields at once
+#     # instance.save(update_fields=[small for _, (small, _) in SMALL_IMAGE_FIELDS.items()])
+#     if updated_fields:
+#         instance._processed_deck_images = True  # Prevent recursion
+#         instance.save(update_fields=updated_fields)
+
+
+
+# @receiver(post_save, sender=Vagabond)
+# @receiver(post_save, sender=Hireling)
+# @receiver(post_save, sender=Landmark)
+# @receiver(post_save, sender=Tweak)
+# def generate_other_images(sender, instance, **kwargs):
+    
+#     # Prevent recursion
+#     if hasattr(instance, '_processed_other_images'):
+#         return
+#     print('processing other')
+#     updated_fields = []
+#     for original_field_name, targets in OTHER_IMAGE_FIELDS.items():
+#         original_field = getattr(instance, original_field_name, None)
+
+#         if not original_field or not hasattr(original_field, 'path') or not os.path.exists(original_field.path):
+#             continue
+
+#         for small_field_name, max_size in targets:
+#             small_field = getattr(instance, small_field_name, None)
+
+#             # Check if small image already exists and is newer
+#             if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                 image_time = os.path.getmtime(original_field.path)
+#                 small_image_time = os.path.getmtime(small_field.path)
+#                 if small_image_time >= image_time:
+#                     continue  # Already processed
+
+#             try:
+#                 img = Image.open(original_field.path)
+#                 img = img.convert("RGBA" if img.mode in ("RGBA", "LA") else "RGB")
+
+#                 # Resize if necessary
+#                 if img.width > max_size or img.height > max_size:
+#                     ratio = min(max_size / img.width, max_size / img.height)
+#                     new_size = (int(img.width * ratio), int(img.height * ratio))
+#                     img = img.resize(new_size, Image.LANCZOS)
+
+#                 # Save to memory
+#                 img_io = BytesIO()
+#                 img.save(img_io, format='WEBP', quality=80)
+#                 img_io.seek(0)
+
+#                 if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
+#                     try:
+#                         delete_old_image(small_field)
+#                     except Exception as e:
+#                         print(f"Could not delete old small image: {e}")
+
+#                 unique_filename = f"{uuid.uuid4().hex}.webp"
+#                 getattr(instance, small_field_name).save(unique_filename, ContentFile(img_io.read()), save=False)
+#                 updated_fields.append(small_field_name)
+
+#             except Exception as e:
+#                 print(f"Error processing {small_field_name}: {e}")
+
+
+#     # # Save all updated fields at once
+#     # instance.save(update_fields=[small for _, (small, _) in SMALL_IMAGE_FIELDS.items()])
+#     if updated_fields:
+#         instance._processed_other_images = True  # Prevent recursion
+#         instance.save(update_fields=updated_fields)
