@@ -12,28 +12,30 @@
 
 
 {% block content %}
-<article class="media content-section">
+<article class="media content-section mb-5">
     <div class="media-body">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class='d-flex'>
-            <h1>{% trans 'Resources' %}</h1>
+                <h1>{% trans 'Resources' %}</h1>
             </div>
             <div class='d-flex'>
-            
-            {% if user.is_authenticated and user.profile.assets.count != 0 %}
-                <a href="{% url 'profile' %}#assets" class="btn btn-sm btn-secondary ml-1 mb-3">My Resources</a>
-            {% endif %}
-
-            <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary ml-1 mb-3">
-                {% if user.profile.designer %}
-                    {% trans 'New Post' %}
-                {% else %}
-                    {% trans 'Request Post' %}
+                
+                {% if user.is_authenticated and user.profile.assets.count != 0 %}
+                    <a href="{% url 'profile' %}#assets" class="btn btn-sm btn-secondary ml-1 mb-3">{% trans 'My Resources' %}</a>
                 {% endif %}
-            </a>
 
-            <a class="btn btn-sm btn-success ml-1 mb-3" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
-        </div>
+                <a class="btn btn-sm btn-success ml-1 mb-3" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
+
+                <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary ml-1 mb-3">
+                    {% if user.profile.designer %}
+                        {% trans 'New Post' %}
+                    {% else %}
+                        {% trans 'Request Post' %}
+                    {% endif %}
+                </a>
+
+                
+            </div>
         </div>
     </div>
 </article>
@@ -119,7 +121,6 @@
             </div>
         
         {% endif %} {% endcomment %}
-
 
 
         <article class="media content-section">

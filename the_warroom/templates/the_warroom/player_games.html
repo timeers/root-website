@@ -25,14 +25,29 @@
         <i class="bi bi-chevron-right"></i>
         {% trans 'Games' %}
     </div>
-    {% if user.profile == player %}
     <div class='d-flex align-items-center'>
-        <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success mt-1 ml-1 mb-3" id="recordscorecard">
+
+        <a href="{% url 'games-home' %}" class="btn btn-sm btn-secondary mt-1 ml-1 mb-3" id="games">
+            All Games
+        </a>
+    {% if user.profile == player %}
+    
+        <div class="btn-group mt-1 ml-1 mb-3">
+            <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                {% trans 'Record' %} +
+            </button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'record-game' %}">New Game</a></li>
+              <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">New Scorecard</a></li>
+            </ul>
+        </div>
+
+        {% comment %} <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success mt-1 ml-1 mb-3" id="recordscorecard">
             {% trans 'New Scorecard' %} +
         </a>
         <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mt-1 ml-1 mb-3" id="recordgame">
             {% trans 'New Game' %} +
-        </a>
+        </a> {% endcomment %}
 
 
         {% if user_active_count %}
@@ -50,8 +65,9 @@
         {% endif %}
 
 
-    </div>
+    
     {% endif %}
+    </div>
 </div>
 
 <div class="media content-section">
