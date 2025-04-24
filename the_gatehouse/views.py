@@ -8,10 +8,8 @@ from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import activate, get_language
 
-# from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import ListView, UpdateView, CreateView
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.paginator import Paginator, EmptyPage
+from django.views.generic import ListView
+from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied
 from django.conf import settings
 from functools import wraps
@@ -469,59 +467,6 @@ def game_bookmarks(request, slug):
 
 
 
-# @login_required
-# def player_games(request, slug):
-#     player = get_object_or_404(Profile, slug=slug.lower())
-#     if request.user.is_authenticated:
-#         if request.user.profile.weird :
-#             games = player.get_games_queryset()
-#         else:
-#             games = player.get_games_queryset().filter(official=True)
-#     else:
-#         games = player.get_games_queryset()
-    
-#     # print(f'games: {games.count()}')
-#     # Get the total count of games (total posts matching the filter)
-#     total_count = games.count()
- 
-#     # Pagination
-#     paginator = Paginator(games, settings.PAGE_SIZE)  # Show 10 posts per page
- 
-#     # Get the current page number from the request (default to 1)
-#     page_number = request.GET.get('page')  # e.g., ?page=2
-
-
-#     quantity_faction = None
-#     quality_faction = None
-#     quality_winrate = None
-#     quality_count = None
-#     quantity_count = None
-#     if not page_number:
-#             quantity_faction = player.most_used_faction()
-#             quantity_count = player.games_played(quantity_faction)
-
-#             quality_faction = player.most_successful_faction()
-#             quality_winrate = player.winrate(faction=quality_faction)
-#             quality_count = player.games_won(quality_faction)
-            
-#     page_obj = paginator.get_page(page_number)  # Get the page object for the current page
-#     # print(f'Page: {page_number}')
-#     context = {
-#         'games': page_obj,
-#         'total_count': total_count,  # Pass the total count to the template
-#         'page_obj': page_obj,
-#         'player': player,
-#         'bookmark_page': False,
-#         'quality_faction': quality_faction,
-#         'quality_winrate': quality_winrate,
-#         'quality_count': quality_count,
-#         'quantity_faction': quantity_faction,
-#         'quantity_count': quantity_count,
-#     }
-#     if request.htmx:
-#         return render(request, 'the_gatehouse/partials/profile_game_list.html', context=context)
-#     raise Http404("Object not found")
-
 
 @login_required
 def onboard_user(request, user_type=None):
@@ -541,13 +486,6 @@ def onboard_user(request, user_type=None):
                 messages.info(request, "Welcome!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
-        # elif user_type == 'tester' and not profile.tester_onboard:
-        #     if profile.tester:
-        #         profile.tester_onboard = True
-        #         profile.save()
-        #         messages.info(request, "Enjoy!")
-        #     else:
-        #         messages.warning(request, f"You do not have access to the {user_type} role")
         elif user_type == 'editor' and not profile.editor_onboard:
             if profile.editor:
                 profile.editor_onboard = True
@@ -558,6 +496,7 @@ def onboard_user(request, user_type=None):
         elif user_type == 'designer' and not profile.designer_onboard:
             if profile.designer:
                 profile.designer_onboard = True
+                profile.editor_onboard = True
                 profile.save()
                 messages.info(request, "Welcome, go make some cool stuff!")
             else:
@@ -597,10 +536,9 @@ def onboard_decline(request, user_type=None):
     "designer": "P",
     "editor": "P",
     "player": "P",
-    # 'tester': "T",
     }
-    print(user_type)
-    print(decline_choices[user_type])
+    # print(user_type)
+    # print(decline_choices[user_type])
     decline_type = decline_choices[user_type]
     # If a user refuses to accept website policies they will demote themselves
     if request.method == 'POST':
@@ -608,9 +546,6 @@ def onboard_decline(request, user_type=None):
         # Refused admin become designers. Refused designers become players. Refused players become banned (deactivated)
         # print(decline_type)
         if decline_type:
-            # if decline_type == "T":
-            #     profile.tester = False
-            # else:
             profile.group = decline_type
         else:
              profile.gourp = "B"
@@ -626,11 +561,8 @@ def onboard_decline(request, user_type=None):
             case "editor":
                 profile.editor_onboard = False
                 messages.error(request, "Contact an Administrator if you would like to edit your posts")
-            # case "tester":
-            #     profile.tester_onboard = False
-            #     messages.error(request, "Contact an Administrator if you want to record detailed game data")
             case "player":
-                # profile.tester_onboard = False
+                profile.player_onboard = False
                 messages.warning(request, "Once you accept you will be able to record games")
             case _:
                 profile.player_onboard = False

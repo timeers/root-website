@@ -33,10 +33,6 @@ urlpatterns = [
 
     path('woodland-admin/', admin.site.urls),
     
-    # path('register/', user_views.register, name='register'),
-
-    # path('login/', auth_views.LoginView.as_view(template_name='the_gatehouse/login.html'), name='login'),
-    # path('logout/', auth_views.LogoutView.as_view(template_name='the_gatehouse/logout.html'), name='logout'),
 
     path('password-reset/', 
          auth_views.PasswordResetView.as_view(template_name='the_gatehouse/password_reset.html'), 

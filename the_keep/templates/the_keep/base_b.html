@@ -8,14 +8,16 @@
                 <div class='background-image-padding' style="{{ background_image.style }}"></div>
             {% endif %}
 
-            {% if global_message %}
-                <div class="alert alert-{{ global_message_type }}">
-                    {{ global_message }}
-                </div>
-            {% endif %}
 
-            {% if messages %}
+            {% if messages or global_message %}
             <div class="floating-alert">
+
+                {% if global_message %}
+                    <div class="alert alert-{{ global_message_type }}">
+                        {{ global_message }}
+                    </div>
+                {% endif %}
+                
                 {% for message in messages %}
                 <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}">
                     {{ message }}

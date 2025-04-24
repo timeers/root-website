@@ -34,30 +34,6 @@
 
           <!-- Navbar Right Side -->
           <div class="navbar-nav ms-auto align-items-center"> 
-              {% comment %} {% if user.profile.designer %}
-
-                  <!-- Dropdownn for new content -->
-                    <li class="nav-item dropdown">
-                      <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        New
-                      </a>
-                      <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{% url 'faction-create' %}">{% trans 'Faction' %}</a></li>
-                        <li><a class="dropdown-item" href="{% url 'vagabond-create' %}">Vagabond</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'map-create' %}">Map</a></li>
-                        <li><a class="dropdown-item" href="{% url 'deck-create' %}">Deck</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'landmark-create' %}">Landmark</a></li>
-                        <li><a class="dropdown-item" href="{% url 'hireling-create' %}">Hireling</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{% url 'expansion-create' %}">Expansion</a></li>
-                        <li><a class="dropdown-item" href="{% url 'tweak-create' %}">Tweak</a></li>
-                      </ul>
-                    </li>
-              {% endif %} {% endcomment %}
-
-
 
               {% if user.is_authenticated %}
 
@@ -107,9 +83,6 @@
                         </li>
                       
                       {% endif %}
-                      {% comment %} {% if user_posts_count %}
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection-fill"></i> {% trans 'My Posts' %} ({{ user_posts_count }})</a></li>
-                      {% endif %} {% endcomment %}
 
                       
                       {% if user_recent_posts or user.profile.designer %}

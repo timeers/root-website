@@ -12,11 +12,19 @@
     <div>Thank you for your help!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
+{% elif user_type == 'designer' and active_user.designer and active_user.editor_onboard %}
+    <div>Thank you for your interest in posting your own fan-made Root content.</div>
+    <div>All the rules for editing posts apply to posting new content. By accepting, you also agree to not over-post or post anything you do not plan to develp further.</div>
+    <div>If you would prefer to have an admin post your material, click "Decline".</div>
+    <div>Have fun creating and enjoy!</div>
+    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+
 {% elif user_type == 'designer' and active_user.designer %}
     <div>Thank you for your interest in posting your own fan-made Root content.</div>
-    <div>Every post should be linked to a Discord or BGG thread for discussion.</div>
-    <div>By accepting, you agree to not over-post or post offensive material.</div>
-    <div>If you would prefer to have an admin update your material on your behalf, click "Decline".</div>
+    <div>Every post must be linked to a Discord or BGG thread for discussion.</div>
+    <div>By accepting, you agree to not over-post or post offensive material. You also agree to only post ideas you intend to develop further.</div>
+    <div>If you would prefer to have an admin post your material, click "Decline".</div>
     <div>Have fun creating and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
@@ -25,20 +33,14 @@
     <div>You will be able to edit and update all of your existing posts.</div>
     <div>Every post should be linked to a Discord or BGG thread for discussion.</div>
     <div>By accepting, you agree to not post offensive material.</div>
-    <div>If you would prefer to have an admin update your material on your behalf, click "Decline".</div>
+    <div>If you would prefer to have an admin continue to update your material, click "Decline".</div>
     <div>Have fun creating and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
-{% comment %} {% elif user_type == 'tester' and active_user.tester %}
-    <div>Thank you for your interest in recording detailed game data.</div> 
-    <div>By accepting you agree to only submit accurate game data to the best of your knowledge.</div>
-    <div>Have fun and enjoy!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %} {% endcomment %}
-
 {% elif user_type == 'player' and active_user.player %}
-    <div>Thank you for logging in. We're happy to have you here.</div> 
+    <div>Thank you for logging in. We're happy to have you here!</div> 
     <div>By accepting you agree to not post spam or offensive material.</div>
-    <div>You also agree to post only games that are accurate to the best of your knowledge.</div>
+    <div>You also agree to only post games that are accurate to the best of your knowledge.</div>
     <div>If you see anything that does not align with this agreement please report it.</div>
     <div>Please be respectful and enjoy!</div>
     {% include 'the_gatehouse/partials/onboard_buttons.html' %}

@@ -33,7 +33,7 @@ from the_gatehouse.views import (designer_required_class_based_view, designer_re
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
 from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
-from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme
+from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme, get_thematic_images
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -348,7 +348,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         obj = self.get_object()
         if self.request.user.profile.admin:
             if not obj.designer.designer:
-                if obj.designer.editor and self.request.method != "POST":
+                if obj.designer.editor_onboard and self.request.method != "POST":
                     messages.warning(self.request, f'{obj.designer} is authorized to edit {obj.title}. Ensure you have their permission to edit before making any changes.')
                 return True
             elif self.request.user.profile != obj.designer:
@@ -1295,18 +1295,17 @@ def list_view(request, slug=None):
     
     theme = get_theme(request)
 
+    # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
+    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
+    # # Group the images by location
+    # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+    # # Select a random image from each location
+    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+    # # If using PostgreSQL or another database that supports 'distinct' on a field:
+    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
 
-
-    background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # Group the images by location
-    grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-    # Select a random image from each location
-    foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-    # If using PostgreSQL or another database that supports 'distinct' on a field:
-    # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
-
+    background_image, foreground_images = get_thematic_images(theme=theme, page='library')
 
     posts, search, search_type, designer, faction_type, reach_value, status = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
@@ -1957,19 +1956,19 @@ class PNPAssetListView(ListView):
         if self.request.user.is_authenticated:
             context['profile'] = self.request.user.profile  # Adding the user to the context
             context['shared_assets'] = PNPAsset.objects.filter(shared_by__slug=self.request.user.profile.slug)
-            theme = self.request.user.profile.theme
+            # theme = self.request.user.profile.theme
         else:
             context['profile'] = None
             context['shared_assets'] = None
-            theme = None
-
-        background_image = BackgroundImage.objects.filter(theme=theme, page="resources").order_by('?').first()
-        all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="resources")
-        # Group the images by location
-        grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-        # Select a random image from each location
-        foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-
+            # theme = None
+        theme = get_theme(self.request)
+        # background_image = BackgroundImage.objects.filter(theme=theme, page="resources").order_by('?').first()
+        # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="resources")
+        # # Group the images by location
+        # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+        # # Select a random image from each location
+        # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+        background_image, foreground_images = get_thematic_images(theme=theme, page='resources')
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
 

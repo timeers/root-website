@@ -1,12 +1,16 @@
 import random
 from django.utils.text import slugify
-# from django.utils.translation import get_language, get_language_from_request, activate
+
 from django.apps import apps
 import uuid
 from urllib.parse import urljoin
-from django.utils import timezone 
+
 from datetime import date
 from django.db.models import Q, F
+
+from itertools import groupby
+from operator import attrgetter
+
 
 def slugify_instance_discord(instance, save=False, new_slug=None):
     if new_slug is not None:
@@ -120,19 +124,23 @@ def get_theme(request):
     # Get the current holidays that are active
     # current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(start_date__lte=now, end_date__gte=now)
     
-    today_doy = date.today().timetuple().tm_yday
+    # today_doy = date.today().timetuple().tm_yday
 
-    current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(
-        Q(start_day_of_year__lte=today_doy, end_day_of_year__gte=today_doy) |  # Normal range
-        Q(start_day_of_year__gt=F('end_day_of_year'),  # Handles year wrap (e.g. Dec 25–Jan 5)
-        end_day_of_year__gte=today_doy) | 
-        Q(start_day_of_year__gt=F('end_day_of_year'),
-        start_day_of_year__lte=today_doy)
-    )
+    # current_holidays = apps.get_model('the_gatehouse', 'Holiday').objects.filter(
+    #     Q(start_day_of_year__lte=today_doy, end_day_of_year__gte=today_doy) |  # Normal range
+    #     Q(start_day_of_year__gt=F('end_day_of_year'),  # Handles year wrap (e.g. Dec 25–Jan 5)
+    #     end_day_of_year__gte=today_doy) | 
+    #     Q(start_day_of_year__gt=F('end_day_of_year'),
+    #     start_day_of_year__lte=today_doy)
+    # )
 
-    # If there are any active holidays, get the most recent one
-    if current_holidays.exists():
-        current_holiday = current_holidays.order_by('-start_date').first()  # Get the holiday that started most recently
+    current_holiday = get_current_holiday()
+
+
+    # # If there are any active holidays, get the most recent one
+    # if current_holidays.exists():
+    #     current_holiday = current_holidays.order_by('-start_date').first()  # Get the holiday that started most recently
+    if current_holiday:
         current_theme = apps.get_model('the_gatehouse', 'Theme').objects.filter(holiday=current_holiday).first()
     else:
         current_theme = None  # No active holiday theme
@@ -147,3 +155,86 @@ def get_theme(request):
             theme = config.default_theme  # Default theme if user is not authenticated
     
     return theme
+
+
+def get_current_holiday():
+    today_doy = date.today().timetuple().tm_yday
+    Holiday = apps.get_model('the_gatehouse', 'Holiday')
+
+    current_holidays = Holiday.objects.filter(
+        Q(start_day_of_year__lte=today_doy, end_day_of_year__gte=today_doy) |  # Normal range
+        Q(start_day_of_year__gt=F('end_day_of_year'), end_day_of_year__gte=today_doy) |  # Wrap: after new year
+        Q(start_day_of_year__gt=F('end_day_of_year'), start_day_of_year__lte=today_doy)  # Wrap: before new year
+    )
+
+    if current_holidays.exists():
+        return current_holidays.order_by('-start_date').first()
+    
+    return None
+
+
+
+def get_thematic_images(theme, page):
+    """
+    Returns a background image and a list of randomly chosen foreground images grouped by location,
+    all filtered by theme and page.
+    """    
+    
+    BackgroundImage = apps.get_model('the_gatehouse', 'BackgroundImage')
+    ForegroundImage = apps.get_model('the_gatehouse', 'ForegroundImage')
+
+    # # Get a random background image
+    # background_image = BackgroundImage.objects.filter(theme=theme, page=page).order_by('?').first()
+    # if not background_image and theme.backup_theme and theme != theme.backup_theme:
+    #     background_image = BackgroundImage.objects.filter(theme=theme.backup_theme, page=page).order_by('?').first()
+
+    # # Get all matching foreground images
+    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page=page)
+
+
+
+    # # Sort and group foreground images by location
+    # grouped_by_location = groupby(
+    #     sorted(all_foreground_images, key=attrgetter('location')),
+    #     key=attrgetter('location')
+    # )
+
+    # if theme.backup_theme and theme != theme.backup_theme:
+    #     backup_foreground_images = ForegroundImage.objects.filter(theme=theme.backup_theme, page=page)
+    #     backup_by_location = groupby(
+    #         sorted(backup_foreground_images, key=attrgetter('location')),
+    #         key=attrgetter('location')
+    #     )
+
+    # # Select one random image per location
+    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+
+
+
+    # return background_image, foreground_images
+
+    # 1. Random background image
+    background_image = BackgroundImage.objects.filter(theme=theme, page=page).order_by('?').first()
+    if not background_image and theme.backup_theme and theme != theme.backup_theme:
+        background_image = BackgroundImage.objects.filter(theme=theme.backup_theme, page=page).order_by('?').first()
+
+    # 2. Foreground images from main theme
+    all_foreground_images = list(ForegroundImage.objects.filter(theme=theme, page=page))
+    location_to_images = {}
+
+    # 3. Group main theme by location
+    for location, group in groupby(sorted(all_foreground_images, key=attrgetter('location')), key=attrgetter('location')):
+        location_to_images[location] = list(group)
+
+    # 4. Check for missing locations from backup theme
+    if theme.backup_theme and theme != theme.backup_theme:
+        backup_foreground_images = ForegroundImage.objects.filter(theme=theme.backup_theme, page=page)
+
+        for location, group in groupby(sorted(backup_foreground_images, key=attrgetter('location')), key=attrgetter('location')):
+            if location not in location_to_images:
+                location_to_images[location] = list(group)
+
+    # 5. Select one random image per location
+    foreground_images = [random.choice(images) for images in location_to_images.values()]
+
+    return background_image, foreground_images

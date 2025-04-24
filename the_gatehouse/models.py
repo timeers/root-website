@@ -62,6 +62,10 @@ class Theme(models.Model):
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
     holiday = models.ForeignKey(Holiday, blank=True, null=True, on_delete=models.SET_NULL)
+    public = models.BooleanField(default=False)
+    backup_theme = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+
+
     def __str__(self):
         return self.name
 
@@ -79,7 +83,7 @@ class PageChoices(models.TextChoices):
 
 class BackgroundImage(models.Model):
     name = models.CharField(max_length=100)    
-    artist = models.CharField(max_length=100, blank=True, null=True)
+    # artist = models.CharField(max_length=100, blank=True, null=True)
     background_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(upload_to='background_images')
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
@@ -160,7 +164,7 @@ class ForegroundImage(models.Model):
         SECOND = 101, 'Second Title'
         THIRD = 102, 'Third Title'
     name = models.CharField(max_length=100)
-    artist = models.CharField(max_length=100, blank=True, null=True)
+    # artist = models.CharField(max_length=100, blank=True, null=True)
     foreground_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
     image = models.ImageField(upload_to='foreground_images')
@@ -273,7 +277,6 @@ class Profile(models.Model):
     slug = models.SlugField(unique=True, null=True, blank=True)
     bookmarks = models.ManyToManyField('self', through='PlayerBookmark')
     player_onboard = models.BooleanField(default=False)
-    # tester_onboard = models.BooleanField(default=False)
     editor_onboard = models.BooleanField(default=False)
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)

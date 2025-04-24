@@ -38,7 +38,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
-from the_gatehouse.utils import get_uuid, get_theme, build_absolute_uri
+from the_gatehouse.utils import get_uuid, get_theme, build_absolute_uri, get_thematic_images
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -115,13 +115,17 @@ class GameListView(ListView):
             profile = None
             # theme = None
 
-        background_image = BackgroundImage.objects.filter(theme=theme, page="games").order_by('?').first()
-        # foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")
-        all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")
-        # Group the images by location
-        grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-        # Select a random image from each location
-        foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+        # background_image = BackgroundImage.objects.filter(theme=theme, page="games").order_by('?').first()
+        # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")
+        # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="games")
+        # # Group the images by location
+        # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
+        # # Select a random image from each location
+        # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
+
+        background_image, foreground_images = get_thematic_images(theme=theme, page='games')
+
+
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
 
