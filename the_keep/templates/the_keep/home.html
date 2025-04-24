@@ -10,8 +10,8 @@
 <meta property="og:image:height" content="630" /> {% endcomment %}
 <meta property="og:site_name" content="{{ site_title }}">
 <meta property="og:title" content="The {{ site_title }}">
-<meta property="og:description" content="The {{ site_title }} is a site for posting and discoverting fan-created content for the woodland war game, Root, by Leder Games.">
-<meta name="description" content="The {{site_title}} is a site for posting and discoverting fan-created content for the woodland war game, Root, by Leder Games.">
+<meta property="og:description" content="The {{ site_title }} is a site for posting and discovering fan-created content for the woodland war game, Root, by Leder Games.">
+<meta name="description" content="The {{site_title}} is a site for posting and discovering fan-created content for the woodland war game, Root, by Leder Games.">
 {% endblock meta%}
 
 
@@ -22,9 +22,9 @@
 
     <picture>
         <!-- Load a smaller version on small screens -->
-        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/ArchiveSmall.webp' %}">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/BarrenArchiveSmall.webp' %}">
         <!-- Default image for larger screens -->
-        <img src="{% static 'images/homepage/Archive.webp' %}" alt="The Archive Image">
+        <img src="{% static 'images/homepage/BarrenArchive.webp' %}" alt="The Archive Image">
     </picture>
 
 
@@ -50,9 +50,9 @@
 
     <picture>
         <!-- Load a smaller version on small screens -->
-        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/BattlefieldSmall.webp' %}">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/BarrenBattlefieldSmall.webp' %}">
         <!-- Default image for larger screens -->
-        <img src="{% static 'images/homepage/Battlefield.webp' %}" alt="The Battlefield Image">
+        <img src="{% static 'images/homepage/BarrenBattlefield.webp' %}" alt="The Battlefield Image">
     </picture>
 
 
@@ -74,9 +74,9 @@
 
     <picture>
         <!-- Load a smaller version on small screens -->
-        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/WorkshopSmall.webp' %}">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/BarrenWorkshopSmall.webp' %}">
         <!-- Default image for larger screens -->
-        <img src="{% static 'images/homepage/Workshop.webp' %}" alt="The Workshop Image">
+        <img src="{% static 'images/homepage/BarrenWorkshop.webp' %}" alt="The Workshop Image">
     </picture>
 
 
@@ -86,10 +86,10 @@
         </div>
         <div>
 
-            {% trans 'Submit your fan content.' %}
-            <br>
             {% trans 'Search PNP resources & templates to make your own Factions.' %}
-
+            <br>
+            
+            {% trans 'Submit your fan content.' %}
         </div>
         <a class="btn btn-primary mb-2 mt-2"  href="{% url 'asset-list' %}">{% trans 'View' %}</a>
     </div>

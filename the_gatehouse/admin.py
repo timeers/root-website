@@ -27,7 +27,7 @@ class HolidayAdmin(admin.ModelAdmin):
     list_display = ['name', 'start_date', 'end_date']
 
 class ThemeAdmin(admin.ModelAdmin):
-    list_display = ['name']
+    list_display = ['name', 'holiday', 'public', 'backup_theme']
     inlines = [BackgroundInline, ForegroundInline]
 
 class BackgroundImageAdmin(admin.ModelAdmin):
