@@ -41,6 +41,6 @@ urlpatterns = [
     path('feedback/french-invite/<slug:slug>/', french_root_invite, name='french-root-invite'),
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),
 
-    path('fake-error/', trigger_error),
-    path('test-error/', trigger_other_error),
+    # path('fake-error/', trigger_error),
+    # path('test-error/', trigger_other_error),
 ]

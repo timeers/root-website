@@ -1,1 +1,132 @@
-An error occured
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+
+    <title>Root Database - Internal Error</title>
+
+    <!-- Minimal CSS for fallback styling -->
+    <style>
+        body {
+          background-color: #fafafa;
+          color: #333333;
+          margin-top: 5rem;
+          font-family: 'Baskerville', serif; /* Use Baskerville for body text */
+          display: flex;
+          flex-direction: column;
+          height: 100%;  /* Make sure the body takes up the entire height of the screen */
+        }
+
+        h1.root-title {
+          font-family: 'Luminari', serif; 
+        }
+
+        a.clickable-link {
+          color: #007bff; /* Link color */
+          text-decoration: underline; /* Underline the text */
+          cursor: pointer; /* Make the cursor a hand when hovering */
+          transition: color 0.3s ease; /* Smooth transition for hover color */
+        }
+
+        img.responsive-img {
+          max-width: 100%;
+          height: auto;
+        }
+        .rounded-corner-img {
+          border-radius: 10px;
+        }
+        .bg-steel {
+          background-color: #5f788a;
+        }
+
+
+     .footer {
+          margin-top: auto; /* Pushes footer to the bottom */
+          background-color: #5f788a;
+          color: white;
+          padding: 15px;
+          text-align: center;
+     }
+   
+   
+     /* Container for footer content */
+     footer .footer-container {
+          display: flex;
+          flex-direction: column;
+     }
+     
+     
+     
+     /* Links styling */
+     footer a {
+          color: #cbd5db;
+          text-decoration: none;
+          margin: 0 10px;
+     }
+     
+     footer a:hover {
+          text-decoration: underline;
+          color: white;
+     }
+     
+    </style>
+</head>
+<body>
+
+
+     <header class="site-header">
+          <nav class="navbar navbar-expand-lg navbar-dark bg-steel fixed-top">
+            <div class="container">
+              <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+              </button>
+              <h1><a class="navbar-brand mr-4 root-title" href="/home">Root Database</a></h1>
+
+              <div class="collapse navbar-collapse" id="navbarToggle">
+                <div class="navbar-nav align-items-center mr-auto">
+
+                </div>
+      
+                <!-- Navbar Right Side -->
+                <div class="navbar-nav ms-auto align-items-center"> 
+                        <a class="nav-item nav-link" href="/feedback/bug-report">Feedback</a>
+                </div>
+              </div>
+            </div>
+          </nav>
+        </header>
+
+
+<main role="main" class="container main-content" id="main-content">
+        
+          <div class="row">
+            <div class="col-md-8">
+
+               <h1 class="root-title">Well that didn't work out...</h1>
+               <p>
+                    Sorry for the inconvenience — it looks like you encountered a server error. Please report it
+                    <a class="clickable-link" href="/feedback/bug-report">here</a>
+                    with as much detail as possible. With your help, we’ll do our best to get things up and running quickly.
+               </p>
+
+               <img class="responsive-img rounded-corner-img mb-2" src="/static/images/false_orders.webp" alt="500 Error Image">
+
+          </div>
+     </div>
+</main>
+
+<footer class="footer">
+     <div class="footer-container">
+         <div>2025 The Root Database</div>
+         <div>
+             <a href="/about">About</a> |
+
+             <a href="/feedback/bug-report">Feedback</a>
+         </div>
+     </div>
+ </footer>
+
+</body>
+</html>
