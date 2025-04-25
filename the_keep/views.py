@@ -716,7 +716,7 @@ def ultimate_component_view(request, slug):
 
 
     small_board_image = object_translation.small_board_image if object_translation and object_translation.translated_board_image else object.small_board_image
-    small_board_2_image = object_translation.small__board_2_image if object_translation and object_translation.translated_board_2_image else object.small_board_2_image
+    small_board_2_image = object_translation.small_board_2_image if object_translation and object_translation.translated_board_2_image else object.small_board_2_image
     if small_board_image:
         small_board_image_url = small_board_image.url
     else:
