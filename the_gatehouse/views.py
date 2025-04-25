@@ -28,6 +28,14 @@ from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post
 
 
+from django.http import HttpResponseServerError
+
+def trigger_error(request):
+    return render(request, '500.html')
+
+def trigger_other_error(request):
+    raise Exception("Test 500 error")
+
 
 
 def register(request):
@@ -801,6 +809,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         "report": _('Your report has been received'),
         "weird-root": _('Your request has been received'),
         "french-root": _('Your request has been received'),
+        "bug": _('Thank you for your report'),
     }
 
     # Page Title Logic
@@ -810,6 +819,8 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         page_title = _('Request Invite to Weird Root')
     elif message_category == 'french-root':
         page_title = _('Request Invite to French Root')
+    elif message_category == 'bug':
+        page_title = _('Bug Report')
     elif message_category == 'request':
         page_title = _('Request a New Post')
     elif message_category:
@@ -968,7 +979,6 @@ def discord_feedback(request):
 
 
 def general_feedback(request):
-
     message_category = 'feedback'
     feedback_subject = None
 
@@ -1049,6 +1059,20 @@ def game_feedback(request, id):
         return redirect(game.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+def bug_report(request):
+
+    feedback_subject = "Bug Report"
+    message_category = 'bug'
+    
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        return redirect('site-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
 
 @player_required
 def weird_root_invite(request, slug=None):

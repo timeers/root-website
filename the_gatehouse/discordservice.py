@@ -186,6 +186,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Feedback Received"
         embed_color = 0x00FF00  # Green color for feedback
+    elif category == 'bug':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
+        embed_title = "Bug Reported"
+        embed_color = 0xFF0000  # Red color for report
     elif category == 'report':
         webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
         embed_title = "Report Received"

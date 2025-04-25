@@ -3,9 +3,9 @@ from the_keep.views import list_view
 from .views import (user_settings, player_page_view, 
                     designer_component_view, post_bookmarks, game_bookmarks,
                     player_stats, artist_component_view, manage_user,
-                    ProfileListView, user_bookmarks, french_root_invite,
+                    ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback,
-                    game_feedback, weird_root_invite, post_request)
+                    game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error)
 from the_warroom.views import PlayerGameListView
 urlpatterns = [
     path("", list_view, name='home'),
@@ -31,6 +31,7 @@ urlpatterns = [
     # Feedback
     path('request/', post_request, name='post-request'),
     path('feedback/', general_feedback, name='general-feedback'),
+    path('feedback/bug-report', bug_report, name='bug-report'),
     path('feedback/post/<slug:slug>/', post_feedback, name='post-feedback'),
     path('feedback/profile/<slug:slug>/', player_feedback, name='player-feedback'),
     path('feedback/game/<int:id>/', game_feedback, name='game-feedback'),
@@ -40,4 +41,6 @@ urlpatterns = [
     path('feedback/french-invite/<slug:slug>/', french_root_invite, name='french-root-invite'),
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),
 
+    path('fake-error/', trigger_error),
+    path('test-error/', trigger_other_error),
 ]

@@ -35,7 +35,7 @@ DEBUG = (config['DEBUG_VALUE'] == 'True')
 if DEBUG:
     ALLOWED_HOSTS = ['localhost', '127.0.0.1', '97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com', '45.33.85.19']
 else:
-    ALLOWED_HOSTS = ['97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com']
+    ALLOWED_HOSTS = ['97.107.142.27', 'therootdatabase.com', 'www.therootdatabase.com', 'localhost', '127.0.0.1',]
 
 
 SITE_ID = 1

@@ -282,6 +282,12 @@ class MessageForm(forms.Form):
                 ('feature', _('Feature Request')),
                 ('other', _('Other'))
             ]
+        elif message_category == 'bug':
+            self.fields['title'].choices = [('bug', _('Bug Report'))]
+            self.fields['title'].initial = 'bug'
+            self.fields['title'].widget = forms.HiddenInput()
+            self.fields['message'].help_text= _("Please include as many details as you can that lead up to the bug you encountered (what page you were trying to view, what you encountered when it occured, whether you were logged in at the time). Any details provided can help in debugging.")
+
         elif message_category == 'request':
             self.fields['title'].choices = [
                 ('faction', _('Faction')),
