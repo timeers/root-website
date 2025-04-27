@@ -10,7 +10,11 @@
             </button>
         </div>    
     {% endif %}
-    <div class='manifest-box'>
+    <div class="manifest-box
+        {% if not object.warriors.all and not object.buildings.all and not object.tokens.all and not object.cards.all and object.component != 'Deck' and not object.otherpieces.all and object.component != "Vagabond" %}
+         hidden
+         {% endif %}
+    ">
 
     <div class="d-flex flex-wrap justify-content-between align-items-center">
             <h3 class='root-title manifest-title mx-auto'>{% trans 'Component Manifest' %}</h3>
@@ -227,6 +231,12 @@
             document.getElementById('edit-button').addEventListener('click', function() {
             var buttons = document.querySelectorAll('.hidden-buttons'); // Select all buttons with class 'hidden-buttons'
             var pieces = document.querySelectorAll('.hidden-pieces'); // Select all categories with class 'hidden-pieces'
+            var boxes = document.querySelectorAll('.manifest-box');
+            if (boxes.length > 0) {
+                boxes.forEach(function(box) {
+                    box.classList.remove('hidden');
+                });
+            }
             isVisible = !isVisible;
             // Loop through the buttons and toggle their visibility
             buttons.forEach(function(button) {

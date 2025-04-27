@@ -37,11 +37,218 @@
                     <!-- </div> -->
                 </div>
 
+                {% comment %} Admin Only {% endcomment %}
+                {% if form.official %}
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">Admin Options</span>
+                    {% if form.designer %}
+                        {{ form.designer|as_crispy_field }}
+                    {% endif %}
+                    {% if form.official %}
+                        {{ form.official|as_crispy_field }}
+                    {% endif %}
+                    {% if form.in_root_digital %}
+                        {{ form.in_root_digital|as_crispy_field }}
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">The Basics</span>
+                {{ form.title|as_crispy_field}}
                 
+                {{ form.based_on|as_crispy_field }}
                 
+                {% if form.expansion %}
+                    {{ form.expansion|as_crispy_field }}
+                {% endif %}
+                {{ form.status|as_crispy_field}}
+                </div>
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">The Details</span>
+                    {% if form.animal %}
+                        {{ form.animal|as_crispy_field }}
+                    {% endif %}
+                    
+                    {{ form.lore|as_crispy_field}}
+                    {{ form.description|as_crispy_field}}
+                    
+                    {% if form.card_text %}
+                        {{ form.card_text|as_crispy_field }}
+                    {% endif %}
+                    {% if form.card_total %}
+                        {{ form.card_total|as_crispy_field }}
+                    {% endif %}
+                </div>
+  
+                {% if form.color %}
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">Primary Color</span>
+                    {% if form.color %}
+                        {{ form.color|as_crispy_field }}
+                    {% endif %}
+                    {% if form.color_group %}
+                        {{ form.color_group|as_crispy_field }}
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if form.type %}
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">
+                        {{form.form_type}} Attributes
+                    </span>
+                    {% if form.type %}
+                        {{ form.type|as_crispy_field }}
+                    {% endif %}
+                    {% if form.reach %}
+                        {{ form.reach|as_crispy_field }}
+                    {% endif %}
+                    {% if form.other_side %}
+                        {{ form.other_side|as_crispy_field }}
+                    {% endif %}
+
+
+                    {% comment %} Faction Specific {% endcomment %}
+                    {% if form.complexity %}
+                        {{ form.complexity|as_crispy_field }}
+                    {% endif %}
+                    {% if form.card_wealth %}
+                        {{ form.card_wealth|as_crispy_field }}
+                    {% endif %}
+                    {% if form.aggression %}
+                        {{ form.aggression|as_crispy_field }}
+                    {% endif %}
+                    {% if form.crafting_ability %}
+                        {{ form.crafting_ability|as_crispy_field }}
+                    {% endif %}
+                    {% comment %} End Faction Specific {% endcomment %}
+                    </div>
+                {% endif %}
+
+
+
+                {% comment %} Vagabond Fields {% endcomment %}
+                {% if form.ability %}
+                    <div class='soft-shadow'>
+                        <span class="h5 root-title">Ability</span>
+                        {% if form.ability_item %}
+                            {{ form.ability_item|as_crispy_field }}
+                        {% endif %}
+                        {% if form.ability %}
+                            {{ form.ability|as_crispy_field }}
+                        {% endif %}
+                        {% if form.ability_description %}
+                            {{ form.ability_description|as_crispy_field }}
+                        {% endif %}
+                    </div>
+                    <div class='soft-shadow'>
+                        <span class="h5 root-title">Starting Items</span>
+                            {% if form.starting_torch %}
+                                {{ form.starting_torch|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_coins %}
+                                {{ form.starting_coins|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_boots %}
+                                {{ form.starting_boots|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_bag %}
+                                {{ form.starting_bag|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_tea %}
+                                {{ form.starting_tea|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_sword %}
+                                {{ form.starting_sword|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_hammer %}
+                                {{ form.starting_hammer|as_crispy_field }}
+                            {% endif %}
+                            {% if form.starting_crossbow %}
+                                {{ form.starting_crossbow|as_crispy_field }}
+                            {% endif %}
+                    </div>
+                {% endif %}
+                {% comment %} End Vagabond Fields {% endcomment %}
+
+                {% comment %} Deck Fields {% endcomment %}
+                {% if form.clearings %}
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">Clearings</span>
+                    {{ form.clearings|as_crispy_field }}
+                    {{ form.fixed_clearings|as_crispy_field }}
+                </div>
+                {% endif %}
+                {% comment %} End Deck Fields {% endcomment %}
+
+                {% comment %} Image Fields {% endcomment %}
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">Images</span>
+                    {{ form.artist|as_crispy_field}}
+                </div>
+                {% if form.picture %}
+                    <div class='soft-shadow'>
+                        {{ form.picture|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.small_icon %}
+                    <div class='soft-shadow'>
+                        {{ form.small_icon|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.board_image %}
+                    <div class='soft-shadow'>
+                        {{ form.board_image|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.card_image %}
+                    <div class='soft-shadow'>
+                        {{ form.card_image|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.board_2_image %}
+                    <div class='soft-shadow'>
+                        {{ form.board_2_image|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.card_2_image %}
+                    <div class='soft-shadow'>
+                        {{ form.card_2_image|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% comment %} End image fields {% endcomment %}
+
+
+
+
+                {% comment %} Links {% endcomment %}
+                <div class='soft-shadow'>
+                    <span class="h5 root-title">Links</span>
+                    {% if form.leder_games_link %}
+                        {{ form.leder_games_link|as_crispy_field}}
+                    {% endif %}
+                    {{ form.bgg_link|as_crispy_field}}
+                    {{ form.tts_link|as_crispy_field}}
+                    {{ form.ww_link|as_crispy_field}}
+                    {% if form.wr_link %}
+                        {{ form.wr_link|as_crispy_field}}
+                    {% endif %}
+                    {% if form.fr_link %}
+                        {{ form.fr_link|as_crispy_field}}
+                    {% endif %}
+                    {{ form.pnp_link|as_crispy_field}}
+                    {{ form.stl_link|as_crispy_field}}
+                </div>
+                {% comment %} End Links {% endcomment %}
 
                 
-                {{ form | crispy }}
+                {% if form.language %}
+                    {{ form.language|as_crispy_field}}
+                {% endif %}
+
+                {% comment %} END END
+                {{ form | crispy }} {% endcomment %}
             </fieldset>
 
             <div class="form-group">

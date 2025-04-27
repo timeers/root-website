@@ -1449,3 +1449,11 @@ tr.clickable-row:hover {
 .lightbox-thumb:hover {
   opacity: 0.8;
 }
+
+.soft-shadow {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background-color: #fff; 
+  padding: .5rem;    
+  margin-bottom: .25rem;
+}

@@ -299,9 +299,9 @@ class PostCreateForm(forms.ModelForm):
             'ww_link': "Woodland Warriors Thread", 
             'wr_link': "Weird Root Thread", 
             'fr_link': "French Root Thread",
-            'pnp_link': "Link to Print and Play Files",
-            'stl_link': "Link to STL Files (if not in PNP)",
-            'leder_games_link': "Link to Leder Games",
+            'pnp_link': "Print and Play Files",
+            'stl_link': "STL Files (if not in PNP)",
+            'leder_games_link': "Leder Games",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
         
@@ -371,7 +371,7 @@ class PostCreateForm(forms.ModelForm):
         if not post_instance:
             self.fields['designer'].initial = user.profile.id
 
-        self.fields['designer'].label = "Designer (Admin Only)"
+        self.fields['designer'].label = "Designer"
 
         # Hide the designer field for non-admin users
 
@@ -382,8 +382,8 @@ class PostCreateForm(forms.ModelForm):
             self.fields.pop('in_root_digital', None)  # Remove designer field entirely
             self.fields.pop('leder_games_link', None)
         else:
-            self.fields['official'].label = "Official (Admin Only)"
-            self.fields['in_root_digital'].label = "Playable In DWD Root Digital (Admin Only)"
+            self.fields['official'].label = "Official"
+            self.fields['in_root_digital'].label = "Playable In DWD Root Digital"
         
         # Remove Weird Root link option if not in Weird Root
         if not user.profile.in_weird_root:
@@ -609,7 +609,10 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
 
-        self.fields['card_text'].widget.attrs.update({'rows': '2'})
+        self.fields['card_text'].widget.attrs.update({
+            'rows': '2',
+            'placeholder': 'Text of the Landmark Card'
+            })
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief explanation on how to use this Landmark...'
             })
