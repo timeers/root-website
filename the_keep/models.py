@@ -323,7 +323,14 @@ class Post(models.Model):
 
 
     objects = PostManager()
-
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['title']),
+            models.Index(fields=['designer']),
+            models.Index(fields=['status']),
+            models.Index(fields=['language']),
+        ]
 
 
     @classmethod
@@ -703,6 +710,10 @@ class PostTranslation(models.Model):
 
     class Meta:
         unique_together = ('post', 'language')
+        indexes = [
+            models.Index(fields=['language', 'translated_title']),
+            models.Index(fields=['post', 'language']),
+        ]
 
     def __str__(self):
         if self.translated_title:

@@ -508,50 +508,26 @@ def about(request, *args, **kwargs):
 
 def home(request, *args, **kwargs):
 
-    # if not request.user.is_authenticated or not request.user.profile.tester:
-    #     return redirect('archive-home')
-    faction_count = Faction.objects.filter(status__lte=4, official=False).count()
-    deck_count = Deck.objects.filter(status__lte=4, official=False).count()
-    map_count = Map.objects.filter(status__lte=4, official=False).count()
-    official_faction_count = Faction.objects.filter(status__lte=4, official=True).count()
-    official_deck_count = Deck.objects.filter(status__lte=4, official=True).count()
-    official_map_count = Map.objects.filter(status__lte=4, official=True).count()
-    game_count = Game.objects.filter(final=True).count()
+    # faction_count = Faction.objects.filter(status__lte=4, official=False).count()
+    # deck_count = Deck.objects.filter(status__lte=4, official=False).count()
+    # map_count = Map.objects.filter(status__lte=4, official=False).count()
+    # official_faction_count = Faction.objects.filter(status__lte=4, official=True).count()
+    # official_deck_count = Deck.objects.filter(status__lte=4, official=True).count()
+    # official_map_count = Map.objects.filter(status__lte=4, official=True).count()
+    # game_count = Game.objects.filter(final=True).count()
 
     if request.user.is_authenticated:
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
     
-
-    # if request.user.is_authenticated:
-    #     theme = request.user.profile.theme
-    # else:
-    #     theme = None
-
-    # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # # Group the images by location
-    # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-    # # Select a random image from each location
-    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-    # # If using PostgreSQL or another database that supports 'distinct' on a field:
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
-
-
     context = {
         'title': 'Home',
-        'faction_count': faction_count,
-        'deck_count': deck_count,
-        'map_count': map_count,
-        'official_faction_count': official_faction_count,
-        'official_deck_count': official_deck_count,
-        'official_map_count': official_map_count,
-        'game_count': game_count,
-        # 'background_image': background_image,
-        # 'foreground_images': foreground_images,
-
-
-
+        # 'faction_count': faction_count,
+        # 'deck_count': deck_count,
+        # 'map_count': map_count,
+        # 'official_faction_count': official_faction_count,
+        # 'official_deck_count': official_deck_count,
+        # 'official_map_count': official_map_count,
+        # 'game_count': game_count,
     }
 
     return render(request, 'the_keep/home.html', context)
@@ -815,27 +791,27 @@ def ultimate_component_view(request, slug):
     #     games = games.filter(official=True)
 
     # Apply distinct and prefetch_related to all cases  
-    prefetch_values = [
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-        'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-    ]
-    games = games.distinct().prefetch_related(*prefetch_values)
+    # prefetch_values = [
+    #     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+    #     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    # ]
+    # games = games.distinct().prefetch_related(*prefetch_values)
 
 
 
-    commentform = PostCommentCreateForm()
-    game_filter = GameFilter(request.GET, user=request.user, queryset=games)
+    # # commentform = PostCommentCreateForm()
+    # game_filter = GameFilter(request.GET, user=request.user, queryset=games)
 
-    # Get the filtered queryset
-    filtered_games = game_filter.qs.distinct()
+    # # Get the filtered queryset
+    # filtered_games = game_filter.qs.distinct()
 
     
     if post.component == "Faction" or post.component == "Clockwork":
-        efforts = Effort.objects.filter(game__in=filtered_games, faction=post)
+        efforts = Effort.objects.filter(game__in=games, faction=post)
     elif post.component == "Vagabond":
-        efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
+        efforts = Effort.objects.filter(game__in=games, vagabond=post)
     else:
-        efforts = Effort.objects.filter(game__in=filtered_games)
+        efforts = Effort.objects.filter(game__in=games)
 
     if language_code == 'ru' or language_code == 'pl':
         # Special width for languages with large "low" translation
@@ -882,54 +858,54 @@ def ultimate_component_view(request, slug):
     # Get top players for factions
     top_players = []
     most_players = []
-    win_count = 0
-    coalition_count = 0
-    win_rate = 0
-    tourney_points = 0
-    total_efforts = 0
+    # win_count = 0
+    # coalition_count = 0
+    # win_rate = 0
+    # tourney_points = 0
+    # total_efforts = 0
     scorecard_count = None
     detail_scorecard_count = None
     # On first load get faction and VB Stats
-    page_number = request.GET.get('page')  # Get the page number from the request
-    if not page_number:
-        if object.component == "Faction":
-            # top_players = Profile.top_players(faction_id=object.id, limit=10, game_threshold=5)
-            # most_players = Profile.top_players(faction_id=object.id, limit=10, top_quantity=True, game_threshold=1)
-            top_players = Profile.leaderboard(effort_qs=efforts, limit=10, game_threshold=5)
-            most_players = Profile.leaderboard(effort_qs=efforts, limit=10, top_quantity=True, game_threshold=1)
-            game_values = filtered_games.aggregate(
-                        total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
-                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
-                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
-                    )
-            scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False).count()
-            detail_scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False, total_generic_points=0).count()
-        if object.component == "Vagabond":
-            game_values = filtered_games.aggregate(
-                        total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
-                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__vagabond=object)),
-                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__vagabond=object))
-                    )
-        if object.component == "Faction" or object.component == "Vagabond":
-            # Access the aggregated values from the dictionary returned by .aggregate()
-            total_efforts = game_values['total_efforts']
-            win_count = game_values['win_count']
-            coalition_count = game_values['coalition_count']
-        if total_efforts > 0:
-            win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
-        else:
-            win_rate = 0
-        tourney_points = win_count - (coalition_count / 2)
+    # page_number = request.GET.get('page')  # Get the page number from the request
+    # if not page_number:
+    if object.component == "Faction":
+        # top_players = Profile.top_players(faction_id=object.id, limit=10, game_threshold=5)
+        # most_players = Profile.top_players(faction_id=object.id, limit=10, top_quantity=True, game_threshold=1)
+        top_players = Profile.leaderboard(effort_qs=efforts, limit=10, game_threshold=5)
+        most_players = Profile.leaderboard(effort_qs=efforts, limit=10, top_quantity=True, game_threshold=1)
+    #     game_values = filtered_games.aggregate(
+    #                 total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
+    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
+    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
+    #             )
+        scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False).count()
+        detail_scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False, total_generic_points=0).count()
+    # if object.component == "Vagabond":
+    #     game_values = filtered_games.aggregate(
+    #                 total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
+    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__vagabond=object)),
+    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__vagabond=object))
+    #             )
+    # if object.component == "Faction" or object.component == "Vagabond":
+    #     # Access the aggregated values from the dictionary returned by .aggregate()
+    #     total_efforts = game_values['total_efforts']
+    #     win_count = game_values['win_count']
+    #     coalition_count = game_values['coalition_count']
+    # if total_efforts > 0:
+    #     win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
+    # else:
+    #     win_rate = 0
+    # tourney_points = win_count - (coalition_count / 2)
 
 
 
-    # Paginate games
-    paginate_by = settings.PAGE_SIZE
-    paginator = Paginator(filtered_games, paginate_by)  # Use the queryset directly
-    try:
-        page_obj = paginator.get_page(page_number)  # Get the specific page of games
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+    # # Paginate games
+    # paginate_by = settings.PAGE_SIZE
+    # paginator = Paginator(filtered_games, paginate_by)  # Use the queryset directly
+    # try:
+    #     page_obj = paginator.get_page(page_number)  # Get the specific page of games
+    # except EmptyPage:
+    #     page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
 
     links_count = object.count_links(request.user)
 
@@ -951,20 +927,20 @@ def ultimate_component_view(request, slug):
     context = {
         'object': object,
         'games_total': games.count(),
-        'filtered_games': filtered_games.count(),
-        'games': page_obj,  # Pagination applied here
-        'is_paginated': len(filtered_games) > paginate_by,
+        # 'filtered_games': filtered_games.count(),
+        # 'games': page_obj,  # Pagination applied here
+        # 'is_paginated': len(filtered_games) > paginate_by,
         # 'page_obj': page_obj,  # Pass the paginated page object to the context
-        'commentform': commentform,
-        'form': game_filter.form,
-        'filterset': game_filter,
+        # 'commentform': commentform,
+        # 'form': game_filter.form,
+        # 'filterset': game_filter,
         'top_players': top_players,
         'most_players': most_players,
-        'win_count': win_count,
-        'coalition_count': coalition_count,
-        'win_rate': win_rate,
-        'tourney_points': tourney_points,
-        'total_efforts': total_efforts,
+        # 'win_count': win_count,
+        # 'coalition_count': coalition_count,
+        # 'win_rate': win_rate,
+        # 'tourney_points': tourney_points,
+        # 'total_efforts': total_efforts,
         'stable_ready': stable_ready,
         'testing_ready': testing_ready,
         'related_posts': related_posts,
@@ -1006,16 +982,6 @@ def ultimate_component_view(request, slug):
     return render(request, 'the_keep/post_detail.html', context)
 
 
-# def color_match_view(request, slug):
-#     post = get_object_or_404(Post, slug=slug)
-#     matching_colors = post.get_similar_colors()
-#     context = {
-#         'original_post': post,
-#         'posts': matching_colors,
-#         'match_title': 'Similar Colors (beta)',
-#         'description': 'Color is similar to:'
-#     }
-#     return render(request, 'the_keep/similar_posts.html', context)
 
 def color_group_view(request, color_name):
 
@@ -2062,6 +2028,29 @@ def pin_asset(request, id):
 
     return render(request, 'the_keep/partials/asset_pins.html', {'obj': object })
 
+
+
+def search_translatable_posts(model, query, language_object, view_status):
+    return model.objects.filter(
+        Q(title__icontains=query) |
+        Q(designer__display_name__icontains=query) |
+        Q(designer__discord__icontains=query) |
+        Q(translations__translated_title__icontains=query, translations__language=language_object),
+        status__lte=view_status
+    ).annotate(
+        selected_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object
+                ).values('translated_title')[:1],
+                output_field=models.CharField()
+            ),
+            'title'
+        )
+    ).distinct().order_by('status')
+
+
 def universal_search(request):
     query = request.GET.get('query', '')
     
@@ -2097,104 +2086,14 @@ def universal_search(request):
         color_group = None
     else:
         # If the query is not empty, perform the search as usual
-        factions = Faction.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
-        maps = Map.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object),
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
-        decks = Deck.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object),
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
-        vagabonds = Vagabond.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
-        landmarks = Landmark.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
-        hirelings = Hireling.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
-        tweaks = Tweak.objects.filter(
-            Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query)|Q(translations__translated_title__icontains=query, translations__language=language_object), 
-            status__lte=view_status).annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'),
-                        language=language_object  # Assuming you want the current language
-                    ).values('translated_title')[:1],
-                    output_field=models.CharField()
-                ),
-                'title'  # Fall back to the default title if there's no translation
-            )
-        ).distinct().order_by('status')
+        factions = search_translatable_posts(Faction, query, language_object, view_status)
+        maps = search_translatable_posts(Map, query, language_object, view_status)
+        decks = search_translatable_posts(Deck, query, language_object, view_status)
+        vagabonds = search_translatable_posts(Vagabond, query, language_object, view_status)
+        landmarks = search_translatable_posts(Landmark, query, language_object, view_status)
+        hirelings = search_translatable_posts(Hireling, query, language_object, view_status)
+        tweaks = search_translatable_posts(Tweak, query, language_object, view_status)
+
         expansions = Expansion.objects.filter(
             Q(title__icontains=query)|Q(designer__display_name__icontains=query)|Q(designer__discord__icontains=query))
         players = Profile.objects.filter(Q(display_name__icontains=query)|Q(discord__icontains=query)|Q(dwd__icontains=query))
@@ -2228,10 +2127,7 @@ def universal_search(request):
                      tournaments.count() + rounds.count() + tweaks.count() + 
                      resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count())
     
-    if total_results == 0:
-        no_results = True
-    else:
-        no_results = False
+    no_results = total_results == 0
 
     if total_results < 10:
         result_count = total_results

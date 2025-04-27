@@ -476,6 +476,9 @@ def manage_game(request, id=None):
         obj = Game()  # Create a new Game instance but do not save it yet
     user = request.user
 
+    initial_game_status = obj.final
+
+
     if id:
         if obj.final and not user.profile.admin:
 
@@ -529,7 +532,7 @@ def manage_game(request, id=None):
                 parent.final = True  # Finalize the game
                 # send_discord_message(f'{user} Recorded a Game')
 
-            if not parent.recorder:
+            if not id:
                 parent.recorder = request.user.profile  # Set the recorder
             # parent.date_posted = timezone.now()
             # print(parent.date_posted)
@@ -585,7 +588,8 @@ def manage_game(request, id=None):
                     game_title = parent.nickname
                 else:
                     game_title = f"{parent.platform} Game"
-                send_rich_discord_message(f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
+                if not initial_game_status and obj.final:
+                    send_rich_discord_message(f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
 
 
             return redirect(parent.get_absolute_url())
