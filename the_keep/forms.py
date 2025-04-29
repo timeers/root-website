@@ -14,7 +14,7 @@ from django.utils.translation import gettext as _
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status']
-bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'artist', 'language']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'artist', 'art_by_kyle_ferrin', 'language']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -302,6 +302,7 @@ class PostCreateForm(forms.ModelForm):
             'pnp_link': "Print and Play Files",
             'stl_link': "STL Files (if not in PNP)",
             'leder_games_link': "Leder Games",
+            'art_by_kyle_ferrin': "Art by Kyle Ferrin",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
         

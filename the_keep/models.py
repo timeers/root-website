@@ -277,6 +277,7 @@ class Post(models.Model):
     description = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
+    art_by_kyle_ferrin = models.BooleanField(default=False)
     official = models.BooleanField(default=False)
     in_root_digital = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)

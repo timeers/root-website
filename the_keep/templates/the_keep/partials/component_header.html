@@ -93,10 +93,16 @@
                 {% endif %}
 
     
-                {% if object.artist %}
+                {% if object.artist or object.art_by_kyle_ferrin %}
                 <div>
                     {% trans 'Art by' %} 
-                    <a class="mr-2" href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
+                    {% if object.artist %}
+                        <a href="{% url 'player-detail' object.artist.slug %}">{{ object.artist.name }}</a>
+                        {% if object.art_by_kyle_ferrin %}and {% endif %}
+                    {% endif %}
+                    {% if object.art_by_kyle_ferrin %}
+                        Kyle Ferrin
+                    {% endif %}
                 </div>
                 {% endif %}
                 {% if object.based_on %}
