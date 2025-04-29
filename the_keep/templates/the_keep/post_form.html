@@ -26,15 +26,17 @@
                     </button>
                 </div>   
 
-{% comment %} 
+
             {% if form.non_field_errors %}
-                <ul class="errorlist">
+                <div class="alert alert-danger" role="alert">
+                    <ul class="errorlist nonfield">
                     {% for error in form.non_field_errors %}
                         <li>{{ error }}</li>
                     {% endfor %}
-                </ul>
+                    </ul>
+                </div>
             {% endif %}
-            
+            {% comment %} 
             {% for field in form %}
                 <div class="form-group">
                     {{ field.label_tag }}
