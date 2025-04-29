@@ -83,7 +83,7 @@
             {% for result in rounds %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
-                    {{ result.name }}
+                    {{ result.name }} - {{ result.tournament.name }}
                 </div>
             </a>
             {% endfor %}

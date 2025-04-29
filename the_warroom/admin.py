@@ -9,6 +9,8 @@ from django.http import HttpResponseRedirect
 from .forms import GameImportForm, EffortImportForm
 from django.core.exceptions import ObjectDoesNotExist
 import re
+import csv
+from io import StringIO
 from datetime import datetime
 
 class CsvImportForm(forms.Form):
@@ -256,6 +258,183 @@ class GameAdmin(admin.ModelAdmin):
         form = CsvImportForm()
         data = {'form': form}
         return render(request, 'admin/csv_upload.html', data)
+
+
+
+
+
+
+
+
+
+    def upload_weird_root_csv(self, request):
+
+        if request.method == 'POST':
+            print("action is posted")
+
+
+            print("action is posted")
+            csv_file = request.FILES['csv_upload']
+
+            if not csv_file.name.endswith('.csv'):
+                messages.warning(request, 'Wrong file type was uploaded')
+                return HttpResponseRedirect(request.path_info)
+
+            file_data = csv_file.read().decode('utf-8')
+            
+            # Use StringIO to treat the string as a file
+            csv_reader = csv.reader(StringIO(file_data))
+            
+            for fields in csv_reader:
+                print(len(fields))
+
+                if len(fields) < 17:  # Check to ensure there are enough fields
+                    print("Not enough fields in this row.")
+                    continue  # Skip to the next iteration if not enough fields
+
+                recorder_instance, _ = Profile.objects.update_or_create(
+                    discord=fields[0].lower(),
+                    defaults={
+                        'display_name': fields[0]
+                        }
+                    )
+                
+
+
+                # Attempt to find the Map by title
+                map_instance = Map.objects.filter(title=fields[15]).first()
+
+                # Attempt to find the Deck by title
+                deck_instance = Deck.objects.filter(title=fields[16]).first()
+
+                found_vb = None
+                if "Vagabond" in fields[9].strip():
+                    faction = "Vagabond"
+                    match = re.search(r'\((.*?)\)', fields[9])  # This will search for text inside parentheses
+                    if match:
+                        found_vb = match.group(1)  # This will get the text inside the parentheses
+                    #     print(found_vb)  # For example, this will print 'Harrier'
+                    # else:
+                    #     print("No VB found")
+                else:
+                    faction = fields[9]
+                vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
+                faction_instance = Faction.objects.filter(title=faction).first()
+
+                # season_name = fields[23].strip()
+                # match = re.findall(r'\d+', fields[23])
+                
+
+                date_obj = datetime.strptime(fields[0], '%m/%d/%Y %H:%M:%S')
+
+                # if season_name:
+                #     if match:
+                #         # Join all found digits, then take the last two digits
+                #         digits = ''.join(match)[-2:]
+                #         season_number = int(digits)
+                #     else:
+                #         # Handle the case where no digits are found (if necessary)
+                #         season_number = 0 
+                #     # season_instance = Round.objects.get(name=season_name)
+                #     try:
+                #         season_instance = Round.objects.get(name=season_name)
+                #     except:
+                #         try:
+                #             digital_league = Tournament.objects.get(name="Weird Root Playtests", start_date=date_obj)
+                #         except:
+                #             digital_league = Tournament.objects.create(name="Weird Root Playtests")
+                #         season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
+                # else:
+                #     season_instance = None
+
+
+
+                game_data = {
+                    'date_posted': date_obj,
+                    'map': map_instance,
+                    'deck': deck_instance, #Need reference
+                    'platform': 'Tabletop Simulator',
+                    # 'round': season_instance,
+                    'final': True,
+                }
+                # Use GameImportForm for validation
+                form = GameImportForm(game_data)
+
+                if form.is_valid():
+                    game_instance = form.save()
+
+   
+                    for i in range(6):
+
+                        coalition_faction = None
+                        dominance = None
+                        win = False
+                        found_vb = None
+                        if fields[5+i].startswith("Vagabond ") or fields[5+i].startswith("VagaBuddy ") or fields[5+i].startswith("Vagabot "):
+                            parts = fields[5+i].split(None, 1)  # Split on first whitespace
+                            faction = parts[0]  # "Vagabond"
+                            found_vb = parts[1] if len(parts) > 1 else None  # "Scoundrel", or None if missing
+                        else:
+                            faction = fields[5+i]
+                        vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
+                        faction_instance = Faction.objects.filter(title=faction).first()
+                        if float(fields[14+i]) > 0:
+                            win = True
+                        if fields[10+i].isnumeric():
+                            score = fields[10+i]
+                        else:
+                            score = None
+                            if 'Coalition w/' in fields[10+i]:
+                                start_index = fields[10+i].find('Coalition w/') + len('Coalition w/')
+                                coalition_faction = fields[10+i][start_index:].strip()
+                            else:
+                                dominance = fields[10+i].split()[0] 
+                                if dominance == 'Bunny':
+                                    dominance = 'Rabbit'
+                        coalition_instance = Faction.objects.filter(title=coalition_faction).first()
+
+                        # Record each player's results
+                        player_data = {
+                            'date_posted': fields[0],
+                            'seat': 1+i,
+                            'faction': faction_instance,
+                            'vagabond': vagabond_instance,
+                            'win': win,
+                            'score': score,
+                            'coalition_with': coalition_instance,
+                            'dominance': dominance,
+                            'game': game_instance,
+                        }
+
+                        effort_form = EffortImportForm(player_data)
+                        if effort_form.is_valid():
+                            print('Valid Effort')
+                            effort_form.save()
+                        else:
+                            print('Invalid Effort')
+                            print(effort_form.errors) 
+
+
+
+
+
+                else:
+                    # Handle the invalid form case (e.g., log errors or notify the user)
+                    messages.error(request, f"Error with row: {fields}. Errors: {form.errors}")
+
+
+            url = reverse('admin:index')
+            return HttpResponseRedirect(url)
+
+        form = CsvImportForm()
+        data = {'form': form}
+        return render(request, 'admin/csv_upload.html', data)
+
+
+
+
+
+
 
 
 class GameBookmarkAdmin(admin.ModelAdmin):

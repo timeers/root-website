@@ -1581,23 +1581,13 @@ def status_check(request, slug):
     official_map_threshold = stable.map_threshold
     official_deck_count = stable.official_deck_count
     official_deck_threshold = stable.deck_threshold
+    official_faction_queryset = stable.official_faction_queryset
+    unplayed_faction_queryset = stable.unplayed_faction_queryset
 
-    # play_count = stable[1]
-    # play_threshold = stable[4]
-    # player_count = stable[2]
-    # player_threshold = stable[5]
-    # official_faction_count = stable[3]
-    # official_faction_threshold = stable[6]
-    # official_map_count = stable[7]
-    # official_map_threshold = stable[8]
-    # official_deck_count = stable[9]
-    # official_deck_threshold = stable[10]
     
     if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
         win_count = stable.win_count
         loss_count = stable.loss_count
-        # win_count = stable[11]
-        # loss_count = stable[12]
         if win_count != 0:
             win_completion = '100%'
         else:
@@ -1625,6 +1615,8 @@ def status_check(request, slug):
     if official_faction_count:
         official_faction_calculation = max(official_faction_calculation,24)
     official_faction_completion = f'{official_faction_calculation}%'
+
+    faction_icon_width = f'{1/official_faction_threshold*100}%'
 
     if official_map_threshold != 0:
         official_map_calculation = max(min(100, official_map_count/official_map_threshold*100),1)
@@ -1679,6 +1671,9 @@ def status_check(request, slug):
         'official_faction_count': official_faction_count,
         'official_faction_threshold': official_faction_threshold,
         'official_faction_completion': official_faction_completion,
+        'official_faction_queryset': official_faction_queryset,
+        'unplayed_faction_queryset': unplayed_faction_queryset,
+        'faction_icon_width': faction_icon_width,
 
         'official_map_count': official_map_count,
         'official_map_threshold': official_map_threshold,

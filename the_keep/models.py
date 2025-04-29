@@ -9,7 +9,6 @@ from django.db.models import (
     Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, OuterRef, Subquery
     )
 from django.db.models.functions import Cast, Coalesce
-# from django.db.models.query import QuerySet
 
 from django.utils import timezone 
 from django.utils.translation import get_language
@@ -31,7 +30,9 @@ from the_gatehouse.discordservice import send_rich_discord_message
 # from the_gatehouse.utils import build_absolute_uri
 from django.utils.translation import gettext_lazy as _
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
+from django.db.models.query import QuerySet 
 
 
 # Stable requirements
@@ -86,6 +87,9 @@ class StableCheckResult:
     deck_threshold: int
     win_count: int
     loss_count: int
+    official_faction_queryset: Optional[QuerySet] = field(default=None)
+    unplayed_faction_queryset: Optional[QuerySet] = field(default=None)
+    
 
 
 
@@ -788,8 +792,17 @@ class Deck(Post):
     def stable_check(self):
        
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
+        # This is the "threshold" of all official factions (e.g., total possible)
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__deck=self).distinct().count()
+        # This filters official factions that have actually appeared in games using this deck
+        official_faction_queryset = official_factions.filter(
+            efforts__game__deck=self
+        ).distinct()
+        # And this is the count
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        )
         
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
@@ -840,7 +853,9 @@ class Deck(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset
         )
         return result
 
@@ -887,8 +902,12 @@ class Landmark(Post):
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__landmarks=self).distinct().count()
-        
+        official_faction_queryset = official_factions.filter(efforts__game__landmarks=self).distinct()
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        )
+
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
         official_map_count = official_maps.filter(games__landmarks=self).distinct().count()
@@ -941,7 +960,9 @@ class Landmark(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset,
         )
         return result
 
@@ -980,8 +1001,13 @@ class Tweak(Post):
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__tweaks=self).distinct().count()
-        
+        official_faction_queryset = official_factions.filter(efforts__game__tweaks=self).distinct()
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        )
+
+
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
         official_map_count = official_maps.filter(games__tweaks=self).distinct().count()
@@ -1035,7 +1061,9 @@ class Tweak(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset
         )
         return result
 
@@ -1096,8 +1124,13 @@ class Map(Post):
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__map=self).distinct().count()
-        
+        official_faction_queryset = official_factions.filter(efforts__game__map=self).distinct()
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        )
+
+
         map_threshold = 0
         official_map_count = 0
         
@@ -1150,7 +1183,9 @@ class Map(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset
         )
         return result
 
@@ -1250,7 +1285,11 @@ class Vagabond(Post):
         # Thresholds from all official Faction, Map, Decks
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__efforts__vagabond=self).distinct().count()
+        official_faction_queryset = official_factions.filter(efforts__game__efforts__vagabond=self).distinct()
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        )
 
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
@@ -1305,7 +1344,9 @@ class Vagabond(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset
         )
         return result
 
@@ -1466,10 +1507,14 @@ class Faction(Post):
 
     def stable_check(self):
 
-        official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
+        official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(id=self.id)
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__efforts__faction=self).distinct().count()
-        
+        official_faction_queryset = official_factions.filter(efforts__game__efforts__faction=self).distinct()
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        ).exclude(id=self.id)
+
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
         official_map_count = official_maps.filter(games__efforts__faction=self).distinct().count()
@@ -1530,7 +1575,9 @@ class Faction(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset
         )
         return result
 
@@ -1608,8 +1655,12 @@ class Hireling(Post):
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
-        official_faction_count = official_factions.filter(efforts__game__hirelings=self).distinct().count()
-        
+        official_faction_queryset = official_factions.filter(efforts__game__hirelings=self).distinct()
+        official_faction_count = official_faction_queryset.count()
+        unplayed_faction_queryset = official_factions.exclude(
+            id__in=official_faction_queryset.values_list('id', flat=True)
+        )
+
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
         official_map_count = official_maps.filter(games__hirelings=self).distinct().count()
@@ -1661,7 +1712,9 @@ class Hireling(Post):
             official_deck_count=official_deck_count,
             deck_threshold=deck_threshold,
             win_count=win_count,
-            loss_count=loss_count
+            loss_count=loss_count,
+            official_faction_queryset=official_faction_queryset,
+            unplayed_faction_queryset=unplayed_faction_queryset
         )
         return result
 

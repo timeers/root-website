@@ -109,7 +109,16 @@
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_faction_completion}}">
                             <div class="bar-text{% if official_faction_count == 0 %} bar-black-text{% endif %}">{{ official_faction_count }}/{{ official_faction_threshold }}</div>
                         </div>
+                        <div class="icon-bar">
+                        {% for faction in official_faction_queryset %}
+                            <img class="faction-status-icon" src="{{ faction.small_icon.url }}" style="--faction-icon-width:{{ faction_icon_width }}";>
+                        {% endfor %}
+                        {% for faction in unplayed_faction_queryset %}
+                            <img class="faction-status-icon greyed-out" src="{{ faction.small_icon.url }}" style="--faction-icon-width:{{ faction_icon_width }}";>
+                        {% endfor %}
+                        </div>
                     </div>
+
                     {% if object_component != 'Map' %}
                     <div class="bar-container">
                         <div class="bar-label">{% trans 'Official Maps' %}</div> 
