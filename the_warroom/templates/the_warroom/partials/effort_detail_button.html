@@ -13,7 +13,11 @@
             {% if effort.faction.type == "C" %}
             {% trans 'Clockwork' %}
             {% else %}
-            {% trans 'Player' %} {{ effort.seat }}
+                {% if effort.seat %}
+                    {% trans 'Player' %} {{ effort.seat }}
+                {% else %}
+                    ---
+                {% endif %}
             {% endif %}
         {% endif %}
     </td>

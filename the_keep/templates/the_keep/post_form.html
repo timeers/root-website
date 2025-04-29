@@ -25,7 +25,30 @@
                         <i class="bi bi-info-circle"></i>
                     </button>
                 </div>   
-                    
+
+{% comment %} 
+            {% if form.non_field_errors %}
+                <ul class="errorlist">
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            
+            {% for field in form %}
+                <div class="form-group">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.errors %}
+                        <ul class="errorlist">
+                            {% for error in field.errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+            {% endfor %}
+             {% endcomment %}
                     
                 <div class="collapse" id="collapseRegister">
                     <!-- <div class="card card-body">    -->

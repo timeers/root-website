@@ -323,7 +323,7 @@ class Post(models.Model):
 
 
     objects = PostManager()
-    
+
     class Meta:
         indexes = [
             models.Index(fields=['title']),
@@ -687,7 +687,7 @@ class Post(models.Model):
 class PostTranslation(models.Model):
     post = models.ForeignKey(Post, related_name='translations', on_delete=models.CASCADE)
     language = models.ForeignKey(Language, on_delete=models.CASCADE)
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='translations')
 
     translated_title = models.CharField(max_length=40, null=True, blank=True)
 

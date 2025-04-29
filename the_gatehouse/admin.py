@@ -120,6 +120,24 @@ class ProfileAdmin(admin.ModelAdmin):
                     art.artist = user
                     art.save()
                 self.message_user(request, f"Artist {player}'s art credit merged with {user}.")
+            games_recorded = player.games_recorded.all()
+            if games_recorded:
+                for game in games_recorded:
+                    game.recorder = user
+                    game.save()
+                self.message_user(request, f"Player {player}'s recorded games merged with {user}.")
+            assets = player.assets.all()
+            if assets:
+                for asset in assets:
+                    asset.shared_by = user
+                    asset.save()
+                self.message_user(request, f"{player}'s shared assets merged with {user}.")
+            translations = player.translations.all()
+            if translations:
+                for translation in translations:
+                    translation.designer = user
+                    translation.save()
+                self.message_user(request, f"{player}'s translations merged with {user}.")
             # Delete the player
             player.delete()
 
