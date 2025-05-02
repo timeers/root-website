@@ -89,6 +89,10 @@
                       <li><hr class="dropdown-divider"></li>
                       {% endif %}
 
+                      {% if user_recent_posts %}
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection"></i> {% trans 'My Posts' %}</a></li>
+                      {% endif %}
+
                       {% if user.profile.designer %}
                       <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square mr-1"></i> {% trans 'New Post' %}</a></li>
                       {% else %}

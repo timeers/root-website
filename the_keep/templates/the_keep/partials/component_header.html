@@ -3,14 +3,13 @@
 
     <div class="d-flex flex-nowrap ml-auto">
 
-            
+    
         {% if stable_ready %}
-            {% if stable_ready|first %}
             <!-- Show option to Mark Stable -->
             <div>
                 <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> {% trans 'Stable' %}</a>
             </div>
-            {% endif %}
+            
         {% endif %}
         {% if testing_ready %}
         <!-- Show option to Mark Testing -->

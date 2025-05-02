@@ -1,4 +1,20 @@
 {% load i18n %}
+
+{% if games_total %}
+
+<article class="media content-section post-card">
+
+    <a href="{{ object.get_games_url }}" class="w-100">
+        <div>
+            <h3 class='root-title'>{% trans 'Games' %}</h3>
+        </div>
+        <div>
+            {% trans 'View' %} {{ games_total }} {% if games_total != 1 %}{% trans 'Games' %}{% else %}{% trans 'Game' %}{% endif %}
+        </div>
+    </a>
+</article>
+{% endif %}
+
 {% if top_players or most_players  %}
     {% if user.profile.player %}
         <article class="media content-section">
@@ -56,18 +72,5 @@
 {% endif %}
 
 
-{% if games %}
 
-<article class="media content-section post-card">
-
-    <a href="{{ object.get_games_url }}" class="w-100">
-        <div>
-            <h3 class='root-title'>{% trans 'Games' %}</h3>
-        </div>
-        <div>
-            {% trans 'View' %} {{ games_total }} {% if games_total != 1 %}{% trans 'Games' %}{% else %}{% trans 'Game' %}{% endif %}
-        </div>
-    </a>
-</article>
-{% endif %}
 

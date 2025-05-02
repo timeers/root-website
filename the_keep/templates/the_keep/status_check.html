@@ -45,12 +45,23 @@
     {% elif object.status == '3' %}
         {% blocktrans %}
             This {{ object_component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>
-            Once a game has been recorded the designer can choose the "Testing" status.
         {% endblocktrans %}
+        {% if play_count == 0 %}
+            {% trans 'Once a game has been recorded, the designer can select the "Testing" status.' %}
+        {% else %}
+            {% trans 'Once they are ready, the designer can select the "Testing" status.' %}
+        {% endif %}
+
     {% elif object.status == '2' %}
-        {% blocktrans %}
-            This {{ object_component }} is being tested. It has reached a playable state but changes and fine tuning may be necessary before it is stable.<br>
-        {% endblocktrans %}
+        {% if stable_ready %}
+            {% blocktrans %}
+                This {{ object_component }} is being tested. It has met all required metrics, but changes and fine tuning may be necessary before it is stable. Once they are ready, the designer can select the "Stable" status.<br>
+            {% endblocktrans %}     
+        {% else %}
+            {% blocktrans %}
+                This {{ object_component }} is being tested. It has reached a playable state, but changes and fine tuning may be necessary before it is stable.<br>
+            {% endblocktrans %}
+        {% endif %}
     {% elif object.status == '1' %}
         {% blocktrans %}
             This {{ object_component }} is considered stable and no major changes are expected.
@@ -109,13 +120,29 @@
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_faction_completion}}">
                             <div class="bar-text{% if official_faction_count == 0 %} bar-black-text{% endif %}">{{ official_faction_count }}/{{ official_faction_threshold }}</div>
                         </div>
-                        <div class="icon-bar">
+                        {% comment %} <div class="icon-bar">
                         {% for faction in official_faction_queryset %}
                             <img class="faction-status-icon" src="{{ faction.small_icon.url }}" style="--faction-icon-width:{{ faction_icon_width }}";>
                         {% endfor %}
                         {% for faction in unplayed_faction_queryset %}
                             <img class="faction-status-icon greyed-out" src="{{ faction.small_icon.url }}" style="--faction-icon-width:{{ faction_icon_width }}";>
                         {% endfor %}
+                        </div> {% endcomment %}
+                        <div class="icon-bar mt-1">
+                            {% for faction in official_faction_queryset %}
+                                <div class='centered-icon' style="--icon-width:{{ faction_icon_width }}";>
+                                    {% if faction.small_icon %}
+                                        <img class="status-icon" src="{{ faction.small_icon.url }}";>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                            {% for faction in unplayed_faction_queryset %}
+                                <div class='centered-icon' style="--icon-width:{{ faction_icon_width }}";>
+                                    {% if faction.small_icon %}
+                                        <img class="status-icon greyed-out" src="{{ faction.small_icon.url }}">
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
                         </div>
                     </div>
 
@@ -125,6 +152,22 @@
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_map_completion}}">
                             <div class="bar-text{% if official_map_count == 0 %} bar-black-text{% endif %}">{{ official_map_count }}/{{ official_map_threshold }}</div>
                         </div>
+                        <div class="icon-bar mt-1">
+                            {% for map in official_map_queryset %}
+                                <div class='centered-icon' style="--icon-width:{{ map_icon_width }}";>
+                                    {% if map.small_icon %}
+                                    <img class="status-icon" src="{{ map.small_icon.url }}">
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                            {% for map in unplayed_map_queryset %}
+                                <div class='centered-icon' style="--icon-width:{{ map_icon_width }}";>
+                                    {% if map.small_icon %}
+                                    <img class="status-icon greyed-out" src="{{ map.small_icon.url }}">
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
                     </div>
                     {% endif %}
                     {% if object_component != 'Deck' %}
@@ -132,6 +175,24 @@
                         <div class="bar-label">{% trans 'Official Decks' %}</div> 
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_deck_completion}}">
                             <div class="bar-text{% if official_deck_count == 0 %} bar-black-text{% endif %}">{{ official_deck_count }}/{{ official_deck_threshold }}</div>
+                        </div>
+                        <div class="icon-bar mt-1">
+                            {% for deck in official_deck_queryset %}
+                                <div class='centered-icon' style="--icon-width:{{ deck_icon_width }}";>
+                                    {% if deck.small_icon %}
+                                        <img class="status-icon" src="{{ deck.small_icon.url }}">
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                            {% if official_deck_count < official_deck_threshold %}
+                                {% for deck in unplayed_deck_queryset %}
+                                    <div class='centered-icon' style="--icon-width:{{ deck_icon_width }}";>
+                                        {% if deck.small_icon %}
+                                            <img class="status-icon greyed-out" src="{{ deck.small_icon.url }}">
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
                         </div>
                     </div>
                     {% endif %}
@@ -142,6 +203,36 @@
 
 {% endif %}
 
+
+{% if play_count != 0 %}
+            <article class="content-section post-card">
+                <a href="{{ object.get_games_url }}">
+                    <div>
+                        <h3 class='root-title'>{% trans 'Games' %}</h3>
+                    </div>
+                    <div>
+                        {% if play_count != 1 %}
+                        {% blocktrans %}
+                        View {{ play_count }} Games
+                        {% endblocktrans %}
+                        {% else %}
+                        {% blocktrans %}
+                        View {{ play_count }} Game
+                        {% endblocktrans %}
+                        {% endif %}
+                    </div>
+                </a>
+            </article>
+        
+{% else %}
+    <article class="content-section">
+        <div>
+        <h2 class='root-title'>
+            {% trans 'No Games Recorded' %}
+        </h2>
+        </div>
+    </article>
+{% endif %}
 
 {% if object.status != '1' %}
     <article class="content-section">
@@ -215,36 +306,6 @@
 {% endif %}
 
 
-
-{% if play_count != 0 %}
-            <article class="content-section post-card">
-                <a href="{{ object.get_games_url }}">
-                    <div>
-                        <h3 class='root-title'>{% trans 'Games' %}</h3>
-                    </div>
-                    <div>
-                        {% if play_count != 1 %}
-                        {% blocktrans %}
-                        View {{ play_count }} Games
-                        {% endblocktrans %}
-                        {% else %}
-                        {% blocktrans %}
-                        View {{ play_count }} Game
-                        {% endblocktrans %}
-                        {% endif %}
-                    </div>
-                </a>
-            </article>
-        
-{% else %}
-    <article class="content-section">
-        <div>
-        <h2 class='root-title'>
-            {% trans 'No Games Recorded' %}
-        </h2>
-        </div>
-    </article>
-{% endif %}
 
 
 

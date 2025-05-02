@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils.translation import gettext as _
 
+# A form to update the misc info of a game.
 class GameInfoUpdateForm(forms.ModelForm):  
     required_css_class = 'required-field'
     link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)
@@ -40,14 +41,6 @@ class GameInfoUpdateForm(forms.ModelForm):
             'placeholder': _('Game Nickname (optional)'),
             'class': 'form-control full-width', 
         })
-
-
-
-
-
-
-
-
 
 
 
@@ -637,7 +630,7 @@ class GameImportForm(forms.ModelForm):
 
     class Meta:
         model = Game
-        fields = ['deck', 'round', 'official', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'link', 'date_posted', 'final']
+        fields = ['deck', 'round', 'official', 'map', 'random_clearing', 'type', 'platform', 'undrafted_faction', 'undrafted_vagabond', 'landmarks', 'hirelings', 'tweaks','link', 'date_posted', 'final', 'recorder', 'notes']
 
 
 

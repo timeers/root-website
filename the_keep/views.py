@@ -927,20 +927,8 @@ def ultimate_component_view(request, slug):
     context = {
         'object': object,
         'games_total': games.count(),
-        # 'filtered_games': filtered_games.count(),
-        # 'games': page_obj,  # Pagination applied here
-        # 'is_paginated': len(filtered_games) > paginate_by,
-        # 'page_obj': page_obj,  # Pass the paginated page object to the context
-        # 'commentform': commentform,
-        # 'form': game_filter.form,
-        # 'filterset': game_filter,
         'top_players': top_players,
         'most_players': most_players,
-        # 'win_count': win_count,
-        # 'coalition_count': coalition_count,
-        # 'win_rate': win_rate,
-        # 'tourney_points': tourney_points,
-        # 'total_efforts': total_efforts,
         'stable_ready': stable_ready,
         'testing_ready': testing_ready,
         'related_posts': related_posts,
@@ -1174,12 +1162,13 @@ def component_games(request, slug):
     # Get the filtered queryset
     filtered_games = game_filter.qs.distinct()
 
-    if post.component == "Faction" or post.component == "Clockwork":
-        efforts = Effort.objects.filter(game__in=filtered_games, faction=post)
-    elif post.component == "Vagabond":
-        efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
-    else:
-        efforts = Effort.objects.filter(game__in=filtered_games)
+
+    # if post.component == "Faction" or post.component == "Clockwork":
+    #     efforts = Effort.objects.filter(game__in=filtered_games, faction=post)
+    # elif post.component == "Vagabond":
+    #     efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
+    # else:
+    #     efforts = Effort.objects.filter(game__in=filtered_games)
     
     # Get top players for factions
     win_count = 0
@@ -1188,7 +1177,6 @@ def component_games(request, slug):
     tourney_points = 0
     total_efforts = 0
     # On first load get faction and VB Stats
-    page_number = request.GET.get('page')  # Get the page number from the request
     page_number = request.GET.get('page')  # Get the page number from the request
     if not page_number:
         if object.component == "Faction":
@@ -1230,7 +1218,6 @@ def component_games(request, slug):
         'filtered_games': filtered_games.count(),
         'games': page_obj,  # Pagination applied here
         'is_paginated': len(filtered_games) > paginate_by,
-        # 'page_obj': page_obj,  # Pass the paginated page object to the context
         'form': game_filter.form,
         'filterset': game_filter,
         'win_count': win_count,
@@ -1260,16 +1247,6 @@ def list_view(request, slug=None):
         send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Archive')
     
     theme = get_theme(request)
-
-    # background_image = BackgroundImage.objects.filter(theme=theme, page="library").order_by('?').first()
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page="library")
-    # # Group the images by location
-    # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
-    # # Select a random image from each location
-    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-    # # If using PostgreSQL or another database that supports 'distinct' on a field:
-    # # foreground_images = ForegroundImage.objects.filter(theme=theme, page="library").distinct('location')
 
     background_image, foreground_images = get_thematic_images(theme=theme, page='library')
 
@@ -1523,28 +1500,7 @@ def delete_piece(request, id):
         raise PermissionDenied() 
 
 
-
-
-# # Not used. Might reuse for bookmarks
-# def activity_list(request):
-#     from itertools import chain
-#     from operator import attrgetter
-#     # Retrieve the objects
-#     game_list = Game.objects.all().order_by('-date_posted')[:50]
-#     post_list = Post.objects.all().order_by('-date_posted')[:50]
-    
-#     # Combine both lists
-#     combined_list = list(chain(game_list, post_list))
-
-#     # Sort combined list by date_posted (latest first)
-#     sorted_combined_list = sorted(combined_list, key=attrgetter('date_posted'), reverse=True)
-
-#     context = {
-#         'sorted_combined_list': sorted_combined_list
-#     }
-    
-#     return render(request, 'the_keep/activity_list.html', context)
-
+# This view is used to check the status of a Post and return playtest details. The page is intentionally 'game-ified' to encourage playtests with different components.
 @player_required
 def status_check(request, slug):
     # Get the Post object based on the slug from the URL
@@ -1571,6 +1527,7 @@ def status_check(request, slug):
 
     stable = object.stable_check()
 
+    stable_ready = stable.stable_ready
     play_count = stable.play_count
     play_threshold = stable.game_threshold
     player_count = stable.unique_players
@@ -1583,6 +1540,10 @@ def status_check(request, slug):
     official_deck_threshold = stable.deck_threshold
     official_faction_queryset = stable.official_faction_queryset
     unplayed_faction_queryset = stable.unplayed_faction_queryset
+    official_map_queryset = stable.official_map_queryset
+    unplayed_map_queryset = stable.unplayed_map_queryset
+    official_deck_queryset = stable.official_deck_queryset
+    unplayed_deck_queryset = stable.unplayed_deck_queryset
 
     
     if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
@@ -1609,6 +1570,8 @@ def status_check(request, slug):
     play_completion = f'{play_calculation}%'
 
     player_calculation = max(min(100, player_count/player_threshold*100),1)
+    if player_count:
+        player_calculation = max(player_calculation, 24)
     player_completion = f'{player_calculation}%'
 
     official_faction_calculation = max(min(100, official_faction_count/official_faction_threshold*100),1)
@@ -1625,6 +1588,10 @@ def status_check(request, slug):
     if official_map_count:
         official_map_calculation = max(official_map_calculation,24)
     official_map_completion = f'{official_map_calculation}%'
+    if official_map_threshold:
+        map_icon_width = f'{1/official_map_threshold*100}%'
+    else:
+        map_icon_width = '100%'
 
     if official_deck_threshold != 0:
         official_deck_calculation = max(min(100, official_deck_count/official_deck_threshold*100),1)
@@ -1633,6 +1600,11 @@ def status_check(request, slug):
     if official_deck_count:
         official_deck_calculation = max(official_deck_calculation,24)
     official_deck_completion = f'{official_deck_calculation}%'
+
+    if official_deck_threshold:
+        deck_icon_width = f'{1/official_deck_threshold*100}%'
+    else:
+        deck_icon_width = '100%'
 
     total_threshold = play_threshold + player_threshold + official_deck_threshold + official_faction_threshold + official_map_threshold
     if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
@@ -1659,6 +1631,7 @@ def status_check(request, slug):
         'object_color': object_color,
         'object_component': object.component,
         'object_title': object_title,
+        'stable_ready': stable_ready,
 
         'play_count': play_count,
         'play_threshold': play_threshold,
@@ -1678,10 +1651,16 @@ def status_check(request, slug):
         'official_map_count': official_map_count,
         'official_map_threshold': official_map_threshold,
         'official_map_completion': official_map_completion,
+        'official_map_queryset': official_map_queryset,
+        'unplayed_map_queryset': unplayed_map_queryset,
+        'map_icon_width': map_icon_width,
 
         'official_deck_count': official_deck_count,
         'official_deck_threshold': official_deck_threshold,
         'official_deck_completion': official_deck_completion,
+        'official_deck_queryset': official_deck_queryset,
+        'unplayed_deck_queryset': unplayed_deck_queryset,
+        'deck_icon_width': deck_icon_width,
 
         'win_count': win_count,
         'win_completion': win_completion,
@@ -1697,6 +1676,7 @@ def status_check(request, slug):
     return render(request, 'the_keep/status_check.html', context)
 
 
+# This view is so that the owner of a Post can mark it as Stable directly
 @player_required
 def confirm_stable(request, slug):
     # Get the Post object based on the slug from the URL
@@ -1747,6 +1727,7 @@ def confirm_stable(request, slug):
     }
     return render(request, 'the_keep/confirm_stable.html', context)
 
+# This view is so that the owner of a Post can mark it as Testing directly
 @player_required
 def confirm_testing(request, slug):
     # Get the Post object based on the slug from the URL

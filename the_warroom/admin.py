@@ -3,7 +3,7 @@ from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
 from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
-from the_keep.models import Deck, Map, Faction, Vagabond
+from the_keep.models import Deck, Map, Faction, Vagabond, Tweak
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
 from .forms import GameImportForm, EffortImportForm
@@ -54,7 +54,7 @@ class ScoreCardAdmin(admin.ModelAdmin):
 
 
 class EffortAdmin(admin.ModelAdmin):
-    list_display = ('date_posted', 'player', 'faction', 'score', 'win', 'game', 'game__league')
+    list_display = ('date_posted', 'player', 'faction', 'score', 'win', 'game')
     search_fields = ['faction__title', 'player__discord', 'player__dwd', 'player__display_name']
 
 class EffortInline(admin.StackedInline):
@@ -69,7 +69,10 @@ class GameAdmin(admin.ModelAdmin):
      
     def get_urls(self):
         urls = super().get_urls()
-        new_urls = [path('upload-game-csv/', self.upload_csv)]
+        new_urls = [
+            path('upload-game-csv/', self.upload_csv),
+            path('upload-weird-root-csv/', self.upload_weird_root_csv)
+            ]
         return new_urls + urls
 
     def upload_csv(self, request):
@@ -140,10 +143,10 @@ class GameAdmin(admin.ModelAdmin):
                 #         season_instance = Round.objects.get(name=season_name)
                 #     except:
                 #         try:
-                #             digital_league = Tournament.objects.get(name="Root Digital League", start_date=date_obj)
+                #             series = Tournament.objects.get(name="TTS League", start_date=date_obj)
                 #         except:
-                #             digital_league = Tournament.objects.create(name="Root Digital League")
-                #         season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
+                #             series = Tournament.objects.create(name="TTS League")
+                #         season_instance = Round.objects.create(name=season_name, tournament=series, start_date=date_obj, round_number=season_number)
                 # else:
                 #     season_instance = None
 
@@ -162,7 +165,6 @@ class GameAdmin(admin.ModelAdmin):
                     'official': True,
                     # 'round': season_instance,
                     'final': True,
-                    # 'league': True,
                 }
                 # Use GameCreateForm for validation
                 form = GameImportForm(game_data)
@@ -286,66 +288,63 @@ class GameAdmin(admin.ModelAdmin):
             csv_reader = csv.reader(StringIO(file_data))
             
             for fields in csv_reader:
+                if fields and fields[0].strip().lower().startswith("submitted by"):
+                    continue
                 print(len(fields))
 
                 if len(fields) < 17:  # Check to ensure there are enough fields
                     print("Not enough fields in this row.")
                     continue  # Skip to the next iteration if not enough fields
 
-                recorder_instance, _ = Profile.objects.update_or_create(
-                    discord=fields[0].lower(),
-                    defaults={
-                        'display_name': fields[0]
-                        }
-                    )
-                
-
-
+                recorder_instance, created = Profile.objects.get_or_create(
+                    discord=fields[0].lower()
+                )
+                notes = fields[18]
                 # Attempt to find the Map by title
-                map_instance = Map.objects.filter(title=fields[15]).first()
+                map_instance = Map.objects.filter(title__iexact=fields[15]).first()
+
+                if fields[15] and not map_instance:
+                    print(f'Map not Found {fields[15]}')
+                    map_instance = Map.objects.filter(title__iexact="Hypercube").first()
 
                 # Attempt to find the Deck by title
-                deck_instance = Deck.objects.filter(title=fields[16]).first()
-
-                found_vb = None
-                if "Vagabond" in fields[9].strip():
-                    faction = "Vagabond"
-                    match = re.search(r'\((.*?)\)', fields[9])  # This will search for text inside parentheses
-                    if match:
-                        found_vb = match.group(1)  # This will get the text inside the parentheses
-                    #     print(found_vb)  # For example, this will print 'Harrier'
-                    # else:
-                    #     print("No VB found")
+                tweaks = None
+                if fields[16].strip().lower() == "action!":
+                    deck_instance = Deck.objects.filter(title__iexact="Exiles & Partisans").first()
+                    tweaks = Tweak.objects.filter(title__iexact="Action!")
                 else:
-                    faction = fields[9]
-                vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
-                faction_instance = Faction.objects.filter(title=faction).first()
+                    deck_instance = Deck.objects.filter(title__iexact=fields[16]).first()
 
-                # season_name = fields[23].strip()
-                # match = re.findall(r'\d+', fields[23])
+                if not map_instance:
+                    print(f"Map not found: {fields[15]}")
+                if not deck_instance:
+                    print(f"Deck not found: {fields[16]}")
                 
 
-                date_obj = datetime.strptime(fields[0], '%m/%d/%Y %H:%M:%S')
+                # List of potential formats
+                date_formats = ['%m/%d/%Y %H:%M:%S', '%m/%d/%y %H:%M:%S', '%m/%d/%Y', '%m/%d/%y']
 
-                # if season_name:
-                #     if match:
-                #         # Join all found digits, then take the last two digits
-                #         digits = ''.join(match)[-2:]
-                #         season_number = int(digits)
-                #     else:
-                #         # Handle the case where no digits are found (if necessary)
-                #         season_number = 0 
-                #     # season_instance = Round.objects.get(name=season_name)
-                #     try:
-                #         season_instance = Round.objects.get(name=season_name)
-                #     except:
-                #         try:
-                #             digital_league = Tournament.objects.get(name="Weird Root Playtests", start_date=date_obj)
-                #         except:
-                #             digital_league = Tournament.objects.create(name="Weird Root Playtests")
-                #         season_instance = Round.objects.create(name=season_name, tournament=digital_league, start_date=date_obj, round_number=season_number)
-                # else:
-                #     season_instance = None
+                # Attempt to parse the date with different formats
+                date_obj = None
+                for date_format in date_formats:
+                    try:
+                        date_obj = datetime.strptime(fields[1], date_format)
+                        break  # Stop once a format works
+                    except ValueError:
+                        continue  # Try the next format if this one fails
+                year = date_obj.year
+                jan_first = datetime(date_obj.year, 1, 1)
+
+                try:
+                    series = Tournament.objects.get(name="Weird Root Playtests")
+                except Tournament.DoesNotExist:
+                    series = Tournament.objects.create(name="Weird Root Playtests")
+
+                season_number = series.rounds.count() + 1
+                try:
+                    season_instance = Round.objects.get(name=year, tournament=series)
+                except:
+                    season_instance = Round.objects.create(name=year, tournament=series, start_date=jan_first, round_number=season_number)
 
 
 
@@ -354,68 +353,90 @@ class GameAdmin(admin.ModelAdmin):
                     'map': map_instance,
                     'deck': deck_instance, #Need reference
                     'platform': 'Tabletop Simulator',
-                    # 'round': season_instance,
+                    'round': season_instance,
                     'final': True,
+                    'recorder': recorder_instance,
+                    'notes': notes,
+                    'type': "Live",
+                    'tweaks': tweaks,
                 }
                 # Use GameImportForm for validation
                 form = GameImportForm(game_data)
 
                 if form.is_valid():
                     game_instance = form.save()
-
-   
-                    for i in range(6):
-
+                    seat = 1
+                    for i in range(3, len(fields), 2):
+                        print(fields[i], fields[i+1])
                         coalition_faction = None
                         dominance = None
                         win = False
                         found_vb = None
-                        if fields[5+i].startswith("Vagabond ") or fields[5+i].startswith("VagaBuddy ") or fields[5+i].startswith("Vagabot "):
-                            parts = fields[5+i].split(None, 1)  # Split on first whitespace
-                            faction = parts[0]  # "Vagabond"
-                            found_vb = parts[1] if len(parts) > 1 else None  # "Scoundrel", or None if missing
-                        else:
-                            faction = fields[5+i]
-                        vagabond_instance = Vagabond.objects.filter(title=found_vb).first()
-                        faction_instance = Faction.objects.filter(title=faction).first()
-                        if float(fields[14+i]) > 0:
-                            win = True
-                        if fields[10+i].isnumeric():
-                            score = fields[10+i]
-                        else:
-                            score = None
-                            if 'Coalition w/' in fields[10+i]:
-                                start_index = fields[10+i].find('Coalition w/') + len('Coalition w/')
-                                coalition_faction = fields[10+i][start_index:].strip()
+                        try:
+                        
+                            if fields[i].startswith("Vagabond ") or fields[i].startswith("VagaBuddy ") or fields[i].startswith("Vagabot "):
+                                parts = fields[i].split(None, 1)  # Split on first whitespace
+                                faction = parts[0]  # "Vagabond"
+                                found_vb = parts[1] if len(parts) > 1 else None  # "Scoundrel", or None if missing
                             else:
-                                dominance = fields[10+i].split()[0] 
-                                if dominance == 'Bunny':
-                                    dominance = 'Rabbit'
-                        coalition_instance = Faction.objects.filter(title=coalition_faction).first()
-
-                        # Record each player's results
-                        player_data = {
-                            'date_posted': fields[0],
-                            'seat': 1+i,
-                            'faction': faction_instance,
-                            'vagabond': vagabond_instance,
-                            'win': win,
-                            'score': score,
-                            'coalition_with': coalition_instance,
-                            'dominance': dominance,
-                            'game': game_instance,
-                        }
-
-                        effort_form = EffortImportForm(player_data)
-                        if effort_form.is_valid():
-                            print('Valid Effort')
-                            effort_form.save()
-                        else:
-                            print('Invalid Effort')
-                            print(effort_form.errors) 
+                                faction = fields[i]
+                            vagabond_instance = Vagabond.objects.filter(title__iexact=found_vb).first()
+                            faction_instance = Faction.objects.filter(title__iexact=faction).first()
+                            if faction and not faction_instance:
+                                print(f'Faction not Found {faction}')
+                                faction_instance = Faction.objects.filter(title__iexact="Treetop Utopia").first()
+                            print(f'Faction: {faction_instance}')
+                            if fields[i+1].isnumeric():
+                                score = int(fields[i+1])
+                                if score and score >= 30:
+                                    win = True
+                            else:
+                                score = None
+                                if 'CO ' in fields[i+1]:
+                                    start_index = fields[i+1].find('CO') + len('CO')
+                                    coalition_faction = fields[i+1][start_index:].strip()
+                                else:
+                                    dominance = fields[i+1].split()[0] 
+                                    if dominance == 'Bunny':
+                                        dominance = 'Rabbit'
+                            print(f'Score: {score}')
+                            coalition_instance = Faction.objects.filter(title__iexact=coalition_faction).first()
 
 
+                            # Skip empty entries
+                            if faction:
 
+
+                                # Record each player's results
+                                player_data = {
+                                    'date_posted': date_obj,
+                                    'seat': seat,
+                                    'faction': faction_instance,
+                                    'vagabond': vagabond_instance,
+                                    'win': win,
+                                    'score': score,
+                                    'coalition_with': coalition_instance,
+                                    'dominance': dominance,
+                                    'game': game_instance,
+                                }
+
+                                effort_form = EffortImportForm(player_data)
+
+                                if effort_form.is_valid():
+                                    print('Valid Effort')
+                                    effort_form.save()
+                                else:
+                                    print('Invalid Effort')
+                                    print(effort_form.errors) 
+
+                                seat = seat + 1
+
+
+                        except IndexError:
+                            break  # Reached the end of fields without a complete pair
+                        except ValueError:
+                            print(f"Invalid score value at index {i+1}: {fields[i+1]}")
+                            continue  # Skip this player if score isn't a valid number
 
 
                 else:

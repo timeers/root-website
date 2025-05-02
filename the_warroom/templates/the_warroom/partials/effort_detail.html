@@ -1,14 +1,12 @@
 {% load static i18n %}
 <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
-    {% if user.profile.player %}
+    
     <td>
 
     {% if effort.player %}
-        {% if user.profile.player %}
+       
             <a href="{% url 'player-detail' effort.player.slug %}">{{ effort.player.name }}</a>
-        {% else %}
-            {{ effort.player.name }}
-        {% endif %}
+
     {% else %}
         {% if effort.faction.type == "C" %}
         {% trans 'Clockwork' %}
@@ -21,7 +19,7 @@
         {% endif %}
     {% endif %}
 </td>
-{% endif %}
+
 <td>
     {% if effort.faction %}
         <span class='root-title'>

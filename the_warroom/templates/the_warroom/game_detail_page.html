@@ -33,7 +33,7 @@
         </div>
         {% if game.round %}
         <div>
-            <a href="{{ game.round.tournament.get_absolute_url }}">{{ game.type }} {{ game.round }} {% trans 'Game' %}</a>
+            <a href="{{ game.round.tournament.get_absolute_url }}">{{ game.type }} {{ game.round }}</a>
         </div>
         {% endif %}
 

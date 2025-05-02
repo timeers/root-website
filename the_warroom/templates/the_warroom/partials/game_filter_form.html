@@ -1,15 +1,48 @@
 {% load crispy_forms_tags i18n %}
-<article class="media content-section">
-    
-    <div class="media-body">
-        <h2>{% trans 'Filter Games' %}</h2>
-        <form hx-get="{% url object.component|lower|add:'-detail' object.slug %}" 
-        hx-target="#games-container"
-        hx-swap="innerHTML"
-        id="gamefilterform">
-       
-        {{ form|crispy }}
-        <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
-        </form>
-    </div>
-</article>
+
+
+
+<div class="collapse" id="filter-form-container"> 
+
+    <article class="media content-section">
+        
+        <div class="media-body">
+            <h2>{% trans 'Filter Games' %}</h2>
+            <form hx-get="{{ object.get_games_url }}" 
+            hx-target="#games-container"
+            hx-swap="innerHTML"
+            id="gamefilterform">
+        
+            {{ form|crispy }}
+            <button class="btn btn-sm btn-primary mb-2">{% trans 'Filter' %}</button>
+            </form>
+        </div>
+    </article>
+</div> 
+
+<button 
+    class="btn btn-sm btn-secondary mb-2" 
+    type="button" 
+    data-bs-toggle="collapse" 
+    data-bs-target="#filter-form-container" 
+    aria-expanded="false" 
+    aria-controls="filter-form-container"
+    id="toggle-filter-btn"
+>
+    <i class="bi bi-filter"></i> <span id="toggle-filter-text">Show Filters</span>
+</button>
+
+{% block scripts %}
+<script>
+    const toggleText = document.getElementById('toggle-filter-text');
+    const filterForm = document.getElementById('filter-form-container');
+
+    filterForm.addEventListener('shown.bs.collapse', () => {
+        toggleText.textContent = 'Hide Filters';
+    });
+
+    filterForm.addEventListener('hidden.bs.collapse', () => {
+        toggleText.textContent = 'Show Filters';
+    });
+</script>
+{% endblock scripts %}

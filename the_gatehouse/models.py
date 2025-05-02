@@ -638,67 +638,6 @@ class Profile(models.Model):
 
 
 
-    # Moved Functionality to Leaderboard
-    # def faction_stats(self, most_wins=False, tournament=None, round=None, limit=15, game_threshold=1):
-    #         from the_keep.models import Faction
-    #         # Start with the base queryset for players
-    #         queryset = Faction.objects.filter(efforts__player=self)
-    #         # print("got qs", most_wins, tournament, round, limit, game_threshold)
-    #         # Now, annotate with the total efforts and win counts for player
-    #         if round:
-    #             queryset = queryset.annotate(
-    #                 total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round=round, efforts__game__final=True, efforts__game__test_match=False)),
-    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round=round, efforts__game__final=True, efforts__game__test_match=False)),
-    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round=round, efforts__game__final=True, efforts__game__test_match=False))
-    #             )
-    #         elif tournament:
-    #             queryset = queryset.annotate(
-    #                 total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__round__tournament=tournament, efforts__game__final=True, efforts__game__test_match=False)),
-    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__round__tournament=tournament, efforts__game__final=True, efforts__game__test_match=False)),
-    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__round__tournament=tournament, efforts__game__final=True, efforts__game__test_match=False))
-    #             )
-    #         else:
-    #             queryset = queryset.annotate(
-    #                 total_efforts=Count('efforts', filter=Q(efforts__player=self, efforts__game__final=True, efforts__game__test_match=False)),
-    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__player=self, efforts__game__final=True, efforts__game__test_match=False)),
-    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__player=self, efforts__game__final=True, efforts__game__test_match=False))
-    #             )
-
-    #         # Filter factions who have enough efforts
-    #         queryset = queryset.filter(total_efforts__gte=game_threshold)
-
-    #         # Annotate with win_rate after filtering
-    #         queryset = queryset.annotate(
-    #             win_rate=Case(
-    #                 When(total_efforts=0, then=Value(0)),
-    #                 default=ExpressionWrapper(
-    #                     (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-    #                     output_field=FloatField()
-    #                 ),
-    #                 output_field=FloatField()
-    #             ),
-    #             tourney_points=Case(
-    #                 When(total_efforts=0, then=Value(0)),
-    #                 default=ExpressionWrapper(
-    #                     Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Tourney Points
-    #                     output_field=FloatField()
-    #                 ),
-    #                 output_field=FloatField()
-    #             )
-    #         )
-
-    #         # for faction in queryset:
-    #         #     print(f'Faction-{faction.title}, Wins-{faction.win_count}, Games-{faction.total_efforts}')
-
-    #         # Now we can order the queryset
-    #         if most_wins:
-    #             # If most_wins is True, order by total_efforts (most efforts) first
-    #             return queryset.order_by('-win_count', '-total_efforts', '-win_rate')[:limit]
-    #         else:
-    #             # Otherwise, order by win_rate (highest win rate) first
-    #             return queryset.order_by('-win_rate', '-total_efforts')[:limit]
-
-
 
 class PlayerBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)

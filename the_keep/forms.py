@@ -360,7 +360,7 @@ class PostCreateForm(forms.ModelForm):
                 self.fields['language'].queryset = Language.objects.filter(code='en')
         else:
             self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
-            Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B")
+            Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B") | Q(group='E')
             )
         # Remove language if it already exists
         if post_instance:

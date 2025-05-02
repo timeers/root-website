@@ -15,7 +15,7 @@
                     {% endif  %}
                     {% if game.round %}
                         {% if game.platform == "Root Digital" %}{{ game.type }}{% endif %}
-                         {{ game.round.tournament.name }} {% trans 'Game' %} |
+                         {{ game.round.tournament.name }} |
                     {% else %}
                         {% if game.platform == "Root Digital" %}{{ game.type }}{% endif %}
                         {% if game.solo %}
@@ -70,9 +70,9 @@
         <table>
             <thead>
                 <tr>
-                    {% if user.profile.player %}
+                    
                     <th>{% trans 'Player' %}</th>
-                    {% endif %}
+                    
                     <th>{% trans 'Faction' %}</th>
                     <th>{% trans 'Score' %}</th>
                 </tr>

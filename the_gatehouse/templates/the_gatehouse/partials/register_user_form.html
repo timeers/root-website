@@ -7,13 +7,13 @@
                     {{ player_form.discord }}
                     {{ player_form.display_name }}
            
-                <button type="submit" class="btn btn-primary btn-sm mb-1">Register Player</button>
+                <button type="submit" class="btn btn-primary btn-sm mb-1 mt-1">Register Player</button>
         </form>
     </div>
     
     <div id="player-form-errors">
         <small>
-            If a user is missing you can add them here. Users do not need to be registered to log in. Accounts are created upon login.
+            If a user is missing you can add them here. Users do not need to be registered to log in. Accounts are created upon login. If you registered a user by accident or made a typo please let us know <a class='clickable-link' href="{% url 'general-feedback' %}">here</a>.
         </small>
     </div>        
 </div>

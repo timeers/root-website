@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from the_warroom.models import ScoreCard, TurnScore
 from the_keep.models import Faction, PostTranslation
-from the_gatehouse.models import Profile
-from .serializers import ScoreCardDetailSerializer, FactionAverageTurnScoreSerializer
+# from the_gatehouse.models import Profile
+# from .serializers import ScoreCardDetailSerializer, FactionAverageTurnScoreSerializer
 from django.db.models import Avg, Sum, Count, Prefetch
 from django.utils.translation import get_language
 from collections import defaultdict

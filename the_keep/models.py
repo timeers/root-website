@@ -89,7 +89,10 @@ class StableCheckResult:
     loss_count: int
     official_faction_queryset: Optional[QuerySet] = field(default=None)
     unplayed_faction_queryset: Optional[QuerySet] = field(default=None)
-    
+    official_map_queryset: Optional[QuerySet] = field(default=None)
+    unplayed_map_queryset: Optional[QuerySet] = field(default=None)
+    official_deck_queryset: Optional[QuerySet] = field(default=None)
+    unplayed_deck_queryset: Optional[QuerySet] = field(default=None) 
 
 
 
@@ -807,7 +810,13 @@ class Deck(Post):
         
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
-        official_map_count = official_maps.filter(games__deck=self).distinct().count()
+        official_map_queryset = official_maps.filter(
+            games__deck=self
+        ).distinct()
+        official_map_count = official_map_queryset.count()
+        unplayed_map_queryset = official_maps.exclude(
+            id__in=official_map_queryset.values_list('id', flat=True)
+        )
 
         deck_threshold = 0
         official_deck_count = 0
@@ -856,7 +865,9 @@ class Deck(Post):
             win_count=win_count,
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
-            unplayed_faction_queryset=unplayed_faction_queryset
+            unplayed_faction_queryset=unplayed_faction_queryset,
+            official_map_queryset=official_map_queryset,
+            unplayed_map_queryset=unplayed_map_queryset
         )
         return result
 
@@ -911,11 +922,19 @@ class Landmark(Post):
 
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
-        official_map_count = official_maps.filter(games__landmarks=self).distinct().count()
-        
+        official_map_queryset = official_maps.filter(games__landmarks=self).distinct()
+        official_map_count = official_map_queryset.count()
+        unplayed_map_queryset = official_maps.exclude(
+            id__in=official_map_queryset.values_list('id', flat=True)
+        )
+
         official_decks = Deck.objects.filter(official=True, status=1)
         deck_threshold = official_decks.count() - 1
-        official_deck_count = official_decks.filter(games__landmarks=self).distinct().count()
+        official_deck_queryset = official_decks.filter(games__landmarks=self).distinct()
+        official_deck_count = official_deck_queryset.count()
+        unplayed_deck_queryset = official_decks.exclude(
+            id__in=official_deck_queryset.values_list('id', flat=True)
+        )
 
         plays = self.get_plays_queryset()
         unique_players = plays.aggregate(
@@ -964,6 +983,10 @@ class Landmark(Post):
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
             unplayed_faction_queryset=unplayed_faction_queryset,
+            official_map_queryset=official_map_queryset,
+            unplayed_map_queryset=unplayed_map_queryset,
+            official_deck_queryset=official_deck_queryset,
+            unplayed_deck_queryset=unplayed_deck_queryset
         )
         return result
 
@@ -1011,12 +1034,20 @@ class Tweak(Post):
 
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
-        official_map_count = official_maps.filter(games__tweaks=self).distinct().count()
-        
+        official_map_queryset = official_maps.filter(games__tweaks=self).distinct()
+        official_map_count = official_map_queryset.count()
+        unplayed_map_queryset = official_maps.exclude(
+            id__in=official_map_queryset.values_list('id', flat=True)
+        )
+
         official_decks = Deck.objects.filter(official=True, status=1)
         deck_threshold = official_decks.count() - 1
-        official_deck_count = official_decks.filter(games__tweaks=self).distinct().count()
-        
+        official_deck_queryset = official_decks.filter(games__tweaks=self).distinct()
+        official_deck_count = official_deck_queryset.count()
+        unplayed_deck_queryset = official_decks.exclude(
+            id__in=official_deck_queryset.values_list('id', flat=True)
+        )
+
         plays = self.get_plays_queryset()
         unique_players = plays.aggregate(
                     total_players=Count('efforts__player', distinct=True)
@@ -1064,7 +1095,11 @@ class Tweak(Post):
             win_count=win_count,
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
-            unplayed_faction_queryset=unplayed_faction_queryset
+            unplayed_faction_queryset=unplayed_faction_queryset,
+            official_map_queryset=official_map_queryset,
+            unplayed_map_queryset=unplayed_map_queryset,
+            official_deck_queryset=official_deck_queryset,
+            unplayed_deck_queryset=unplayed_deck_queryset
         )
         return result
 
@@ -1137,8 +1172,12 @@ class Map(Post):
         
         official_decks = Deck.objects.filter(official=True, status=1)
         deck_threshold = official_decks.count() - 1
-        official_deck_count = official_decks.filter(games__map=self).distinct().count()
-        
+        official_deck_queryset = official_decks.filter(games__map=self).distinct()
+        official_deck_count = official_deck_queryset.count()
+        unplayed_deck_queryset = official_decks.exclude(
+            id__in=official_deck_queryset.values_list('id', flat=True)
+        )
+       
         plays = self.get_plays_queryset()
 
         unique_players = plays.aggregate(
@@ -1186,7 +1225,9 @@ class Map(Post):
             win_count=win_count,
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
-            unplayed_faction_queryset=unplayed_faction_queryset
+            unplayed_faction_queryset=unplayed_faction_queryset,
+            official_deck_queryset=official_deck_queryset,
+            unplayed_deck_queryset=unplayed_deck_queryset
         )
         return result
 
@@ -1294,11 +1335,19 @@ class Vagabond(Post):
 
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
-        official_map_count = official_maps.filter(games__efforts__vagabond=self).distinct().count()
+        official_map_queryset = official_maps.filter(games__efforts__vagabond=self).distinct()
+        official_map_count = official_map_queryset.count()
+        unplayed_map_queryset = official_maps.exclude(
+            id__in=official_map_queryset.values_list('id', flat=True)
+        )
 
         official_decks = Deck.objects.filter(official=True, status=1)
         deck_threshold = official_decks.count() - 1 # Taking 1 out for base deck
-        official_deck_count = official_decks.filter(games__efforts__vagabond=self).distinct().count()
+        official_deck_queryset = official_decks.filter(games__efforts__vagabond=self).distinct()
+        official_deck_count = official_deck_queryset.count()
+        unplayed_deck_queryset = official_decks.exclude(
+            id__in=official_deck_queryset.values_list('id', flat=True)
+        )
 
         
         plays = self.get_plays_queryset()
@@ -1347,7 +1396,11 @@ class Vagabond(Post):
             win_count=win_count,
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
-            unplayed_faction_queryset=unplayed_faction_queryset
+            unplayed_faction_queryset=unplayed_faction_queryset,
+            official_map_queryset=official_map_queryset,
+            unplayed_map_queryset=unplayed_map_queryset,
+            official_deck_queryset=official_deck_queryset,
+            unplayed_deck_queryset=unplayed_deck_queryset
         )
         return result
 
@@ -1518,11 +1571,19 @@ class Faction(Post):
 
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
-        official_map_count = official_maps.filter(games__efforts__faction=self).distinct().count()
+        official_map_queryset = official_maps.filter(games__efforts__faction=self).distinct()
+        official_map_count = official_map_queryset.count()
+        unplayed_map_queryset = official_maps.exclude(
+            id__in=official_map_queryset.values_list('id', flat=True)
+        )
 
         official_decks = Deck.objects.filter(official=True, status=1)
         deck_threshold = official_decks.count() - 1
-        official_deck_count = official_decks.filter(games__efforts__faction=self).distinct().count()
+        official_deck_queryset = official_decks.filter(games__efforts__faction=self).distinct()
+        official_deck_count = official_deck_queryset.count()
+        unplayed_deck_queryset = official_decks.exclude(
+            id__in=official_deck_queryset.values_list('id', flat=True)
+        )
 
         plays = self.get_plays_queryset()
         
@@ -1578,7 +1639,11 @@ class Faction(Post):
             win_count=win_count,
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
-            unplayed_faction_queryset=unplayed_faction_queryset
+            unplayed_faction_queryset=unplayed_faction_queryset,
+            official_map_queryset=official_map_queryset,
+            unplayed_map_queryset=unplayed_map_queryset,
+            official_deck_queryset=official_deck_queryset,
+            unplayed_deck_queryset=unplayed_deck_queryset
         )
         return result
 
@@ -1664,11 +1729,19 @@ class Hireling(Post):
 
         official_maps = Map.objects.filter(official=True, status=1)
         map_threshold = official_maps.count()
-        official_map_count = official_maps.filter(games__hirelings=self).distinct().count()
-        
+        official_map_queryset = official_maps.filter(games__hirelings=self).distinct()
+        official_map_count = official_map_queryset.count()
+        unplayed_map_queryset = official_maps.exclude(
+            id__in=official_map_queryset.values_list('id', flat=True)
+        )
+
         official_decks = Deck.objects.filter(official=True, status=1)
         deck_threshold = official_decks.count() - 1
-        official_deck_count = official_decks.filter(games__hirelings=self).distinct().count()
+        official_deck_queryset = official_decks.filter(games__hirelings=self).distinct()
+        official_deck_count = official_deck_queryset.count()
+        unplayed_deck_queryset = official_decks.exclude(
+            id__in=official_deck_queryset.values_list('id', flat=True)
+        )
 
         plays = self.get_plays_queryset()
         unique_players = plays.aggregate(
@@ -1715,7 +1788,11 @@ class Hireling(Post):
             win_count=win_count,
             loss_count=loss_count,
             official_faction_queryset=official_faction_queryset,
-            unplayed_faction_queryset=unplayed_faction_queryset
+            unplayed_faction_queryset=unplayed_faction_queryset,
+            official_map_queryset=official_map_queryset,
+            unplayed_map_queryset=unplayed_map_queryset,
+            official_deck_queryset=official_deck_queryset,
+            unplayed_deck_queryset=unplayed_deck_queryset
         )
         return result
 

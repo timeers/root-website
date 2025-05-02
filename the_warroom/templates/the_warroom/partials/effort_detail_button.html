@@ -1,6 +1,6 @@
 {% load static i18n %}
 <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
-    {% if user.profile.player %}
+    
     <td>
 
         {% if effort.player %}
@@ -21,7 +21,7 @@
             {% endif %}
         {% endif %}
     </td>
-    {% endif %}
+    
     <td>
         {% if effort.faction %}
             <div class="parent mr-2 mb-1">

@@ -23,7 +23,7 @@ class UserUpdateForm(forms.ModelForm):
         model = User
         fields = ['email']
 
-# Removed League checkbox
+
 class ProfileUpdateForm(forms.ModelForm):
     STATUS_CHOICES = [
         ('1', _('Stable Only')),
@@ -39,7 +39,7 @@ class ProfileUpdateForm(forms.ModelForm):
     )
     class Meta:
         model = Profile     
-        fields = ['image', 'dwd', 'weird', 'view_status', 'language'] # 'league' to add yourself to RDL tournament
+        fields = ['image', 'dwd', 'weird', 'view_status', 'language'] # 'league' to add yourself to a TTS League
         labels = {
             'dwd': 'Direwolf Digital Username',  # Custom label for dwd_username
             'league' : 'Register for Root TTS League',
@@ -76,9 +76,6 @@ class ProfileUpdateForm(forms.ModelForm):
             cleaned_data['dwd'] = None
             raise ValidationError(f"DWD usernames must be in the format 'username+1234'.")
 
-        # Save to repurpose #########################
-        # if league and dwd == None and not self.instance.dwd:
-        #     raise ValidationError(f"Must have a DWD username to be registered for Leauge.")
 
         return cleaned_data
 

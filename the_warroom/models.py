@@ -13,7 +13,7 @@ from .utils import slugify_tournament_name, slugify_round_name
 
 class PlatformChoices(models.TextChoices):
     TTS = 'Tabletop Simulator'
-    # HRF = 'hrf.com'
+    # HRF = 'hrf.com' # :(
     DWD = 'Root Digital'
     IRL = 'In Person'
     # ETC = 'Other'
@@ -30,7 +30,8 @@ class GameQuerySet(models.QuerySet):
         #     Q(landmarks__official=False)
         # )
 
-
+# This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
+# Currently hidden on the site and not really being used.
 class Tournament(models.Model):
     class CoalitionTypes(models.TextChoices):
         NONE = "None"
@@ -120,7 +121,7 @@ class Tournament(models.Model):
         return all_players
 
 
-
+# This is a round of a tournament, series or playtest. It allows for leaderboard splits and a set end date.
 class Round(models.Model):
     type = "Round"
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds')  # Link to the tournament
@@ -184,7 +185,7 @@ class Round(models.Model):
     class Meta:
         ordering = ['-round_number']
 
-
+# This is a game with the basic game attributes and a variable number of seats (Efforts) linked to it
 class Game(models.Model):
     class TypeChoices(models.TextChoices):
         ASYNC = 'Async'
@@ -234,16 +235,7 @@ class Game(models.Model):
     
     def get_winners(self):
         return self.get_efforts().filter(win=True)
-    
-    # @property
-    # def only_official_components(self):
-    #     return not (
-    #         self.get_efforts().filter(Q(faction__official=False) | Q(vagabond__official=False)).exists() or
-    #         (self.deck and not self.deck.official) or
-    #         (self.map and not self.map.official) or
-    #         self.hirelings.filter(official=False).exists() or
-    #         self.landmarks.filter(official=False).exists()
-    #     )
+
     
     def clean(self):
         # Check for duplicates among non-blank links
@@ -266,66 +258,6 @@ class Game(models.Model):
     class Meta:
         ordering = ['-date_posted']
 
-    # def save(self, *args, **kwargs):
-    #     # Store the old official status
-    #     old_status = self.official
-
-    #     # Start by assuming the new status is True
-    #     new_status = True
-    #     print("Checking statuses")
-    #     # Use a transaction to make the save operation atomic
-    #     with transaction.atomic():
-    #         # Check if the map or deck are not official
-    #         print(f'Deck: {self.map.official}, Map: {self.deck.official}')
-    #         if not self.map.official or not self.deck.official:
-    #             new_status = False
-    #         else:
-    #             # Check if any landmark is not official
-    #             if self.landmarks.filter(official=False).exists():
-    #                 new_status = False
-
-    #             # Check if any hireling is not official
-    #             elif self.hirelings.filter(official=False).exists():
-    #                 new_status = False
-
-    #             # Check if any effort's faction is not official or vagabond's official is False
-    #             elif self.efforts.filter(faction__official=False).exists():
-    #                 new_status = False
-    #             elif self.efforts.filter(vagabond__official=False).exists():
-    #                 new_status = False
-    #     print(f'Old Status: {old_status}, New Status: {new_status}')
-    #     # Only update if the official status has changed
-    #     if old_status != new_status:
-    #         print(f'Changing Official to {new_status}')
-    #         self.official = new_status
-    #         super().save(*args, **kwargs)  # Call the superclass save method once
-
-    # def save(self, *args, **kwargs):
-    #     super().save(*args, **kwargs)
-    #     old_status = self.official
-    #     new_status = True
-    #     if not self.map.official or not self.deck.official:
-    #         new_status = False
-    #     else:
-    #         for landmark in self.landmarks.all():
-    #             print(f'Landmark: {landmark.official}')
-    #             if not landmark.official:
-    #                 new_status = False
-    #                 break
-    #         for hireling in self.hirelings.all():
-    #             if not hireling.official:
-    #                 new_status = False
-    #                 break
-    #         for effort in self.efforts.all():
-    #             if not effort.faction.official: 
-    #                 new_status = False
-    #                 break
-    #             if effort.vagabond and not effort.vagabond.official:
-    #                 new_status = False
-    #                 break
-    #     if old_status != new_status:
-    #         self.official = new_status
-    #         self.save()
         
 
 class GameBookmark(models.Model):
@@ -336,7 +268,7 @@ class GameBookmark(models.Model):
     def __str__(self):
         return f"{self.player.name}: {self.game.id}"
 
-
+# This represents one seat of a game. A faction is required but a player is not.
 class Effort(models.Model):
     class DominanceChoices(models.TextChoices):
         MOUSE = 'Mouse'
@@ -412,7 +344,7 @@ class Effort(models.Model):
     class Meta:
         ordering = ['game', 'seat']    
 
-
+# This is a collection of Turns that makes up the detailed point breakdown of a game. It should be linked to an effort and is marked as final when the total score matches with the effort's score.
 class ScoreCard(models.Model):
     effort = models.OneToOneField(Effort, related_name='scorecard', on_delete=models.CASCADE, null=True, blank=True)
     faction = models.ForeignKey(Faction, related_name='scorecards', on_delete=models.CASCADE)
@@ -481,7 +413,7 @@ class ScoreCard(models.Model):
     class Meta:
         ordering = ['-date_posted']
 
-
+# This is the poorly named segment of a Scorecard that contains the point breakdown for each Turn
 class TurnScore(models.Model):
     scorecard = models.ForeignKey(ScoreCard, related_name='turns', on_delete=models.CASCADE, null=True, blank=True)
     turn_number = models.IntegerField(default=0, validators=[MinValueValidator(1)])
@@ -511,32 +443,6 @@ class TurnScore(models.Model):
         
         return total_game_points
 
-
-    # def save(self, *args, **kwargs):
-    #     with transaction.atomic():
-    #         self.total_points = (self.battle_points + self.crafting_points + self.faction_points + self.other_points)
-    #         super().save(*args, **kwargs)
-            # if self.scorecard:
-            #     scorecard = self.scorecard
-            #     aggregate_values = scorecard.turns.aggregate(
-            #     total_points=Sum('total_points'),
-            #     total_battle_points=Sum('battle_points'),
-            #     total_crafting_points=Sum('crafting_points'),
-            #     total_faction_points=Sum('faction_points'),
-            #     total_other_points=Sum('other_points'),
-            # )
-
-            #     scorecard.total_points = aggregate_values['total_points'] or 0
-            #     scorecard.total_battle_points = aggregate_values['total_battle_points'] or 0
-            #     scorecard.total_crafting_points = aggregate_values['total_crafting_points'] or 0
-            #     scorecard.total_faction_points = aggregate_values['total_faction_points'] or 0
-            #     scorecard.total_other_points = aggregate_values['total_other_points'] or 0
-
-            #     any_dominance_true = scorecard.turns.filter(dominance=True).exists()
-            #     scorecard.dominance = any_dominance_true
-            #     # print(any_dominance_true)
-            #     print('save')
-            #     scorecard.save()
   
 
 

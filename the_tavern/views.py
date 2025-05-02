@@ -7,7 +7,7 @@ from .models import GameComment, PostComment
 from django.views.decorators.http import require_http_methods
 
 from django.http import HttpResponse
-
+# this whole module is basically unused. Moved away from allowing comments.
 
 
 @login_required

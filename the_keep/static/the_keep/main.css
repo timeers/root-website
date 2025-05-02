@@ -437,6 +437,27 @@ em, i {
     opacity: 0.6; /* dim it slightly */
 }
   
+.centered-icon {
+  display: flex;
+  width: var(--icon-width);
+  justify-content: center;
+  max-height: 50px;
+}
+
+.status-icon {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  padding-left: 1%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+
+.status-icon.greyed-out {
+  filter: grayscale(100%);
+  opacity: 0.6; /* dim it slightly */
+}
 
   .user-icon {
     max-height: 40px;
