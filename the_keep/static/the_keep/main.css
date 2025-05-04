@@ -422,20 +422,6 @@ em, i {
     display: flex;
     gap: 0; /* optional: explicitly removes space */
 }
-
-  .faction-status-icon {
-    display: block;
-    width: var(--faction-icon-width); /* This can be a percentage or a fixed size */
-    height: auto;
-    padding-left: 1%;
-    object-fit: contain;
-}
-
-
-  .faction-status-icon.greyed-out {
-    filter: grayscale(100%);
-    opacity: 0.6; /* dim it slightly */
-}
   
 .centered-icon {
   display: flex;

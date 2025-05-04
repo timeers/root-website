@@ -1501,7 +1501,7 @@ def delete_piece(request, id):
 
 
 # This view is used to check the status of a Post and return playtest details. The page is intentionally 'game-ified' to encourage playtests with different components.
-@player_required
+
 def status_check(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)

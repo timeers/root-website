@@ -22,7 +22,7 @@
     <div class="row">
         <div class="col-12 col-md-12">
             <div class="bar-container">
-                <div class="bar-label">{% trans 'Progress' %}</div> 
+                <div class="bar-label">{% trans 'Recorded Progress' %}</div> 
                 <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{total_completion}}">
                     <div class="bar-text{% if total_count == 0 %} bar-black-text{% endif %}">{{ total_count }}/{{ total_threshold }}</div>
                 </div>
@@ -72,6 +72,35 @@
 
 
 {% if play_count != 0 %}
+            <article class="content-section post-card">
+                <a href="{{ object.get_games_url }}">
+                    <div>
+                        <h3 class='root-title'>{% trans 'Games' %}</h3>
+                    </div>
+                    <div>
+                        {% if play_count != 1 %}
+                        {% blocktrans %}
+                        View {{ play_count }} Games
+                        {% endblocktrans %}
+                        {% else %}
+                        {% blocktrans %}
+                        View {{ play_count }} Game
+                        {% endblocktrans %}
+                        {% endif %}
+                    </div>
+                </a>
+            </article>
+        
+{% else %}
+    <article class="content-section">
+        <div>
+        <h2 class='root-title'>
+            {% trans 'No Games Recorded' %}
+        </h2>
+        </div>
+    </article>
+{% endif %}
+
     <article class="content-section">
         <div>
             <h2 class='root-title'>{% trans 'Recorded Stats' %}</h2>
@@ -120,14 +149,7 @@
                         <div class="bar-background bar-background-variable" style="--bar-color: {{ object_color }}; --bar-width: {{official_faction_completion}}">
                             <div class="bar-text{% if official_faction_count == 0 %} bar-black-text{% endif %}">{{ official_faction_count }}/{{ official_faction_threshold }}</div>
                         </div>
-                        {% comment %} <div class="icon-bar">
-                        {% for faction in official_faction_queryset %}
-                            <img class="faction-status-icon" src="{{ faction.small_icon.url }}" style="--faction-icon-width:{{ faction_icon_width }}";>
-                        {% endfor %}
-                        {% for faction in unplayed_faction_queryset %}
-                            <img class="faction-status-icon greyed-out" src="{{ faction.small_icon.url }}" style="--faction-icon-width:{{ faction_icon_width }}";>
-                        {% endfor %}
-                        </div> {% endcomment %}
+
                         <div class="icon-bar mt-1">
                             {% for faction in official_faction_queryset %}
                                 <div class='centered-icon' style="--icon-width:{{ faction_icon_width }}";>
@@ -201,38 +223,9 @@
         </div>
     </article>
 
-{% endif %}
 
 
-{% if play_count != 0 %}
-            <article class="content-section post-card">
-                <a href="{{ object.get_games_url }}">
-                    <div>
-                        <h3 class='root-title'>{% trans 'Games' %}</h3>
-                    </div>
-                    <div>
-                        {% if play_count != 1 %}
-                        {% blocktrans %}
-                        View {{ play_count }} Games
-                        {% endblocktrans %}
-                        {% else %}
-                        {% blocktrans %}
-                        View {{ play_count }} Game
-                        {% endblocktrans %}
-                        {% endif %}
-                    </div>
-                </a>
-            </article>
-        
-{% else %}
-    <article class="content-section">
-        <div>
-        <h2 class='root-title'>
-            {% trans 'No Games Recorded' %}
-        </h2>
-        </div>
-    </article>
-{% endif %}
+
 
 {% if object.status != '1' %}
     <article class="content-section">
