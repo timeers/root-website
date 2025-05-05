@@ -31,17 +31,17 @@ class GameFilter(django_filters.FilterSet):
         field_name='efforts__player',
         label = 'Players',
     )
-    # official = django_filters.BooleanFilter(
-    #     label='Official Only',
-    #     widget=forms.Select(choices=[
-    #         ('', 'All Games'),    # acts as "unknown" (no filter)
-    #         ('true', 'Games with only Official Content'),
-    #         ('false', 'Games with Fan Content'),
-    #     ])
-    # )
+    official = django_filters.BooleanFilter(
+        label='Display Games',
+        widget=forms.Select(choices=[
+            ('', 'All Games'),    # acts as "unknown" (no filter)
+            ('true', 'Games with only Official Content'),
+            ('false', 'Games with Fan Content'),
+        ])
+    )
     class Meta:
         model = Game
-        fields = ['faction', 'vagabond', 'map', 'deck', 'player']
+        fields = ['faction', 'vagabond', 'map', 'deck', 'player', 'official']
 
 
     def __init__(self, *args, user=None, **kwargs):
@@ -153,17 +153,17 @@ class PlayerGameFilter(django_filters.FilterSet):
         field_name='efforts__player',
         label = 'Players',
     )
-    # official = django_filters.BooleanFilter(
-    #     label='Official Only',
-    #     widget=forms.Select(choices=[
-    #         ('', 'All Games'),    # acts as "unknown" (no filter)
-    #         ('true', 'Games with only Official Content'),
-    #         ('false', 'Games with Fan Content'),
-    #     ])
-    # )
+    official = django_filters.BooleanFilter(
+        label='Display Games',
+        widget=forms.Select(choices=[
+            ('', 'All Games'),    # acts as "unknown" (no filter)
+            ('true', 'Games with only Official Content'),
+            ('false', 'Games with Fan Content'),
+        ])
+    )
     class Meta:
         model = Game
-        fields = ['faction', 'factions', 'vagabonds', 'map', 'deck','players']
+        fields = ['faction', 'factions', 'vagabonds', 'map', 'deck','players', 'official']
 
 
     def __init__(self, *args, player=None, **kwargs):

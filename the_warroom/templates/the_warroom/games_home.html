@@ -108,9 +108,15 @@
         {{ form.player }}
         </div>
 
-        {% comment %} <div class='mb-1'>
+        {% if user.is_authenticated and not user.profile.weird %}
+        <div class='mb-1'>
+            *Displaying Official Content Only
+        </div>
+        {% else %}
+        <div class='mb-1'>
             {{ form.official }}
-        </div> {% endcomment %}
+        </div>
+        {% endif %}
 
         <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
     </form>
