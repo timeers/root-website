@@ -31,17 +31,17 @@ class GameFilter(django_filters.FilterSet):
         field_name='efforts__player',
         label = 'Players',
     )
-    official = django_filters.BooleanFilter(
-        label='Official Only',
-        widget=forms.Select(choices=[
-            ('', 'All Games'),    # acts as "unknown" (no filter)
-            ('true', 'Games with only Official Content'),
-            ('false', 'Games with Fan Content'),
-        ])
-    )
+    # official = django_filters.BooleanFilter(
+    #     label='Official Only',
+    #     widget=forms.Select(choices=[
+    #         ('', 'All Games'),    # acts as "unknown" (no filter)
+    #         ('true', 'Games with only Official Content'),
+    #         ('false', 'Games with Fan Content'),
+    #     ])
+    # )
     class Meta:
         model = Game
-        fields = ['faction', 'vagabond', 'map', 'deck', 'player', 'official']
+        fields = ['faction', 'vagabond', 'map', 'deck', 'player']
 
 
     def __init__(self, *args, user=None, **kwargs):
@@ -77,8 +77,8 @@ class GameFilter(django_filters.FilterSet):
         selected_factions = self.data.getlist('faction')
         selected_players = self.data.getlist('player')
         selected_vagabonds = self.data.getlist('vagabond')
-        official_only = self.form.cleaned_data.get('official')
-        print(official_only)
+        # official_only = self.form.cleaned_data.get('official')
+        # print(official_only)
         # print(selected_factions)
         # print(selected_players)
         # print(selected_vagabonds)
@@ -153,17 +153,17 @@ class PlayerGameFilter(django_filters.FilterSet):
         field_name='efforts__player',
         label = 'Players',
     )
-    official = django_filters.BooleanFilter(
-        label='Official Only',
-        widget=forms.Select(choices=[
-            ('', 'All Games'),    # acts as "unknown" (no filter)
-            ('true', 'Games with only Official Content'),
-            ('false', 'Games with Fan Content'),
-        ])
-    )
+    # official = django_filters.BooleanFilter(
+    #     label='Official Only',
+    #     widget=forms.Select(choices=[
+    #         ('', 'All Games'),    # acts as "unknown" (no filter)
+    #         ('true', 'Games with only Official Content'),
+    #         ('false', 'Games with Fan Content'),
+    #     ])
+    # )
     class Meta:
         model = Game
-        fields = ['faction', 'factions', 'vagabonds', 'map', 'deck', 'official','players']
+        fields = ['faction', 'factions', 'vagabonds', 'map', 'deck','players']
 
 
     def __init__(self, *args, player=None, **kwargs):

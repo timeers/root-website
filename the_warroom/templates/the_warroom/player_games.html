@@ -123,9 +123,9 @@
             {% trans 'Players' %}:
         {{ form.players }}
         </div>
-        <div>
+        {% comment %} <div>
             {{ form.official }}
-        </div>
+        </div> {% endcomment %}
         <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
     </form>
 
