@@ -31,9 +31,19 @@
                         {% trans 'Game' %}
                     {% endif %} |
                 {% endif %}
-            {{ game.date_posted|date:"F j, Y" }} |
-            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} {% trans 'Deck' %}</a> -
+            {{ game.date_posted|date:"F j, Y" }}
+            {% if game.deck or game.map %}
+             |
+            {% endif %}
+            {% if game.deck %}
+            <a href="{% url 'deck-detail' game.deck.slug %}">{{ game.deck }} {% trans 'Deck' %}</a> 
+            {% endif %}
+            {% if game.deck and game.map %}
+            -
+            {% endif %}
+            {% if game.map %}
             <a href="{% url 'map-detail' game.map.slug %}">{{ game.map }} {% trans 'Map' %}</a>
+            {% endif %}
         </small>
         <div class="d-flex flex-nowrap">
 

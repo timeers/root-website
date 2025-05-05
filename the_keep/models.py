@@ -1990,6 +1990,7 @@ class PNPAsset(models.Model):
     category = models.CharField(choices=CategoryChoices, max_length=15)
     shared_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, related_name='assets', null=True, blank=True)
     pinned = models.BooleanField(default=False)
+    description = models.TextField(null=True, blank=True)
 
     def get_absolute_url(self):
         return reverse('asset-detail', kwargs={'pk': self.id})

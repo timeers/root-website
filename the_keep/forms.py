@@ -1067,7 +1067,7 @@ class StatusConfirmForm(forms.Form):
 class PNPAssetCreateForm(forms.ModelForm):
     class Meta:
         model = PNPAsset
-        fields = ['title', 'category', 'link', 'file_type', 'shared_by']
+        fields = ['title', 'category', 'link', 'file_type', 'description', 'shared_by']
         help_texts = {
             'shared_by': 'Selected user will be able to edit and delete this link.',
             'link': 'Enter the direct link to this asset (Google Drive, Dropbox, etc). The more specific the better.'

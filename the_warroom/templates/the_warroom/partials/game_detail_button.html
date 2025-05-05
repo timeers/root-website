@@ -33,8 +33,15 @@
                     {% endif %}
                   
                 {{ game.date_posted|date:"F j, Y" }} |
-                {{ game.deck }} {% trans 'Deck' %} -
+                {% if game.deck %}
+                {{ game.deck }} {% trans 'Deck' %}
+                {% endif %}
+                {% if game.deck and game.map %}
+                -
+                {% endif %}
+                {% if game.map %}
                 {{ game.map }} {% trans 'Map' %}
+                {% endif %}
             </small>
         </div>
     

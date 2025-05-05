@@ -194,8 +194,8 @@ class Game(models.Model):
     # Required
     type = models.CharField(max_length=5, choices=TypeChoices.choices, default=TypeChoices.LIVE)
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=PlatformChoices.TTS)
-    deck = models.ForeignKey(Deck, on_delete=models.PROTECT, null=True, related_name='games')
-    map = models.ForeignKey(Map, on_delete=models.PROTECT, null=True, related_name='games')
+    deck = models.ForeignKey(Deck, on_delete=models.PROTECT, blank=True, null=True, related_name='games')
+    map = models.ForeignKey(Map, on_delete=models.PROTECT,blank=True, null=True, related_name='games')
 
     round = models.ForeignKey(Round, on_delete=models.PROTECT, null=True, blank=True, related_name='games')
     
