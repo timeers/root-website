@@ -82,11 +82,13 @@
                     <span class="h5 root-title">The Basics</span>
                 {{ form.title|as_crispy_field}}
                 
-                {{ form.based_on|as_crispy_field }}
-                
                 {% if form.expansion %}
                     {{ form.expansion|as_crispy_field }}
                 {% endif %}
+
+                {{ form.based_on|as_crispy_field }}
+                
+
                 {{ form.status|as_crispy_field}}
                 </div>
                 <div class='soft-shadow'>

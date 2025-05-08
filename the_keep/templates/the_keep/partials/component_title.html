@@ -10,7 +10,10 @@
     </h2>
 {% elif object.component == 'Faction' %}
     <h2 class='root-title mx-auto'>
-        {{ object.get_type_display }} {% trans 'Faction' %}
+        {% if object.type != "U" %}
+        {{ object.get_type_display }} 
+        {% endif %}
+        {% trans 'Faction' %}
         {% if object.reach != 0 %} ({{ object.reach }} {% trans 'Reach' %}){% endif %}
     </h2>
 {% elif object.component == 'Tweak' %}

@@ -1412,6 +1412,7 @@ class Faction(Post):
         MILITANT = 'M', _('Militant')  # Marked for translation
         INSURGENT = 'I', _('Insurgent')
         CLOCKWORK = 'C', _('Clockwork')
+        UNKNOWN = 'U', _('Unknown')
     
     class StyleChoices(models.TextChoices):
         NONE = 'N', _('None')  # Marked for translation
@@ -1451,9 +1452,10 @@ class Faction(Post):
             self.sorting = 1
             if self.reach > 0:
                 self.component_snippet = f"{self.get_type_display()} ({self.reach} Reach)"
-            else:
+            elif self.type != "U":
                 self.component_snippet = f"{self.get_type_display()}"
-
+            else:
+                self.component_snippet = ""
         super().save(*args, **kwargs)  # Call the parent save method
 
     # def get_absolute_url(self):
@@ -1971,6 +1973,7 @@ class PNPAsset(models.Model):
         HIRELING = 'Hireling', _('Hireling')
         ICONS = 'Icons', _('Icons')
         GUIDE = 'Guide', _('Guide')
+        INFO = 'Info', _('Info')
         OTHER = 'Other', _('Other')
 
     class FileChoices(models.TextChoices):

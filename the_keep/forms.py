@@ -842,6 +842,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     animal = forms.CharField(required=True, max_length=35)
     TYPE_CHOICES = [
+        ('U', _('Unknown')),
         ('I', _('Insurgent')),
         ('M', _('Militant')),
     ]
@@ -854,15 +855,15 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             ('H', _('High')),
         ]
         return forms.ChoiceField(
-            choices=STYLE_CHOICES, initial="M", 
+            choices=STYLE_CHOICES, initial="N", 
             widget=forms.RadioSelect(), required=True, label=field_name
         )
     type = forms.ChoiceField(
-        choices=TYPE_CHOICES, initial='I',
+        choices=TYPE_CHOICES, initial='U',
         widget=forms.RadioSelect(),
         required=True
     )
-    reach = forms.IntegerField(min_value=0, max_value=10)
+    reach = forms.IntegerField(initial=0, min_value=0, max_value=10)
     complexity = create_style_choice_field('Complexity')
     card_wealth = create_style_choice_field('Card Wealth')
     aggression = create_style_choice_field('Aggression')
@@ -914,6 +915,8 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
                 raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
             elif type == 'M' and reach < 6:
                 raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
+            elif type == "U" and reach != 0:
+                raise ValidationError('Reach Score does not match Type selected.')
 
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')

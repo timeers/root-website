@@ -1249,10 +1249,16 @@ class TournamentDeleteView(DeleteView):
 
 
 
-@admin_onboard_required
+@player_onboard_required
 def tournament_manage_players(request, tournament_slug):
+
+
     # Fetch the tournament object
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not request.user.profile == tournament.designer and not request.user.profile.admin:
+        messages.error(request, f"You do not have permission to manage the {tournament} roster.")
+        raise PermissionDenied() 
 
     # Initialize the querysets based on whether fan content is included
     available_players = Profile.objects.exclude(current_tournaments=tournament)

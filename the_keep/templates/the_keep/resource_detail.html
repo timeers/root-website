@@ -44,7 +44,11 @@
             {% trans 'Date' %}: {{resource.date_updated |date:"F j, Y"}}
         </div>
 
-
+        {% if resource.description %}
+            <div>
+                {{ resource.description }}
+            </div>
+        {% endif %}
     </div>
 
 </article>

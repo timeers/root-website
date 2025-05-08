@@ -290,7 +290,7 @@
         <div class="tab-pane fade" id="players" role="tabpanel" aria-labelledby="players-tab">
             <article class="media content-section">
                 <div class="media-body">
-            {% if user.profile.admin %}
+            {% if user.profile.admin or user.profile == object.designer %}
             <div style="display: flex; justify-content: flex-end;">
                 <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">{% trans 'Manage Players' %}</a>
             </div>

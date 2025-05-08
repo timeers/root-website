@@ -20,7 +20,7 @@
     </div>
     <div class="alert alert-success mt-1" role="alert">
         <ul>
-            Players selected will be added to {{ tournament.name }}{% if round %} - {{ round.name }}{% endif %}
+            Players selected will be added to {{ tournament.name }}{% if round %} - {{ round.name }}{% endif %} and able to record games.
         </ul>
     </div>
     {% endif %}
@@ -33,7 +33,7 @@
     </div>
     <div class="alert alert-warning mt-1" role="alert">
         <ul>
-            Players selected will remain on the tournament roster but will be unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}{% endif %}
+            Players selected will remain on the tournament roster but will be unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}.{% endif %}
         </ul>
     </div>
 
@@ -48,7 +48,7 @@
     </div>
     <div class="alert alert-danger mt-1" role="alert">
         <ul>
-            Players selected will be removed and unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}{% endif %}
+            Players selected will be removed and unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}.{% endif %}
         </ul>
     </div>
     {% endif %}

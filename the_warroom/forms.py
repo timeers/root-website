@@ -137,7 +137,7 @@ class GameCreateForm(forms.ModelForm):
                     )
                 active_rounds = active_rounds.filter(
                     Q(players__isnull=False) & Q(players__in=[user.profile]) | Q(players__isnull=True)
-)
+                    )
             
             self.fields['round'].queryset = active_rounds
 
@@ -174,25 +174,26 @@ class GameCreateForm(forms.ModelForm):
             # Check that the deck, landmarks, hirelings and map are registered for the tournament
             tournament_maps = round.tournament.maps.all()
             tournament_decks = round.tournament.decks.all()
-            if landmarks:
-                tournament_landmarks = round.tournament.landmarks.all()
-                for landmark in landmarks:
-                    if landmark not in tournament_landmarks:
-                        validation_errors_to_display.append(f'{landmark} Landmark is not playable in {round.tournament}')
-            if tweaks:
-                tournament_tweaks = round.tournament.tweaks.all()
-                for tweak in tweaks:
-                    if tweak not in tournament_tweaks:
-                        validation_errors_to_display.append(f'{tweak} Tweak is not playable in {round.tournament}')
-            if hirelings:
-                tournament_hirelings = round.tournament.hirelings.all()
-                for hireling in hirelings:
-                    if hireling not in tournament_hirelings:
-                        validation_errors_to_display.append(f'{hireling} Hireling is not playable in {round.tournament}')
-            if map not in tournament_maps:
-                validation_errors_to_display.append(f'{map} Map is not playable in {round.tournament}')
-            if deck not in tournament_decks:
-                validation_errors_to_display.append(f'{deck} Deck is not playable in {round.tournament}')
+            if not round.tournament.open_assets:
+                if landmarks:
+                    tournament_landmarks = round.tournament.landmarks.all()
+                    for landmark in landmarks:
+                        if landmark not in tournament_landmarks:
+                            validation_errors_to_display.append(f'{landmark} Landmark is not playable in {round.tournament}')
+                if tweaks:
+                    tournament_tweaks = round.tournament.tweaks.all()
+                    for tweak in tweaks:
+                        if tweak not in tournament_tweaks:
+                            validation_errors_to_display.append(f'{tweak} Tweak is not playable in {round.tournament}')
+                if hirelings:
+                    tournament_hirelings = round.tournament.hirelings.all()
+                    for hireling in hirelings:
+                        if hireling not in tournament_hirelings:
+                            validation_errors_to_display.append(f'{hireling} Hireling is not playable in {round.tournament}')
+                if map not in tournament_maps:
+                    validation_errors_to_display.append(f'{map} Map is not playable in {round.tournament}')
+                if deck not in tournament_decks:
+                    validation_errors_to_display.append(f'{deck} Deck is not playable in {round.tournament}')
    
         if self.effort_formset.is_valid():
            
@@ -745,7 +746,7 @@ class TournamentCreateForm(forms.ModelForm):
     def __init__(self, user=None, *args, **kwargs):
         super(TournamentCreateForm, self).__init__(*args, **kwargs)
         self.fields['description'].widget.attrs.update({
-            'placeholder': 'Give a brief description of the tournament.',
+            'placeholder': 'Give a brief description of the series.',
             'rows': '2'
             })
         # Set the initial value for 'start_date' to the current time
