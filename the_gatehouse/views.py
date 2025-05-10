@@ -1018,9 +1018,8 @@ def post_request(request):
         return redirect('new-components')
 
     message_category = 'request'
-    feedback_subject = "Test"
 
-    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+    context = get_feedback_context(request, message_category=message_category)
 
     # If form is valid (i.e., handled in the utility function)
     if request.method == 'POST' and context.get('form').is_valid():

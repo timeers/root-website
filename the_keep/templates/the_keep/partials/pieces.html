@@ -21,9 +21,12 @@
     </div>
 
     <div class="d-flex flex-wrap justify-content-evenly">
-        {% if object.component != "Vagabond" %}
+        {% if object.component == "Vagabond" %}
+            {% include 'the_keep/partials/vagabond_items.html' %}
+        {% endif %}
+        {% if object.component != "Vagabond" or object.warriors.all %}
             {% if user.profile.admin or object.warriors.all or object.designer == user.profile and user.profile.editor_onboard  %}
-                <div class="p-2 flex-fill{% if not object.warriors.all %} hidden-pieces{% endif %}">
+                <div class="p-2 flex-fill{% if object.component == "Vagabond" %} piece-box{% endif %}{% if not object.warriors.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>{% trans 'Warriors' %}</h5>
                     <div id="W-pieces">
                         {% for piece in object.warriors.all %}
@@ -119,10 +122,9 @@
                         </div>
                     {% endif %}
                 </div>
-            {% endif %}
-        {% else %}
-            {% include 'the_keep/partials/vagabond_items.html' %}
+            {% endif %}            
         {% endif %}
+
         {% if user.profile.admin or object.component == "Vagabond" or object.otherpieces.all or object.designer == user.profile and user.profile.editor_onboard %}
             <div class="p-2 flex-fill piece-box{% if not object.otherpieces.all and object.component != "Vagabond" %} hidden-pieces{% endif %}">
                 <h5 class='root-title'>{% trans 'Other Pieces' %}</h5>

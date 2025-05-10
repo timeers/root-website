@@ -1,10 +1,21 @@
 {% load i18n %}
 {% if object.component == 'Vagabond' %}
 {% load static %}
-<h2 class='root-title'>{% trans 'Ability' %}</h2>
-<h4>{{ object.ability }}</h4>
-{% if object.ability_item != 'None' %}
-<div><img class='lg-faction-icon' src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}"></div>
-{% endif %}
-<div>{{ object.ability_description }}</div>
+<div class="d-flex flex-wrap">
+<h2 class='root-title mx-auto'>{% trans 'Ability' %}</h2>
+</div>
+
+<div class="d-flex align-items-center gap-2 mb-3">
+    {% if object.ability_item != 'None' %}
+        <div class="d-flex align-items-center">
+            <img class="lg-faction-icon" src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}">
+            <i class="bi bi-arrow-right ms-2 mr-2"></i>
+        </div>
+    {% endif %}
+
+    <div>
+        <div style="font-weight: bold; font-size: 1.5rem;">{{ object.ability }}</div>
+        <div>{{ object.ability_description }}</div>
+    </div>
+</div>
 {% endif %}
