@@ -9,7 +9,7 @@
             <fieldset class="form-group">
                 <legend class="border-bottom mb-4">
                     {% if round.id %}
-                        Update {{ round.name }}
+                        Update {{ round.tournament.name }} - {{ round.name }}
                     {% else %}
                         New {{ tournament.name }} Round
                     {% endif %}

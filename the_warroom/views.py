@@ -25,7 +25,7 @@ from urllib.parse import quote
 from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
 from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm, 
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
-                    TournamentCreateForm, RoundCreateForm, 
+                    TournamentCreateForm, RoundCreateForm, TournamentUpdateForm,
                     TournamentManagePlayersForm, TournamentManageAssetsForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter, PlayerGameFilter
@@ -478,6 +478,16 @@ def manage_game(request, id=None):
 
     initial_game_status = obj.final
 
+    # For prepopulating the round
+    round_id = request.GET.get('series')  # Gets the ?round=123 value as a string
+    selected_round = None
+
+    if round_id:
+        try:
+            selected_round = Round.objects.get(id=round_id)
+        except Round.DoesNotExist:
+            selected_round = None 
+
 
     if id:
         if obj.final and not user.profile.admin:
@@ -510,7 +520,7 @@ def manage_game(request, id=None):
 
     # Pass the formset to the parent form by storing it in the parent form instance
     # Allowing validation based on the total form
-    form = GameCreateForm(request.POST or None, instance=obj, user=user, effort_formset=formset)
+    form = GameCreateForm(request.POST or None, instance=obj, user=user, effort_formset=formset, round=selected_round)
     form_count = extra_forms + existing_count
     context = {
         'form': form,
@@ -951,6 +961,7 @@ def scorecard_assign_view(request, id):
         if form.is_valid():
             scorecard = form.cleaned_data['scorecard']
             scorecard.effort = effort_link  # Assign the Effort to the selected Scorecard
+            scorecard.final = True
             scorecard.save()  # Save the updated Scorecard
             return redirect('game-detail', id=effort_link.game.id)
     else:
@@ -995,11 +1006,12 @@ def effort_assign_view(request, id):
 
     if request.method == 'POST':
         form = AssignEffortForm(request.POST, selected_efforts=available_efforts, user=request.user)
-        print('submitting form')
+        # print('submitting form')
         if form.is_valid():
             print('valid form')
             scorecard = scorecard
             scorecard.effort = form.cleaned_data['effort']  # Assign the Effort to the selected Scorecard
+            scorecard.final = True
             scorecard.save()  # Save the updated Scorecard
             return redirect('game-detail', id=scorecard.effort.game.id)
         else:
@@ -1127,6 +1139,24 @@ def tournament_detail_view(request, tournament_slug):
         Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
         start_date__lt=timezone.now()
         )
+
+    playable_rounds = active_rounds.filter(
+        Q(
+            Q(tournament__players=request.user.profile) |  # user is a tournament player
+            Q(tournament__designer=request.user.profile)    # or user is the tournament designer
+        ),
+        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
+        start_date__lt=timezone.now()
+    )
+
+    playable_round = playable_rounds.filter(
+        Q(players__isnull=False, players__in=[request.user.profile]) |
+        Q(players__isnull=True) |
+        Q(tournament__designer=request.user.profile)
+    ).last()
+
+
+
     future_rounds = all_rounds.filter(start_date__gt=timezone.now())
    
     efforts = Effort.objects.filter(game__round__tournament=tournament)
@@ -1152,6 +1182,7 @@ def tournament_detail_view(request, tournament_slug):
         'top_factions': top_factions,
         'most_factions': most_factions,
         'leaderboard_threshold': leaderboard_threshold,
+        'playable_round': playable_round,
         # 'players': players,
         # 'games': games,
     }
@@ -1210,6 +1241,16 @@ def tournament_players_pagination(request, id):
 class TournamentUpdateView(UpdateView):
     model = Tournament
     form_class = TournamentCreateForm
+    
+class TournamentDesignerUpdateView(UserPassesTestMixin, UpdateView):
+    model = Tournament
+    form_class = TournamentUpdateForm
+    template_name = 'the_warroom/tournament_form.html'
+
+    def test_func(self):
+        # This function checks if the user is the designer of the tournament
+        tournament = self.get_object()
+        return tournament.designer == self.request.user.profile 
 
 @admin_required_class_based_view  
 class TournamentCreateView(CreateView):
@@ -1435,6 +1476,14 @@ def tournaments_home(request):
 # ============================
 # Round Views (Individual Round/Season of a Tournament)
 # ============================
+def user_can_access_round(round, user):
+    now = timezone.now()
+    is_active = (round.start_date < now) and (round.end_date is None or round.end_date > now)
+    is_designer = round.tournament.designer == user.profile
+    is_player = round.players.exists() and user.profile in round.players.all()
+    is_open = not round.players.exists()  # If no players assigned, assume open round
+
+    return is_active and (is_designer or is_player or is_open)
 
 
 @player_onboard_required
@@ -1459,6 +1508,11 @@ def round_detail_view(request, tournament_slug, round_slug):
     most_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
     top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=threshold)
     most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
+
+    if user_can_access_round(round, request.user):
+        playable_round = round
+    else:
+        playable_round = None
 
     # players = round.current_player_queryset()
     # players = players.annotate(
@@ -1499,6 +1553,7 @@ def round_detail_view(request, tournament_slug, round_slug):
         'top_factions': top_factions,
         'most_factions': most_factions,
         'leaderboard_threshold': threshold,
+        'playable_round': playable_round,
         # 'players': players,
         # 'games': games,
     }

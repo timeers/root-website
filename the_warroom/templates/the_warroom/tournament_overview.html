@@ -2,23 +2,34 @@
 {% block title %} - {{ object.name }}{% endblock %}
 
 {% block content %}
-<div style="display: flex; align-items: center;">
-    <a href="{% url 'tournaments-home' %}">Series</a>
-    <i class="bi bi-chevron-right"></i>
-    {% if object.type == 'Round' %}
-    <a href="{{ object.tournament.get_absolute_url }}">{{ object.tournament.name }}</a>
-    <i class="bi bi-chevron-right"></i>
+<div class="d-flex justify-content-between align-items-center flex-wrap">
+    <div class="d-flex align-items-center flex-wrap gap-2">
+        <a href="{% url 'tournaments-home' %}">Series</a>
+        <i class="bi bi-chevron-right"></i>
+        {% if object.type == 'Round' %}
+        <a href="{{ object.tournament.get_absolute_url }}">{{ object.tournament.name }}</a>
+        <i class="bi bi-chevron-right"></i>
+        {% endif %}
+
+        {{ object.name }}
+
+    </div>
+    {% if playable_round %}
+        <div>
+            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'record-game' %}?series={{ playable_round.id }}">New Game +</a>
+        </div>
     {% endif %}
-
-    {{ object.name }}
-
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>{{object.name}}</h1>
     {% if user.profile.admin or user.profile == object.tournament.designer %}
-    <a class="btn btn-warning btn-sm ml-2 mt-1 mb-1" href="{{ object.get_update_url }}"><i class="bi bi-pencil-square"></i></a>
+        <a class="btn btn-warning btn-sm ml-2 mt-1 mb-1" href="{{ object.get_update_url }}"><i class="bi bi-pencil-square"></i></a>
+    {% elif user.profile == object.designer and object.type == "Tournament" %}
+        <a class="btn btn-warning btn-sm ml-2 mt-1 mb-1" href="{% url 'tournament-designer-update' slug=object.slug %}"><i class="bi bi-pencil-square"></i></a>
     {% endif %}
 </div>
+
+
 
 {% if object.type == 'Round' %}
     {% if object.tournament.designer %}

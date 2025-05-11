@@ -6,7 +6,7 @@
         <form method="POST">
             {% csrf_token %}
             <fieldset class="form-group">
-                <legend class="border-bottom mb-4">{% if object.id %}Update {{ object.name }}{% else %}New Series{% endif %}</legend>
+                <legend class="border-bottom mb-4">{% if object.id %}Update {% if object.type == "Round" %}{{ object.tournament.name }} {% endif %}{{ object.name }}{% else %}New Series{% endif %}</legend>
                 {% if not object.id %}
                 A Series can be an ongoing or limited series of games. Once created you can schedule and create new Rounds for the Series.
                 A League, Tournament or Playtest are examples of a Series and can have multiple Rounds.

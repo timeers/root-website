@@ -83,7 +83,7 @@ class GameCreateForm(forms.ModelForm):
             'round': "Series",
             }
 
-    def __init__(self, *args, user=None, effort_formset=None, **kwargs):
+    def __init__(self, *args, user=None, effort_formset=None, round=None, **kwargs):
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
 
@@ -131,16 +131,35 @@ class GameCreateForm(forms.ModelForm):
                     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now())
             else:
                 # Select rounds in ongoing tournaments where the user is a player
+                # active_rounds = Round.objects.filter(
+                #     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now(),
+                #     tournament__players=user.profile
+                #     )
+                # active_rounds = active_rounds.filter(
+                #     Q(players__isnull=False) & Q(players__in=[user.profile]) | Q(players__isnull=True)
+                #     )
+                
                 active_rounds = Round.objects.filter(
-                    Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now(),
-                    tournament__players=user.profile
-                    )
-                active_rounds = active_rounds.filter(
-                    Q(players__isnull=False) & Q(players__in=[user.profile]) | Q(players__isnull=True)
-                    )
-            
-            self.fields['round'].queryset = active_rounds
+                    Q(
+                        Q(tournament__players=user.profile) |  # user is a tournament player
+                        Q(tournament__designer=user.profile)    # or user is the tournament designer
+                    ),
+                    Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
+                    start_date__lt=timezone.now()
+                )
 
+                active_rounds = active_rounds.filter(
+                    Q(players__isnull=False, players__in=[user.profile]) |
+                    Q(players__isnull=True) |
+                    Q(tournament__designer=user.profile)
+                )
+
+
+            self.fields['round'].queryset = active_rounds
+            if round and round in active_rounds:
+                self.fields['round'].queryset = Round.objects.filter(pk=round.pk)
+                self.fields['round'].empty_label = None
+                # self.fields['round'].initial = round
 
         # This needs to be adapted to work. But if admin can record any tournament game it might not be a problem.
         # Except for concluded tournaments....
@@ -788,6 +807,51 @@ class TournamentCreateForm(forms.ModelForm):
                 instance.vagabonds.set(Vagabond.objects.filter(official=True, status='1'))
 
         return instance
+
+
+class TournamentUpdateForm(forms.ModelForm):
+    PLATFORM_CHOICES = [
+        (None, 'Any platform'),  # Represents the null choice
+        ('Tabletop Simulator', 'Tabletop Simulator'),
+        ('Root Digital', 'Root Digital'),
+        ('In Person', 'In Person'),
+    ]
+    COALITION_CHOICES = [
+        ('None', 'No Coalitions'),
+        ('One', 'Single Coalitions Only'),
+        ('All', 'Double Coalitions Allowed'),
+    ]
+    platform = forms.ChoiceField(
+        choices=PLATFORM_CHOICES,
+        initial=None,  # Set the default choice to None
+        required=False,
+        label='Required Platform'
+    )
+    coalition_type = forms.ChoiceField(
+        choices=COALITION_CHOICES,
+        initial='One',  # Set the default choice to One
+        required=False,
+        label='Allowed Coalitions'
+    )
+    class Meta:
+        model = Tournament
+        fields = ['name', 'description', 'leaderboard_positions', 'game_threshold', 'platform', 'coalition_type']
+        labels = {
+            'name': 'Series Name',
+            'description': 'Description (Optional)',
+            'leaderboard_positions': 'Leaderboard Positions',
+            'game_threshold': 'Leaderboard Game Threshold',
+            'coalition_type': 'Allowed Coalitions',
+            'platform': 'Required Platform'
+        }
+
+    def __init__(self, *args, **kwargs):
+        super(TournamentUpdateForm, self).__init__(*args, **kwargs)
+        # Optionally update widgets, add placeholder text, etc.
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Brief description of the series.',
+            'rows': '2',
+        })
 
 
 
