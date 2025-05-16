@@ -116,23 +116,23 @@ IMAGE_FIELDS_CONFIG = {
         'fields': {
             'small_icon': 100,
             'picture': 350,
-            'card_image': 350,
-            'card_2_image': 350,
-            'board_image': 1200,
-            'board_2_image': 1200,
+            'card_image': 600,
+            'card_2_image': 600,
+            'board_image': 1600,
+            'board_2_image': 1600,
         }
     },
     'Expansion': {
         'fields': {
-            'picture': 1200,
+            'picture': 1600,
         }
     },
     'PostTranslation': {
         'fields': {
-            'translated_card_image': 350,
-            'translated_card_2_image': 350,
-            'translated_board_image': 1200,
-            'translated_board_2_image': 1200,
+            'translated_card_image': 600,
+            'translated_card_2_image': 600,
+            'translated_board_image': 1600,
+            'translated_board_2_image': 1600,
         }
     },
     'Piece': {
