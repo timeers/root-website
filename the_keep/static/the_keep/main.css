@@ -747,6 +747,12 @@ tr.clickable-row:hover {
   background-color: #f1f1f1;  /* Light gray background on hover */
 }
 
+.wrappable-link {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
 .clickable-link {
   color: #007bff; /* Link color */
   text-decoration: underline; /* Underline the text */

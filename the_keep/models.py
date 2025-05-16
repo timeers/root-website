@@ -199,6 +199,7 @@ class Expansion(models.Model):
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
     stl_link = models.CharField(max_length=400, null=True, blank=True)
     leder_games_link = models.CharField(max_length=400, null=True, blank=True)
+    rootjam_link = models.CharField(max_length=400, null=True, blank=True)
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     open_roster = models.BooleanField(default=False)
@@ -228,7 +229,7 @@ class Expansion(models.Model):
     
     def count_links(self, user):
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link']
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
         
         # Count how many of these fields are not None or empty
         count = 0
@@ -293,6 +294,7 @@ class Post(models.Model):
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
     stl_link = models.CharField(max_length=400, null=True, blank=True)
     leder_games_link = models.CharField(max_length=400, null=True, blank=True)
+    rootjam_link = models.CharField(max_length=400, null=True, blank=True)
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
     small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
@@ -396,7 +398,7 @@ class Post(models.Model):
 
     def count_links(self, user):
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'leder_games_link']
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
         
         # Count how many of these fields are not None or empty
         count = 0

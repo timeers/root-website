@@ -77,6 +77,12 @@
             {% trans 'STL Files' %}
         </a>
     {% endif %}
+    {% if object.rootjam_link  %}
+        <a class="mr-2 mt-1" href="{{ object.rootjam_link }}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/RootJam.webp' %}" alt="RootJam Link">
+            {% trans 'RootJam Entry' %}
+        </a>
+    {% endif %}
     </div>
     </div>
 </article>

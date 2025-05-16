@@ -267,6 +267,7 @@
                     {% endif %}
                     {{ form.pnp_link|as_crispy_field}}
                     {{ form.stl_link|as_crispy_field}}
+                    {{ form.rootjam_link|as_crispy_field}}
                 </div>
                 {% comment %} End Links {% endcomment %}
 
@@ -295,7 +296,25 @@
 {% endblock content %}
 
 {% block scripts %}
-        <script>
+    <script>
+
+        function updateRootjamVisibility() {
+            const selectedText = $('#id_expansion').find("option:selected").text().toLowerCase();
+            const $rootjamField = $('#id_rootjam_link');
+            const $rootjamWrapper = $rootjamField.closest('.form-group');
+        
+            if (selectedText.includes("rootjam 20") || selectedText.includes("rootjam special")) {
+                $rootjamWrapper.show(); // Show the field
+            } else {
+                $rootjamWrapper.hide(); // Hide the field
+                $rootjamField.val('');  // Clear the input value
+            }
+        }
+        
+
+
+        $(document).ready(function () {
+            // Initialize Select2 first
             $('#id_expansion').select2();
             $('#id_based_on').select2();
             if ($('#id_designer').length) {
@@ -307,5 +326,13 @@
             if ($('#id_artist').length) {
                 $('#id_artist').select2();
             }
-        </script>
-{% endblock %}
+
+            // Initial check on page load
+            updateRootjamVisibility();
+
+            // Check on change
+            $('#id_expansion').on('change', updateRootjamVisibility);
+        });
+    </script>
+
+{% endblock scripts %}

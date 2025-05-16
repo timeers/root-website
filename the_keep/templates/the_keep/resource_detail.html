@@ -32,7 +32,7 @@
             {% trans 'Type' %}: {{resource.file_type}}
         </div>
         <div>
-            {% trans 'URL' %}: <a class='clickable-link' href="{{ object.link }}">{{ resource.link }}</a>
+            {% trans 'URL' %}: <a class='clickable-link wrappable-link' href="{{ object.link }}">{{ resource.link }}</a>
         </div>
         {% if resource.shared_by %}
             <div>

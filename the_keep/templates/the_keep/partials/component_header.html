@@ -127,53 +127,57 @@
                 <div class="lore-content mt-1 mb-2">{{ object_lore }}</div>
             {% endif %}
 
+
+
+            
+
+
+        {% if object_description %}
+            <div class='mb-1 mt-1' style="white-space: pre-line;">{{ object_description }}</div>
+        {% endif %}
+
             {% comment %} <a href={% url 'status-check' object.slug %}>
             {% include 'the_keep/partials/status.html' %}
             </a> {% endcomment %}
 
-            
 
-            {% if object.status == '1' %}
+        {% if object.status == '1' %}
             <a class="btn btn-outline-success btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {% trans 'Stable' %}
-                <i class="bi bi-check-circle-fill"></i>
-            {% elif object.status == '2' %}
+            {% trans 'Stable' %}
+            <i class="bi bi-check-circle-fill"></i>
+        {% elif object.status == '2' %}
             <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {% trans 'Testing' %}
-                <i class="bi bi-play-circle-fill"></i>
-            {% elif object.status == '3' %}
+            {% trans 'Testing' %}
+            <i class="bi bi-play-circle-fill"></i>
+        {% elif object.status == '3' %}
             <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {% trans 'Development' %}
-                <i class="bi bi-wrench-adjustable-circle-fill"></i>
-            {% elif object.status == '4' %}
+            {% trans 'Development' %}
+            <i class="bi bi-wrench-adjustable-circle-fill"></i>
+        {% elif object.status == '4' %}
             <a class="btn btn-outline-secondary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {% trans 'Inactive' %}
-                <i class="bi bi-dash-circle-fill"></i>
-            {% else %}
+            {% trans 'Inactive' %}
+            <i class="bi bi-dash-circle-fill"></i>
+        {% else %}
             <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-                {% trans 'Abandoned' %}
-                <i class="bi bi-x-circle-fill"></i>
-            {% endif %}
+            {% trans 'Abandoned' %}
+            <i class="bi bi-x-circle-fill"></i>
+        {% endif %}
         </a>
 
-        {%if color_group %}
-        <!-- For color button -->
-        <a class='btn btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
-            {{ color_label }}
+    {%if color_group %}
+    <!-- For color button -->
+    <a class='btn btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
+        {{ color_label }}
+    </a>
+    {% endif %}
+
+    {% if object_animal %}
+        <a class='btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
+        {{ object_animal }}
         </a>
-        {% endif %}
+    {% endif %}
+    
 
-        {% if object_animal %}
-            <a class='btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
-            {{ object_animal }}
-            </a>
-        {% endif %}
-        
-
-
-        {% if object_description %}
-            <div class='mb-1 mt-1'>{{ object_description }}</div>
-        {% endif %}
 
         {% comment %} {% if language_queryset %}
         <div class="dropdown">

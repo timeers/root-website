@@ -14,7 +14,7 @@ from django.utils.translation import gettext as _
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status']
-bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'artist', 'art_by_kyle_ferrin', 'language']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'language']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -33,6 +33,7 @@ class ExpansionCreateForm(forms.ModelForm):
             'fr_link': "French Root Thread",
             'pnp_link': "Link to Print and Play Files",
             'stl_link': "Link to STL Files (if not in PNP)",
+            'rootjam_link': "Link to itch.io RootJam",
             'open_roster': "Allow Others to Contribute",
             'end_date': "Close Date",
         }
@@ -66,9 +67,10 @@ class ExpansionCreateForm(forms.ModelForm):
             fr_link = cleaned_data.get('fr_link')
             pnp_link = cleaned_data.get('pnp_link')
             leder_games_link = cleaned_data.get('leder_games_link')
+            rootjam_link = cleaned_data.get('rootjam_link')
             # Validate URLs
             url_validator = URLValidator()
-            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link]:
+            for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link, rootjam_link]:
                 if url:  # Only validate if the field is filled
                     try:
                         url_validator(url)
@@ -86,9 +88,10 @@ class ExpansionCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
             if leder_games_link and not "ledergames.com/products" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')
-            if pnp_link and not "itch.io/" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
-                    raise ValidationError('PNP links must be to Dropbox, Google Drive or RootJam')
-
+            if pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox or Google Drive')
+            if rootjam_link and not "itch.io/" in rootjam_link:
+                    raise ValidationError('Link to RootJam entry is not a valid itch.io page')
             return cleaned_data
 
 class PostImportForm(forms.ModelForm):
@@ -301,6 +304,7 @@ class PostCreateForm(forms.ModelForm):
             'fr_link': "French Root Thread",
             'pnp_link': "Print and Play Files",
             'stl_link': "STL Files (if not in PNP)",
+            'rootjam_link': "RootJam itch.io Entry",
             'leder_games_link': "Leder Games",
             'art_by_kyle_ferrin': "Art by Kyle Ferrin",
         }
@@ -419,6 +423,7 @@ class PostCreateForm(forms.ModelForm):
             wr_link = cleaned_data.get('wr_link')
             fr_link = cleaned_data.get('fr_link')
             pnp_link = cleaned_data.get('pnp_link')
+            rootjam_link = cleaned_data.get('rootjam_link')
             leder_games_link = cleaned_data.get('leder_games_link')
             official = cleaned_data.get('official')
             in_root_digital = cleaned_data.get('in_root_digital')
@@ -429,11 +434,11 @@ class PostCreateForm(forms.ModelForm):
             # #     designer = self.user.profile
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link]):
+            if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]):
                 raise ValidationError("Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
             # Validate URLs
             url_validator = URLValidator()
-            for url in [bgg_link, tts_link, ww_link, wr_link, fr_link, pnp_link, leder_games_link]:
+            for url in [bgg_link, tts_link, ww_link, wr_link, fr_link, pnp_link, leder_games_link, rootjam_link]:
                 if url:  # Only validate if the field is filled
                     try:
                         url_validator(url)
@@ -449,8 +454,10 @@ class PostCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
-            if pnp_link and not "itch.io/" in pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
-                    raise ValidationError('PNP links must be to Dropbox, Google Drive or RootJam')
+            if pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox or Google Drive')
+            if rootjam_link and not "itch.io/" in rootjam_link:
+                    raise ValidationError('Link to RootJam entry is not a valid itch.io page')
             if leder_games_link:
                 if not "ledergames.com/products" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')
