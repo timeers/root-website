@@ -381,7 +381,7 @@ class Post(models.Model):
         all_animals_combined = " ".join([base_animal_string] + translated_animals)
 
         # Clean out "and" and extra spaces
-        cleaned_animal_string = all_animals_combined.replace("and", "").strip()
+        cleaned_animal_string = all_animals_combined.replace(" and ", " ").strip()
 
         # Split the animal into individual animals and clean them
         animals_list = cleaned_animal_string.split()
