@@ -116,6 +116,7 @@ document.addEventListener('DOMContentLoaded', function() {
             yearRange: "2018:c+10",   // Year range (from 100 years ago to 10 years in the future)
             maxDate: today             // Set the max date to today
         });
+
     });
 
     // Function to update all select options based on the platform
@@ -207,12 +208,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateVagabondsFields(data.vagabonds);
                 updateCaptainsFields(data.vagabonds);
                 updatePlatformField(data.platform);
+
+                setTimeout(() => {
+                        const platformValue = platformSelect.value;
+                        const timingBlock = document.getElementById("timing-field");
+                        const asyncRadio = document.getElementById("id_type_0");
+                        const liveRadio = document.getElementById("id_type_1");
+                    
+                        if (platformValue === "Root Digital") {
+                            asyncRadio.checked = true;
+                            liveRadio.checked = false;
+                            timingBlock.style.display = "block";
+                        } else {
+                            asyncRadio.checked = false;
+                            liveRadio.checked = true;
+                            timingBlock.style.display = "none";
+                        }
+                    }, 0);
                
                 })
                 .catch(error => {
                 console.error('Error fetching options:', error);
-                // Optionally, handle errors more gracefully (e.g., show a user-friendly message)
+                
                 });
+
+        
         }
 
 
@@ -305,7 +325,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Set up the event listener on the platform select element
     platformSelect.addEventListener('change', function() {
-        console.log('Platform Changed')
+        
         const platformValue = platformSelect.value;
         const tournamentValue = tournamentSelect.value;
 
@@ -317,11 +337,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         let landmarksCount = landmarksSelect.options.length;
                         
 
-                        var timingBlock = document.getElementById("timing-field");
+                        
                         var hirelingsBlock = document.getElementById("hireling-field");
                         var tweaksBlock = document.getElementById("game-tweaks-field");
                         var landmarksBlock = document.getElementById("game-landmarks-field");
-
+                        var timingBlock = document.getElementById("timing-field");
                         if (platformValue == "Root Digital") {
                                 var asyn = document.getElementById("id_type_0");
                                 asyn.checked = true;
@@ -379,6 +399,8 @@ document.addEventListener('DOMContentLoaded', function() {
         tournamentSelect.addEventListener('change', function() {
         const tournamentValue = tournamentSelect.value;
         const platformValue = platformSelect.value;
+        console.log('testing')
+        console.log(platformSelect.value)
         if (tournamentValue){
                 // Filter by tournament
                 // Update all fields with one API call, but wait for the API response
@@ -423,6 +445,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateOptions(platformSelect.value);
                 updatePlatformField()
         }
+
         });
 
 
@@ -442,9 +465,10 @@ document.addEventListener('DOMContentLoaded', function() {
            document.getElementById('id_platform').dispatchEvent(new Event('change'));
         }else{
 //         updateTournamentOptions(tournamentSelect.value);
+           
            document.getElementById('id_round').dispatchEvent(new Event('change'));
         }
-           
+   
     $('#id_undrafted_faction').trigger('change');
     $('#id_deck').trigger('change');
     

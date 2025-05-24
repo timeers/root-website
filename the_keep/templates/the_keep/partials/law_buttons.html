@@ -1,0 +1,45 @@
+<div>
+{% if not selected_law.locked_position %}
+    {% if selected_law.allow_description %}
+        <button class="btn btn-sm btn-warning edit-law-button"
+        data-id="{{ selected_law.id }}"
+        data-title="{{ selected_law.title }}"
+        data-description="{{ selected_law.description }}"
+        data-references="{% for ref in selected_law.reference_laws.all %}{{ ref.id }}{% if not forloop.last %},{% endif %}{% endfor %}">
+        <i class="bi bi-pencil-square"></i>
+        </button>
+    {% endif %}
+    <button class="btn btn-sm btn-danger delete-law-button"
+    data-id="{{ selected_law.id }}"
+    data-title="{{ selected_law.title }}">
+    <i class="bi bi-trash3"></i>
+    </button>
+
+    {% if selected_law.prev_law and not selected_law.prev_law.locked_position %}
+        <button
+        class="btn btn-sm btn-primary move-law-button"
+        data-url="{% url 'move-law-ajax' selected_law.id 'up' %}">
+        <i class="bi bi-chevron-up"></i>
+        </button>
+    {% endif %}
+    {% if selected_law.next_law and not selected_law.next_law.locked_position %}
+        <button
+        class="btn btn-sm btn-primary move-law-button"
+        data-url="{% url 'move-law-ajax' selected_law.id 'down' %}">
+        <i class="bi bi-chevron-down"></i>
+        </button>
+    {% endif %}
+
+
+{% else %}
+    {% if selected_law.allow_description %}
+        <button class="btn btn-sm btn-warning edit-description-button"
+        data-id="{{ selected_law.id }}"
+        data-title="{{ selected_law.title }}"
+        data-description="{{ selected_law.description }}">
+        <i class="bi bi-pencil-square"></i>
+        </button>
+    {% endif %}
+{% endif %}
+
+</div>

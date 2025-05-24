@@ -1,0 +1,35 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n %}
+
+{% block content %}
+  {% comment %} <h2>{% if post %}Add FAQ for {{ post.title }}{% else %}Add FAQ{% endif %}</h2>
+
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="btn btn-primary">Add FAQ</button>
+  </form> {% endcomment %}
+
+
+  <div class="content-section">
+    <form method="POST">
+        {% csrf_token %}
+        <fieldset class="form-group">
+            <legend class="border-bottom mb-4">New FAQ{% if post %} for {{ post.title }}{% endif %}</legend>
+            {{ form | crispy }}
+        </fieldset>
+        <div class="form-group">
+            <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+            {% if post %}
+            <a class="btn btn-secondary" href="{% url 'post-faq' post.slug %}">{% trans 'Cancel' %}</a>
+            {% else %}
+                <a class="btn btn-secondary" href="{% url 'faq' %}">{% trans 'Cancel' %}</a>
+            {% endif %}
+            {% if object.id %}
+                <a class="btn btn-danger" href="{% url 'faq-delete' object.id %}">{% trans 'Delete' %}</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% endblock %}

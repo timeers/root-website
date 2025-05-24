@@ -40,7 +40,8 @@
                 {% trans 'Is something missing or incorrect?' %}
             </small>
         </a>
-        {% if available_translations or user.profile.admin or object.designer == user.profile %}
+        {% comment %} Translation section moved to component header for visibility {% endcomment %}
+        {% comment %} {% if available_translations or user.profile.admin or object.designer == user.profile %}
 
             <a class='subtle-link' href="{% url 'post-translations' object.slug %}">
                 {% if object_translation.designer and object_translation.designer != object.designer %}
@@ -51,7 +52,7 @@
                 <i class="bi bi-translate">
 
                 </i></a>
-        {% endif %}
+        {% endif %} {% endcomment %}
      </div>
 
 

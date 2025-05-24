@@ -13,6 +13,8 @@
 {% endblock meta%}
 
 {% block content %}
+<article class="media content-section">
+    <div class="media-body">
 <div style="display: flex; justify-content: space-between; align-items: center;">
         <h1 class='root-title'>{{ resource.title }}</h1>
         {% if resource.shared_by == user.profile %}
@@ -22,6 +24,8 @@
                 </div>
         {% endif %}
 </div>
+</div>
+</article>
 
 <article class="media content-section">
     <div class="media-body">

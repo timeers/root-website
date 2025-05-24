@@ -1,0 +1,703 @@
+{% extends 'the_keep/base.html' %}
+{% load text_filters roman_numerals i18n %}
+{% block title %} - {% if post %}{{ post.title }} {% elif expansion %}{{ expansion.title }} {% endif %}Law{% endblock %}
+{% block content %}
+
+<article class="content-section d-flex justify-content-between align-items-center">
+
+  <h1 class='root-title'>Law of Root{% if post %} - {{ post.title }}{% elif expansion %} - {{ expansion.title }}{% endif  %}</h1>
+
+
+    <small>
+    {{ selected_language }}
+    </small>
+
+</article>
+
+{% for item in lawgroups_with_laws %}
+<article class="content-section">
+
+  <div id="group-{{ item.group.id }}">
+
+    <div class="d-flex justify-content-between align-items-center">
+      <div class='d-flex'>
+        {% if item.group.post %}
+          <a href='{{ item.group.post.get_absolute_url }}{% if lang_code %}?lang={{ lang_code }}{% endif %}'>
+        {% endif %}
+        <h2 class='root-title'>{{ item.group.abbreviation }}. {{ item.group.title }}
+          {% if item.group.post %}
+          {% if item.group.post.component == 'Faction' or item.group.post.component == 'Clockwork' %}
+              <img class="lg-faction-icon" src="{{ item.group.post.small_icon.url }}">
+          {% endif %}
+          {% endif %}
+        </h2>
+        {% if item.group.post %}
+          </a>
+        {% endif %}
+      </div>
+
+      {% if user.profile.admin or user.profile == item.group.post.designer and user.profile.editor %}
+      <div class="d-flex flex-wrap justify-content-end">
+        {% if edit_mode %}
+          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_absolute_url }}">
+              {% trans 'Done' %} <i class="bi bi-check"></i>
+          </a>
+        {% else %}
+        <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_edit_url }}">
+            {% trans 'Edit Law' %} <i class="bi bi-pencil-square"></i>
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class='ml-3'>
+     
+        {% for law in item.top_level_laws %}
+          <div id="law-{{ law.id }}">
+              
+            <h4>{{ law.local_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
+
+            {{ law.description|format_law_text }}
+            {% if law.reference_laws %}
+              {% for reference in law.reference_laws.all %}
+                (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+              {% endfor %}
+            {% endif %}
+            {% if edit_mode %}
+              {% with law as selected_law %}
+                  {% include 'the_keep/partials/law_buttons.html' %}
+              {% endwith %}
+            {% endif %}
+
+            {% for child in law.children.all %}
+
+              <div class='law-entry' id="law-{{ child.id }}">
+                <div>
+                <span class='law-code'>{{ child.local_code }}</span> 
+                </div>
+                <div class="law-content">
+                  <strong>{{ child.title }}.</strong>
+
+                  {{ child.description|format_law_text }}
+                  {% if child.reference_laws %}
+                    {% for reference in child.reference_laws.all %}
+                      (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                    {% endfor %}
+                  {% endif %}
+                  {% if edit_mode %}
+                    {% with child as selected_law %}
+                        {% include 'the_keep/partials/law_buttons.html' %}
+                    {% endwith %}
+                  {% endif %}
+
+                    {% for grandchild in child.children.all %}
+                      <div class='law-entry' id="law-{{ grandchild.id }}">
+                        <span class='law-code'>{{ grandchild.local_code }}</span> 
+                        <div class="law-content">
+                          <strong>{{ grandchild.title }}.</strong>
+
+                          {{ grandchild.description|format_law_text }}
+                          {% if grandchild.reference_laws %}
+                            {% for reference in grandchild.reference_laws.all %}
+                              (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                            {% endfor %}
+                          {% endif %}
+
+                          {% if edit_mode %}
+                            {% with grandchild as selected_law %}
+                                {% include 'the_keep/partials/law_buttons.html' %}
+                            {% endwith %}
+                          {% endif %}
+
+                          {% for great_grandchild in grandchild.children.all %}
+                            <div class='law-entry' id="law-{{ great_grandchild.id }}">
+                              <span class='law-code'>{{ great_grandchild.local_code }}</span> 
+                              <div class="law-content">
+                                <strong>{{ great_grandchild.title }}.</strong>
+                                {{ great_grandchild.description|format_law_text }}
+                                {% if great_grandchild.reference_laws %}
+                                  {% for reference in great_grandchild.reference_laws.all %}
+                                    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                                  {% endfor %}
+                                {% endif %}
+                                {% if edit_mode %}
+                                  {% with great_grandchild as selected_law %}
+                                      {% include 'the_keep/partials/law_buttons.html' %}
+                                  {% endwith %}
+                                {% endif %}
+                              </div>
+
+                              {% comment %} {% if edit_mode %}
+                                  <div>
+                                      <button class="add-law-button"
+                                          data-group="{{ item.group.id }}"
+                                          data-parent="{{ grandchild.id }}"
+                                          data-prev="{{ great_grandchild.id }}"
+                                          data-next="{{ great_grandchild.next_law.id }}">
+                                          {{ grandchild.law_code }}+
+                                      </button>
+                                  </div>
+                              {% endif %} {% endcomment %}
+
+                            </div>
+
+                            {% if forloop.last and edit_mode and grandchild.allow_sub_laws %}
+                                    <div class='mt-2 ml-5'>
+                                        <button class="btn btn-sm btn-success add-law-button"
+                                                data-group="{{ item.group.id }}"
+                                                data-parent="{{ grandchild.id }}"
+                                                data-prev=""
+                                                data-next="">
+                                            {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                                            Add {{ grandchild.law_code }}{{ forloop.counter|add:"1"|alpha }}
+                                        </button>
+                                    </div>
+                              {% endif %}
+                          {% empty %}
+
+                            {% if edit_mode and grandchild.allow_sub_laws %}
+                                  <div class='mt-2 ml-5'>
+                                      <button class="btn btn-sm btn-success add-law-button"
+                                              data-group="{{ item.group.id }}"
+                                              data-parent="{{ grandchild.id }}"
+                                              data-prev=""
+                                              data-next="">
+                                          {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                                          
+                                          Add {{ grandchild.law_code }}a
+                                      </button>
+                                  </div>
+                            {% endif %}
+
+                          {% endfor %}
+                          </div>  
+
+                          {% comment %} {% if edit_mode %}
+                            <div>
+                              <button class="add-law-button"
+                                  data-group="{{ item.group.id }}"
+                                  data-parent="{{ child.id }}"
+                                  data-prev="{{ grandchild.id }}"
+                                  data-next="{{ grandchild.next_law.id }}">
+                                  {{ child.law_code }}.+
+                              </button>
+                          </div>
+                        {% endif %} {% endcomment %}
+
+                      </div>
+
+                      
+                          {% if forloop.last and edit_mode and child.allow_sub_laws %}
+                              <div class='mt-2 ml-5'>
+                                  <button class="btn btn-sm btn-success add-law-button"
+                                          data-group="{{ item.group.id }}"
+                                          data-parent="{{ child.id }}"
+                                          data-prev=""
+                                          data-next="">
+                                      {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                                      Add {{ child.law_code }}.{{ forloop.counter|add:"1"|roman }}
+                                  </button>
+                              </div>
+                          
+                          {% endif %}
+                    {% empty %}
+
+                      {% if edit_mode and child.allow_sub_laws %}
+                          <div class='mt-2 ml-5'>
+                              <button class="btn btn-sm btn-success add-law-button"
+                                      data-group="{{ item.group.id }}"
+                                      data-parent="{{ child.id }}"
+                                      data-prev=""
+                                      data-next="">
+                                  {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                                  Add {{ child.law_code }}.I
+                              </button>
+                          </div>
+                      
+                      {% endif %}
+
+                    {% endfor %}
+                </div>
+                  {% comment %} {% if edit_mode %}
+                    <div>
+                            <button class="add-law-button"
+                            data-group="{{ item.group.id }}"
+                            data-parent="{{ law.id }}"
+                            data-prev="{{ child.id }}"
+                            data-next="{{ child.next_law.id }}">
+                            {{ law.law_code }}.+
+                        </button>
+                    </div>
+                  {% endif %} {% endcomment %}
+              </div>
+                  {% if forloop.last and edit_mode and law.allow_sub_laws %}
+                        <div class='mt-2 ml-5'>
+                            <button class="btn btn-sm btn-success add-law-button"
+                                data-group="{{ item.group.id }}"
+                                data-parent="{{ law.id }}"
+                                data-prev=""
+                                data-next="">
+                                Add {{ law.law_code }}.{{ forloop.counter|add:"1" }}
+                            {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                            </button>
+                        </div>
+                      {% endif %}
+            {% empty %}
+                {% if edit_mode and law.allow_sub_laws %}
+                    <div class='mt-2 ml-5'>
+                        <button class="btn btn-sm btn-success add-law-button"
+                            data-group="{{ item.group.id }}"
+                            data-parent="{{ law.id }}"
+                            data-prev=""
+                            data-next="">
+                            Add {{ law.law_code }}.1
+                        {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                        </button>
+                    </div>
+                  {% endif %}
+            {% endfor %}
+          </div>
+
+
+          {% if forloop.last %}
+
+              {% if edit_mode %}
+                <div class='mt-2'>
+                    <button class="btn btn-sm btn-success add-law-button"
+                        data-group="{{ item.group.id }}"
+                        data-prev="{{ law.id }}"
+                        data-next="">
+                        Add {{ item.group.abbreviation }}.{{ forloop.counter|add:"1" }}
+                    </button>
+                </div>
+              {% endif %}
+
+          {% endif %}
+                
+        {% endfor %}
+      
+    </div>
+  </div>
+</article>
+{% empty %}
+<article class="media content-section d-flex justify-content-between align-items-center">
+  {% trans 'No Laws Recorded' %}
+  {% if post %}
+    {% if user.profile.admin or user.profile == post.designer and user.profile.editor %}
+      <div class="d-flex flex-wrap justify-content-end">
+        {% if selected_language %}
+          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create-lang' slug=post.slug lang_code=lang_code %}">
+              {% trans 'Add Laws' %} <i class="bi bi-plus"></i>
+          </a>
+        {% else %}
+          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create' slug=post.slug %}">
+              {% trans 'Add Laws' %} <i class="bi bi-plus"></i>
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
+  {% endif %}
+
+
+</article>
+{% endfor %}
+
+
+
+{% if edit_mode %}
+
+
+
+
+{% comment %} Modals for CRUD {% endcomment %}
+
+<div id="add-law-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-card">
+      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+
+  <form id="add-law-form">
+    {% csrf_token %}
+    <input type="hidden" name="group_id" id="modal-group-id">
+    <input type="hidden" name="parent_id" id="modal-parent-id">
+    <input type="hidden" name="prev_id" id="modal-prev-id">
+    <input type="hidden" name="next_id" id="modal-next-id">
+    
+    <label>Title</label>
+    <input type="text" name="title" required><br>
+
+    <label>Description</label>
+    <textarea name="description"></textarea><br>
+
+    <label for="id_reference_laws">Reference Laws:</label>
+    <div class='mb-4'>
+      <select name="reference_laws" id="id_reference_laws" multiple class="multi-select">
+        {% for law in all_laws %}
+          <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <button class='btn btn-sm btn-primary' type="submit">Add Law</button>
+  </form>
+</div>
+</div>
+
+<div id="edit-law-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-card">
+      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+      <form id="edit-law-form">
+      {% csrf_token %}
+      <input type="hidden" name="law_id" id="edit-law-id">
+      
+      <label for="edit-law-title">Title:</label>
+      <input type="text" name="title" id="edit-law-title" required>
+      
+      <label for="edit-law-description">Description:</label>
+      <textarea name="description" id="edit-law-description" required></textarea>
+
+      <label for="id_edit_reference_laws">Reference Laws:</label>
+      <div class='mb-4'>
+      <select name="reference_laws" id="id_edit_reference_laws" multiple class="multi-select">
+          {% for law in all_laws %}
+              <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+          {% endfor %}
+      </select>
+    </div>
+
+      <button class='btn btn-sm btn-primary' type="submit">Save</button>
+      <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-law-modal').style.display='none'">Cancel</button>
+      </form>
+  </div>
+</div>
+
+<div id="edit-description-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-card">
+      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+      <form id="edit-description-form">
+      {% csrf_token %}
+      <input type="hidden" name="law_id" id="edit-description-id">
+      
+      {% comment %} <label for="edit-law-title">Title:</label>
+      <input type="text" name="title" id="edit-law-title" required> {% endcomment %}
+      <div id='readonly-law-title'></div>
+      
+      <label for="edit-description-description">Description:</label>
+      <textarea name="description" id="edit-description-description" required></textarea>
+      
+      <button class='btn btn-sm btn-primary' type="submit">Save</button>
+      <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-description-modal').style.display='none'">Cancel</button>
+      </form>
+  </div>
+</div>
+
+<div id="delete-law-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-card">
+      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+      <form id="delete-law-form">
+      {% csrf_token %}
+      <input type="hidden" name="law_id" id="delete-law-id">
+      <p>Are you sure you want to delete <strong id="delete-law-title"></strong>?</p>
+      <button class='btn btn-sm btn-danger' type="submit">Yes, delete</button>
+      <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('delete-law-modal').style.display='none'">Cancel</button>
+      </form>
+  </div>
+</div>
+
+
+{% endif %}
+{% endblock content %}
+
+
+{% block scripts %}
+<script>
+
+{% if edit_mode %}
+
+
+
+function showModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+
+  modal.style.display = 'flex';
+
+  // ESC key to close
+  function escHandler(e) {
+    if (e.key === 'Escape') {
+      hideModal(modal);
+    }
+  }
+
+  // Click outside to close
+  function outsideClickHandler(e) {
+    if (e.target === modal) {
+      hideModal(modal);
+    }
+  }
+
+  document.addEventListener('keydown', escHandler);
+  modal.addEventListener('click', outsideClickHandler);
+
+  // Store the handlers so they can be removed
+  modal._escHandler = escHandler;
+  modal._outsideClickHandler = outsideClickHandler;
+}
+
+function hideModal(modal) {
+  modal.style.display = 'none';
+  document.removeEventListener('keydown', modal._escHandler);
+  modal.removeEventListener('click', modal._outsideClickHandler);
+}
+
+document.querySelectorAll('form textarea').forEach(textarea => {
+  textarea.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); // Prevent newline
+      this.form.querySelector('button[type="submit"]').click(); // Trigger submit
+    }
+  });
+});
+
+
+
+
+
+document.querySelectorAll('.delete-law-button').forEach(button => {
+  button.addEventListener('click', () => {
+    document.getElementById('delete-law-id').value = button.dataset.id;
+    document.getElementById('delete-law-title').textContent = button.dataset.title;
+    showModal('delete-law-modal');
+    {% comment %} document.getElementById('delete-law-modal').style.display = 'block'; {% endcomment %}
+  });
+});
+
+document.getElementById('delete-law-form').addEventListener('submit', async function (e) {
+  e.preventDefault();
+
+  const formData = new FormData(this);
+  const response = await fetch("{% url 'delete-law-ajax' %}", {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+    },
+    body: formData
+  });
+
+  if (response.ok) {
+    location.reload();  // Refresh to remove deleted law
+  } else {
+    alert('Failed to delete law.');
+  }
+});
+
+
+
+
+document.querySelectorAll('.edit-law-button').forEach(button => {
+  button.addEventListener('click', () => {
+      // Populate form fields
+      document.getElementById('edit-law-id').value = button.dataset.id;
+      document.getElementById('edit-law-title').value = button.dataset.title;
+      document.getElementById('edit-law-description').value = button.dataset.description;
+
+      // Set reference laws
+      const referenceLawsSelect = $('#id_edit_reference_laws');  // Using jQuery to access the Select2 element
+      const references = button.dataset.references || '';
+      const selectedIds = references.split(',').map(id => id.trim()).filter(Boolean);
+
+      // Set selected options in Select2
+      referenceLawsSelect.val(selectedIds).trigger('change');
+
+      console.log('Reference IDs from button:', references);  // Debugging
+      console.log('Parsed IDs:', selectedIds);               // Debugging
+
+      // Show the modal
+      showModal('edit-law-modal');
+  });
+});
+
+
+
+
+document.getElementById('edit-law-form').addEventListener('submit', async function (e) {
+  e.preventDefault();
+
+  const formData = new FormData(this);
+
+  const response = await fetch("{% url 'edit-law-ajax' %}", {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+    },
+    body: formData
+  });
+
+  if (response.ok) {
+    location.reload(); // Reload to reflect the updated law
+  } else {
+    alert("Failed to update law.");
+  }
+});
+
+
+
+document.querySelectorAll('.edit-description-button').forEach(button => {
+  button.addEventListener('click', () => {
+    // Populate form with data
+    document.getElementById('edit-description-id').value = button.dataset.id;
+    document.getElementById('readonly-law-title').textContent = button.dataset.title;
+    document.getElementById('edit-description-description').value = button.dataset.description;
+    
+    // Show modal
+    showModal('edit-description-modal');
+    {% comment %} document.getElementById('edit-description-modal').style.display = 'block'; {% endcomment %}
+  });
+});
+
+document.getElementById('edit-description-form').addEventListener('submit', async function (e) {
+  e.preventDefault();
+
+  const formData = new FormData(this);
+
+  const response = await fetch("{% url 'edit-law-description-ajax' %}", {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+    },
+    body: formData
+  });
+
+  if (response.ok) {
+    location.reload(); // Reload to reflect the updated law
+  } else {
+    alert("Failed to update law.");
+  }
+});
+
+
+
+
+
+
+document.querySelectorAll('.move-law-button').forEach(button => {
+  button.addEventListener('click', async () => {
+    const url = button.dataset.url;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': '{{ csrf_token }}'
+      }
+    });
+
+    if (response.ok) {
+      location.reload();
+    } else {
+      alert('Move failed');
+    }
+  });
+});
+
+
+
+
+
+document.querySelectorAll('.add-law-button').forEach(button => {
+button.addEventListener('click', () => {
+  {% comment %} document.getElementById('add-law-modal').style.display = 'block'; {% endcomment %}
+  document.getElementById('modal-group-id').value = button.dataset.group;
+  document.getElementById('modal-parent-id').value = button.dataset.parent || '';
+  document.getElementById('modal-prev-id').value = button.dataset.prev || '';
+  document.getElementById('modal-next-id').value = button.dataset.next || '';
+
+  showModal('add-law-modal');
+});
+});
+
+document.getElementById('add-law-form').addEventListener('submit', async (e) => {
+e.preventDefault();
+
+const formData = new FormData(e.target);
+const response = await fetch("{% url 'add-law-ajax' %}", {
+  method: 'POST',
+  headers: {
+    'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+  },
+  body: formData
+});
+
+if (response.ok) {
+  location.reload();  // Reload to show the new law
+} else {
+  alert("Failed to add law.");
+}
+});
+
+$(document).ready(function() {
+  // Apply Select2 to the reference_laws field
+  $('#id_edit_reference_laws').select2({
+      placeholder: "Links to Reference Laws", // Add a placeholder
+      width: '100%' // Set the width to 100% for responsiveness
+  });
+  $('#id_reference_laws').select2({
+    placeholder: "Links to Reference Laws", // Add a placeholder
+    width: '100%' // Set the width to 100% for responsiveness
+});
+});
+{% endif %}
+
+
+
+{% if highlight_id %}
+  document.addEventListener("DOMContentLoaded", function () {
+    const target = document.getElementById("law-{{ highlight_id }}");
+    if (target) {
+      target.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'center'  
+      });
+      target.classList.add('highlight-fade');  // add class instead of inline style
+    }
+  });
+  {% elif highlight_group_id %}
+  document.addEventListener("DOMContentLoaded", function () {
+    const target = document.getElementById("group-{{ highlight_group_id }}");
+    if (target) {
+      target.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'center'  
+      });
+      target.classList.add('highlight-fade');  // add class instead of inline style
+    }
+  });
+{% endif %}
+
+
+const smallWords = ['and', 'of', 'in', 'on', 'for', 'the', 'a', 'an', 'to', 'with', 'at', 'by', 'from'];
+
+
+
+function stylizeAllSmartSmallCaps() {
+  document.querySelectorAll('.smart-smallcaps').forEach(element => {
+    const words = element.textContent.trim().split(/\s+/);
+    const styledWords = words.map(word => {
+      const lower = word.toLowerCase();
+      if (smallWords.includes(lower)) {
+        return `<span class="small-word">${lower}</span>`;
+      } else {
+        const first = word.charAt(0).toUpperCase();
+        const rest = word.slice(1).toUpperCase();
+        return `<span class="small-word"><span class="large-cap">${first}</span>${rest}</span>`;
+      }
+    });
+    element.innerHTML = styledWords.join(' ');
+  });
+}
+
+// Run on page load
+stylizeAllSmartSmallCaps();
+
+
+  </script>
+{% endblock scripts %}

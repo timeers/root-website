@@ -1,0 +1,56 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block content %}
+
+<article class="content-section">
+  <div class="d-flex justify-content-between align-items-center">
+    <h1 class='root-title'>{% if post %}{{ post.title }} FAQ{% else %}{{ site_title }} FAQ{% endif %}</h1>
+
+
+    {% if not post and user.is_staff %}
+        <div class="d-flex flex-wrap justify-content-end">
+            <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-add' %}">
+                {% trans 'FAQ' %} <i class="bi bi-plus"></i>
+            </a>
+        </div>
+    {% elif post and user.profile.admin or user.profile == post.designer and user.profile.editor %}
+      <div class="d-flex flex-wrap justify-content-end">
+          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-faq-add' slug=post.slug %}">
+              {% trans 'FAQ' %} <i class="bi bi-plus"></i>
+          </a>
+      </div>
+    {% endif %}
+  </div>
+
+
+<form id="faq-search-form" 
+hx-get="{% if post %}{% if lang_code %}{% url 'lang-post-faq' slug=post.slug lang_code=lang_code %}{% else %}{% url 'post-faq' slug=post.slug %}{% endif %}{% else %}{% url 'faq' %}{% endif %}" 
+hx-target="#faq-results" 
+hx-swap="innerHTML"
+hx-trigger="submit, input delay:300ms" 
+autocomplete="off">
+    <input type="text" name="q" placeholder="Search FAQs..." class="form-control">
+  </form>
+  
+
+
+  <div id="faq-results">
+    {% include 'the_keep/partials/faq_list.html' with faqs=faqs %}
+  </div>
+</article>
+  {% endblock %}
+
+  {% block scripts %}
+
+  <script>
+    function toggleAccordion(header) {
+      const item = header.parentElement;
+      const allItems = document.querySelectorAll('.accordion-item');
+      allItems.forEach(i => {
+        if (i !== item) i.classList.remove('active');
+      });
+      item.classList.toggle('active');
+    }
+  </script>
+
+  {% endblock scripts %}

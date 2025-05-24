@@ -1,4 +1,5 @@
 import random
+from decimal import Decimal
 from django.utils.text import slugify
 
 from django.apps import apps
@@ -238,3 +239,34 @@ def get_thematic_images(theme, page):
     foreground_images = [random.choice(images) for images in location_to_images.values()]
 
     return background_image, foreground_images
+
+
+
+
+def int_to_roman(n):
+    val = [
+        1000, 900, 500, 400,
+        100, 90, 50, 40,
+        10, 9, 5, 4, 1
+    ]
+    syms = [
+        "M", "CM", "D", "CD",
+        "C", "XC", "L", "XL",
+        "X", "IX", "V", "IV", "I"
+    ]
+    roman = ''
+    i = 0
+    while n > 0:
+        for _ in range(n // val[i]):
+            roman += syms[i]
+            n -= val[i]
+        i += 1
+    return roman
+
+def int_to_alpha(n):
+    # Converts 1 -> a, 2 -> b, ..., 26 -> z, 27 -> aa, etc.
+    result = ''
+    while n > 0:
+        n, remainder = divmod(n - 1, 26)
+        result = chr(97 + remainder) + result  # 97 = 'a'
+    return result

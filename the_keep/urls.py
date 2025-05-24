@@ -37,9 +37,24 @@ urlpatterns = [
     path('', views.home, name='site-home'),
     path('home/', views.home),
     path('about/', views.about, name='keep-about'),
-    
+    path('law/', views.law_hierarchy_view),
+    path('law/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
+    # path('law/edit/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
+    path('law/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
+    path('faq/', views.faq_search, name='faq'),
+    path('faq/lang/<str:lang_code>/', views.faq_search, name='lang-faq'),
+    path('faq/add/', views.FAQCreateView.as_view(), name='faq-add'),
+
+    path('edit/faq/<int:pk>/', views.FAQUpdateView.as_view(), name='faq-edit'),
+    path('delete/faq/<int:pk>/', views.FAQDeleteView.as_view(), name='faq-delete'),
+
+    path('ajax/law/add/', views.add_law_ajax, name='add-law-ajax'),
+    path('ajax/law/move/<int:law_id>/<str:direction>/', views.move_law_ajax, name='move-law-ajax'),
+    path('ajax/law/edit/', views.edit_law_ajax, name='edit-law-ajax'),
+    path('ajax/law/edit-description/', views.edit_law_description_ajax, name='edit-law-description-ajax'),
+    path('ajax/law/delete/', views.delete_law_ajax, name='delete-law-ajax'),
+
     path("archive/", list_view, name='archive-home'),
-    # path("new/", activity_list, name='activity-list'),
  
     # used for search
     path("hx/search/", search_view, name='search'),
@@ -62,6 +77,7 @@ urlpatterns = [
     # path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
+    path('expansion/<slug:expansion_slug>/law/', views.law_hierarchy_view, name='expansion-law'),
 
     # path('old/faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-old'),
     
@@ -102,6 +118,18 @@ urlpatterns = [
     path("translations/<slug:slug>/", translations_view, name='post-translations'),
     path("translations/<slug:slug>/new/", create_post_translation, name='translation-create'),
     path("translations/<slug:slug>/update/<str:lang>/", create_post_translation, name='translation-update'),
+
+    path('law/<slug:slug>/', views.law_hierarchy_view, name='post-law'),
+    path('law/<slug:slug>/add/', views.CreateLawGroupView.as_view(), name='post-law-group-create'),
+    path('law/<slug:slug>/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-post-law'),
+    path('law/<slug:slug>/add/<str:lang_code>/', views.CreateLawGroupView.as_view(), name='post-law-group-create-lang'),
+    path('law/<slug:slug>/<str:lang_code>/', views.law_hierarchy_view, name='lang-post-law'),
+    
+    path('faq/<slug:slug>/', views.faq_search, name='post-faq'),
+    path('faq/<slug:slug>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
+    path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='lang-post-faq'),
+
+
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
 

@@ -559,12 +559,12 @@ def manage_game(request, id=None):
             # roster = []
             for form in formset:
                 if form.cleaned_data.get('delete'):  # Check if the delete checkbox is checked
-                    print('delete found')
+                    # print('delete found')
                     if form.instance.id:
                         form.instance.delete()
                     # formset.forms.remove(form)  # Delete the associated Effort instance
                 elif not form.cleaned_data.get('faction') and not form.cleaned_data.get('score') and not form.cleaned_data.get('player'):
-                    print('empty found')
+                    # print('empty found')
                     if form.instance.id:
                         form.instance.delete()
                 else:
@@ -638,10 +638,16 @@ def scorecard_manage_view(request, id=None):
     faction = request.GET.get('faction', None)
     effort_id = request.GET.get('effort', None)
     game_group = request.GET.get('game_group', None)
-    if faction:
-        faction_name = Faction.objects.get(id=faction).title
-    else:
-        faction_name = None
+    # if faction:
+    #     faction_name = Faction.objects.get(id=faction).title
+    # else:
+    #     faction_name = None
+    faction_name = (
+        Faction.objects.filter(id=faction)
+        .values_list('title', flat=True)
+        .first()
+        if faction else None
+    )
 
     game = None
     next_scorecard = None
@@ -749,8 +755,8 @@ def scorecard_manage_view(request, id=None):
         score = effort.score
     else:
         score = None
-    print(obj.total_points)
-    print(obj.total_points)
+    # print(obj.total_points)
+    # print(obj.total_points)
     if not obj.total_generic_points and obj.id and obj.total_points and obj.total_points != 0:
         generic_view = False
     else:
@@ -778,7 +784,7 @@ def scorecard_manage_view(request, id=None):
     # Handle form submission
     if form.is_valid() and formset.is_valid():
         warning_message = False
-        print('valid form')
+        # print('valid form')
         # print(formset.cleaned_data)
         parent = form.save(commit=False)
         parent.recorder = request.user.profile  # Set the recorder
@@ -843,7 +849,7 @@ def scorecard_manage_view(request, id=None):
         
         for turn_form in formset:
             form_delete = turn_form.cleaned_data['delete']
-            print(form_delete)
+            # print(form_delete)
             child = turn_form.save(commit=False)
             child.scorecard = parent  # Link the turn to the game
             child.save()
@@ -1008,17 +1014,17 @@ def effort_assign_view(request, id):
         form = AssignEffortForm(request.POST, selected_efforts=available_efforts, user=request.user)
         # print('submitting form')
         if form.is_valid():
-            print('valid form')
+            # print('valid form')
             scorecard = scorecard
             scorecard.effort = form.cleaned_data['effort']  # Assign the Effort to the selected Scorecard
             scorecard.final = True
             scorecard.save()  # Save the updated Scorecard
             return redirect('game-detail', id=scorecard.effort.game.id)
-        else:
-                print("Form errors:", form.errors)  # Print the errors for debugging
-                # You can also print individual field errors if you need to inspect them specifically
-                for field, errors in form.errors.items():
-                    print(f"Errors for {field}: {errors}")
+        # else:
+        #         print("Form errors:", form.errors)  # Print the errors for debugging
+        #         # You can also print individual field errors if you need to inspect them specifically
+        #         for field, errors in form.errors.items():
+        #             print(f"Errors for {field}: {errors}")
     else:
         form = AssignEffortForm(selected_efforts=available_efforts, user=request.user)
 
@@ -1124,7 +1130,7 @@ def scorecard_list_view(request):
 # Tournament Views
 # ============================
 
-@player_required
+
 def tournament_detail_view(request, tournament_slug):
     # Get the tournament from slug
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
@@ -1139,27 +1145,30 @@ def tournament_detail_view(request, tournament_slug):
         Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
         start_date__lt=timezone.now()
         )
+    if request.user.is_authenticated:
+        playable_rounds = active_rounds.filter(
+            Q(
+                Q(tournament__players=request.user.profile) |  # user is a tournament player
+                Q(tournament__designer=request.user.profile)    # or user is the tournament designer
+            ),
+            Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
+            start_date__lt=timezone.now()
+        )
+        playable_round = playable_rounds.filter(
+            Q(players__isnull=False, players__in=[request.user.profile]) |
+            Q(players__isnull=True) |
+            Q(tournament__designer=request.user.profile)
+        ).last()
+    else:
+        playable_rounds = active_rounds.none()
+        playable_round = playable_rounds.none()
 
-    playable_rounds = active_rounds.filter(
-        Q(
-            Q(tournament__players=request.user.profile) |  # user is a tournament player
-            Q(tournament__designer=request.user.profile)    # or user is the tournament designer
-        ),
-        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-        start_date__lt=timezone.now()
-    )
-
-    playable_round = playable_rounds.filter(
-        Q(players__isnull=False, players__in=[request.user.profile]) |
-        Q(players__isnull=True) |
-        Q(tournament__designer=request.user.profile)
-    ).last()
 
 
 
     future_rounds = all_rounds.filter(start_date__gt=timezone.now())
    
-    efforts = Effort.objects.filter(game__round__tournament=tournament)
+    efforts = Effort.objects.filter(game__round__tournament=tournament, game__final=True)
 
     top_players = []
     most_players = []
@@ -1191,7 +1200,7 @@ def tournament_detail_view(request, tournament_slug):
         return render(request, 'the_warroom/partials/tournament_round_detail.html', context)
     return render(request, 'the_warroom/tournament_overview.html', context)
 
-@player_required
+
 def tournament_players_pagination(request, id):
     if not request.htmx:
         return HttpResponse(status=404)
@@ -1200,9 +1209,9 @@ def tournament_players_pagination(request, id):
     players = Profile.objects.filter(Q(efforts__game__round__tournament=tournament)|Q(current_tournaments=tournament))
     
     players = players.annotate(
-        total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament)),
-        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament)),
-        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament))
+        total_efforts=Count('efforts', filter=Q(efforts__game__round__tournament=tournament, efforts__game__final=True)),
+        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament, efforts__game__final=True)),
+        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament, efforts__game__final=True))
     )
     # Annotate with win_rate after filtering
     players = players.annotate(
@@ -1325,11 +1334,11 @@ def tournament_manage_players(request, tournament_slug):
             form.save()
             # Redirect or show a success message
             return redirect(tournament.get_absolute_url())  # or any other success URL
-        else:
-            # If form is invalid, print the errors for debugging
-            print("Error")
-            print(form.errors)
-            print(form.data)
+        # else:
+        #     # If form is invalid, print the errors for debugging
+        #     print("Error")
+        #     print(form.errors)
+        #     print(form.data)
     # Render the template with the form
     context = {
         'form': form,
@@ -1410,11 +1419,11 @@ def tournament_manage_assets(request, tournament_slug):
             # form.save_m2m()
             # Redirect or show a success message
             return redirect(tournament.get_absolute_url())  # or any other success URL
-        else:
-            # If form is invalid, print the errors for debugging
-            print("Error")
-            print(form.errors)
-            print(form.data)
+        # else:
+        #     # If form is invalid, print the errors for debugging
+        #     print("Error")
+        #     print(form.errors)
+        #     print(form.data)
     # Render the template with the form
     context = {
         'form': form,
@@ -1430,7 +1439,7 @@ def tournament_manage_assets(request, tournament_slug):
 
     return render(request, 'the_warroom/tournament_manage_assets.html', context)
 
-@player_onboard_required
+
 def tournaments_home(request):
     scheduled_tournaments = Tournament.objects.filter(start_date__gt=timezone.now())
     scheduled_tournaments = scheduled_tournaments.annotate(
@@ -1486,7 +1495,7 @@ def user_can_access_round(round, user):
     return is_active and (is_designer or is_player or is_open)
 
 
-@player_onboard_required
+
 def round_detail_view(request, tournament_slug, round_slug):
 
     # Get the tournament from slug
@@ -1509,10 +1518,11 @@ def round_detail_view(request, tournament_slug, round_slug):
     top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=threshold)
     most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
 
-    if user_can_access_round(round, request.user):
-        playable_round = round
-    else:
-        playable_round = None
+    playable_round = None
+    if request.user.is_authenticated:
+        if user_can_access_round(round, request.user):
+            playable_round = round
+            
 
     # players = round.current_player_queryset()
     # players = players.annotate(
@@ -1562,29 +1572,29 @@ def round_detail_view(request, tournament_slug, round_slug):
 
 
 
-@player_required
+
 def round_players_pagination(request, id):
     if not request.htmx:
         return HttpResponse(status=404)
     round = get_object_or_404(Round, id=id)
 
     if round.players.count() == 0:
-        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(current_tournaments=round.tournament))
+        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(current_tournaments=round.tournament)).distinct()
     else:
-        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(rounds=round))
+        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(rounds=round)).distinct()
 
     # participants = Profile.objects.filter(efforts__game__round=round)
     # roster = round.current_player_queryset()
     # players = participants.union(roster)
-    print(players)
+    # print(players)
 
 
     # print(players.count())
     # print("Players")
     players = players.annotate(
-        total_efforts=Count('efforts', filter=Q(efforts__game__round=round)),
-        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round)),
-        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round))
+        total_efforts=Count('efforts', filter=Q(efforts__game__round=round, efforts__game__final=True)),
+        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round, efforts__game__final=True)),
+        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round, efforts__game__final=True))
     )
 
     # Annotate with win_rate after filtering
@@ -1623,14 +1633,14 @@ def round_players_pagination(request, id):
 
 
 
-@player_required
+
 def round_games_pagination(request, id):
     
     if not request.htmx:
         return HttpResponse(status=404)
     round = get_object_or_404(Round, id=id)
 
-    games = round.games.all()
+    games = round.games.filter(final=True)
 
     # Paginate games
     paginator = Paginator(games, settings.PAGE_SIZE)  # Use the queryset directly
@@ -1722,11 +1732,11 @@ def round_manage_players(request, round_slug, tournament_slug):
             form.save()
             # Redirect or show a success message
             return redirect(selected_round.get_absolute_url())  # or any other success URL
-        else:
-            # If form is invalid, print the errors for debugging
-            print("Error")
-            print(form.errors)
-            print(form.data)
+        # else:
+        #     # If form is invalid, print the errors for debugging
+        #     print("Error")
+        #     print(form.errors)
+        #     print(form.data)
     # Render the template with the form
     context = {
         'form': form,

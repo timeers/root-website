@@ -1359,26 +1359,27 @@ tr.clickable-row:hover {
 .text-overlay {
   top: 20%;
   position: absolute;
-  left: 35px;  /* Padding on the left */
+  left: 20vw;  /* Padding on the left */
   color: white;
   text-align: center;
-  padding: 0 10px;
+  padding: 10px 20px 20px 20px; /* top, right, bottom, left */
   background: rgba(0, 0, 0, 0.7); /* Solid color fallback */
   border-radius: 10px; /* Rounded corners */
+  font-size: 1.5rem;
 }
 
 .title-overlay {
-  font-size: 2.5rem;
+  font-size: 2rem;
   padding: 10px; /* Add some padding for mobile */
 }
 
 
 .text-overlay-right {
   left: auto;
-  right: 35px;  /* Align text to the right side */
+  right: 20vw;  /* Align text to the right side */
 }
 
-@media (max-width: 500px) {
+@media (max-width: 650px) {
   .text-overlay {
     top: 50%; /* Center vertically */
     left: 50%; /* Center horizontally */
@@ -1486,4 +1487,207 @@ tr.clickable-row:hover {
   background-color: #fff; 
   padding: .5rem;    
   margin-bottom: .25rem;
+}
+
+/* LAW OF ROOT */
+
+/* .law-code {
+  font-size: 0.7em;
+  vertical-align: 0.15em;
+} */
+
+
+.law-entry {
+  display: grid;
+  grid-template-columns: 50px 1fr;  /* First column fixed at 60px */
+  column-gap: 0.5em;
+  /* align-items: start; */
+}
+.law-entry > :first-child {
+  text-align: right;              /* Right-align text in the first column */
+}
+.law-code {
+  font-size: 0.7em;
+  color: #555;
+  white-space: nowrap;
+  text-align: center;
+  padding-top: 0.5em;
+}
+
+.law-content {
+  font-size: 1em;
+}
+
+
+
+
+.smart-smallcaps {
+  font-family: serif;
+}
+
+.smart-smallcaps span {
+  text-transform: uppercase;
+}
+
+.large-cap {
+  font-size: 1.4em;
+  /* vertical-align: -0.1em; */
+}
+
+.small-word {
+  text-transform: lowercase;
+  font-size: 0.9em;
+}
+
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5); /* Faded background */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modal-card {
+  background: white;
+  padding: 2rem;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  max-width: 500px;
+  width: 90%;
+  animation: fadeIn 0.3s ease;
+  position: relative;
+}
+
+.modal-card form input,
+.modal-card form textarea {
+  width: 100%;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-close-button {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #333;
+  cursor: pointer;
+  z-index: 1000;
+  transition: color 0.2s;
+}
+
+.modal-close-button:hover {
+  color: #007bff;
+}
+
+
+.dropdown-item:hover {
+  background-color: var(--theme-color); /* your custom hover color */
+  color: var(--background-color); /* optional */
+}
+
+/* Change active (selected) background color */
+.dropdown-item.active,
+.dropdown-item:active {
+  background-color: var(--theme-color); /* your custom active color */
+  color: var(--background-color); /* optional */
+}
+
+
+@keyframes highlightFadeInOut {
+  0% {
+    background-color: transparent;
+  }
+  15% {
+    background-color: #ffffcc;
+  }
+  75% {
+    background-color: #ffffcc;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.highlight-fade {
+  animation: highlightFadeInOut 4s ease-in-out forwards;
+}
+
+.inline-icon {
+  height: 1em;              /* Matches the current font size */
+  width: auto;              /* Maintains aspect ratio */
+  vertical-align: text-bottom;  /* Aligns nicely with the text baseline */
+}
+
+
+/* FAQ */
+.accordion {
+  max-width: 800px;
+  margin: 2rem auto;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.accordion-item {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.accordion-header {
+  background-color: #f9f9f9;
+  cursor: pointer;
+  padding: 1rem 1.5rem;
+  font-weight: 600;
+  font-size: 1.2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.3s;
+}
+
+.accordion-header:hover {
+  background-color: #f1f1f1;
+}
+
+.accordion-body {
+  padding: 1rem 1.5rem 1rem;
+  display: none;
+  font-size: 1rem;
+  color: #555;
+}
+
+.accordion-header::after {
+  content: "＋";
+  font-size: 1.2rem;
+  transition: transform 0.3s;
+}
+
+.accordion-item.active .accordion-body {
+  display: block;
+  animation: accordionFadeIn 0.3s ease-in-out;
+}
+
+.accordion-item.active .accordion-header::after {
+  content: "－";
+}
+
+@keyframes accordionFadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
 }

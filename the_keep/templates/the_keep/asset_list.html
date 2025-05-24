@@ -15,7 +15,7 @@
 <article class="media content-section mt-2 mb-5">
     <div class="media-body">
 
-        <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="d-flex justify-content-between align-items-center">
             <div class='d-flex'>
                 <h1 class='root-title'>{% trans 'Resources' %}</h1>
             </div>
@@ -135,51 +135,52 @@
             hx-target="#asset-table" 
             hx-swap="outerHTML"
             hx-trigger="submit, input delay:0.3s">
-            <div class="row">
-                
-                <div class="col-md-6 mb-1">
-                    <input 
-                        type="text" 
-                        class="form-control" 
-                        id="search-bar" 
-                        name="search" 
-                        placeholder="Search..." 
-                    />
+                        <div class="row">
+                            
+                            <div class="col-md-6 mb-1">
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="search-bar" 
+                                    name="search" 
+                                    placeholder="Search..." 
+                                />
+                            </div>
+
+                            <!-- Select Field (Takes 25% of the row) -->
+                            <div class="col-md-3 mb-1">
+                                <select id="search_type" class="form-control" name="search_type" value="{{ search_type }}">
+                                    <option value="">{% trans 'All' %}</option>  
+                                    <option value="faction" {% if search_type == 'faction' %}selected{% endif %}>{% trans 'Faction' %}</option>
+                                    <option value="vagabond" {% if search_type == 'vagabond' %}selected{% endif %}>{% trans 'Vagabond' %}</option>
+                                    <option value="map" {% if search_type == 'map' %}selected{% endif %}>{% trans 'Map' %}</option>
+                                    <option value="deck" {% if search_type == 'deck' %}selected{% endif %}>{% trans 'Deck' %}</option>
+                                    <option value="landmark" {% if search_type == 'landmark' %}selected{% endif %}>{% trans 'Landmark' %}</option>
+                                    <option value="hireling" {% if search_type == 'hireling' %}selected{% endif %}>{% trans 'Hireling' %}</option>
+                                    <option value="icons" {% if search_type == 'icons' %}selected{% endif %}>{% trans 'Icons' %}</option>
+                                    <option value="guide" {% if search_type == 'guide' %}selected{% endif %}>{% trans 'Guide' %}</option>
+                                    <option value="other" {% if search_type == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-3 mb-1">
+                                <select id="file_type" class="form-control" name="file_type" value="{{ file_type }}">
+                                    <option value="">{% trans 'All Files' %}</option>  
+                                    <option value="pdf" {% if search_type == 'pdf' %}selected{% endif %}>PDF</option>
+                                    <option value="xcf" {% if search_type == 'xcf' %}selected{% endif %}>XCF (Gimp)</option>
+                                    <option value="png" {% if search_type == 'png' %}selected{% endif %}>PNG</option>
+                                    <option value="jpg" {% if search_type == 'jpg' %}selected{% endif %}>JPG</option>
+                                    <option value="doc" {% if search_type == 'doc' %}selected{% endif %}>DOC (Word)</option>
+                                    <option value="psd" {% if search_type == 'psd' %}selected{% endif %}>PSD (Photoshop)</option>
+                                    <option value="video" {% if search_type == 'video' %}selected{% endif %}>{% trans 'Video' %}</option>
+                                    <option value="other" {% if search_type == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
+                                </select>
+                            </div>
                 </div>
 
-                <!-- Select Field (Takes 25% of the row) -->
-                <div class="col-md-3 mb-1">
-                    <select id="search_type" class="form-control" name="search_type" value="{{ search_type }}">
-                        <option value="">{% trans 'All' %}</option>  
-                        <option value="faction" {% if search_type == 'faction' %}selected{% endif %}>{% trans 'Faction' %}</option>
-                        <option value="vagabond" {% if search_type == 'vagabond' %}selected{% endif %}>{% trans 'Vagabond' %}</option>
-                        <option value="map" {% if search_type == 'map' %}selected{% endif %}>{% trans 'Map' %}</option>
-                        <option value="deck" {% if search_type == 'deck' %}selected{% endif %}>{% trans 'Deck' %}</option>
-                        <option value="landmark" {% if search_type == 'landmark' %}selected{% endif %}>{% trans 'Landmark' %}</option>
-                        <option value="hireling" {% if search_type == 'hireling' %}selected{% endif %}>{% trans 'Hireling' %}</option>
-                        <option value="icons" {% if search_type == 'icons' %}selected{% endif %}>{% trans 'Icons' %}</option>
-                        <option value="guide" {% if search_type == 'guide' %}selected{% endif %}>{% trans 'Guide' %}</option>
-                        <option value="other" {% if search_type == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
-                    </select>
-                </div>
 
-                <div class="col-md-3 mb-1">
-                    <select id="file_type" class="form-control" name="file_type" value="{{ file_type }}">
-                        <option value="">{% trans 'All Files' %}</option>  
-                        <option value="pdf" {% if search_type == 'pdf' %}selected{% endif %}>PDF</option>
-                        <option value="xcf" {% if search_type == 'xcf' %}selected{% endif %}>XCF (Gimp)</option>
-                        <option value="png" {% if search_type == 'png' %}selected{% endif %}>PNG</option>
-                        <option value="jpg" {% if search_type == 'jpg' %}selected{% endif %}>JPG</option>
-                        <option value="doc" {% if search_type == 'doc' %}selected{% endif %}>DOC (Word)</option>
-                        <option value="psd" {% if search_type == 'psd' %}selected{% endif %}>PSD (Photoshop)</option>
-                        <option value="video" {% if search_type == 'video' %}selected{% endif %}>{% trans 'Video' %}</option>
-                        <option value="other" {% if search_type == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
-                    </select>
-                </div>
-    </div>
+            </form>
 
-
-        </form>
         <div style="overflow-x: auto;">
         <table id="sortable-table">
             <thead>

@@ -179,6 +179,7 @@ def editor_required_class_based_view(view_class):
     return view_class
 
 
+
 def player_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata

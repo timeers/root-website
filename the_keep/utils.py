@@ -188,16 +188,15 @@ def validate_hex_color(value):
 
 
 def slugify_post_title(instance, save=False, new_slug=None):
+    RESERVED_SLUGS = {'edit', 'lang', 'add'}
     if new_slug is not None:
         slug = new_slug
     else:
         slug = slugify(instance.title)
     
-    # Klass = instance.__class__ 
-    # for base in instance.__class__.__bases__:
-    #     if 'slug' in base._meta.get_fields():
-    #         Klass = base 
-    #         break 
+    # Check if the slug is reserved
+    if slug in RESERVED_SLUGS:
+        slug = f"{slug}-{random.randint(1000, 9999)}"
 
     Post = apps.get_model('the_keep', 'Post')
     qs = Post.objects.filter(slug=slug).exclude(id=instance.id)

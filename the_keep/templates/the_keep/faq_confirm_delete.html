@@ -1,0 +1,53 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %} - Delete{% endblock %}
+{% block content %}
+    <div class="content-section">
+        <form method="POST">
+            {% csrf_token %}
+            <fieldset class="form-group">
+                <legend class="border-bottom mb-4">{% trans 'Delete FAQ?' %}</legend>
+                <p>Are you sure you want to delete this FAQ{% if object.post %} for {{ object.post }}{% endif %}?</p>
+
+
+                <div class="accordion" id="faq-accordion">
+                      <div class="accordion-item">
+                        <div class="accordion-header" onclick="toggleAccordion(this)">
+                          {{ object.question }}
+                        </div>
+                        <div class="accordion-body">
+                            {{ object.answer }}
+                        </div>
+                      </div>
+                  </div>
+
+
+            </fieldset>
+            <div class="form-group">
+                <button class="btn btn-danger" type="submit">
+                    {% trans 'Yes, Delete' %}
+                </button>
+                {% if object.post %}
+                <a class="btn btn-secondary" href="{% url 'post-faq' object.post.slug %}">{% trans 'Cancel' %}</a>
+                {% else %}
+                    <a class="btn btn-secondary" href="{% url 'faq' %}">{% trans 'Cancel' %}</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+{% endblock content %}
+
+{% block scripts %}
+
+<script>
+  function toggleAccordion(header) {
+    const item = header.parentElement;
+    const allItems = document.querySelectorAll('.accordion-item');
+    allItems.forEach(i => {
+      if (i !== item) i.classList.remove('active');
+    });
+    item.classList.toggle('active');
+  }
+</script>
+
+{% endblock scripts %}

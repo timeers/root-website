@@ -2,7 +2,8 @@ import json
 from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation
+    Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation,
+    Law, FAQ
 )
 from the_gatehouse.models import Profile, Language
 from django.core.exceptions import ValidationError
@@ -13,7 +14,7 @@ from django.utils.translation import gettext as _
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status']
+top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
 bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'language']
 
 
@@ -91,7 +92,7 @@ class ExpansionCreateForm(forms.ModelForm):
             if pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
                     raise ValidationError('PNP links must be to Dropbox or Google Drive')
             if rootjam_link and not "itch.io/" in rootjam_link:
-                    raise ValidationError('Link to RootJam entry is not a valid itch.io page')
+                    raise ValidationError('Link to RootJam page is not a valid itch.io page')
             return cleaned_data
 
 class PostImportForm(forms.ModelForm):
@@ -127,7 +128,9 @@ class TranslationCreateForm(forms.ModelForm):
         fields = ['language', 'translated_title', 
                   'translated_lore', 'translated_description', 'translated_animal',
                   'translated_board_image', 'translated_board_2_image',
-                  'translated_card_image', 'translated_card_2_image', 'designer'
+                  'translated_card_image', 'translated_card_2_image', 
+                  'bgg_link', 'tts_link', 'pnp_link',
+                  'designer', 'version',
                   ]
         labels = {
             'designer': 'Translated By',
@@ -138,7 +141,11 @@ class TranslationCreateForm(forms.ModelForm):
             'translated_board_image': 'Board Image', 
             'translated_board_2_image': 'Board Back',
             'translated_card_image': 'Card Image', 
-            'translated_card_2_image': 'Second Card Image'
+            'translated_card_2_image': 'Second Card Image',
+            'version': 'Translation Version (Optional)',
+            'bgg_link': "Language Specific Board Game Geek Post", 
+            'tts_link': "Language Specific TTS Link", 
+            'pnp_link': "Language Specific Print and Play Link",
         }
         translated_board_image = forms.ImageField(required=False)
         translated_board_2_image = forms.ImageField(required=False)
@@ -209,20 +216,20 @@ class TranslationCreateForm(forms.ModelForm):
 
         self.fields['translated_title'].help_text = post.title
 
-        if not post.lore:
-            self.fields.pop('translated_lore', None)
-        else:
-            self.fields['translated_lore'].widget.attrs.update({
+        self.fields['translated_lore'].widget.attrs.update({
                 'rows': '2',
             })
+        if not post.lore:
+            self.fields['translated_lore'].help_text = "None"
+        else:
             self.fields['translated_lore'].help_text = post.lore
 
-        if not post.description:
-            self.fields.pop('translated_description', None)
-        else:
-            self.fields['translated_description'].widget.attrs.update({
+        self.fields['translated_description'].widget.attrs.update({
                 'rows': '2',
             })
+        if not post.description:
+            self.fields['translated_description'].help_text = "None"
+        else:
             self.fields['translated_description'].help_text = post.description
 
         if not post.animal:
@@ -234,19 +241,53 @@ class TranslationCreateForm(forms.ModelForm):
             self.fields['translated_animal'].help_text = post.animal
 
         if not post.board_image:
-            self.fields.pop('translated_board_image', None)
+            self.fields['translated_board_image'].help_text = "None"
         if not post.board_2_image:
-            self.fields.pop('translated_board_2_image', None)
+            self.fields['translated_board_2_image'].help_text = "None"
         if not post.card_image:
-            self.fields.pop('translated_card_image', None)
+            self.fields['translated_card_image'].help_text = "None"
         if not post.card_2_image:
-            self.fields.pop('translated_card_2_image', None)
+            self.fields['translated_card_2_image'].help_text = "None"
+
+        # Define which components should ignore which image fields
+        component_field_map = {
+            'translated_board_image': {'Vagabond', 'Deck', 'Landmark'},
+            'translated_board_2_image': {'Vagabond', 'Map', 'Deck', 'Landmark', 'Clockwork', 'Hireling', 'Tweak'},
+            'translated_card_image': {'Clockwork', 'Hireling'},
+            'translated_card_2_image': {'Faction', 'Clockwork', 'Vagabond', 'Deck', 'Hireling', 'Tweak'},
+        }
+
+        # For each field, check if the post.component is relevant and if the corresponding image is missing
+        for field_name, components in component_field_map.items():
+            if post.component in components:
+                # derive original image field name from translated field
+                original_field_name = field_name.replace('translated_', '')
+                if not getattr(post, original_field_name):
+                    self.fields.pop(field_name, None)
 
 
     def clean(self):
             cleaned_data = super().clean()
             post = cleaned_data.get('post')
             language = cleaned_data.get('language')
+            bgg_link = cleaned_data.get('bgg_link')
+            tts_link = cleaned_data.get('tts_link')
+            pnp_link = cleaned_data.get('pnp_link')
+
+            url_validator = URLValidator()
+            for url in [bgg_link, tts_link, pnp_link]:
+                if url:  # Only validate if the field is filled
+                    try:
+                        url_validator(url)
+                    except ValidationError:
+                        raise ValidationError(f"The field '{url}' must be a valid URL.")
+            if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
+                raise ValidationError('Link to Board Game Geek is not a valid thread')
+            if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
+                raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
+            if pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
+                    raise ValidationError('PNP links must be to Dropbox or Google Drive')
+
 
             # Add custom validation if needed (e.g., ensure a translation doesn't already exist for this post and language)
             if post and language:
@@ -307,6 +348,7 @@ class PostCreateForm(forms.ModelForm):
             'rootjam_link': "RootJam itch.io Entry",
             'leder_games_link': "Leder Games",
             'art_by_kyle_ferrin': "Art by Kyle Ferrin",
+            'version': "Version (Optional)",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
         
@@ -323,7 +365,7 @@ class PostCreateForm(forms.ModelForm):
                 if expansion.designer != user.profile and (not expansion.open_roster or (expansion.end_date and expansion.end_date < timezone.now())):
                     self.fields['expansion'].disabled = True  # Disable the field
 
-            
+        
 
         # If no expansions exist in the queryset, hide the field
         if not self.fields['expansion'].queryset.exists():
@@ -338,6 +380,9 @@ class PostCreateForm(forms.ModelForm):
             })
         
         post_instance = kwargs.pop('instance', None)
+
+        if post_instance and post_instance.title and not user.profile.admin:
+            self.fields['title'].disabled = True
 
         user_language = user.profile.language if user.profile.language else None
         if user_language:
@@ -647,7 +692,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     based_on = forms.ModelChoiceField(
         queryset=Post.objects.all(),
-        required=True
+        required=False
     )
     picture = forms.ImageField(
         label=_('House Rule Art'),  # Set the label for the picture field
@@ -1134,3 +1179,46 @@ class PNPAssetCreateForm(forms.ModelForm):
             instance.save()
         
         return instance
+    
+
+class AddLawForm(forms.Form):
+    title = forms.CharField(max_length=50)
+    description = forms.CharField(required=False)
+    group_id = forms.IntegerField()
+    parent_id = forms.IntegerField(required=False)
+    prev_id = forms.IntegerField(required=False)
+    next_id = forms.IntegerField(required=False)
+    reference_laws = forms.ModelMultipleChoiceField(
+        queryset=Law.objects.all(),
+        required=False,
+        widget=forms.SelectMultiple(attrs={'class': 'multi-select'})
+    )
+
+# class EditLawForm(forms.Form):
+#     law_id = forms.IntegerField()
+#     title = forms.CharField(max_length=50)
+#     description = forms.CharField()
+
+class EditLawForm(forms.ModelForm):
+    class Meta:
+        model = Law
+        fields = ['title', 'description', 'reference_laws']
+
+class EditLawDescriptionForm(forms.ModelForm):
+    class Meta:
+        model = Law
+        fields = ['description']
+
+class FAQForm(forms.ModelForm):
+    class Meta:
+        model = FAQ
+        fields = ['question', 'answer']
+
+    def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.fields['question'].widget.attrs.update({
+                'rows': '2'
+                })
+            self.fields['answer'].widget.attrs.update({
+                'rows': '2'
+                })

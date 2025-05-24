@@ -97,10 +97,10 @@ class Tournament(models.Model):
 
     def game_count(self):
         # Counts the number of games associated with this tournament
-        return Game.objects.filter(round__tournament=self).count()
+        return Game.objects.filter(round__tournament=self, final=True).count()
     
     def get_game_queryset(self):
-        games = Game.objects.filter(round__tournament=self).all()
+        games = Game.objects.filter(round__tournament=self, final=True).all()
         return games
 
 
@@ -180,7 +180,7 @@ class Round(models.Model):
         # return all_players   
      
     def game_count(self):
-        return Game.objects.filter(round=self).count()
+        return Game.objects.filter(round=self, final=True).count()
 
     class Meta:
         ordering = ['-round_number']

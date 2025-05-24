@@ -3,6 +3,8 @@ import uuid
 import re
 import inflect
 
+from decimal import Decimal
+from urllib.parse import urlencode
 from django.db import models
 from django.db.models.signals import pre_save, post_save
 from django.db.models import (
@@ -29,6 +31,7 @@ from django.conf import settings
 from the_gatehouse.discordservice import send_rich_discord_message
 # from the_gatehouse.utils import build_absolute_uri
 from django.utils.translation import gettext_lazy as _
+from the_gatehouse.utils import int_to_alpha, int_to_roman
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -46,6 +49,11 @@ p = inflect.engine()
 def get_default_language():
     # Return the first Language object if it exists, otherwise return None
     return Language.objects.first()
+
+def get_default_language_id():
+    default_language = Language.objects.filter(code='en').values_list('id', flat=True).first()
+    return default_language or None  # Return None if no default found
+
 
 def convert_animals_to_singular(text):
     # Remove any instances of "and" from the input string
@@ -285,6 +293,7 @@ class Post(models.Model):
     official = models.BooleanField(default=False)
     in_root_digital = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)
+    version = models.CharField(max_length=40, blank=True, null=True)
     language = models.ForeignKey(Language, on_delete=models.SET_DEFAULT, null=True, blank=True, default=get_default_language)
 
     bgg_link = models.CharField(max_length=400, null=True, blank=True)
@@ -709,6 +718,12 @@ class PostTranslation(models.Model):
     translated_lore = models.TextField(null=True, blank=True)
     translated_description = models.TextField(null=True, blank=True)
     translated_animal = models.CharField(max_length=25, null=True, blank=True)
+
+    bgg_link = models.CharField(max_length=400, null=True, blank=True)
+    tts_link = models.CharField(max_length=400, null=True, blank=True)
+    pnp_link = models.CharField(max_length=400, null=True, blank=True)
+
+    version = models.CharField(max_length=40, blank=True, null=True)
 
 
 
@@ -2004,8 +2019,297 @@ class PNPAsset(models.Model):
         ordering = ['pinned', 'category', 'date_updated']
 
 
+class FAQ(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)    
+    question = models.TextField()
+    answer = models.TextField()
+    date_posted = models.DateTimeField(default=timezone.now)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
+
+    class Meta:
+        ordering = ['date_posted']
+
+    def __str__(self):
+        return f'{self.question}'
+
+    def save(self, *args, **kwargs):
+        if not self.language:
+            self.language = get_default_language()        
+        super().save(*args, **kwargs)
 
 
+class LawGroup(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)
+    title = models.CharField(max_length=50, null=True, blank=True)
+    abbreviation = models.CharField(max_length=10, null=True, blank=True)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
+    position = models.FloatField(editable=False, default=0)
+
+    class Meta:
+        ordering = ['position']
+        # unique_together = ('post', 'language')
+
+    
+    def __str__(self):
+        return f'{self.abbreviation} - {self.title}'
+    
+    def save(self, *args, **kwargs):
+        # Get the original abbreviation before saving
+        abbreviation_changed = False
+        if self.pk:
+            old_abbr = LawGroup.objects.filter(pk=self.pk).values_list('abbreviation', flat=True).first()
+            abbreviation_changed = (old_abbr != self.abbreviation)
+
+        if not self.language:
+            self.language = get_default_language()
+        if not self.title and self.post:
+            self.title = self.post.title
+        if not self.abbreviation:
+            self.abbreviation = self.generate_abbreviation()
+
+        self.position = self.derive_position_from_abbreviation()
+        
+        super().save(*args, **kwargs)
+
+        # If the abbreviation changed, rebuild law codes
+        if abbreviation_changed:
+            for law in self.laws.all():
+                law.update_code_and_descendants()
+
+
+    def generate_abbreviation(self):
+        if self.post and self.post.title:
+            # Use first letter of each word in the post title
+            return ''.join(word[0] for word in self.post.title.split() if word).upper()
+        else:
+            # Default abbreviation if no post
+            return '1'
+
+    def derive_position_from_abbreviation(self):
+        # Attempt to convert abbreviation to a number (if it starts with a digit)
+        try:
+            return float(self.abbreviation)
+        except ValueError:
+            # If it's not a number, treat it as an alphabetic string
+            return self._alphabetic_position(self.abbreviation)
+
+    def _alphabetic_position(self, abbreviation):
+        """
+        Convert a string abbreviation into a lexicographically ordered numeric position
+        (e.g., 'A' -> 0, 'B' -> 1, ..., 'AA' -> 26, 'AB' -> 27, 'BA' -> 52).
+        """
+        position = 0
+        for char in abbreviation.upper():
+            position = position * 26 + (ord(char) - ord('A'))
+        # Add a large base value to ensure alphabetical entries are sorted after numeric ones
+        return 1_000_000 + position
+
+    def get_absolute_url(self):
+        if self.post:
+            url = reverse('lang-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
+            return url
+        else:
+            url = reverse('law-of-root', kwargs={'lang_code': self.language.code})
+            query_params = {'highlight_group': self.id}
+            return f'{url}?{urlencode(query_params)}'
+        
+    def get_edit_url(self):
+        if self.post:
+            url = reverse('edit-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
+            return url
+        else:
+            url = reverse('edit-law-of-root', kwargs={'lang_code': self.language.code})
+            query_params = {'highlight_group': self.id}
+            return f'{url}?{urlencode(query_params)}'
+
+class Law(models.Model):
+    group = models.ForeignKey(LawGroup, on_delete=models.CASCADE, related_name='laws')
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+    title = models.CharField(max_length=50)
+    description = models.TextField(null=True, blank=True)
+    position = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
+    law_code = models.CharField(max_length=20, editable=False, blank=True, null=True)
+    local_code = models.CharField(max_length=20, editable=False, blank=True, null=True)
+    locked_position = models.BooleanField(default=False)
+    allow_sub_laws = models.BooleanField(default=True)
+    allow_description = models.BooleanField(default=True)
+    reference_laws = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        blank=True,
+        related_name='referenced_by'
+    )
+    # prev_law = models.ForeignKey("self", null=True, blank=True, related_name='next_laws', on_delete=models.SET_NULL)
+    # next_law = models.ForeignKey("self", null=True, blank=True, related_name='prev_laws', on_delete=models.SET_NULL)
+
+    class Meta:
+        ordering = ['group', 'law_code']
+
+    def save(self, *args, **kwargs):
+        if self.position == Decimal('0.00'):
+            self.position = self.get_next_position()
+
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        # Only generate law_code if it's missing or if it's a new object
+        if not self.law_code or not self.local_code or is_new:
+            law_code, local_code = self.generate_code()
+            self.law_code = law_code
+            self.local_code = local_code
+            # self.law_code = self.generate_code()
+            super().save(update_fields=['law_code', 'local_code'])
+        
+    def delete(self, *args, **kwargs):
+        group = self.group
+        parent = self.parent
+        deleted_position = self.position
+        super().delete(*args, **kwargs)
+        self.rebuild_law_codes(group, parent, deleted_position)
+
+    def generate_code(self):
+        def format_code_segment(level, index):
+            if level == 0:
+                return str(index)
+            elif level == 1:
+                return str(index)
+            elif level == 2:
+                return int_to_roman(index).upper()
+            elif level == 3:
+                return int_to_alpha(index).lower()
+            else:
+                return str(index)
+
+        # First, build the full ancestor path from root to self
+        path = []
+        current = self
+        while current:
+            path.insert(0, current)
+            current = current.parent
+
+        segments = []
+        for level, node in enumerate(path):
+            siblings = Law.objects.filter(parent=node.parent, group=node.group).order_by('position')
+            index = next((i for i, s in enumerate(siblings, start=1) if s.pk == node.pk), None)
+            if index is None:
+                index = 1
+            segment = format_code_segment(level, index)
+            segments.append(segment)
+
+        abbreviation = self.group.abbreviation
+
+        # Join first 3 levels with dots, then the rest without separator
+        if len(segments) <= 3:
+            full_code = '.'.join(segments)
+        else:
+            prefix = '.'.join(segments[:3])
+            suffix = ''.join(segments[3:])
+            full_code = f"{prefix}{suffix}"
+
+        law_code = f"{abbreviation}.{full_code}"
+
+        # Local code: just the last segment if there are 2 or more
+        if len(segments) >= 3:
+            local_code = segments[-1]
+        else:
+            local_code = law_code  # fallback to full code if it's top-level
+        return law_code, local_code
+
+
+
+    def get_next_position(self):
+        if self.parent:
+            last_law = (
+                Law.objects.filter(group=self.group, parent=self.parent)
+                .order_by('-position')
+                .first()
+            )
+        else:
+            last_law = (
+                Law.objects.filter(group=self.group)
+                .order_by('-position')
+                .first()
+            )
+        if last_law:
+            return last_law.position + Decimal('1.00')
+        else:
+            return Decimal('1.00')
+
+    def __str__(self):
+        return f'{self.group.abbreviation}.{self.law_code} - {self.title}'
+
+    def get_absolute_url(self):
+        if self.group.post:
+            url = reverse('lang-post-law', kwargs={'slug': self.group.post.slug, 'lang_code': self.group.language.code})
+        else:
+            url = reverse('law-of-root', kwargs={'lang_code': self.group.language.code})
+        query_params = {'highlight_law': self.id}
+        return f'{url}?{urlencode(query_params)}'
+
+
+    def rebuild_law_codes(self, group, parent, deleted_position=0):
+        affected_siblings = Law.objects.filter(
+            group=group,
+            parent=parent,
+            position__gt=deleted_position
+        ).order_by('position')
+
+        for sibling in affected_siblings:
+            # sibling.law_code = sibling.generate_code()
+            law_code, local_code = sibling.generate_code()
+            sibling.law_code = law_code
+            sibling.local_code = local_code
+            sibling.save(update_fields=['law_code', 'local_code'])
+            sibling.rebuild_child_codes()
+   
+
+
+
+    def rebuild_child_codes(self):
+        children = Law.objects.filter(parent=self).order_by('position')
+        for child in children:
+            # child.law_code = child.generate_code()
+            law_code, local_code = child.generate_code()
+            child.law_code = law_code
+            child.local_code = local_code
+            child.save(update_fields=['law_code', 'local_code'])
+            child.rebuild_child_codes()
+
+
+
+    def update_code_and_descendants(self):
+        # self.law_code = self.generate_code()
+        law_code, local_code = self.generate_code()
+        self.law_code = law_code
+        self.local_code = local_code
+        self.save(update_fields=['law_code', 'local_code'])
+        for child in self.children.all().order_by('position'):
+            child.update_code_and_descendants()
+
+
+
+
+    @classmethod
+    def get_new_position(cls, previous_law=None, next_law=None, parent_law=None):
+        if previous_law and next_law:
+            return (previous_law.position + next_law.position) / Decimal('2.0')
+        elif previous_law:
+            return previous_law.position + Decimal('1.0')
+        elif next_law:
+            return next_law.position / Decimal('2.0')
+        elif parent_law:
+            last_law = (
+                cls.objects
+                .filter(group=parent_law.group, parent=parent_law)
+                .order_by('-position')
+                .first()
+            )
+            if last_law:
+                return last_law.position + Decimal('1.0')
+            else:
+                return Decimal('1.0')
+        else:
+            return Decimal('1.0')
 
 
 def component_pre_save(sender, instance, *args, **kwargs):

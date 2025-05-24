@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 import csv
 from io import StringIO
 from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation)
+                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law)
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
 from the_gatehouse.models import Profile
@@ -20,6 +20,18 @@ class PieceInline(admin.StackedInline):
 class PostTranslationInline(admin.StackedInline):
     model = PostTranslation
     extra = 0
+
+class FAQAdmin(admin.ModelAdmin):
+    list_display = ('post__title', 'question', 'language')
+    search_fields = ('post__title', 'question')
+
+class LawGroupAdmin(admin.ModelAdmin):
+    list_display = ('abbreviation', 'title', 'language')
+    search_fields = ('post__title', 'title', 'abbreviation')
+
+class LawAdmin(admin.ModelAdmin):
+    list_display = ('law_code', 'title', 'group__post__title')
+    search_fields = ('group__post__title', 'title')
 
 class TranslationAdmin(admin.ModelAdmin):
     list_display = ('translated_title', 'language', 'post__title', 'post__language')
@@ -1121,3 +1133,6 @@ admin.site.register(Hireling, HirelingAdmin)
 admin.site.register(Faction, FactionAdmin)
 admin.site.register(Expansion, ExpansionAdmin)
 admin.site.register(PostTranslation, TranslationAdmin)
+admin.site.register(FAQ, FAQAdmin)
+admin.site.register(LawGroup, LawGroupAdmin)
+admin.site.register(Law, LawAdmin)

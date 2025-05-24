@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.utils import translation
 from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
@@ -20,6 +20,7 @@ from django.contrib import messages
 from django.utils.translation import get_language
 
 from the_warroom.filters import GameFilter
+from django.views import View
 from django.views.generic import (
     ListView, 
     DetailView, 
@@ -33,14 +34,15 @@ from the_gatehouse.views import (designer_required_class_based_view, designer_re
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
 from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
-from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme, get_thematic_images
+from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme, get_thematic_images, int_to_alpha, int_to_roman
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
     Map, Deck,
     Hireling, Landmark,
     Piece, Tweak,
-    PNPAsset, ColorChoices, PostTranslation
+    PNPAsset, ColorChoices, PostTranslation,
+    FAQ, LawGroup, Law
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -48,7 +50,9 @@ from .forms import (MapCreateForm,
                     FactionCreateForm, ExpansionCreateForm,
                     PieceForm, ClockworkCreateForm,
                     StatusConfirmForm, TweakCreateForm,
-                    PNPAssetCreateForm, TranslationCreateForm
+                    PNPAssetCreateForm, TranslationCreateForm,
+                    AddLawForm, EditLawForm, EditLawDescriptionForm,
+                    FAQForm
 )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -570,7 +574,7 @@ def create_post_translation(request, slug, lang=None):
     post = get_object_or_404(Post, slug=slug)  # Get the post object
     
     if not post.designer==request.user.profile and not request.user.profile.admin:
-        messages.error(request, f'You are not autorized to translate {{ post.title }}.')
+        messages.error(request, f'You are not authorized to translate { post.title }.')
         raise PermissionDenied() 
 
     if lang:
@@ -623,20 +627,22 @@ def ultimate_component_view(request, slug):
     # print(middle_language)
     # if request.user.is_authenticated:
     #     language = request.user.profile.language
-
+    language_code_object = None
     language_code_override = request.GET.get('lang', None)
     user_language = get_language()
     
     if language_code_override:
         language_code = language_code_override
         language_code_object = Language.objects.filter(code=language_code_override).first()
-        if language_code_object:
-            language = language_code_object
+
+    if language_code_object:
+        language = language_code_object
     else:
         language_code = user_language
         language_code_object = Language.objects.filter(code=language_code).first()
         if language_code_object:
             language = language_code_object
+
     # print(language_code_object.code)
     post = get_object_or_404(Post, slug=slug)
     component_mapping = {
@@ -954,6 +960,7 @@ def ultimate_component_view(request, slug):
         'object_translation': object_translation,
         'available_translations': available_translations,
         'language_code': language_code,
+        'language': language,
 
         'based_on_title': based_on_title,
 
@@ -1388,10 +1395,16 @@ def _search_components(request, slug=None):
         posts = posts.filter(designer__id=designer)
 
     if status:
-        posts = posts.filter(status=status)
+        if status == 'Official':
+            posts = posts.filter(official=True)
+        else:
+            posts = posts.filter(status=status)
 
     language = get_language()
     language_object = Language.objects.filter(code=language).first()
+    if not language_object:
+        # Fallback to default language or raise an appropriate exception
+        language_object = Language.objects.get(code='en')
     # print(language, language_object)
     # Annotate each post with the translated title and description, using Coalesce to fall back to default values
     posts = posts.annotate(
@@ -1430,6 +1443,12 @@ def _search_components(request, slug=None):
 
 
     paginator = Paginator(posts, settings.PAGE_SIZE)
+
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        page = 1
+
     try:
         posts = paginator.page(page)
     except PageNotAnInteger:
@@ -1457,7 +1476,8 @@ def add_piece(request, id=None):
     piece_type = request.GET.get('piece')
     slug = request.GET.get('slug')
 
-    parent = Post.objects.get(slug=slug)
+    # parent = Post.objects.get(slug=slug)
+    parent = get_object_or_404(Post, slug=slug)
 
     context = {
         'form': form,
@@ -1936,7 +1956,7 @@ class PNPAssetListView(ListView):
         if file_type:
             queryset = queryset.filter(file_type__icontains=file_type)
 
-        print(queryset)
+     
 
         context['unpinned_assets'] = queryset
 
@@ -2136,3 +2156,532 @@ def universal_search(request):
     }
 
     return render(request, 'the_keep/partials/universal_results.html', context)
+
+# Law of Root views
+def with_neighbors(laws):
+    neighbors = []
+    for i, law in enumerate(laws):
+        prev = laws[i - 1] if i > 0 else None
+        next = laws[i + 1] if i + 1 < len(laws) else None
+        law.prev_law = prev
+        law.next_law = next
+        neighbors.append(law)
+    return neighbors
+
+def apply_neighbors_recursively(laws):
+    laws = list(laws)  # Make sure it's a list for indexing
+    laws = with_neighbors(laws)
+    for law in laws:
+        children = sorted(law.children.all(), key=lambda c: c.position)
+        
+        apply_neighbors_recursively(children)
+    return laws
+
+
+def get_law_hierarchy_context(slug=None, expansion_slug=None, edit_mode=False, lang_code=None):
+    expansion = None
+    post = None
+
+    if lang_code:
+        language = Language.objects.filter(code=lang_code).first()
+        if not language:
+            language = Language.objects.filter(code='en').first()
+    else:
+        language = Language.objects.filter(code='en').first()
+
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+        groups = LawGroup.objects.filter(post=post, language=language).order_by('position')
+    elif expansion_slug:
+        expansion = get_object_or_404(Expansion, slug=expansion_slug)
+        groups = LawGroup.objects.filter(post__expansion=expansion, language=language).order_by('position')
+    else:
+        groups = LawGroup.objects.filter(
+            Q (post=None)| Q(post__official=True),
+            language=language
+            ).order_by('position')
+
+
+    lawgroups_with_laws = []
+
+    for group in groups:
+        raw_top_level = (
+            Law.objects
+            .filter(group=group, parent__isnull=True)
+            .order_by('position')
+            .prefetch_related(
+            'reference_laws',
+            'children', 'children__reference_laws', 
+            'children__children', 'children__children__reference_laws', 
+            'children__children__children', 'children__children__children__reference_laws', 
+            'children__children__children__children__reference_laws',
+            )
+        )
+        # top_level_laws = with_neighbors(raw_top_level)
+        if edit_mode:
+            top_level_laws = apply_neighbors_recursively(raw_top_level)
+        else:
+            top_level_laws = list(raw_top_level)
+        lawgroups_with_laws.append({
+            'group': group,
+            'top_level_laws': top_level_laws
+        })
+
+    return {
+        'lawgroups_with_laws': lawgroups_with_laws,
+        'post': post,
+        'expansion': expansion,
+        'lang_code': lang_code,
+        'selected_language': language,
+    }
+
+def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
+    highlight_id = request.GET.get('highlight_law')
+    highlight_group_id = request.GET.get('highlight_group')
+    context = get_law_hierarchy_context(slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
+    context['highlight_id'] = highlight_id
+    context['highlight_group_id'] = highlight_group_id
+
+    return render(request, 'the_keep/law.html', context)
+
+@editor_onboard_required
+def law_hierarchy_edit_view(request, slug=None, expansion_slug=None, lang_code=None):
+
+    user_profile = request.user.profile
+
+    if lang_code:
+        language = Language.objects.filter(code=lang_code).first()
+        if not language:
+            language = Language.objects.filter(code='en').first()
+    else:
+        language = Language.objects.filter(code='en').first()
+
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+        edit_authorized = user_profile.editor and post.designer == user_profile
+        if not user_profile.admin and not edit_authorized:
+            messages.error(request, f"You are not authorized to edit { post.title }'s Law.")
+            raise PermissionDenied() 
+    elif not user_profile.admin:
+        messages.error(request, f'You are not authorized to edit the Law of Root.')
+        raise PermissionDenied() 
+    
+    all_laws = Law.objects.filter(
+        Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
+        group__language=language
+            ).prefetch_related('group__post')
+
+    context = get_law_hierarchy_context(slug=slug, expansion_slug=expansion_slug, edit_mode=True, lang_code=lang_code)
+    context['edit_mode'] = True
+    context['all_laws'] = all_laws
+
+    return render(request, 'the_keep/law.html', context)
+
+@editor_required
+def add_law_ajax(request):
+    user_profile = request.user.profile
+    if request.method == 'POST':
+        form = AddLawForm(request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            group = get_object_or_404(LawGroup, id=data['group_id'])
+            parent = Law.objects.filter(id=data['parent_id']).first()
+            previous = Law.objects.filter(id=data['prev_id']).first()
+            next_law = Law.objects.filter(id=data['next_id']).first()
+            reference_ids = request.POST.getlist('reference_laws')
+            reference_laws = Law.objects.filter(id__in=reference_ids)
+
+            if group.post:
+                if group.post.designer != user_profile and not user_profile.admin:
+                    messages.error(request, f"You do not have authorization to add laws to {group}.")
+                    raise PermissionDenied() 
+            else:
+                if not user_profile.admin:
+                    messages.error(request, f"You do not have authorization to add to the Law of Root.")
+                    raise PermissionDenied() 
+                
+            position = Law.get_new_position(previous_law=previous, next_law=next_law, parent_law=parent)
+
+            law = Law.objects.create(
+                group=group,
+                parent=parent,
+                title=data['title'],
+                description=data['description'],
+                position=position
+            )
+            if reference_laws:
+                law.reference_laws.set(reference_laws)
+            law.rebuild_law_codes(group, parent, position)
+
+            return JsonResponse({'status': 'success', 'law_id': law.id})
+        else:
+            return JsonResponse({'status': 'error', 'errors': form.errors}, status=400)
+    return JsonResponse({'status': 'error'}, status=400)
+
+@editor_required
+def move_law_ajax(request, law_id, direction):
+    user_profile = request.user.profile
+    if request.method == 'POST':
+        law = get_object_or_404(Law, id=law_id)
+
+        if law.group.post:
+            if law.group.post.designer != user_profile and not user_profile.admin:
+                messages.error(request, f"You do not have authorization to move laws in {law.group}.")
+                raise PermissionDenied() 
+        else:
+            if not user_profile.admin:
+                messages.error(request, f"You do not have authorization to move in the Law of Root.")
+                raise PermissionDenied() 
+
+        # Get all sibling laws in order
+        siblings = list(
+            Law.objects.filter(group=law.group, parent=law.parent)
+            .order_by('position')
+        )
+
+        # Annotate with prev/next
+        siblings = with_neighbors(siblings)
+
+        # Find the same law in the updated list
+        law = next(l for l in siblings if l.id == law_id)
+
+        if direction == 'up' and law.prev_law:
+            new_pos = Law.get_new_position(
+                previous_law=law.prev_law.prev_law,
+                next_law=law.prev_law,
+                parent_law=law.parent
+            )
+        elif direction == 'down' and law.next_law:
+            new_pos = Law.get_new_position(
+                previous_law=law.next_law,
+                next_law=law.next_law.next_law,
+                parent_law=law.parent
+            )
+        else:
+            return JsonResponse({'status': 'error'}, status=400)
+
+        law.position = new_pos
+        law.save()
+ 
+        # Find the other law involved in the swap
+        swapped_with = law.prev_law if direction == 'up' else law.next_law
+
+        # Recalculate both law codes and their descendant codes
+        law.update_code_and_descendants()
+        swapped_with.update_code_and_descendants()
+        
+        return JsonResponse({'status': 'success', 'law_id': law.id})
+    return JsonResponse({'status': 'error'}, status=400)
+
+
+@editor_required
+def edit_law_ajax(request):
+    user_profile = request.user.profile
+    if request.method == 'POST':
+        law = get_object_or_404(Law, id=request.POST.get('law_id'))
+        if law.group.post:
+            if law.group.post.designer != user_profile and not user_profile.admin:
+                messages.error(request, f"You do not have authorization to edit laws in {law.group}.")
+                raise PermissionDenied() 
+        else:
+            if not user_profile.admin:
+                messages.error(request, f"You do not have authorization to edit the Law of Root.")
+                raise PermissionDenied() 
+
+        form = EditLawForm(request.POST, instance=law)
+        if form.is_valid():
+            form.save()
+            return JsonResponse({'status': 'success'})
+        else:
+            return JsonResponse({'status': 'error', 'errors': form.errors}, status=400)
+
+    return JsonResponse({'status': 'error'}, status=400)
+@editor_required
+def edit_law_description_ajax(request):
+    user_profile = request.user.profile
+    if request.method == 'POST':
+        law = get_object_or_404(Law, id=request.POST.get('law_id'))
+        if law.group.post:
+            if law.group.post.designer != user_profile and not user_profile.admin:
+                messages.error(request, f"You do not have authorization to edit laws in {law.group}.")
+                raise PermissionDenied() 
+        else:
+            if not user_profile.admin:
+                messages.error(request, f"You do not have authorization to edit the Law of Root.")
+                raise PermissionDenied() 
+
+        form = EditLawDescriptionForm(request.POST, instance=law)
+        if form.is_valid():
+            form.save()
+            return JsonResponse({'status': 'success'})
+        else:
+            return JsonResponse({'status': 'error', 'errors': form.errors}, status=400)
+
+    return JsonResponse({'status': 'error'}, status=400)
+
+
+@editor_required
+def delete_law_ajax(request):
+    user_profile = request.user.profile
+    if request.method == 'POST':
+        law_id = request.POST.get('law_id')
+        if not law_id:
+            return JsonResponse({'status': 'error', 'message': 'No ID provided'}, status=400)
+
+        law = get_object_or_404(Law, id=law_id)
+        if law.group.post:
+            if law.group.post.designer != user_profile and not user_profile.admin:
+                messages.error(request, f"You do not have authorization to delete laws in {law.group}.")
+                raise PermissionDenied() 
+        else:
+            if not user_profile.admin:
+                messages.error(request, f"You do not have authorization to delete the Law of Root.")
+                raise PermissionDenied() 
+        law.delete()
+
+        return JsonResponse({'status': 'success'})
+    return JsonResponse({'status': 'error'}, status=400)
+
+@editor_required_class_based_view
+class CreateLawGroupView(View):
+    def get(self, request, slug, lang_code=None):
+        # Get the post by slug
+        post = get_object_or_404(Post, slug=slug)
+        user_profile = request.user.profile
+        if post.designer != user_profile and not user_profile.admin:
+            messages.error(request, f"You do not have authorization to create laws for {post}.")
+            raise PermissionDenied() 
+        
+        component_mapping = {
+                "Map": Map,
+                "Deck": Deck,
+                "Landmark": Landmark,
+                "Tweak": Tweak,
+                "Hireling": Hireling,
+                "Vagabond": Vagabond,
+                "Faction": Faction,
+                "Clockwork": Faction,
+            }
+        Klass = component_mapping.get(post.component)
+        object = get_object_or_404(Klass, slug=post.slug)
+
+        # Get the language by code, or fallback to default
+        if lang_code:
+            language = Language.objects.filter(code=lang_code).first()
+            if not language:
+                messages.info(request, f"The selected language '{lang_code}' does not exist.")
+                return redirect(object.get_absolute_url())
+        else:
+            language = Language.objects.filter(code='en').first()
+
+
+
+        # Create a new LawGroup for this post
+        group, created = LawGroup.objects.get_or_create(
+            post=post,
+            language=language
+        )
+        if not created:
+            has_laws = group.laws.exists()
+
+            if has_laws:
+                # Group already exists and has laws
+                return redirect(group.get_edit_url())
+
+        # Add default laws
+        if post.component == 'Map' or post.component == 'Deck':
+            Law.objects.create(
+                group=group,
+                title="Setup Modifications",
+                description="",
+                position=1
+            )
+        if post.component == 'Vagabond':
+            Law.objects.create(
+                group=group,
+                title="Starting Items",
+                description="",
+                position=1,
+                locked_position=True
+            )
+            Law.objects.create(
+                group=group,
+                title=f"Special Action: {object.ability}",
+                description=f"{ object.ability_description }",
+                position=2,
+                locked_position=True
+            )
+
+        if post.component == 'Faction':
+            Law.objects.create(
+                group=group,
+                title="OVERVIEW",
+                description="",
+                position=1,
+                locked_position=True,
+                allow_sub_laws=False
+            )
+            rules_law = Law.objects.create(
+                group=group,
+                title="Faction Rules and Abilities",
+                description="",
+                position=2,
+                locked_position=True,
+                allow_description=False
+            )
+            Law.objects.create(
+                group=group,
+                parent=rules_law,
+                title="Crafting",
+                description="",
+                position=1,
+                locked_position=True,
+                allow_sub_laws=False
+            )
+            setup_law = Law.objects.create(
+                group=group,
+                title="Faction Setup",
+                description="",
+                position=3,
+                locked_position=True,
+                allow_description=False
+            )
+            Law.objects.create(
+                group=group,
+                parent=setup_law,
+                title="Step 1: X",
+                description="",
+                position=1
+            )
+            Law.objects.create(
+                group=group,
+                title="Birdsong",
+                description="",
+                position=4,
+                locked_position=True
+            )
+            Law.objects.create(
+                group=group,
+                title="Daylight",
+                description="",
+                position=4,
+                locked_position=True
+            )
+            Law.objects.create(
+                group=group,
+                title="Evening",
+                description="",
+                position=5,
+                locked_position=True
+            )
+
+
+        # Redirect or respond
+        return redirect(group.get_edit_url())
+
+def faq_search(request, slug=None, lang_code=None):
+    query = request.GET.get("q", "")
+
+    if lang_code:
+        language = Language.objects.filter(code=lang_code).first()
+        if not language:
+            language = Language.objects.filter(code='en').first()
+    else:
+        language = Language.objects.filter(code='en').first()
+    faq_editable = False
+    user_profile = Profile.objects.none()
+    if request.user.is_authenticated:
+        user_profile = request.user.profile
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+        faqs = FAQ.objects.filter(post=post, language=language)
+        if user_profile.admin or user_profile == post.designer and user_profile.editor:
+            faq_editable = True
+    else:
+        post = None
+        faqs = FAQ.objects.filter(post=None, language=language)
+        if request.user.is_staff:
+            faq_editable = True
+
+    if query:
+        faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query))
+
+    context = {
+        "faqs": faqs,
+        "post": post,
+        'faq_editable': faq_editable,
+        'lang_code': lang_code,
+        }
+
+    if request.htmx:
+        return render(request, "the_keep/partials/faq_list.html", context)
+    return render(request, "the_keep/faq.html", context)
+
+
+class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
+    model = FAQ
+    form_class = FAQForm
+    template_name = 'the_keep/faq_form.html'
+
+    def test_func(self):
+        slug = self.kwargs.get('slug')
+        if slug:
+            self._post = get_object_or_404(Post, slug=slug)  # Store it on self for reuse
+            return self.request.user.profile.admin or self.post.designer == self.request.user.profile
+        return self.request.user.is_staff
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['post'] = getattr(self, '_post', None)
+        return context
+
+    def form_valid(self, form):
+        if hasattr(self, '_post'):
+            form.instance.post = self._post
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        if hasattr(self, '_post'):
+            return reverse('post-faq', kwargs={'slug': self._post.slug})
+        return reverse('faq')
+
+class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = FAQ
+    form_class = FAQForm
+    template_name = 'the_keep/faq_form.html'  # You can reuse the same form template
+
+    def test_func(self):
+        faq = self.get_object()
+        post = faq.post
+        user_profile = self.request.user.profile
+
+        # Allow if user is admin or designer of the post (if post exists)
+        if post:
+            return user_profile.admin or post.designer == user_profile
+        # Or allow if user is staff (for FAQs without post)
+        return self.request.user.is_staff
+
+    def get_success_url(self):
+        faq = self.get_object()
+        if faq.post:
+            return reverse('post-faq', kwargs={'slug': faq.post.slug})
+        return reverse('faq')
+
+class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = FAQ
+    template_name = 'the_keep/faq_confirm_delete.html'  # Create a simple confirmation template
+
+    def test_func(self):
+        faq = self.get_object()
+        post = faq.post
+        user_profile = self.request.user.profile
+
+        if post:
+            return user_profile.admin or post.designer == user_profile
+        return self.request.user.is_staff
+
+    def get_success_url(self):
+        faq = self.get_object()
+        if faq.post:
+            return reverse('post-faq', kwargs={'slug': faq.post.slug})
+        return reverse('faq')

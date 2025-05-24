@@ -140,7 +140,8 @@
             {% include 'the_keep/partials/status.html' %}
             </a> {% endcomment %}
 
-
+            <div class="d-flex justify-content-between align-items-top">
+                <div class="d-flex">
         {% if object.status == '1' %}
             <a class="btn btn-outline-success btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
             {% trans 'Stable' %}
@@ -166,19 +167,36 @@
 
     {%if color_group %}
     <!-- For color button -->
-    <a class='btn btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
+    <a class='ml-1 mt-1 mb-1 btn btn-sm btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
         {{ color_label }}
     </a>
     {% endif %}
 
     {% if object_animal %}
-        <a class='btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
+        <a class='ml-1 btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
         {{ object_animal }}
         </a>
     {% endif %}
-    
+    </div>
 
 
+    {% if available_translations or user.profile.admin or object.designer == user.profile %}
+        <div class='d-flex'>
+        <a class='subtle-link' href="{% url 'post-translations' object.slug %}">
+            <small>
+                {{ language }}
+                {% if object_translation.designer and object_translation.designer != object.designer %}
+                
+                    {% trans ' Translation by' %} {{ object_translation.designer.name }}
+                
+                {% endif %}
+            </small>
+            <i class="bi bi-translate">
+
+            </i></a>
+        </div>
+    {% endif %}
+    </div>
         {% comment %} {% if language_queryset %}
         <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">

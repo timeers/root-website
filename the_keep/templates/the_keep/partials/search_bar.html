@@ -61,6 +61,7 @@
 
             <select id="status" name="status" value="{{ status }}">
                 <option value="">{% trans 'Status (All)' %}</option>  
+                <option value="Official" {% if status == 'Official' %}selected{% endif %}>{% trans 'Official' %}</option>
                 <option value="1" {% if status == '1' %}selected{% endif %}>{% trans 'Stable' %}</option>
                 <option value="2" {% if status == '2' %}selected{% endif %}>{% trans 'Testing' %}</option>
                 <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>

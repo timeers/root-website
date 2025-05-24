@@ -24,3 +24,26 @@
 </form>
 
 {% endblock content %}
+
+{% block scripts %}
+
+<script>
+    document.getElementById('id_title').addEventListener('change', function () {
+        
+      const title = this.value;
+      const messageField = document.getElementById('id_message');
+      console.log(title)
+      
+      let placeholderText = 'Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.';
+      switch (title) {
+        case 'translation':
+          placeholderText = 'Please provide a language, the discord username of the translator (if available), the translated title, any translated flavor text or description, and a link to the translated image files.';
+          break;
+      }
+  
+      messageField.placeholder = placeholderText;
+    });
+  </script>
+
+
+{% endblock %}
