@@ -50,6 +50,7 @@
       </div>
       {% endif %}
     </div>
+    {{ item.group.description|format_law_text }}
 
     <div class='ml-3'>
      
@@ -273,6 +274,18 @@
                 </div>
               {% endif %}
 
+          {% endif %}
+        {% empty %}
+
+          {% if edit_mode %}
+            <div class='mt-2'>
+                <button class="btn btn-sm btn-success add-law-button"
+                    data-group="{{ item.group.id }}"
+                    data-prev="{{ law.id }}"
+                    data-next="">
+                    Add {{ item.group.abbreviation }}.1
+                </button>
+            </div>
           {% endif %}
                 
         {% endfor %}
