@@ -2574,6 +2574,12 @@ class CreateLawGroupView(View):
                 locked_position=True
             )
 
+        fields = []
+        fields.append({
+                'name': 'Posted by:',
+                'value': self.request.user.profile.name
+            })
+        send_rich_discord_message(f'{language} Law Created for {object.title}', category=f'FAQ Law', title=f'New Law', fields=fields)
 
         # Redirect or respond
         return redirect(group.get_edit_url())
@@ -2640,6 +2646,25 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
         return super().form_valid(form)
 
     def get_success_url(self):
+        answer_preview = self.object.answer
+        if answer_preview and len(answer_preview) > 100:
+            answer_preview = answer_preview[:100] + "..."
+        fields = [
+            {
+                'name': 'Posted by:',
+                'value': self.request.user.profile.name
+            },
+            {
+                'name': 'Question:',
+                'value': self.object.question  # Accessing the saved FAQ object
+            },
+            {
+                'name': 'Answer:',
+                'value': answer_preview or ""
+            }
+        ]
+        send_rich_discord_message(f'FAQ Created for {self._post.title}', category=f'FAQ Law', title=f'New FAQ', fields=fields)
+
         if hasattr(self, '_post'):
             return reverse('post-faq', kwargs={'slug': self._post.slug})
         return reverse('faq')

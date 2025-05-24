@@ -50,7 +50,9 @@
       </div>
       {% endif %}
     </div>
-    {{ item.group.description|format_law_text }}
+    {% if item.group.description %}
+      {{ item.group.description|format_law_text }}
+    {% endif %}
 
     <div class='ml-3'>
      
