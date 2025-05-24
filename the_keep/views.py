@@ -2207,7 +2207,7 @@ def get_law_hierarchy_context(slug=None, expansion_slug=None, edit_mode=False, l
     for group in groups:
         raw_top_level = (
             Law.objects
-            .filter(group=group, parent__isnull=True)
+            .filter(group=group, parent__isnull=True, prime_law=False)
             .order_by('position')
             .prefetch_related(
             'reference_laws',
@@ -2335,7 +2335,7 @@ def move_law_ajax(request, law_id, direction):
 
         # Get all sibling laws in order
         siblings = list(
-            Law.objects.filter(group=law.group, parent=law.parent)
+            Law.objects.filter(group=law.group, parent=law.parent, prime_law=False)
             .order_by('position')
         )
 
@@ -2486,6 +2486,15 @@ class CreateLawGroupView(View):
             if has_laws:
                 # Group already exists and has laws
                 return redirect(group.get_edit_url())
+
+        Law.objects.create(
+            group=group,
+            title=group.title,
+            description="",
+            position=1,
+            locked_position=True,
+            prime_law=True,
+        )
 
         # Add default laws
         if post.component == 'Map' or post.component == 'Deck':

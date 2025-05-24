@@ -2141,6 +2141,7 @@ class Law(models.Model):
     locked_position = models.BooleanField(default=False)
     allow_sub_laws = models.BooleanField(default=True)
     allow_description = models.BooleanField(default=True)
+    prime_law = models.BooleanField(default=False)
     reference_laws = models.ManyToManyField(
         'self',
         symmetrical=False,
@@ -2151,7 +2152,7 @@ class Law(models.Model):
     # next_law = models.ForeignKey("self", null=True, blank=True, related_name='prev_laws', on_delete=models.SET_NULL)
 
     class Meta:
-        ordering = ['group', 'law_code']
+        ordering = ['group', '-prime_law', 'law_code']
 
     def save(self, *args, **kwargs):
         if self.position == Decimal('0.00'):
@@ -2189,6 +2190,12 @@ class Law(models.Model):
                 return str(index)
 
         # First, build the full ancestor path from root to self
+
+        abbreviation = self.group.abbreviation
+
+        if self.prime_law:
+            return abbreviation, abbreviation
+
         path = []
         current = self
         while current:
@@ -2197,14 +2204,14 @@ class Law(models.Model):
 
         segments = []
         for level, node in enumerate(path):
-            siblings = Law.objects.filter(parent=node.parent, group=node.group).order_by('position')
+            siblings = Law.objects.filter(parent=node.parent, group=node.group, prime_law=False).order_by('position')
             index = next((i for i, s in enumerate(siblings, start=1) if s.pk == node.pk), None)
             if index is None:
                 index = 1
             segment = format_code_segment(level, index)
             segments.append(segment)
 
-        abbreviation = self.group.abbreviation
+        
 
         # Join first 3 levels with dots, then the rest without separator
         if len(segments) <= 3:
@@ -2228,13 +2235,13 @@ class Law(models.Model):
     def get_next_position(self):
         if self.parent:
             last_law = (
-                Law.objects.filter(group=self.group, parent=self.parent)
+                Law.objects.filter(group=self.group, parent=self.parent, prime_law=False)
                 .order_by('-position')
                 .first()
             )
         else:
             last_law = (
-                Law.objects.filter(group=self.group)
+                Law.objects.filter(group=self.group, parent__isnull=True, prime_law=False)
                 .order_by('-position')
                 .first()
             )
@@ -2259,7 +2266,8 @@ class Law(models.Model):
         affected_siblings = Law.objects.filter(
             group=group,
             parent=parent,
-            position__gt=deleted_position
+            position__gt=deleted_position, 
+            prime_law=False
         ).order_by('position')
 
         for sibling in affected_siblings:
@@ -2308,7 +2316,7 @@ class Law(models.Model):
         elif parent_law:
             last_law = (
                 cls.objects
-                .filter(group=parent_law.group, parent=parent_law)
+                .filter(group=parent_law.group, parent=parent_law, prime_law=False)
                 .order_by('-position')
                 .first()
             )

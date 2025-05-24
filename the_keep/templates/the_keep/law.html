@@ -4,9 +4,11 @@
 {% block content %}
 
 <article class="content-section d-flex justify-content-between align-items-center">
-
-  <h1 class='root-title'>Law of Root{% if post %} - {{ post.title }}{% elif expansion %} - {{ expansion.title }}{% endif  %}</h1>
-
+  {% if post %}
+      <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>Law of Root - {{ post.title }}</h1>
+  {% else %}
+      <h1 class='root-title'>Law of Root{% if expansion %} - {{ expansion.title }}{% endif  %}</h1>
+  {% endif %}
 
     <small>
     {{ selected_language }}

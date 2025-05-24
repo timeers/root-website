@@ -4,8 +4,11 @@
 
 <article class="content-section">
   <div class="d-flex justify-content-between align-items-center">
-    <h1 class='root-title'>{% if post %}{{ post.title }} FAQ{% else %}{{ site_title }} FAQ{% endif %}</h1>
-
+    {% if post %}
+      <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>{{ post.title }} FAQ</h1>
+    {% else %}
+      <h1 class='root-title'>{{ site_title }} FAQ</h1>
+    {% endif %}
 
     {% if not post and user.is_staff %}
         <div class="d-flex flex-wrap justify-content-end">
