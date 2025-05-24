@@ -2600,8 +2600,9 @@ def faq_search(request, slug=None, lang_code=None):
     if slug:
         post = get_object_or_404(Post, slug=slug)
         faqs = FAQ.objects.filter(post=post, language=language)
-        if user_profile.admin or user_profile == post.designer and user_profile.editor:
-            faq_editable = True
+        if user_profile:
+            if user_profile.admin or user_profile == post.designer and user_profile.editor:
+                faq_editable = True
     else:
         post = None
         faqs = FAQ.objects.filter(post=None, language=language)
@@ -2622,7 +2623,7 @@ def faq_search(request, slug=None, lang_code=None):
         return render(request, "the_keep/partials/faq_list.html", context)
     return render(request, "the_keep/faq.html", context)
 
-
+@editor_required_class_based_view
 class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     model = FAQ
     form_class = FAQForm
@@ -2671,7 +2672,7 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
             return reverse('post-faq', kwargs={'slug': post.slug})
         return reverse('faq')
 
-
+@editor_required_class_based_view
 class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = FAQ
     form_class = FAQForm
@@ -2683,7 +2684,7 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         user_profile = self.request.user.profile
 
         # Allow if user is admin or designer of the post (if post exists)
-        if post:
+        if post and user_profile:
             return user_profile.admin or post.designer == user_profile
         # Or allow if user is staff (for FAQs without post)
         return self.request.user.is_staff
@@ -2694,6 +2695,7 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return reverse('post-faq', kwargs={'slug': faq.post.slug})
         return reverse('faq')
 
+@editor_required_class_based_view
 class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = FAQ
     template_name = 'the_keep/faq_confirm_delete.html'  # Create a simple confirmation template
