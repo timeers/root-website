@@ -53,6 +53,11 @@
     {% if item.group.description %}
       {{ item.group.description|format_law_text }}
     {% endif %}
+    {% if item.group.reference_laws %}
+      {% for reference in item.group.reference_laws.all %}
+        (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+      {% endfor %}
+    {% endif %}
 
     <div class='ml-3'>
      
@@ -343,6 +348,9 @@
 
     <label>Description</label>
     <textarea name="description"></textarea><br>
+    <div class='mb-3'>
+      <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
+    </div>
 
     <label for="id_reference_laws">Reference Laws:</label>
     <div class='mb-4'>
@@ -369,7 +377,11 @@
       <input type="text" name="title" id="edit-law-title" required>
       
       <label for="edit-law-description">Description:</label>
-      <textarea name="description" id="edit-law-description" required></textarea>
+      <textarea name="description" id="edit-law-description"></textarea>
+      <div class='mb-3'>
+        <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
+      </div>
+
 
       <label for="id_edit_reference_laws">Reference Laws:</label>
       <div class='mb-4'>
@@ -398,8 +410,11 @@
       <div id='readonly-law-title'></div>
       
       <label for="edit-description-description">Description:</label>
-      <textarea name="description" id="edit-description-description" required></textarea>
-      
+      <textarea name="description" id="edit-description-description"></textarea>
+      <div class='mb-3'>
+      <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
+      </div>
+
       <button class='btn btn-sm btn-primary' type="submit">Save</button>
       <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-description-modal').style.display='none'">Cancel</button>
       </form>

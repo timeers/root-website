@@ -1203,11 +1203,17 @@ class EditLawForm(forms.ModelForm):
     class Meta:
         model = Law
         fields = ['title', 'description', 'reference_laws']
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['description'].required = False
 
 class EditLawDescriptionForm(forms.ModelForm):
     class Meta:
         model = Law
         fields = ['description']
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['description'].required = False
 
 class FAQForm(forms.ModelForm):
     class Meta:

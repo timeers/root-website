@@ -2045,6 +2045,13 @@ class LawGroup(models.Model):
     description = models.TextField(null=True, blank=True)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     position = models.FloatField(editable=False, default=0)
+    reference_laws = models.ManyToManyField(
+        'Law',
+        symmetrical=False,
+        blank=True,
+        related_name='group_references'
+    )
+
 
     class Meta:
         ordering = ['position']

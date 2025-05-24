@@ -1519,7 +1519,10 @@ tr.clickable-row:hover {
 }
 
 
-
+.smallcaps {
+  text-transform: uppercase;
+  font-size: 0.7em;
+} 
 
 .smart-smallcaps {
   font-family: serif;
