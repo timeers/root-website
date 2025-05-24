@@ -1634,7 +1634,7 @@ tr.clickable-row:hover {
 }
 
 .inline-icon {
-  height: 1em;              /* Matches the current font size */
+  height: 1.2em;              /* Matches the current font size */
   width: auto;              /* Maintains aspect ratio */
   vertical-align: text-bottom;  /* Aligns nicely with the text baseline */
 }

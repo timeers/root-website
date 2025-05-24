@@ -2628,46 +2628,49 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     form_class = FAQForm
     template_name = 'the_keep/faq_form.html'
 
+    def get_post(self):
+        if not hasattr(self, '_post'):
+            slug = self.kwargs.get('slug')
+            if slug:
+                self._post = get_object_or_404(Post, slug=slug)
+            else:
+                self._post = None
+        return self._post
+
     def test_func(self):
-        slug = self.kwargs.get('slug')
-        if slug:
-            self._post = get_object_or_404(Post, slug=slug)  # Store it on self for reuse
-            return self.request.user.profile.admin or self.post.designer == self.request.user.profile
+        post = self.get_post()
+        if post:
+            return self.request.user.profile.admin or post.designer == self.request.user.profile
         return self.request.user.is_staff
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['post'] = getattr(self, '_post', None)
+        context['post'] = self.get_post()
         return context
 
     def form_valid(self, form):
-        if hasattr(self, '_post'):
-            form.instance.post = self._post
+        post = self.get_post()
+        if post:
+            form.instance.post = post
         return super().form_valid(form)
 
     def get_success_url(self):
         answer_preview = self.object.answer
         if answer_preview and len(answer_preview) > 100:
             answer_preview = answer_preview[:100] + "..."
-        fields = [
-            {
-                'name': 'Posted by:',
-                'value': self.request.user.profile.name
-            },
-            {
-                'name': 'Question:',
-                'value': self.object.question  # Accessing the saved FAQ object
-            },
-            {
-                'name': 'Answer:',
-                'value': answer_preview or ""
-            }
-        ]
-        send_rich_discord_message(f'FAQ Created for {self._post.title}', category=f'FAQ Law', title=f'New FAQ', fields=fields)
 
-        if hasattr(self, '_post'):
-            return reverse('post-faq', kwargs={'slug': self._post.slug})
+        fields = [
+            {'name': 'Posted by:', 'value': self.request.user.profile.name},
+            {'name': 'Question:', 'value': self.object.question},
+            {'name': 'Answer:', 'value': answer_preview or ""}
+        ]
+
+        post = self.get_post()
+        if post:
+            send_rich_discord_message(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
+            return reverse('post-faq', kwargs={'slug': post.slug})
         return reverse('faq')
+
 
 class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = FAQ

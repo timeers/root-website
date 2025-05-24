@@ -2244,7 +2244,7 @@ class Law(models.Model):
             return Decimal('1.00')
 
     def __str__(self):
-        return f'{self.group.abbreviation}.{self.law_code} - {self.title}'
+        return f'{self.law_code} - {self.title}'
 
     def get_absolute_url(self):
         if self.group.post:

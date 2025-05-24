@@ -34,6 +34,7 @@ INLINE_IMAGES = {
     'daylight': static('items/law/daylight.png'),
     'birdsong': static('items/law/birdsong.png'),
     'bunny': static('items/law/bunny.png'),
+    'rabbit': static('items/law/bunny.png'),
     'mouse': static('items/law/bunny.png'),
     'fox': static('items/law/bunny.png'),
     'rat': static('items/law/rat.png'),
