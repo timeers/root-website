@@ -2466,11 +2466,11 @@ class CreateLawGroupView(View):
         object = get_object_or_404(Klass, slug=post.slug)
 
         # Get the language by code, or fallback to default
+        print(lang_code)
         if lang_code:
             language = Language.objects.filter(code=lang_code).first()
             if not language:
-                messages.info(request, f"The selected language '{lang_code}' does not exist.")
-                return redirect(object.get_absolute_url())
+                language = Language.objects.filter(code='en').first()
         else:
             language = Language.objects.filter(code='en').first()
 
