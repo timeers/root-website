@@ -2152,7 +2152,7 @@ class Law(models.Model):
     # next_law = models.ForeignKey("self", null=True, blank=True, related_name='prev_laws', on_delete=models.SET_NULL)
 
     class Meta:
-        ordering = ['group', '-prime_law', 'law_code']
+        ordering = ['group', '-prime_law', 'position']
 
     def save(self, *args, **kwargs):
         if self.position == Decimal('0.00'):
