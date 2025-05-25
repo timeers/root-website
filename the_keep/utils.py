@@ -11,6 +11,7 @@ import uuid
 
 
 
+
 def resize_image(image_field, max_size):
     """Helper function to resize the image if necessary."""
     try:
@@ -359,3 +360,5 @@ def rgb_to_color_name(rgb):
     
     # Return based on brightness and family
     return f"{brightness_level} {color_family}"
+
+

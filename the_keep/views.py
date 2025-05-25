@@ -1386,7 +1386,7 @@ def _search_components(request, slug=None):
         posts = posts.filter(designer=player)
     if search:
         # posts = posts.filter(title__icontains=search)
-        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search)|Q(translations__translated_title__icontains=search))
+        posts = posts.filter(Q(title__icontains=search)|Q(animal__icontains=search)|Q(translations__translated_title__icontains=search)|Q(expansion__title__icontains=search))
         
     if search_type:
         posts = posts.filter(component__icontains=search_type)

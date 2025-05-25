@@ -127,10 +127,11 @@ class TranslationCreateForm(forms.ModelForm):
         model = PostTranslation
         fields = ['language', 'translated_title', 
                   'translated_lore', 'translated_description', 'translated_animal',
+                  'ability', 'ability_description',
                   'translated_board_image', 'translated_board_2_image',
                   'translated_card_image', 'translated_card_2_image', 
                   'bgg_link', 'tts_link', 'pnp_link',
-                  'designer', 'version',
+                  'designer', 'version'
                   ]
         labels = {
             'designer': 'Translated By',
@@ -231,6 +232,17 @@ class TranslationCreateForm(forms.ModelForm):
             self.fields['translated_description'].help_text = "None"
         else:
             self.fields['translated_description'].help_text = post.description
+
+        if not post.component == 'Vagabond':
+            self.fields.pop('ability', None)
+            self.fields.pop('ability_description', None)
+        else:
+            vagabond_instance = Vagabond.objects.get(id=post.id)
+            self.fields['ability_description'].widget.attrs.update({
+                'rows': '2',
+            })
+            self.fields['ability'].help_text = vagabond_instance.ability
+            self.fields['ability_description'].help_text = vagabond_instance.ability_description
 
         if not post.animal:
             self.fields.pop('translated_animal', None)

@@ -53,11 +53,12 @@
       {% endif %}
     </div>
     {% if item.group.description %}
-      {{ item.group.description|format_law_text }}
+      {{ item.group.description|format_law_text:lang_code }}
+      {% comment %} {% format_law_text item.group.description lang_code %} {% endcomment %}
     {% endif %}
     {% if item.group.reference_laws %}
       {% for reference in item.group.reference_laws.all %}
-        (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+        (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
       {% endfor %}
     {% endif %}
 
@@ -68,10 +69,11 @@
               
             <h4>{{ law.local_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
 
-            {{ law.description|format_law_text }}
+            {{ law.description|format_law_text:lang_code }}
+            {% comment %} {% format_law_text law.description lang_code %} {% endcomment %}
             {% if law.reference_laws %}
               {% for reference in law.reference_laws.all %}
-                (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
               {% endfor %}
             {% endif %}
             {% if edit_mode %}
@@ -89,10 +91,11 @@
                 <div class="law-content">
                   <strong>{{ child.title }}.</strong>
 
-                  {{ child.description|format_law_text }}
+                  {{ child.description|format_law_text:lang_code }}
+                  {% comment %} {% format_law_text child.description lang_code %} {% endcomment %}
                   {% if child.reference_laws %}
                     {% for reference in child.reference_laws.all %}
-                      (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                      (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
                     {% endfor %}
                   {% endif %}
                   {% if edit_mode %}
@@ -107,10 +110,11 @@
                         <div class="law-content">
                           <strong>{{ grandchild.title }}.</strong>
 
-                          {{ grandchild.description|format_law_text }}
+                          {{ grandchild.description|format_law_text:lang_code }}
+                          {% comment %} {% format_law_text grandchild.description lang_code %} {% endcomment %}
                           {% if grandchild.reference_laws %}
                             {% for reference in grandchild.reference_laws.all %}
-                              (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                              (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
                             {% endfor %}
                           {% endif %}
 
@@ -125,10 +129,11 @@
                               <span class='law-code'>{{ great_grandchild.local_code }}</span> 
                               <div class="law-content">
                                 <strong>{{ great_grandchild.title }}.</strong>
-                                {{ great_grandchild.description|format_law_text }}
+                                {{ great_grandchild.description|format_law_text:lang_code }}
+                                {% comment %} {% format_law_text great_grandchild.description lang_code %} {% endcomment %}
                                 {% if great_grandchild.reference_laws %}
                                   {% for reference in great_grandchild.reference_laws.all %}
-                                    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference.law_code }}</a>)
+                                    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
                                   {% endfor %}
                                 {% endif %}
                                 {% if edit_mode %}

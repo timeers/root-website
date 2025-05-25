@@ -3,6 +3,7 @@ import bleach
 from django.utils.safestring import mark_safe
 from django.templatetags.static import static
 from django import template
+from django.urls import reverse
 
 register = template.Library()
 
@@ -24,11 +25,13 @@ def italicize_parentheses(value):
 INLINE_IMAGES = {
     'torch': static('items/law/torch.png'),
     'tea': static('items/law/tea.png'),
-    'sword': static('items/law/sword.png'),
+    'sword': static('items/law/bag.png'),
     'bag': static('items/law/bag.png'),
+    'sack': static('items/law/sack.png'),
     'hammer': static('items/law/hammer.png'),
     'crossbow': static('items/law/crossbow.png'),
-    'coins': static('items/law/coins.png'),
+    'coins': static('items/law/coin.png'),
+    'coin': static('items/law/coin.png'),
     'boot': static('items/law/boot.png'),
     'hired': static('items/law/hired.png'),
     'daylight': static('items/law/daylight.png'),
@@ -48,17 +51,46 @@ INLINE_IMAGES = {
     'crow': static('items/law/crow.png'),
 }
 
+# This will link the official faction icons to the corresponding law pages
+FACTION_SLUGS = {
+    'bunny': 'woodland-alliance',
+    'rabbit': 'woodland-alliance',
+    'mouse': 'woodland-alliance',
+    'rat': 'lord-of-the-hundreds',
+    'raccoon': 'vagabond',
+    'vb': 'vagabond',
+    'otter': 'riverfolk-company',
+    'cat': 'marquise-de-cat',
+    'badger': 'keepers-in-iron',
+    'bird': 'eyrie-dynasties',
+    'mole': 'underground-duchy',
+    'lizard': 'lizard-cult',
+    'crow': 'corvid-conspiracy',
+}
+
+# This makes [[]] into SMALLCAPS () into italics and {{}} into images with optional links to faction laws
 @register.filter
-def format_law_text(value):
+def format_law_text(value, lang_code='en'):
     # Step 1: Clean input by stripping all HTML
     clean_value = bleach.clean(str(value), tags=[], strip=True)
 
     # Step 2: Replace {{ keyword.image }} with image tag
     def image_replacer(match):
         keyword = match.group(1)
-        if keyword in INLINE_IMAGES:
-            return f'<img src="{INLINE_IMAGES[keyword]}" alt="{keyword}" class="inline-icon">'
-        return match.group(0)  # Leave unchanged if not recognized
+        img_url = INLINE_IMAGES.get(keyword)
+
+        if not img_url:
+            return match.group(0)
+
+        img_tag = f'<img src="{img_url}" alt="{keyword}" class="inline-icon">'
+
+        # If this image corresponds to a faction, wrap in a link
+        if keyword in FACTION_SLUGS:
+            slug = FACTION_SLUGS[keyword]
+            url = reverse('lang-post-law', kwargs={'slug': slug, 'lang_code': lang_code})
+            return f'<a href="{url}">{img_tag}</a>'
+
+        return img_tag
 
     clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
 

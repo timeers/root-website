@@ -5,7 +5,7 @@ import inflect
 
 from decimal import Decimal
 from urllib.parse import urlencode
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import pre_save, post_save
 from django.db.models import (
     Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, OuterRef, Subquery
@@ -718,6 +718,9 @@ class PostTranslation(models.Model):
     translated_lore = models.TextField(null=True, blank=True)
     translated_description = models.TextField(null=True, blank=True)
     translated_animal = models.CharField(max_length=25, null=True, blank=True)
+
+    ability = models.CharField(max_length=150, null=True, blank=True)
+    ability_description = models.TextField(null=True, blank=True)
 
     bgg_link = models.CharField(max_length=400, null=True, blank=True)
     tts_link = models.CharField(max_length=400, null=True, blank=True)
@@ -2258,7 +2261,10 @@ class Law(models.Model):
             url = reverse('lang-post-law', kwargs={'slug': self.group.post.slug, 'lang_code': self.group.language.code})
         else:
             url = reverse('law-of-root', kwargs={'lang_code': self.group.language.code})
-        query_params = {'highlight_law': self.id}
+        if self.prime_law:
+            query_params = {'highlight_group': self.group.id}
+        else:
+            query_params = {'highlight_law': self.id}
         return f'{url}?{urlencode(query_params)}'
 
 
@@ -2326,6 +2332,49 @@ class Law(models.Model):
                 return Decimal('1.0')
         else:
             return Decimal('1.0')
+
+
+@transaction.atomic
+def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> LawGroup:
+    # 1. Copy LawGroup
+    new_group = LawGroup.objects.create(
+        post=source_group.post,
+        abbreviation=source_group.abbreviation,
+        title=source_group.title,
+        description=source_group.description,
+        language=target_language,
+        position=source_group.position,
+    )
+
+    # 2. Map old Law IDs to new Law instances
+    law_mapping = {}
+
+    # 3. First pass: Create all laws without parents
+    for law in source_group.laws.all():
+        new_law = Law.objects.create(
+            group=new_group,
+            title=law.title,
+            description=law.description,
+            position=law.position,
+            law_code=law.law_code,
+            local_code=law.local_code,
+            locked_position=law.locked_position,
+            allow_sub_laws=law.allow_sub_laws,
+            allow_description=law.allow_description,
+            prime_law=law.prime_law,
+        )
+        law_mapping[law.id] = new_law
+
+    # 4. Second pass: Set parent references
+    for old_law in source_group.laws.all():
+        if old_law.parent_id:
+            new_law = law_mapping[old_law.id]
+            new_law.parent = law_mapping.get(old_law.parent_id)
+            new_law.save()
+
+    return new_group
+
+
 
 
 def component_pre_save(sender, instance, *args, **kwargs):

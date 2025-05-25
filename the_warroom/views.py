@@ -333,11 +333,14 @@ def game_detail_view(request, id=None):
 
         # Count the total number of scorecards linked to efforts
         scorecard_count = ScoreCard.objects.filter(final=True, effort__in=obj.efforts.all()).distinct().count()
+        if scorecard_count != 0:
+            show_detail = True
+
         if request.user.is_authenticated:
             for effort in efforts:
                 effort.available_scorecard = effort.available_scorecard(request.user)
 
-            if obj.final and (request.user.profile in participants or scorecard_count != 0):
+            if obj.final and (request.user.profile in participants):
                 show_detail = True
 
     except ObjectDoesNotExist:
