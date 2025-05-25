@@ -906,7 +906,7 @@ def scorecard_manage_view(request, id=None):
 
 
 # Detail view of a scorecard
-@player_onboard_required
+
 def scorecard_detail_view(request, id=None):
     try:
         obj = ScoreCard.objects.get(id=id)
@@ -917,30 +917,30 @@ def scorecard_detail_view(request, id=None):
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
-    next_scorecard = None   
-    previous_scorecard = None
-    if not obj.effort:
-        # Filter scorecards by category (or order) to group them together
-        grouped_scorecards = ScoreCard.objects.filter(
-            game_group=obj.game_group, effort=None, recorder=request.user.profile
-            ).order_by('date_posted')
+    # next_scorecard = None   
+    # previous_scorecard = None
+    # if not obj.effort:
+    #     # Filter scorecards by category (or order) to group them together
+    #     grouped_scorecards = ScoreCard.objects.filter(
+    #         game_group=obj.game_group, effort=None, recorder=request.user.profile
+    #         ).order_by('date_posted')
 
-        scorecard_list = list(grouped_scorecards)
-        current_index = scorecard_list.index(obj)
+    #     scorecard_list = list(grouped_scorecards)
+    #     current_index = scorecard_list.index(obj)
 
-        # Get the next and previous scorecards
-        next_scorecard = scorecard_list[(current_index + 1) % len(scorecard_list)]
-        previous_scorecard = scorecard_list[(current_index - 1) % len(scorecard_list)]
-        # Set next and previous to None if they are the same as the current scorecard
-        if next_scorecard == obj:
-            next_scorecard = None
-        if previous_scorecard == obj:
-            previous_scorecard = None
+    #     # Get the next and previous scorecards
+    #     next_scorecard = scorecard_list[(current_index + 1) % len(scorecard_list)]
+    #     previous_scorecard = scorecard_list[(current_index - 1) % len(scorecard_list)]
+    #     # Set next and previous to None if they are the same as the current scorecard
+    #     if next_scorecard == obj:
+    #         next_scorecard = None
+    #     if previous_scorecard == obj:
+    #         previous_scorecard = None
 
     context=  {
         'object': obj,
-        'previous_scorecard': previous_scorecard,
-        'next_scorecard': next_scorecard,
+        # 'previous_scorecard': previous_scorecard,
+        # 'next_scorecard': next_scorecard,
         'object_title': object_title,
     }
 
