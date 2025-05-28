@@ -1,7 +1,37 @@
 {% extends 'the_keep/base.html' %}
-{% load text_filters roman_numerals i18n %}
+{% load text_filters roman_numerals i18n static %}
 {% block title %} - {% if post %}{{ post.title }} {% elif expansion %}{{ expansion.title }} {% endif %}Law{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/law-icon.png' %}">
+<meta property="og:site_name" content="{{ site_title }}">
+{% if law_meta_title %}
+  <meta property="og:title" content="{{ law_meta_title }}">
+  <meta property="og:description" content="{{ law_meta_description }}">
+  <meta name="description" content="{{ law_meta_description }}">
+{% else %}
+  {% trans "The Law of Root" as law_of_root_title %}
+  {% if post %}
+      <meta property="og:title" content="{{ law_of_root_title }} - {{ post.title }}">
+      {% blocktrans with post_title=post.title %}
+          <meta property="og:description" content="The strictly defined, formal rules of {{ post_title }}">
+          <meta name="description" content="The strictly defined, formal rules of {{ post_title }}">
+      {% endblocktrans %}
+  {% else %}
+      {% trans 'The strictly defined, formal rules of Root in a concise reference style.' as law_description %}
+      <meta property="og:title" content="{{ law_of_root_title }}">
+      <meta property="og:description" content="{{ law_description }}">
+      <meta name="description" content="{{ law_description }}">
+  {% endif %}
+{% endif %}
+{% endblock meta %}
+
+
 {% block content %}
+
+
 
 <article class="content-section d-flex justify-content-between align-items-center">
   {% if post %}
@@ -32,7 +62,7 @@
               <img class="lg-faction-icon" src="{{ item.group.post.small_icon.url }}">
           {% endif %}
           {% endif %}
-        </h2>
+        
         {% if item.group.post %}
           </a>
         {% endif %}
@@ -58,7 +88,7 @@
     {% endif %}
     {% if item.group.reference_laws %}
       {% for reference in item.group.reference_laws.all %}
-        (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+        {% include 'the_keep/partials/law_reference.html' %}
       {% endfor %}
     {% endif %}
 
@@ -66,14 +96,17 @@
      
         {% for law in item.top_level_laws %}
           <div id="law-{{ law.id }}">
-              
-            <h4>{{ law.local_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
-
+            <div class="d-flex justify-content-between align-items-center">
+              <h4>{{ law.local_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
+              {% if not edit_mode %}
+                <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ law.full_url }}" title="Copy link" style="cursor: pointer;"></i>
+              {% endif %}
+            </div>
             {{ law.description|format_law_text:lang_code }}
             {% comment %} {% format_law_text law.description lang_code %} {% endcomment %}
             {% if law.reference_laws %}
               {% for reference in law.reference_laws.all %}
-                (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+                {% include 'the_keep/partials/law_reference.html' %}
               {% endfor %}
             {% endif %}
             {% if edit_mode %}
@@ -89,13 +122,18 @@
                 <span class='law-code'>{{ child.local_code }}</span> 
                 </div>
                 <div class="law-content">
-                  <strong>{{ child.title }}.</strong>
+                  <div class="d-flex justify-content-between align-items-center">
+                    <strong>{{ child.title }}.</strong>
+                    {% if not edit_mode %}
+                      <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ child.full_url }}" title="Copy link" style="cursor: pointer;"></i>
+                    {% endif %}
+                  </div>
 
                   {{ child.description|format_law_text:lang_code }}
                   {% comment %} {% format_law_text child.description lang_code %} {% endcomment %}
                   {% if child.reference_laws %}
                     {% for reference in child.reference_laws.all %}
-                      (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+                      {% include 'the_keep/partials/law_reference.html' %}
                     {% endfor %}
                   {% endif %}
                   {% if edit_mode %}
@@ -108,13 +146,18 @@
                       <div class='law-entry' id="law-{{ grandchild.id }}">
                         <span class='law-code'>{{ grandchild.local_code }}</span> 
                         <div class="law-content">
-                          <strong>{{ grandchild.title }}.</strong>
+                          <div class="d-flex justify-content-between align-items-center">
+                            <strong>{{ grandchild.title }}.</strong>
+                            {% if not edit_mode %}
+                              <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ grandchild.full_url }}" title="Copy link" style="cursor: pointer;"></i>
+                            {% endif %}
+                          </div>
 
                           {{ grandchild.description|format_law_text:lang_code }}
                           {% comment %} {% format_law_text grandchild.description lang_code %} {% endcomment %}
                           {% if grandchild.reference_laws %}
                             {% for reference in grandchild.reference_laws.all %}
-                              (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+                              {% include 'the_keep/partials/law_reference.html' %}
                             {% endfor %}
                           {% endif %}
 
@@ -128,12 +171,17 @@
                             <div class='law-entry' id="law-{{ great_grandchild.id }}">
                               <span class='law-code'>{{ great_grandchild.local_code }}</span> 
                               <div class="law-content">
-                                <strong>{{ great_grandchild.title }}.</strong>
+                                <div class="d-flex justify-content-between align-items-center">
+                                  <strong>{{ great_grandchild.title }}.</strong>
+                                    {% if not edit_mode %}
+                                      <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ great_grandchild.full_url }}" title="Copy link" style="cursor: pointer;"></i>
+                                    {% endif %}
+                                </div>
                                 {{ great_grandchild.description|format_law_text:lang_code }}
                                 {% comment %} {% format_law_text great_grandchild.description lang_code %} {% endcomment %}
                                 {% if great_grandchild.reference_laws %}
                                   {% for reference in great_grandchild.reference_laws.all %}
-                                    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+                                    {% include 'the_keep/partials/law_reference.html' %}
                                   {% endfor %}
                                 {% endif %}
                                 {% if edit_mode %}
@@ -160,6 +208,7 @@
                             {% if forloop.last and edit_mode and grandchild.allow_sub_laws %}
                                     <div class='mt-2 ml-5'>
                                         <button class="btn btn-sm btn-success add-law-button"
+                                                data-code="{{ grandchild.law_code }}{{ forloop.counter|add:"1"|alpha }}"
                                                 data-group="{{ item.group.id }}"
                                                 data-parent="{{ grandchild.id }}"
                                                 data-prev=""
@@ -174,6 +223,7 @@
                             {% if edit_mode and grandchild.allow_sub_laws %}
                                   <div class='mt-2 ml-5'>
                                       <button class="btn btn-sm btn-success add-law-button"
+                                              data-code="{{ grandchild.law_code }}a"
                                               data-group="{{ item.group.id }}"
                                               data-parent="{{ grandchild.id }}"
                                               data-prev=""
@@ -206,6 +256,7 @@
                           {% if forloop.last and edit_mode and child.allow_sub_laws %}
                               <div class='mt-2 ml-5'>
                                   <button class="btn btn-sm btn-success add-law-button"
+                                          data-code="{{ child.law_code }}.{{ forloop.counter|add:"1"|roman }}"
                                           data-group="{{ item.group.id }}"
                                           data-parent="{{ child.id }}"
                                           data-prev=""
@@ -221,6 +272,7 @@
                       {% if edit_mode and child.allow_sub_laws %}
                           <div class='mt-2 ml-5'>
                               <button class="btn btn-sm btn-success add-law-button"
+                                      data-code="{{ child.law_code }}.I"
                                       data-group="{{ item.group.id }}"
                                       data-parent="{{ child.id }}"
                                       data-prev=""
@@ -249,6 +301,7 @@
                   {% if forloop.last and edit_mode and law.allow_sub_laws %}
                         <div class='mt-2 ml-5'>
                             <button class="btn btn-sm btn-success add-law-button"
+                                data-code="{{ law.law_code }}.{{ forloop.counter|add:"1" }}"
                                 data-group="{{ item.group.id }}"
                                 data-parent="{{ law.id }}"
                                 data-prev=""
@@ -262,6 +315,7 @@
                 {% if edit_mode and law.allow_sub_laws %}
                     <div class='mt-2 ml-5'>
                         <button class="btn btn-sm btn-success add-law-button"
+                            data-code="{{ law.law_code }}.1"
                             data-group="{{ item.group.id }}"
                             data-parent="{{ law.id }}"
                             data-prev=""
@@ -280,6 +334,7 @@
               {% if edit_mode %}
                 <div class='mt-2'>
                     <button class="btn btn-sm btn-success add-law-button"
+                        data-code="{{ item.group.abbreviation }}.{{ forloop.counter|add:"1" }}"
                         data-group="{{ item.group.id }}"
                         data-prev="{{ law.id }}"
                         data-next="">
@@ -294,6 +349,7 @@
           {% if edit_mode %}
             <div class='mt-2'>
                 <button class="btn btn-sm btn-success add-law-button"
+                    data-code="{{ item.group.abbreviation }}.1"
                     data-group="{{ item.group.id }}"
                     data-prev="{{ law.id }}"
                     data-next="">
@@ -349,17 +405,17 @@
     <input type="hidden" name="parent_id" id="modal-parent-id">
     <input type="hidden" name="prev_id" id="modal-prev-id">
     <input type="hidden" name="next_id" id="modal-next-id">
-    
-    <label>Title</label>
-    <input type="text" name="title" required><br>
+    <div class='root-title h3' id='modal-law-code'></div>
+    <label class='hidden'>Title</label>
+    <input type="text" name="title" required placeholder="Title..."><br>
 
-    <label>Description</label>
-    <textarea name="description"></textarea><br>
+    <label class='hidden'>Description</label>
+    <textarea name="description" placeholder="Description..."></textarea><br>
     <div class='mb-3'>
       <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
     </div>
 
-    <label for="id_reference_laws">Reference Laws:</label>
+    <label for="id_reference_laws" class='hidden'>Reference Laws:</label>
     <div class='mb-4'>
       <select name="reference_laws" id="id_reference_laws" multiple class="multi-select">
         {% for law in all_laws %}
@@ -379,18 +435,18 @@
       <form id="edit-law-form">
       {% csrf_token %}
       <input type="hidden" name="law_id" id="edit-law-id">
+      <div class='root-title h3' id='edit-law-law-code'></div>
+      <label for="edit-law-title" class="hidden">Title:</label>
+      <input type="text" name="title" id="edit-law-title" required placeholder='Title...'>
       
-      <label for="edit-law-title">Title:</label>
-      <input type="text" name="title" id="edit-law-title" required>
-      
-      <label for="edit-law-description">Description:</label>
-      <textarea name="description" id="edit-law-description"></textarea>
+      <label for="edit-law-description" class='hidden'>Description:</label>
+      <textarea name="description" id="edit-law-description" placeholder='Description...'></textarea>
       <div class='mb-3'>
         <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
       </div>
 
 
-      <label for="id_edit_reference_laws">Reference Laws:</label>
+      <label for="id_edit_reference_laws" class='hidden'>Reference Laws:</label>
       <div class='mb-4'>
       <select name="reference_laws" id="id_edit_reference_laws" multiple class="multi-select">
           {% for law in all_laws %}
@@ -414,10 +470,11 @@
       
       {% comment %} <label for="edit-law-title">Title:</label>
       <input type="text" name="title" id="edit-law-title" required> {% endcomment %}
+      <div class='root-title h3' id='edit-description-law-code'></div>
       <div id='readonly-law-title'></div>
       
-      <label for="edit-description-description">Description:</label>
-      <textarea name="description" id="edit-description-description"></textarea>
+      <label for="edit-description-description" class='hidden'>Description:</label>
+      <textarea name="description" id="edit-description-description" placeholder='Description...'></textarea>
       <div class='mb-3'>
       <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
       </div>
@@ -440,7 +497,9 @@
       </form>
   </div>
 </div>
+{% else %}
 
+  <span id="copy-status" class="ms-2 text-success d-none">Copied!</span>
 
 {% endif %}
 {% endblock content %}
@@ -453,262 +512,328 @@
 
 
 
-function showModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (!modal) return;
+    function showModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (!modal) return;
 
-  modal.style.display = 'flex';
+      modal.style.display = 'flex';
 
-  // ESC key to close
-  function escHandler(e) {
-    if (e.key === 'Escape') {
-      hideModal(modal);
+      // ESC key to close
+      function escHandler(e) {
+        if (e.key === 'Escape') {
+          hideModal(modal);
+        }
+      }
+
+      document.addEventListener('keydown', escHandler);
+
+
+      // Store the handlers so they can be removed
+      modal._escHandler = escHandler;
+
     }
-  }
 
-  // Click outside to close
-  function outsideClickHandler(e) {
-    if (e.target === modal) {
-      hideModal(modal);
-    }
-  }
-
-  document.addEventListener('keydown', escHandler);
-  modal.addEventListener('click', outsideClickHandler);
-
-  // Store the handlers so they can be removed
-  modal._escHandler = escHandler;
-  modal._outsideClickHandler = outsideClickHandler;
-}
-
-function hideModal(modal) {
-  modal.style.display = 'none';
-  document.removeEventListener('keydown', modal._escHandler);
-  modal.removeEventListener('click', modal._outsideClickHandler);
-}
-
-document.querySelectorAll('form textarea').forEach(textarea => {
-  textarea.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault(); // Prevent newline
-      this.form.querySelector('button[type="submit"]').click(); // Trigger submit
-    }
-  });
-});
-
-
-
-
-
-document.querySelectorAll('.delete-law-button').forEach(button => {
-  button.addEventListener('click', () => {
-    document.getElementById('delete-law-id').value = button.dataset.id;
-    document.getElementById('delete-law-title').textContent = button.dataset.title;
-    showModal('delete-law-modal');
-    {% comment %} document.getElementById('delete-law-modal').style.display = 'block'; {% endcomment %}
-  });
-});
-
-document.getElementById('delete-law-form').addEventListener('submit', async function (e) {
-  e.preventDefault();
-
-  const formData = new FormData(this);
-  const response = await fetch("{% url 'delete-law-ajax' %}", {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-    },
-    body: formData
-  });
-
-  if (response.ok) {
-    location.reload();  // Refresh to remove deleted law
-  } else {
-    alert('Failed to delete law.');
-  }
-});
-
-
-
-
-document.querySelectorAll('.edit-law-button').forEach(button => {
-  button.addEventListener('click', () => {
-      // Populate form fields
-      document.getElementById('edit-law-id').value = button.dataset.id;
-      document.getElementById('edit-law-title').value = button.dataset.title;
-      document.getElementById('edit-law-description').value = button.dataset.description;
-
-      // Set reference laws
-      const referenceLawsSelect = $('#id_edit_reference_laws');  // Using jQuery to access the Select2 element
-      const references = button.dataset.references || '';
-      const selectedIds = references.split(',').map(id => id.trim()).filter(Boolean);
-
-      // Set selected options in Select2
-      referenceLawsSelect.val(selectedIds).trigger('change');
-
-      console.log('Reference IDs from button:', references);  // Debugging
-      console.log('Parsed IDs:', selectedIds);               // Debugging
-
-      // Show the modal
-      showModal('edit-law-modal');
-  });
-});
-
-
-
-
-document.getElementById('edit-law-form').addEventListener('submit', async function (e) {
-  e.preventDefault();
-
-  const formData = new FormData(this);
-
-  const response = await fetch("{% url 'edit-law-ajax' %}", {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-    },
-    body: formData
-  });
-
-  if (response.ok) {
-    location.reload(); // Reload to reflect the updated law
-  } else {
-    alert("Failed to update law.");
-  }
-});
-
-
-
-document.querySelectorAll('.edit-description-button').forEach(button => {
-  button.addEventListener('click', () => {
-    // Populate form with data
-    document.getElementById('edit-description-id').value = button.dataset.id;
-    document.getElementById('readonly-law-title').textContent = button.dataset.title;
-    document.getElementById('edit-description-description').value = button.dataset.description;
+    function hideModal(modal) {
+      modal.style.display = 'none';
+      document.removeEventListener('keydown', modal._escHandler);
     
-    // Show modal
-    showModal('edit-description-modal');
-    {% comment %} document.getElementById('edit-description-modal').style.display = 'block'; {% endcomment %}
-  });
-});
+      // Reset form if one exists in the modal
+      const form = modal.querySelector('form');
+      if (form) {
+        form.reset(); // resets input, textarea, select (not Select2 though)
+      }
+    
+      // Clear textContent in specific elements
+      const textElementsToClear = modal.querySelectorAll('.modal-card [id$="-law-code"], .modal-card [id$="-title"]');
+      textElementsToClear.forEach(el => el.textContent = '');
+    
+      // Clear Select2 selections
+      $(modal).find('select').val(null).trigger('change');
+    }
 
-document.getElementById('edit-description-form').addEventListener('submit', async function (e) {
-  e.preventDefault();
-
-  const formData = new FormData(this);
-
-  const response = await fetch("{% url 'edit-law-description-ajax' %}", {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-    },
-    body: formData
-  });
-
-  if (response.ok) {
-    location.reload(); // Reload to reflect the updated law
-  } else {
-    alert("Failed to update law.");
-  }
-});
+    document.querySelectorAll('form textarea').forEach(textarea => {
+      textarea.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault(); // Prevent newline
+          this.form.querySelector('button[type="submit"]').click(); // Trigger submit
+        }
+      });
+    });
 
 
 
 
 
+    document.querySelectorAll('.delete-law-button').forEach(button => {
+      button.addEventListener('click', () => {
+        document.getElementById('delete-law-id').value = button.dataset.id;
+        document.getElementById('delete-law-title').textContent = button.dataset.title;
+        showModal('delete-law-modal');
+        {% comment %} document.getElementById('delete-law-modal').style.display = 'block'; {% endcomment %}
+      });
+    });
 
-document.querySelectorAll('.move-law-button').forEach(button => {
-  button.addEventListener('click', async () => {
-    const url = button.dataset.url;
+    document.getElementById('delete-law-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'X-CSRFToken': '{{ csrf_token }}'
+      const formData = new FormData(this);
+      const response = await fetch("{% url 'delete-law-ajax' %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        location.reload();  // Refresh to remove deleted law
+      } else {
+        alert('Failed to delete law.');
       }
     });
 
+
+
+
+    document.querySelectorAll('.edit-law-button').forEach(button => {
+      button.addEventListener('click', () => {
+          // Populate form fields
+          document.getElementById('edit-law-id').value = button.dataset.id;
+          document.getElementById('edit-law-title').value = button.dataset.title;
+          document.getElementById('edit-law-description').value = button.dataset.description;
+          document.getElementById('edit-law-law-code').textContent = "Edit " + button.dataset.code;
+          // Set reference laws
+          const referenceLawsSelect = $('#id_edit_reference_laws');  // Using jQuery to access the Select2 element
+          const references = button.dataset.references || '';
+          const selectedIds = references.split(',').map(id => id.trim()).filter(Boolean);
+
+          // Set selected options in Select2
+          referenceLawsSelect.val(selectedIds).trigger('change');
+
+          console.log('Reference IDs from button:', references);  // Debugging
+          console.log('Parsed IDs:', selectedIds);               // Debugging
+
+          // Show the modal
+          showModal('edit-law-modal');
+      });
+    });
+
+
+
+
+    document.getElementById('edit-law-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(this);
+
+      const response = await fetch("{% url 'edit-law-ajax' %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        location.reload(); // Reload to reflect the updated law
+      } else {
+        alert("Failed to update law.");
+      }
+    });
+
+
+
+    document.querySelectorAll('.edit-description-button').forEach(button => {
+      button.addEventListener('click', () => {
+        // Populate form with data
+        document.getElementById('edit-description-id').value = button.dataset.id;
+        document.getElementById('readonly-law-title').textContent = button.dataset.title;
+        document.getElementById('edit-description-description').value = button.dataset.description;
+        document.getElementById('edit-description-law-code').textContent = "Edit " + button.dataset.code;
+        
+        // Show modal
+        showModal('edit-description-modal');
+        {% comment %} document.getElementById('edit-description-modal').style.display = 'block'; {% endcomment %}
+      });
+    });
+
+    document.getElementById('edit-description-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(this);
+
+      const response = await fetch("{% url 'edit-law-description-ajax' %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        location.reload(); // Reload to reflect the updated law
+      } else {
+        alert("Failed to update law.");
+      }
+    });
+
+
+
+
+
+
+    document.querySelectorAll('.move-law-button').forEach(button => {
+      button.addEventListener('click', async () => {
+        const url = button.dataset.url;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': '{{ csrf_token }}'
+          }
+        });
+
+        if (response.ok) {
+          location.reload();
+        } else {
+          alert('Move failed');
+        }
+      });
+    });
+
+
+
+
+
+    document.querySelectorAll('.add-law-button').forEach(button => {
+    button.addEventListener('click', () => {
+      {% comment %} document.getElementById('add-law-modal').style.display = 'block'; {% endcomment %}
+      document.getElementById('modal-group-id').value = button.dataset.group;
+      document.getElementById('modal-parent-id').value = button.dataset.parent || '';
+      document.getElementById('modal-prev-id').value = button.dataset.prev || '';
+      document.getElementById('modal-next-id').value = button.dataset.next || '';
+      document.getElementById('modal-law-code').textContent = 'Add ' + (button.dataset.code || '');
+
+      showModal('add-law-modal');
+    });
+    });
+
+    document.getElementById('add-law-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(e.target);
+    const response = await fetch("{% url 'add-law-ajax' %}", {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+      },
+      body: formData
+    });
+
     if (response.ok) {
-      location.reload();
+      location.reload();  // Reload to show the new law
     } else {
-      alert('Move failed');
+      alert("Failed to add law.");
     }
+    });
+
+    $(document).ready(function() {
+      // Apply Select2 to the reference_laws field
+      $('#id_edit_reference_laws').select2({
+          placeholder: "Links to Reference Laws", // Add a placeholder
+          width: '100%' // Set the width to 100% for responsiveness
+      });
+      $('#id_reference_laws').select2({
+        placeholder: "Links to Reference Laws", // Add a placeholder
+        width: '100%' // Set the width to 100% for responsiveness
+    });
+    });
+{% else %}
+
+
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.copy-link-icon').forEach(icon => {
+    icon.addEventListener('click', async () => {
+      const link = icon.getAttribute('data-link');
+      const lawDiv = icon.closest('[id^="law-"]');
+
+      try {
+        await navigator.clipboard.writeText(link);
+
+        icon.classList.remove('bi-link-45deg');
+        icon.classList.add('bi-clipboard-check', 'text-success');
+
+        if (lawDiv) {
+          lawDiv.classList.add('highlight-temp');
+          // Trigger reflow to restart animation
+          void lawDiv.offsetWidth;
+          lawDiv.classList.add('active');
+        }
+
+        setTimeout(() => {
+          icon.classList.remove('bi-clipboard-check', 'text-success');
+          icon.classList.add('bi-link-45deg');
+
+          if (lawDiv) {
+            lawDiv.classList.remove('active');
+            // Remove highlight-temp after fade out completes (match CSS transition time, e.g. 800ms)
+            setTimeout(() => {
+              lawDiv.classList.remove('highlight-temp');
+            }, 1000);
+          }
+        }, 1700);
+      } catch (err) {
+        alert('Failed to copy link.');
+      }
+    });
   });
-});
 
-
-
-
-
-document.querySelectorAll('.add-law-button').forEach(button => {
-button.addEventListener('click', () => {
-  {% comment %} document.getElementById('add-law-modal').style.display = 'block'; {% endcomment %}
-  document.getElementById('modal-group-id').value = button.dataset.group;
-  document.getElementById('modal-parent-id').value = button.dataset.parent || '';
-  document.getElementById('modal-prev-id').value = button.dataset.prev || '';
-  document.getElementById('modal-next-id').value = button.dataset.next || '';
-
-  showModal('add-law-modal');
-});
-});
-
-document.getElementById('add-law-form').addEventListener('submit', async (e) => {
-e.preventDefault();
-
-const formData = new FormData(e.target);
-const response = await fetch("{% url 'add-law-ajax' %}", {
-  method: 'POST',
-  headers: {
-    'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-  },
-  body: formData
-});
-
-if (response.ok) {
-  location.reload();  // Reload to show the new law
-} else {
-  alert("Failed to add law.");
-}
-});
-
-$(document).ready(function() {
-  // Apply Select2 to the reference_laws field
-  $('#id_edit_reference_laws').select2({
-      placeholder: "Links to Reference Laws", // Add a placeholder
-      width: '100%' // Set the width to 100% for responsiveness
-  });
-  $('#id_reference_laws').select2({
-    placeholder: "Links to Reference Laws", // Add a placeholder
-    width: '100%' // Set the width to 100% for responsiveness
-});
-});
-{% endif %}
-
-
-
-{% if highlight_id %}
-  document.addEventListener("DOMContentLoaded", function () {
+  {% if highlight_id %}
     const target = document.getElementById("law-{{ highlight_id }}");
     if (target) {
       target.scrollIntoView({ 
         behavior: 'smooth',
         block: 'center'  
       });
-      target.classList.add('highlight-fade');  // add class instead of inline style
+      target.classList.add('highlight-temp');
+      void target.offsetWidth;
+      target.classList.add('active');
+      setTimeout(() => {
+        target.classList.remove('active');
+        setTimeout(() => {
+          target.classList.remove('highlight-temp');
+        }, 800);
+      }, 3000);
     }
-  });
+
   {% elif highlight_group_id %}
-  document.addEventListener("DOMContentLoaded", function () {
     const target = document.getElementById("group-{{ highlight_group_id }}");
     if (target) {
       target.scrollIntoView({ 
         behavior: 'smooth',
         block: 'center'  
       });
-      target.classList.add('highlight-fade');  // add class instead of inline style
+      target.classList.add('highlight-temp');
+      void target.offsetWidth;
+      target.classList.add('active');
+      setTimeout(() => {
+        target.classList.remove('active');
+        setTimeout(() => {
+          target.classList.remove('highlight-temp');
+        }, 800);
+      }, 3000);
     }
-  });
+  {% endif %}
+});
+
+
+
 {% endif %}
+
+
+
+
 
 
 const smallWords = ['and', 'of', 'in', 'on', 'for', 'the', 'a', 'an', 'to', 'with', 'at', 'by', 'from'];

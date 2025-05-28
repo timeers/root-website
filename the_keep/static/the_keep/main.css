@@ -1614,24 +1614,38 @@ tr.clickable-row:hover {
 }
 
 
-@keyframes highlightFadeInOut {
-  0% {
-    background-color: transparent;
-  }
-  15% {
-    background-color: #ffffcc;
-  }
-  75% {
-    background-color: #ffffcc;
-  }
-  100% {
-    background-color: transparent;
-  }
+
+.highlight-temp {
+  position: relative;
+  z-index: 1;
 }
 
-.highlight-fade {
-  animation: highlightFadeInOut 4s ease-in-out forwards;
+.highlight-temp::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: -6px;
+  right: -6px;
+  background-color: rgba(240, 240, 240, 0.8);
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(240, 240, 240, 0.4);
+  z-index: -1;
+  pointer-events: none;
+
+  /* Start invisible */
+  opacity: 0;
+  transition: opacity 0.8s ease;
 }
+
+/* Show the highlight with fade-in */
+.highlight-temp.active::before {
+  opacity: 1;
+}
+
+
+
+
 
 .inline-icon {
   height: 1.2em;              /* Matches the current font size */

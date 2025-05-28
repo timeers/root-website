@@ -5,9 +5,11 @@
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
 <meta property="og:site_name" content="{{site_title}}">
-<meta property="og:title" content="{% trans 'The Workshop' %}">
-<meta property="og:description" content="{% trans 'Find assets and resources for creating Root fan content.' %}">
-<meta name="description" content="{% trans 'Find assets and for creating Root fan content.' %}">
+{% trans 'The Workshop' as workshop_title %}
+{% trans 'Find assets and resources for creating Root fan content.' as workshop_description %}
+<meta property="og:title" content="{{workshop_title}}">
+<meta property="og:description" content="{{workshop_description}}">
+<meta name="description" content="{{workshop_description}}">
 {% endblock meta%}
 
 

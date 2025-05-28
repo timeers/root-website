@@ -1,0 +1,17 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n %}
+
+{% block content %}
+
+
+<h1 class='root-title'>Copy Law Group: {{ law_group.title }}</h1>
+
+
+<form method="post">
+  {% csrf_token %}
+  from {{ law_group.language }} to:
+  {{ form.language|as_crispy_field }}
+
+  <button type="submit">Copy</button>
+</form>
+{% endblock content %}

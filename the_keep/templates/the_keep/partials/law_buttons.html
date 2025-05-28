@@ -2,6 +2,7 @@
 {% if not selected_law.locked_position %}
     {% if selected_law.allow_description %}
         <button class="btn btn-sm btn-warning edit-law-button"
+        data-code="{{ selected_law.law_code }}"
         data-id="{{ selected_law.id }}"
         data-title="{{ selected_law.title }}"
         data-description="{{ selected_law.description }}"
@@ -11,7 +12,7 @@
     {% endif %}
     <button class="btn btn-sm btn-danger delete-law-button"
     data-id="{{ selected_law.id }}"
-    data-title="{{ selected_law.title }}">
+    data-title="{{ selected_law.law_code }} - {{ selected_law.title }}">
     <i class="bi bi-trash3"></i>
     </button>
 
@@ -34,6 +35,7 @@
 {% else %}
     {% if selected_law.allow_description %}
         <button class="btn btn-sm btn-warning edit-description-button"
+        data-code="{{ selected_law.law_code }}"
         data-id="{{ selected_law.id }}"
         data-title="{{ selected_law.title }}"
         data-description="{{ selected_law.description }}">

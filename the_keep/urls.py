@@ -38,6 +38,7 @@ urlpatterns = [
     path('home/', views.home),
     path('about/', views.about, name='keep-about'),
     path('law/', views.law_hierarchy_view),
+    path('law/copy_law_group/<int:id>/', views.copy_law_group_view, name='copy_law_group'),
     path('law/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
     # path('law/edit/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
     path('law/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),

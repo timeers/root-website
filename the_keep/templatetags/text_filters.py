@@ -34,6 +34,7 @@ INLINE_IMAGES = {
     'coin': static('items/law/coin.png'),
     'boot': static('items/law/boot.png'),
     'hired': static('items/law/hired.png'),
+    'ability': static('items/law/ability.png'),
     'daylight': static('items/law/daylight.png'),
     'birdsong': static('items/law/birdsong.png'),
     'bunny': static('items/law/bunny.png'),

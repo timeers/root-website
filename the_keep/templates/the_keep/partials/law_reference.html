@@ -1,0 +1,5 @@
+{% if edit_mode %}
+    ({{ reference }})
+{% else %}
+    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+{% endif %}

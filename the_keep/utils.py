@@ -1,5 +1,6 @@
 import random
-from django.utils.text import slugify
+from django.utils.text import slugify, Truncator
+from django.utils.html import strip_tags
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.conf import settings
@@ -361,4 +362,97 @@ def rgb_to_color_name(rgb):
     # Return based on brightness and family
     return f"{brightness_level} {color_family}"
 
+
+
+DEFAULT_TITLES_TRANSLATIONS = {
+    'Overview': {
+        'en': 'Overview',
+        'ru': 'Краткое описание',
+        'es': 'Resumen',
+        'nl': 'Overzicht',
+        'pl': 'Omówienie',
+        'fr': 'Aperçu',
+    },
+    'Faction Rules and Abilities': {
+        'en': 'Faction Rules and Abilities',
+        'ru': 'Правила и способности фракции',
+        'es': 'Reglas y Habilidades de Facción',
+        'nl': 'Factieregels en Vaardigheden',
+        'pl': 'Zasady Frakcji i jej Zdolności',
+        'fr': 'Règles et Capacités de Faction',
+    },
+    'Faction Setup': {
+        'en': 'Faction Setup',
+        'ru': 'Подготовка к игре',
+        'es': 'Preparación Individual',
+        'nl': 'Factie Voorbereiding',
+        'pl': 'Przygotowanie Frakcji',
+        'fr': 'Mise en place de Faction',
+    },
+    'Birdsong': {
+        'en': 'Birdsong',
+        'ru': 'Утро',
+        'es': 'Alba',
+        'nl': 'Vogelzang',
+        'pl': 'Świt',
+        'fr': 'Aurore',
+    },
+    'Daylight': {
+        'en': 'Daylight',
+        'ru': 'День',
+        'es': 'Día',
+        'nl': 'Daglicht',
+        'pl': 'Dzień',
+        'fr': 'Jour',
+    },
+    'Evening': {
+        'en': 'Evening',
+        'ru': 'Вечер',
+        'es': 'Noche',
+        'nl': 'Avond',
+        'pl': 'Wieczór',
+        'fr': 'Crépuscule',
+    },
+    'Crafting': {
+        'en': 'Crafting',
+        'ru': 'Ремесло',
+        'es': 'Fabricar',
+        'nl': 'Vervaardigen',
+        'pl': 'Przekuwanie',
+        'fr': 'Artisanat',
+    },
+    'Setup Modifications': {
+        'en': 'Setup Modifications',
+        'ru': 'Изменения конфигурации',
+        'es': 'Cambios en la preparación',
+        'nl': 'Configuratiewijzigingen',
+        'pl': 'Zmiany konfiguracji',
+        'fr': 'Modifications de configuration',
+    },
+    'Starting Items': {
+        'en': 'Starting Items',
+        'ru': 'Начальные предметы',
+        'es': 'Objetos iniciales',
+        'nl': 'Startvoorwerpen',
+        'pl': 'Przedmioty Startowe',
+        'fr': 'Éléments de départ',
+    },
+
+
+}
+def get_translated_title(key, target_lang_code):
+    translations = DEFAULT_TITLES_TRANSLATIONS.get(key)
+    if translations:
+        return translations.get(target_lang_code, key)  # fallback to English key
+    return key
+
+
+
+
+
+def clean_meta_description(raw_text, max_length=160):
+    text = strip_tags(raw_text or "")
+    text = re.sub(r'{{|}}|\[\[|\]\]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return Truncator(text).chars(max_length, truncate='...')
 

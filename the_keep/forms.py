@@ -3,7 +3,7 @@ from django import forms
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
     Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation,
-    Law, FAQ
+    LawGroup, Law, FAQ
 )
 from the_gatehouse.models import Profile, Language
 from django.core.exceptions import ValidationError
@@ -1226,6 +1226,29 @@ class EditLawDescriptionForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['description'].required = False
+
+
+class CopyLawGroupForm(forms.Form):
+    language = forms.ModelChoiceField(queryset=Language.objects.none())
+
+    def __init__(self, source_group=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if source_group:
+            base_qs = Language.objects.exclude(code=source_group.language.code)
+
+            if source_group.post:
+                # Get languages already used for this post
+                used_languages = LawGroup.objects.filter(post=source_group.post).values_list('language__code', flat=True)
+                base_qs = base_qs.exclude(code__in=used_languages)
+            else:
+                # Get languages already used for this abbreviation
+                used_languages = LawGroup.objects.filter(abbreviation=source_group.abbreviation).values_list('language__code', flat=True)
+                base_qs = base_qs.exclude(code__in=used_languages)
+
+            self.fields['language'].queryset = base_qs
+
+
 
 class FAQForm(forms.ModelForm):
     class Meta:

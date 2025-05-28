@@ -42,7 +42,7 @@ from .models import (
     Hireling, Landmark,
     Piece, Tweak,
     PNPAsset, ColorChoices, PostTranslation,
-    FAQ, LawGroup, Law
+    FAQ, LawGroup, Law, duplicate_lawgroup_with_laws
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -52,8 +52,9 @@ from .forms import (MapCreateForm,
                     StatusConfirmForm, TweakCreateForm,
                     PNPAssetCreateForm, TranslationCreateForm,
                     AddLawForm, EditLawForm, EditLawDescriptionForm,
-                    FAQForm
+                    FAQForm, CopyLawGroupForm
 )
+from .utils import DEFAULT_TITLES_TRANSLATIONS, get_translated_title, clean_meta_description
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
@@ -2177,8 +2178,13 @@ def apply_neighbors_recursively(laws):
         apply_neighbors_recursively(children)
     return laws
 
+def assign_full_urls(laws, request):
+    for law in laws:
+        law.full_url = request.build_absolute_uri(law.get_absolute_url())
+        if hasattr(law, 'children'):
+            assign_full_urls(law.children.all(), request)
 
-def get_law_hierarchy_context(slug=None, expansion_slug=None, edit_mode=False, lang_code=None):
+def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode=False, lang_code=None):
     expansion = None
     post = None
 
@@ -2209,7 +2215,9 @@ def get_law_hierarchy_context(slug=None, expansion_slug=None, edit_mode=False, l
             Law.objects
             .filter(group=group, parent__isnull=True, prime_law=False)
             .order_by('position')
+            .select_related('group', 'group__post', 'group__language')
             .prefetch_related(
+            'group', 'children__group', 'children__children__group', 'children__children__children__group',
             'reference_laws',
             'children', 'children__reference_laws', 
             'children__children', 'children__children__reference_laws', 
@@ -2222,6 +2230,7 @@ def get_law_hierarchy_context(slug=None, expansion_slug=None, edit_mode=False, l
             top_level_laws = apply_neighbors_recursively(raw_top_level)
         else:
             top_level_laws = list(raw_top_level)
+            assign_full_urls(top_level_laws, request)
         lawgroups_with_laws.append({
             'group': group,
             'top_level_laws': top_level_laws
@@ -2238,9 +2247,27 @@ def get_law_hierarchy_context(slug=None, expansion_slug=None, edit_mode=False, l
 def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
     highlight_id = request.GET.get('highlight_law')
     highlight_group_id = request.GET.get('highlight_group')
-    context = get_law_hierarchy_context(slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
-    context['highlight_id'] = highlight_id
-    context['highlight_group_id'] = highlight_group_id
+    
+    law_meta_description = None
+    law_meta_title = None
+    if highlight_id:
+        selected_law = Law.objects.filter(id=highlight_id).first()
+        if selected_law:
+            law_meta_title = selected_law.law_code + clean_meta_description(selected_law.title)
+            law_meta_description = clean_meta_description(selected_law.description)
+    elif highlight_group_id:
+        selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
+        if selected_group:
+            law_meta_title = "Law of " + clean_meta_description(selected_group.title)
+            law_meta_description = clean_meta_description(selected_group.description)
+    
+    context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
+    context.update({
+        'highlight_id': highlight_id,
+        'highlight_group_id': highlight_group_id,
+        'law_meta_description': law_meta_description,
+        'law_meta_title': law_meta_title,
+    })
 
     return render(request, 'the_keep/law.html', context)
 
@@ -2265,13 +2292,15 @@ def law_hierarchy_edit_view(request, slug=None, expansion_slug=None, lang_code=N
     elif not user_profile.admin:
         messages.error(request, f'You are not authorized to edit the Law of Root.')
         raise PermissionDenied() 
-    
-    all_laws = Law.objects.filter(
-        Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
-        group__language=language
-            ).prefetch_related('group__post')
+    if user_profile.admin:
+        all_laws = Law.objects.filter(group__language=language).prefetch_related('group__post')
+    else:
+        all_laws = Law.objects.filter(
+            Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
+            group__language=language
+                ).prefetch_related('group__post')
 
-    context = get_law_hierarchy_context(slug=slug, expansion_slug=expansion_slug, edit_mode=True, lang_code=lang_code)
+    context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=True, lang_code=lang_code)
     context['edit_mode'] = True
     context['all_laws'] = all_laws
 
@@ -2396,6 +2425,7 @@ def edit_law_ajax(request):
             return JsonResponse({'status': 'error', 'errors': form.errors}, status=400)
 
     return JsonResponse({'status': 'error'}, status=400)
+
 @editor_required
 def edit_law_description_ajax(request):
     user_profile = request.user.profile
@@ -2442,8 +2472,12 @@ def delete_law_ajax(request):
         return JsonResponse({'status': 'success'})
     return JsonResponse({'status': 'error'}, status=400)
 
+
+
 @editor_required_class_based_view
 class CreateLawGroupView(View):
+
+    
     def get(self, request, slug, lang_code=None):
         # Get the post by slug
         post = get_object_or_404(Post, slug=slug)
@@ -2465,20 +2499,30 @@ class CreateLawGroupView(View):
         Klass = component_mapping.get(post.component)
         object = get_object_or_404(Klass, slug=post.slug)
 
+
+
         # Get the language by code, or fallback to default
         if lang_code:
             language = Language.objects.filter(code=lang_code).first()
             if not language:
                 language = Language.objects.filter(code='en').first()
         else:
-            language = Language.objects.filter(code='en').first()
+            # Language is the post's language 
+            language = post.language
 
-
+        translation = PostTranslation.objects.filter(
+            post=post,
+            language=language
+        ).first()
+        new_title = None
+        if translation:
+            new_title = translation.translated_title
 
         # Create a new LawGroup for this post
         group, created = LawGroup.objects.get_or_create(
             post=post,
-            language=language
+            language=language,
+            title=new_title
         )
         if not created:
             has_laws = group.laws.exists()
@@ -2500,14 +2544,16 @@ class CreateLawGroupView(View):
         if post.component == 'Map' or post.component == 'Deck':
             Law.objects.create(
                 group=group,
-                title="Setup Modifications",
+                title=get_translated_title("Setup Modifications", language.code),
                 description="",
-                position=1
+                position=1,
+                locked_position=True
             )
         if post.component == 'Vagabond':
             Law.objects.create(
                 group=group,
-                title="Starting Items",
+                title=get_translated_title("Starting Items", language.code),
+                # title="Starting Items",
                 description="",
                 position=1,
                 locked_position=True
@@ -2523,7 +2569,8 @@ class CreateLawGroupView(View):
         if post.component == 'Faction':
             Law.objects.create(
                 group=group,
-                title="OVERVIEW",
+                title=get_translated_title("Overview", language.code),
+                # title="Overview",
                 description="",
                 position=1,
                 locked_position=True,
@@ -2531,7 +2578,8 @@ class CreateLawGroupView(View):
             )
             rules_law = Law.objects.create(
                 group=group,
-                title="Faction Rules and Abilities",
+                title=get_translated_title("Faction Rules and Abilities", language.code),
+                # title="Faction Rules and Abilities",
                 description="",
                 position=2,
                 locked_position=True,
@@ -2540,7 +2588,8 @@ class CreateLawGroupView(View):
             Law.objects.create(
                 group=group,
                 parent=rules_law,
-                title="Crafting",
+                title=get_translated_title("Crafting", language.code),
+                # title="Crafting",
                 description="",
                 position=1,
                 locked_position=True,
@@ -2548,7 +2597,8 @@ class CreateLawGroupView(View):
             )
             setup_law = Law.objects.create(
                 group=group,
-                title="Faction Setup",
+                title=get_translated_title("Faction Setup", language.code),
+                # title="Faction Setup",
                 description="",
                 position=3,
                 locked_position=True,
@@ -2563,21 +2613,24 @@ class CreateLawGroupView(View):
             )
             Law.objects.create(
                 group=group,
-                title="Birdsong",
+                title=get_translated_title("Birdsong", language.code),
+                # title="Birdsong",
                 description="",
                 position=4,
                 locked_position=True
             )
             Law.objects.create(
                 group=group,
-                title="Daylight",
+                title=get_translated_title("Daylight", language.code),
+                # title="Daylight",
                 description="",
                 position=4,
                 locked_position=True
             )
             Law.objects.create(
                 group=group,
-                title="Evening",
+                title=get_translated_title("Evening", language.code),
+                # title="Evening",
                 description="",
                 position=5,
                 locked_position=True
@@ -2592,6 +2645,42 @@ class CreateLawGroupView(View):
 
         # Redirect or respond
         return redirect(group.get_edit_url())
+
+@player_required
+def copy_law_group_view(request, id):
+    user_profile = request.user.profile
+    source_group = get_object_or_404(LawGroup, id=id)
+    # Admins are always allowed
+    if user_profile.admin:
+        pass
+
+    # If there's a post, allow only if user is both editor and the designer of that post
+    elif source_group.post:
+        if not (user_profile.editor and source_group.post.designer == user_profile):
+            messages.error(request, f"You do not have authorization to copy '{source_group.title}'.")
+            raise PermissionDenied()
+
+    # If no post, only admins are allowed (already checked above)
+    else:
+        messages.error(request, f"You do not have authorization to copy '{source_group.title}'.")
+        raise PermissionDenied()
+        
+
+    if request.method == "POST":
+        # form = CopyLawGroupForm(request.POST, source_group=source_group)
+        form = CopyLawGroupForm(source_group=source_group, data=request.POST)
+        if form.is_valid():
+            language = form.cleaned_data['language']
+            new_group = duplicate_lawgroup_with_laws(source_group, language)
+            return redirect(new_group.get_absolute_url())
+    else:
+        form = CopyLawGroupForm(source_group=source_group)
+
+    return render(request, 'the_keep/law_group_copy.html', {
+        'law_group': source_group,
+        'form': form,
+    })
+
 
 def faq_search(request, slug=None, lang_code=None):
     query = request.GET.get("q", "")

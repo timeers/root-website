@@ -23,7 +23,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from PIL import Image
 from io import BytesIO
 from django.apps import apps
-from .utils import slugify_post_title, slugify_expansion_title
+from .utils import slugify_post_title, slugify_expansion_title, DEFAULT_TITLES_TRANSLATIONS
 from the_gatehouse.models import Profile, Language
 from .utils import validate_hex_color, delete_old_image, hex_to_rgb
 import random
@@ -2090,10 +2090,31 @@ class LawGroup(models.Model):
 
     def generate_abbreviation(self):
         if self.post and self.post.title:
-            # Use first letter of each word in the post title
-            return ''.join(word[0] for word in self.post.title.split() if word).upper()
+            # Extract words (strips punctuation)
+            words = re.findall(r'\b\w+\b', self.post.title)
+            abbreviation = ''.join(word[0] for word in words if word).upper()
+
+            # If it's too long, try filtering out common "small" words
+            if len(abbreviation) > 4:
+                small_words = {
+                    # English
+                    'a', 'an', 'and', 'the', 'of', 'in', 'on', 'to', 'with', 'at', 'by', 'for',
+                    # Spanish
+                    'el', 'la', 'los', 'las', 'de', 'del', 'y', 'en', 'con', 'por', 'para', 'un', 'una', 'unos', 'unas',
+                    # French
+                    'le', 'la', 'les', 'de', 'des', 'du', 'et', 'en', 'dans', 'avec', 'pour', 'par', 'un', 'une'
+                    # Dutch
+                    'de', 'het', 'een', 'en', 'van', 'in', 'op', 'met', 'voor', 'bij', 'tot', 'onder',
+                    # Polish
+                    'i', 'w', 'z', 'na', 'do', 'od', 'za', 'po', 'przez', 'dla', 'o', 'u', 'nad', 'pod',
+                    # Russian (transliterated and Cyrillic)
+                    'и', 'в', 'во', 'на', 'с', 'со', 'по', 'от', 'до', 'у', 'о', 'об', 'при', 'без', 'для', 'из', 'над', 'под', 'за',
+                }
+                filtered_words = [word for word in words if word.lower() not in small_words]
+                abbreviation = ''.join(word[0] for word in filtered_words if word).upper()
+
+            return abbreviation or '1'  # fallback if all words are filtered
         else:
-            # Default abbreviation if no post
             return '1'
 
     def derive_position_from_abbreviation(self):
@@ -2334,13 +2355,34 @@ class Law(models.Model):
             return Decimal('1.0')
 
 
+
 @transaction.atomic
 def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> LawGroup:
+
+    def find_translation_key_by_title(title, source_lang_code):
+        title_lower = title.strip().lower()
+        for original_key, translations in DEFAULT_TITLES_TRANSLATIONS.items():
+            translated_title = translations.get(source_lang_code)
+            if translated_title and translated_title.strip().lower() == title_lower:
+                return original_key  # Return the canonical key
+        return None
+
+
+    selected_title = source_group.title
+    if source_group.post:
+            selected_title = source_group.post.title
+            # Try to get a translated title from PostTranslation
+            translation = PostTranslation.objects.filter(
+                post=source_group.post,
+                language=target_language
+            ).first()
+            if translation:
+                selected_title = translation.translated_title
     # 1. Copy LawGroup
     new_group = LawGroup.objects.create(
         post=source_group.post,
         abbreviation=source_group.abbreviation,
-        title=source_group.title,
+        title=selected_title,
         description=source_group.description,
         language=target_language,
         position=source_group.position,
@@ -2349,11 +2391,33 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
     # 2. Map old Law IDs to new Law instances
     law_mapping = {}
 
-    # 3. First pass: Create all laws without parents
     for law in source_group.laws.all():
+        new_title = law.title  # default to original title
+
+        # Case 1: Prime law — use post translation title
+        if law.prime_law and source_group.post:
+            new_title = source_group.post.title
+            translation = PostTranslation.objects.filter(
+                post=source_group.post,
+                language=target_language
+            ).first()
+            if translation:
+                new_title = translation.translated_title
+
+        # Case 2: Known default law — use translated version of canonical title
+        elif law.locked_position:
+            match_key = find_translation_key_by_title(
+                law.title,
+                source_group.language.code
+            )
+            if match_key:
+                translations = DEFAULT_TITLES_TRANSLATIONS.get(match_key, {})
+                new_title = translations.get(target_language.code, match_key)  # fallback to English key
+
+        # Create new law
         new_law = Law.objects.create(
             group=new_group,
-            title=law.title,
+            title=new_title,
             description=law.description,
             position=law.position,
             law_code=law.law_code,
@@ -2365,12 +2429,51 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
         )
         law_mapping[law.id] = new_law
 
+
+    # # 3. First pass: Create all laws without parents
+    # for law in source_group.laws.all():
+
+    #     new_title = law.title  # default: keep original title
+
+    #     # Change title if law matches one of the default titles
+    #     if law.prime_law and source_group.post:
+    #         new_title = selected_title
+    #     elif law.locked_position and law.title in DEFAULT_TITLES_TRANSLATIONS:
+    #         # Normalize to lowercase for case-insensitive lookup
+    #         normalized_title = law.title.lower()
+    #         normalized_translations = {
+    #             key.lower(): value for key, value in DEFAULT_TITLES_TRANSLATIONS.items()
+    #         }
+
+    #         if normalized_title in normalized_translations:
+    #             translations = normalized_translations[normalized_title]
+    #             new_title = translations.get(target_language.code, law.title)
+
+    #     new_law = Law.objects.create(
+    #         group=new_group,
+    #         title=new_title,
+    #         description=law.description,
+    #         position=law.position,
+    #         law_code=law.law_code,
+    #         local_code=law.local_code,
+    #         locked_position=law.locked_position,
+    #         allow_sub_laws=law.allow_sub_laws,
+    #         allow_description=law.allow_description,
+    #         prime_law=law.prime_law,
+    #     )
+    #     law_mapping[law.id] = new_law
+
     # 4. Second pass: Set parent references
     for old_law in source_group.laws.all():
         if old_law.parent_id:
             new_law = law_mapping[old_law.id]
             new_law.parent = law_mapping.get(old_law.parent_id)
             new_law.save()
+
+    first_law = Law.objects.filter(group=new_group, parent=None).order_by('position').first()
+    if first_law:
+        # Rebuild starting from the parent of the first law (which is None)
+        first_law.rebuild_law_codes(new_group, parent=None, deleted_position=0)
 
     return new_group
 
