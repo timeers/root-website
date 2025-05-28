@@ -448,12 +448,12 @@
 
       <label for="id_edit_reference_laws" class='hidden'>Reference Laws:</label>
       <div class='mb-4'>
-      <select name="reference_laws" id="id_edit_reference_laws" multiple class="multi-select">
-          {% for law in all_laws %}
-              <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
-          {% endfor %}
-      </select>
-    </div>
+        <select name="reference_laws" id="id_edit_reference_laws" multiple class="multi-select">
+            {% for law in all_laws %}
+                <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+            {% endfor %}
+        </select>
+      </div>
 
       <button class='btn btn-sm btn-primary' type="submit">Save</button>
       <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-law-modal').style.display='none'">Cancel</button>
@@ -479,6 +479,14 @@
       <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
       </div>
 
+      <label for="id_edit_description_reference_laws" class='hidden'>Reference Laws:</label>
+      <div class='mb-4'>
+        <select name="reference_laws" id="id_edit_description_reference_laws" multiple class="multi-select">
+            {% for law in all_laws %}
+                <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+            {% endfor %}
+        </select>
+      </div>
       <button class='btn btn-sm btn-primary' type="submit">Save</button>
       <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-description-modal').style.display='none'">Cancel</button>
       </form>
@@ -647,7 +655,15 @@
         document.getElementById('readonly-law-title').textContent = button.dataset.title;
         document.getElementById('edit-description-description').value = button.dataset.description;
         document.getElementById('edit-description-law-code').textContent = "Edit " + button.dataset.code;
-        
+
+        // Set reference laws
+        const referenceLawsSelect = $('#id_edit_description_reference_laws');  // Using jQuery to access the Select2 element
+        const references = button.dataset.references || '';
+        const selectedIds = references.split(',').map(id => id.trim()).filter(Boolean);
+
+        // Set selected options in Select2
+        referenceLawsSelect.val(selectedIds).trigger('change');
+
         // Show modal
         showModal('edit-description-modal');
       
@@ -736,6 +752,10 @@
 
     $(document).ready(function() {
       // Apply Select2 to the reference_laws field
+      $('#id_edit_description_reference_laws').select2({
+        placeholder: "Links to Reference Laws", // Add a placeholder
+        width: '100%' // Set the width to 100% for responsiveness
+    });
       $('#id_edit_reference_laws').select2({
           placeholder: "Links to Reference Laws", // Add a placeholder
           width: '100%' // Set the width to 100% for responsiveness

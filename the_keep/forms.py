@@ -795,11 +795,25 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief explanation on how to use this Hireling...'
             })
-        self.fields['other_side'].queryset = self.fields['other_side'].queryset.filter(designer=designer, status__lte=designer.view_status)
         if instance:
             # Exclude the current instance from the queryset
             self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
-            self.fields['other_side'].queryset = self.fields['other_side'].queryset.exclude(id=instance.id)
+            # Prepare filter for 'other_side'
+            other_side_filter = Q(designer=designer, status__lte=designer.view_status)
+            
+            # Include current other_side if it exists
+            if instance.other_side:
+                other_side_filter |= Q(id=instance.other_side.id)
+
+            # Apply filter and exclude the current instance
+            self.fields['other_side'].queryset = (
+                self.fields['other_side'].queryset
+                .filter(other_side_filter)
+                .exclude(id=instance.id)
+            )
+        else: 
+            self.fields['other_side'].queryset = self.fields['other_side'].queryset.filter(designer=designer, status__lte=designer.view_status)
+
 
     def clean(self):
         cleaned_data = super().clean()
@@ -869,8 +883,8 @@ class VagabondCreateForm(PostCreateForm):
             if Vagabond.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
                 raise ValidationError(f'A vagabond with the name "{title}" already exists. Please choose a different name.')
             # Check that the VB doesn't have a wild amount of items
-            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 6:
-                raise ValidationError("Please check the number of starting items. A Vagabond typically starts with 3-4 items.")
+            if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 8:
+                raise ValidationError("Please check the number of starting items (8 max). A Vagabond typically starts with 3-4 items.")
             return cleaned_data
 
 class VagabondImportForm(PostImportForm): 
@@ -1222,7 +1236,7 @@ class EditLawForm(forms.ModelForm):
 class EditLawDescriptionForm(forms.ModelForm):
     class Meta:
         model = Law
-        fields = ['description']
+        fields = ['description', 'reference_laws']
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['description'].required = False
