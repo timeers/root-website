@@ -410,7 +410,7 @@
     <input type="text" name="title" required placeholder="Title..."><br>
 
     <label class='hidden'>Description</label>
-    <textarea name="description" placeholder="Description..."></textarea><br>
+    <textarea name="description" placeholder="Description..." rows="6"></textarea><br>
     <div class='mb-3'>
       <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
     </div>
@@ -440,7 +440,7 @@
       <input type="text" name="title" id="edit-law-title" required placeholder='Title...'>
       
       <label for="edit-law-description" class='hidden'>Description:</label>
-      <textarea name="description" id="edit-law-description" placeholder='Description...'></textarea>
+      <textarea name="description" id="edit-law-description" placeholder='Description...' rows="6"></textarea>
       <div class='mb-3'>
         <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
       </div>
@@ -474,7 +474,7 @@
       <div id='readonly-law-title'></div>
       
       <label for="edit-description-description" class='hidden'>Description:</label>
-      <textarea name="description" id="edit-description-description" placeholder='Description...'></textarea>
+      <textarea name="description" id="edit-description-description" placeholder='Description...' rows="6"></textarea>
       <div class='mb-3'>
       <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
       </div>
@@ -610,9 +610,6 @@
           // Set selected options in Select2
           referenceLawsSelect.val(selectedIds).trigger('change');
 
-          console.log('Reference IDs from button:', references);  // Debugging
-          console.log('Parsed IDs:', selectedIds);               // Debugging
-
           // Show the modal
           showModal('edit-law-modal');
       });
@@ -653,7 +650,7 @@
         
         // Show modal
         showModal('edit-description-modal');
-        {% comment %} document.getElementById('edit-description-modal').style.display = 'block'; {% endcomment %}
+      
       });
     });
 

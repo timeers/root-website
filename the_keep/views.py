@@ -2253,7 +2253,7 @@ def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
     if highlight_id:
         selected_law = Law.objects.filter(id=highlight_id).first()
         if selected_law:
-            law_meta_title = selected_law.law_code + clean_meta_description(selected_law.title)
+            law_meta_title = selected_law.group.title + selected_law.law_code + " " + clean_meta_description(selected_law.title)
             law_meta_description = clean_meta_description(selected_law.description)
     elif highlight_group_id:
         selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
