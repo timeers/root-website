@@ -38,7 +38,8 @@
         data-code="{{ selected_law.law_code }}"
         data-id="{{ selected_law.id }}"
         data-title="{{ selected_law.title }}"
-        data-description="{{ selected_law.description }}">
+        data-description="{{ selected_law.description }}"
+        data-references="{% for ref in selected_law.reference_laws.all %}{{ ref.id }}{% if not forloop.last %},{% endif %}{% endfor %}">
         <i class="bi bi-pencil-square"></i>
         </button>
     {% endif %}
