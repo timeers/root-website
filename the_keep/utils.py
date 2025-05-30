@@ -437,6 +437,46 @@ DEFAULT_TITLES_TRANSLATIONS = {
         'pl': 'Przedmioty Startowe',
         'fr': 'Éléments de départ',
     },
+    'Draw and Discard': {
+        'en': 'Draw and Discard',
+        'ru': 'Добор и сброс карт',
+        'es': 'Robar y descartar',
+        'nl': 'Trek en Leg Af',
+        'pl': 'Dobranie i Odrzucenie Kart',
+        'fr': 'Piocher et défausser',
+    },
+    'Build': {
+        'en': 'Build',
+        'ru': 'Строительство',
+        'es': 'Construir',
+        'nl': 'Bouw.',
+        'pl': 'Budowa',
+        'fr': 'Construire',
+    },
+    'Recruit': {
+        'en': 'Recruit',
+        'ru': 'Вербовка',
+        'es': 'Reclutar',
+        'nl': 'Rekruteer',
+        'pl': 'Werbunek',
+        'fr': 'Recruter',
+    },
+    'Move': {
+        'en': 'Move',
+        'ru': 'Перемещение',
+        'es': 'Mover',
+        'nl': 'Verplaats',
+        'pl': 'Ruch',
+        'fr': 'Déplacer',
+    },
+    'Battle': {
+        'en': 'Battle',
+        'ru': 'Сражение',
+        'es': 'Batallar',
+        'nl': 'Vecht',
+        'pl': 'Walka',
+        'fr': 'Batailler',
+    },
 
 
 }
@@ -450,7 +490,7 @@ def get_translated_title(key, target_lang_code):
 
 
 
-def clean_meta_description(raw_text, max_length=160):
+def clean_meta_description(raw_text, max_length=200):
     text = strip_tags(raw_text or "")
     text = re.sub(r'{{|}}|\[\[|\]\]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()

@@ -2188,6 +2188,23 @@ def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode
     expansion = None
     post = None
 
+    highlight_id = request.GET.get('highlight_law')
+    highlight_group_id = request.GET.get('highlight_group')
+    
+    law_meta_description = None
+    law_meta_title = None
+    if highlight_id:
+        selected_law = Law.objects.filter(id=highlight_id).first()
+        if selected_law:
+            law_meta_title = selected_law.group.title + ": " + selected_law.law_code + ' "' + clean_meta_description(selected_law.title) + '"'
+            law_meta_description = clean_meta_description(selected_law.description)
+    elif highlight_group_id:
+        selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
+        if selected_group:
+            law_meta_title = "Law of " + clean_meta_description(selected_group.title)
+            law_meta_description = clean_meta_description(selected_group.description)
+
+
     if lang_code:
         language = Language.objects.filter(code=lang_code).first()
         if not language:
@@ -2195,17 +2212,48 @@ def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode
     else:
         language = Language.objects.filter(code='en').first()
 
+
+
+
+
     if slug:
         post = get_object_or_404(Post, slug=slug)
         groups = LawGroup.objects.filter(post=post, language=language).order_by('position')
+        law_title = f"Law of Root - {post.title}"
     elif expansion_slug:
         expansion = get_object_or_404(Expansion, slug=expansion_slug)
         groups = LawGroup.objects.filter(post__expansion=expansion, language=language).order_by('position')
+        law_title = f"Law of Root - {expansion.title}"
     else:
         groups = LawGroup.objects.filter(
             Q (post=None)| Q(post__official=True),
             language=language
             ).order_by('position')
+        law_title = f"Law of Root"
+
+
+    # Determine other available languages for this context
+    if slug:
+        available_languages_qs = LawGroup.objects.filter(post=post).exclude(language=language)
+    elif expansion_slug:
+        available_languages_qs = LawGroup.objects.filter(post__expansion=expansion).exclude(language=language)
+    else:
+        available_languages_qs = LawGroup.objects.filter(
+            Q(post=None) | Q(post__official=True)
+        ).exclude(language=language)
+
+    available_languages = Language.objects.filter(
+            lawgroup__in=available_languages_qs
+        ).exclude(id=language.id).distinct()
+
+
+    edit_authorized = False
+    if request.user.is_authenticated:
+        if request.user.profile.admin:
+            edit_authorized = True
+        elif request.user.profile.editor and post:
+            if request.user.profile == post.designer:
+                edit_authorized = True
 
 
     lawgroups_with_laws = []
@@ -2241,34 +2289,20 @@ def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode
         'post': post,
         'expansion': expansion,
         'lang_code': lang_code,
-        'selected_language': language,
-    }
-
-def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
-    highlight_id = request.GET.get('highlight_law')
-    highlight_group_id = request.GET.get('highlight_group')
-    
-    law_meta_description = None
-    law_meta_title = None
-    if highlight_id:
-        selected_law = Law.objects.filter(id=highlight_id).first()
-        if selected_law:
-            law_meta_title = selected_law.group.title + ": " + selected_law.law_code + ' "' + clean_meta_description(selected_law.title) + '"'
-            law_meta_description = clean_meta_description(selected_law.description)
-    elif highlight_group_id:
-        selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
-        if selected_group:
-            law_meta_title = "Law of " + clean_meta_description(selected_group.title)
-            law_meta_description = clean_meta_description(selected_group.description)
-    
-    context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
-    context.update({
         'highlight_id': highlight_id,
         'highlight_group_id': highlight_group_id,
         'law_meta_description': law_meta_description,
         'law_meta_title': law_meta_title,
-    })
+        'law_title': law_title,
+        'edit_authorized': edit_authorized,
+        'selected_language': language,
+        'available_languages': available_languages,
+    }
 
+def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
+
+    context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
+    
     return render(request, 'the_keep/law.html', context)
 
 @editor_onboard_required
@@ -2613,6 +2647,20 @@ class CreateLawGroupView(View):
             )
             Law.objects.create(
                 group=group,
+                parent=setup_law,
+                title="Step 2: XX",
+                description="",
+                position=2
+            )
+            Law.objects.create(
+                group=group,
+                parent=setup_law,
+                title="Step 3: XXX",
+                description="",
+                position=3
+            )
+            Law.objects.create(
+                group=group,
                 title=get_translated_title("Birdsong", language.code),
                 # title="Birdsong",
                 description="",
@@ -2624,18 +2672,24 @@ class CreateLawGroupView(View):
                 title=get_translated_title("Daylight", language.code),
                 # title="Daylight",
                 description="",
-                position=4,
+                position=5,
                 locked_position=True
             )
-            Law.objects.create(
+            evening_law = Law.objects.create(
                 group=group,
                 title=get_translated_title("Evening", language.code),
                 # title="Evening",
                 description="",
-                position=5,
+                position=6,
                 locked_position=True
             )
-
+            Law.objects.create(
+                group=group,
+                parent=evening_law,
+                title=get_translated_title("Draw and Discard", language.code),
+                description="Draw one card, plus one per uncovered draw bonus. Then, if you have more than five cards in your hand, discard cards of your choice until you have five.",
+                position=1
+            )
         fields = []
         fields.append({
                 'name': 'Posted by:',

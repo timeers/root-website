@@ -2088,13 +2088,18 @@ class LawGroup(models.Model):
                 law.update_code_and_descendants()
 
 
+
     def generate_abbreviation(self):
         if self.post and self.post.title:
-            # Extract words (strips punctuation)
-            words = re.findall(r'\b\w+\b', self.post.title)
+            words = re.findall(r"\b[\w']+\b", self.post.title)
+
+            def is_small_word(word):
+                # Normalize leading contractions like "l'École" → "École", "d'Art" → "Art"
+                normalized = re.sub(r"^[ldmntcsj]'?", "", word.lower())  # French contractions
+                return normalized in small_words
+
             abbreviation = ''.join(word[0] for word in words if word).upper()
 
-            # If it's too long, try filtering out common "small" words
             if len(abbreviation) > 4:
                 small_words = {
                     # English
@@ -2102,20 +2107,22 @@ class LawGroup(models.Model):
                     # Spanish
                     'el', 'la', 'los', 'las', 'de', 'del', 'y', 'en', 'con', 'por', 'para', 'un', 'una', 'unos', 'unas',
                     # French
-                    'le', 'la', 'les', 'de', 'des', 'du', 'et', 'en', 'dans', 'avec', 'pour', 'par', 'un', 'une'
+                    'le', 'la', 'les', 'de', 'des', 'du', 'et', 'en', 'dans', 'avec', 'pour', 'par', 'un', 'une', 'école', 'art',
                     # Dutch
                     'de', 'het', 'een', 'en', 'van', 'in', 'op', 'met', 'voor', 'bij', 'tot', 'onder',
                     # Polish
                     'i', 'w', 'z', 'na', 'do', 'od', 'za', 'po', 'przez', 'dla', 'o', 'u', 'nad', 'pod',
-                    # Russian (transliterated and Cyrillic)
+                    # Russian
                     'и', 'в', 'во', 'на', 'с', 'со', 'по', 'от', 'до', 'у', 'о', 'об', 'при', 'без', 'для', 'из', 'над', 'под', 'за',
                 }
-                filtered_words = [word for word in words if word.lower() not in small_words]
+
+                filtered_words = [word for word in words if not is_small_word(word)]
                 abbreviation = ''.join(word[0] for word in filtered_words if word).upper()
 
-            return abbreviation or '1'  # fallback if all words are filtered
+            return abbreviation or '1'
         else:
             return '1'
+
 
     def derive_position_from_abbreviation(self):
         # Attempt to convert abbreviation to a number (if it starts with a digit)
@@ -2405,7 +2412,7 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
                 new_title = translation.translated_title
 
         # Case 2: Known default law — use translated version of canonical title
-        elif law.locked_position:
+        else:
             match_key = find_translation_key_by_title(
                 law.title,
                 source_group.language.code

@@ -34,15 +34,56 @@
 
 
 <article class="content-section d-flex justify-content-between align-items-center">
+  <div>
   {% if post %}
-      <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>Law of Root - {{ post.title }}</h1>
+      <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>{{law_title}}</h1>
   {% else %}
-      <h1 class='root-title'>Law of Root{% if expansion %} - {{ expansion.title }}{% endif  %}</h1>
+      <h1 class='root-title'>{{ law_title }}</h1>
   {% endif %}
+  </div>
+  <div>
+    {% if lawgroups_with_laws %}
+    {% if available_languages or edit_authorized %}
+      
+      <div class="dropdown d-inline">
+        <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+          <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
+        </button>
+        <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+          {% if post %}
+            {% if available_languages %}
+            {% for lang in available_languages %}
+              <li>
+                <a class="dropdown-item" href="{% url 'lang-post-law' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+              </li>
+            {% endfor %}
+            {% endif %}
+            {% if edit_authorized and post and lawgroups_with_laws %}
+            {% if available_languages %}
+              <li><hr class="dropdown-divider"></li>
+              {% endif %}
+              <li>
+                <a class="dropdown-item" href="{% url 'copy-law-group' id=lawgroups_with_laws.0.group.id %}"><small>Add Language</small></a>
+              </li>
+            {% endif %}
+          {% else %}
+            {% for lang in available_languages %}
+              <li>
+                <a class="dropdown-item" href="{% url 'law-of-root' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+              </li>
+            {% endfor %}
+          {% endif %}
+        </ul>
+      </div>
+      
 
-    <small>
-    {{ selected_language }}
-    </small>
+    {% else %}
+        <small>
+            {{ selected_language }}
+        </small>
+    {% endif %}
+    {% endif %}
+  </div>
 
 </article>
 
@@ -58,9 +99,9 @@
         {% endif %}
         <h2 class='root-title'>{{ item.group.abbreviation }}. {{ item.group.title }}
           {% if item.group.post %}
-          {% if item.group.post.component == 'Faction' or item.group.post.component == 'Clockwork' %}
-              <img class="lg-faction-icon" src="{{ item.group.post.small_icon.url }}">
-          {% endif %}
+            {% if item.group.post.component == 'Faction' or item.group.post.component == 'Clockwork' %}
+                <img class="lg-faction-icon" src="{{ item.group.post.small_icon.url }}">
+            {% endif %}
           {% endif %}
         
         {% if item.group.post %}
@@ -68,18 +109,18 @@
         {% endif %}
       </div>
 
-      {% if user.profile.admin or user.profile == item.group.post.designer and user.profile.editor %}
-      <div class="d-flex flex-wrap justify-content-end">
-        {% if edit_mode %}
-          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_absolute_url }}">
-              {% trans 'Done' %} <i class="bi bi-check"></i>
-          </a>
-        {% else %}
-        <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_edit_url }}">
-            {% trans 'Edit Law' %} <i class="bi bi-pencil-square"></i>
-        </a>
-        {% endif %}
-      </div>
+      {% if edit_authorized %}
+          <div class="d-flex flex-wrap justify-content-end">
+              {% if edit_mode %}
+                  <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_absolute_url }}">
+                      {% trans 'Done' %} <i class="bi bi-check"></i>
+                  </a>
+              {% else %}
+                  <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_edit_url }}">
+                      {% trans 'Edit Law' %} <i class="bi bi-pencil-square"></i>
+                  </a>
+              {% endif %}
+          </div>
       {% endif %}
     </div>
     {% if item.group.description %}
@@ -191,17 +232,6 @@
                                 {% endif %}
                               </div>
 
-                              {% comment %} {% if edit_mode %}
-                                  <div>
-                                      <button class="add-law-button"
-                                          data-group="{{ item.group.id }}"
-                                          data-parent="{{ grandchild.id }}"
-                                          data-prev="{{ great_grandchild.id }}"
-                                          data-next="{{ great_grandchild.next_law.id }}">
-                                          {{ grandchild.law_code }}+
-                                      </button>
-                                  </div>
-                              {% endif %} {% endcomment %}
 
                             </div>
 
@@ -213,7 +243,6 @@
                                                 data-parent="{{ grandchild.id }}"
                                                 data-prev=""
                                                 data-next="">
-                                            {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
                                             Add {{ grandchild.law_code }}{{ forloop.counter|add:"1"|alpha }}
                                         </button>
                                     </div>
@@ -228,7 +257,6 @@
                                               data-parent="{{ grandchild.id }}"
                                               data-prev=""
                                               data-next="">
-                                          {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
                                           
                                           Add {{ grandchild.law_code }}a
                                       </button>
@@ -238,17 +266,6 @@
                           {% endfor %}
                           </div>  
 
-                          {% comment %} {% if edit_mode %}
-                            <div>
-                              <button class="add-law-button"
-                                  data-group="{{ item.group.id }}"
-                                  data-parent="{{ child.id }}"
-                                  data-prev="{{ grandchild.id }}"
-                                  data-next="{{ grandchild.next_law.id }}">
-                                  {{ child.law_code }}.+
-                              </button>
-                          </div>
-                        {% endif %} {% endcomment %}
 
                       </div>
 
@@ -261,7 +278,6 @@
                                           data-parent="{{ child.id }}"
                                           data-prev=""
                                           data-next="">
-                                      {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
                                       Add {{ child.law_code }}.{{ forloop.counter|add:"1"|roman }}
                                   </button>
                               </div>
@@ -277,7 +293,6 @@
                                       data-parent="{{ child.id }}"
                                       data-prev=""
                                       data-next="">
-                                  {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
                                   Add {{ child.law_code }}.I
                               </button>
                           </div>
@@ -286,17 +301,7 @@
 
                     {% endfor %}
                 </div>
-                  {% comment %} {% if edit_mode %}
-                    <div>
-                            <button class="add-law-button"
-                            data-group="{{ item.group.id }}"
-                            data-parent="{{ law.id }}"
-                            data-prev="{{ child.id }}"
-                            data-next="{{ child.next_law.id }}">
-                            {{ law.law_code }}.+
-                        </button>
-                    </div>
-                  {% endif %} {% endcomment %}
+
               </div>
                   {% if forloop.last and edit_mode and law.allow_sub_laws %}
                         <div class='mt-2 ml-5'>
@@ -307,7 +312,7 @@
                                 data-prev=""
                                 data-next="">
                                 Add {{ law.law_code }}.{{ forloop.counter|add:"1" }}
-                            {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                            
                             </button>
                         </div>
                       {% endif %}
@@ -321,7 +326,7 @@
                             data-prev=""
                             data-next="">
                             Add {{ law.law_code }}.1
-                        {% comment %} <i class="bi bi-arrow-return-right"></i> {% endcomment %}
+                        
                         </button>
                     </div>
                   {% endif %}
@@ -351,7 +356,7 @@
                 <button class="btn btn-sm btn-success add-law-button"
                     data-code="{{ item.group.abbreviation }}.1"
                     data-group="{{ item.group.id }}"
-                    data-prev="{{ law.id }}"
+                    data-prev=""
                     data-next="">
                     Add {{ item.group.abbreviation }}.1
                 </button>
@@ -468,8 +473,6 @@
       {% csrf_token %}
       <input type="hidden" name="law_id" id="edit-description-id">
       
-      {% comment %} <label for="edit-law-title">Title:</label>
-      <input type="text" name="title" id="edit-law-title" required> {% endcomment %}
       <div class='root-title h3' id='edit-description-law-code'></div>
       <div id='readonly-law-title'></div>
       

@@ -25,7 +25,7 @@ def italicize_parentheses(value):
 INLINE_IMAGES = {
     'torch': static('items/law/torch.png'),
     'tea': static('items/law/tea.png'),
-    'sword': static('items/law/bag.png'),
+    'sword': static('items/law/sword.png'),
     'bag': static('items/law/bag.png'),
     'sack': static('items/law/sack.png'),
     'hammer': static('items/law/hammer.png'),

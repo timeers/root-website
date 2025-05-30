@@ -64,7 +64,11 @@ def user_logged_in_handler(request, user, **kwargs):
 
     # If user is a member of WW but in group O (add to group P)
     if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr) or (current_group == 'O' and in_fr):
-        profile.group = 'P'
+        user_posts = Post.objects.filter(designer=profile)
+        if user_posts:
+            profile.group = 'E'
+        else:
+            profile.group = 'P'
         profile_updated = True
 
     # If user is a member of WR but does not have the weird view (add view)
