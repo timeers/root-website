@@ -1262,7 +1262,8 @@ class CopyLawGroupForm(forms.Form):
 
             self.fields['language'].queryset = base_qs
 
-
+class LanguageSelectionForm(forms.Form):
+    language = forms.ModelChoiceField(queryset=Language.objects.none(), empty_label=None)
 
 class FAQForm(forms.ModelForm):
     class Meta:

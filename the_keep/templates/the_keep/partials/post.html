@@ -1,5 +1,5 @@
 {% load i18n %}
-<a href="{{ object.get_absolute_url }}">
+<a href="{{ object.get_absolute_url }}{% if language_code %}?lang={{language_code}}{% endif %}">
 <article class="media content-section post-card">
 
     <div class="article-img-container">

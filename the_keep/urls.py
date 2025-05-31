@@ -37,14 +37,15 @@ urlpatterns = [
     path('', views.home, name='site-home'),
     path('home/', views.home),
     path('about/', views.about, name='keep-about'),
-    path('law/', views.law_hierarchy_view),
+    path('law-of-root/', views.law_hierarchy_view),
+    path('law-of-root/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
+    path('law-of-root/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
+    
     path('law/copy_law_group/<int:id>/', views.copy_law_group_view, name='copy-law-group'),
-    path('law/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
-    # path('law/edit/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
-    path('law/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
+
     path('faq/', views.faq_search, name='faq'),
     path('faq/lang/<str:lang_code>/', views.faq_search, name='lang-faq'),
-    path('faq/add/', views.FAQCreateView.as_view(), name='faq-add'),
+    path('faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
 
     path('edit/faq/<int:pk>/', views.FAQUpdateView.as_view(), name='faq-edit'),
     path('delete/faq/<int:pk>/', views.FAQDeleteView.as_view(), name='faq-delete'),
@@ -121,13 +122,12 @@ urlpatterns = [
     path("translations/<slug:slug>/update/<str:lang>/", create_post_translation, name='translation-update'),
 
     path('law/<slug:slug>/', views.law_hierarchy_view, name='post-law'),
-    path('law/<slug:slug>/add/', views.CreateLawGroupView.as_view(), name='post-law-group-create'),
+    path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
     path('law/<slug:slug>/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-post-law'),
-    path('law/<slug:slug>/add/<str:lang_code>/', views.CreateLawGroupView.as_view(), name='post-law-group-create-lang'),
     path('law/<slug:slug>/<str:lang_code>/', views.law_hierarchy_view, name='lang-post-law'),
     
     path('faq/<slug:slug>/', views.faq_search, name='post-faq'),
-    path('faq/<slug:slug>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
+    path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
     path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='lang-post-faq'),
 
 

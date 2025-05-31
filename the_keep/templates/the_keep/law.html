@@ -35,54 +35,54 @@
 
 <article class="content-section d-flex justify-content-between align-items-center">
   <div>
-  {% if post %}
+  {% comment %} {% if post %}
       <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>{{law_title}}</h1>
   {% else %}
       <h1 class='root-title'>{{ law_title }}</h1>
-  {% endif %}
+  {% endif %} {% endcomment %}
+  <h1 class='root-title'>{% trans 'Law of Root' %}</h1>
   </div>
   <div>
-    {% if lawgroups_with_laws %}
-    {% if available_languages or edit_authorized %}
-      
-      <div class="dropdown d-inline">
-        <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-          <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
-        </button>
-        <ul class="dropdown-menu" aria-labelledby="languageDropdown">
-          {% if post %}
-            {% if available_languages %}
-            {% for lang in available_languages %}
-              <li>
-                <a class="dropdown-item" href="{% url 'lang-post-law' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
-              </li>
-            {% endfor %}
-            {% endif %}
-            {% if edit_authorized and post and lawgroups_with_laws %}
-            {% if available_languages %}
-              <li><hr class="dropdown-divider"></li>
-              {% endif %}
-              <li>
-                <a class="dropdown-item" href="{% url 'copy-law-group' id=lawgroups_with_laws.0.group.id %}"><small>Add Language</small></a>
-              </li>
-            {% endif %}
+ 
+          {% if available_languages or edit_authorized %}
+                
+                <div class="dropdown d-inline">
+                  <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
+                  </button>
+                  <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+                    {% if post %}
+                        {% if available_languages %}
+                            {% for lang in available_languages %}
+                              <li>
+                                <a class="dropdown-item" href="{% url 'lang-post-law' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                              </li>
+                            {% endfor %}
+                        {% endif %}
+                        {% if edit_authorized and post and lawgroups_with_laws %}
+                            {% if available_languages %}
+                              <li><hr class="dropdown-divider"></li>
+                              {% endif %}
+                          <li>
+                            <a class="dropdown-item" href="{% url 'copy-law-group' id=lawgroups_with_laws.0.group.id %}"><small>Add Language</small></a>
+                          </li>
+                        {% endif %}
+                    {% else %}
+                            {% for lang in available_languages %}
+                              <li>
+                                <a class="dropdown-item" href="{% url 'law-of-root' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                              </li>
+                            {% endfor %}
+                    {% endif %}
+                  </ul>
+                </div>
+            
           {% else %}
-            {% for lang in available_languages %}
-              <li>
-                <a class="dropdown-item" href="{% url 'law-of-root' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
-              </li>
-            {% endfor %}
+                  <small>
+                      {{ selected_language }}
+                  </small>
           {% endif %}
-        </ul>
-      </div>
-      
-
-    {% else %}
-        <small>
-            {{ selected_language }}
-        </small>
-    {% endif %}
-    {% endif %}
+  
   </div>
 
 </article>
@@ -164,7 +164,7 @@
                 </div>
                 <div class="law-content">
                   <div class="d-flex justify-content-between align-items-center">
-                    <strong>{{ child.title }}.</strong>
+                    <strong>{{ child.title|format_law_text:lang_code }}.</strong>
                     {% if not edit_mode %}
                       <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ child.full_url }}" title="Copy link" style="cursor: pointer;"></i>
                     {% endif %}
@@ -370,20 +370,33 @@
 </article>
 {% empty %}
 <article class="media content-section d-flex justify-content-between align-items-center">
-  {% trans 'No Laws Recorded' %}
+  
   {% if post %}
+    {% if available_languages %}
+        {% blocktrans with post.title as post_title %}
+          No {{selected_language }} Laws Recorded for {{ post_title }}
+        {% endblocktrans %}
+    {% else %}
+        {% blocktrans with post.title as post_title %}
+          No Laws Recorded for {{ post_title }}
+        {% endblocktrans %}
+    {% endif %}
     {% if user.profile.admin or user.profile == post.designer and user.profile.editor %}
       <div class="d-flex flex-wrap justify-content-end">
-        {% if selected_language %}
-          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create-lang' slug=post.slug lang_code=lang_code %}">
-              {% trans 'Add Laws' %} <i class="bi bi-plus"></i>
-          </a>
-        {% else %}
+
           <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create' slug=post.slug %}">
               {% trans 'Add Laws' %} <i class="bi bi-plus"></i>
           </a>
-        {% endif %}
+
       </div>
+    {% else %}
+      {% if available_languages %}
+          {% trans 'No Laws Recorded' %}
+      {% else %}
+          {% blocktrans %}
+            No {{selected_language }} Laws Recorded
+          {% endblocktrans %}
+      {% endif %}
     {% endif %}
   {% endif %}
 
@@ -809,42 +822,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  {% if highlight_id %}
-    const target = document.getElementById("law-{{ highlight_id }}");
-    if (target) {
-      target.scrollIntoView({ 
-        behavior: 'smooth',
-        block: 'center'  
-      });
-      target.classList.add('highlight-temp');
-      void target.offsetWidth;
-      target.classList.add('active');
-      setTimeout(() => {
-        target.classList.remove('active');
-        setTimeout(() => {
-          target.classList.remove('highlight-temp');
-        }, 800);
-      }, 3000);
-    }
-
-  {% elif highlight_group_id %}
-    const target = document.getElementById("group-{{ highlight_group_id }}");
-    if (target) {
-      target.scrollIntoView({ 
-        behavior: 'smooth',
-        block: 'center'  
-      });
-      target.classList.add('highlight-temp');
-      void target.offsetWidth;
-      target.classList.add('active');
-      setTimeout(() => {
-        target.classList.remove('active');
-        setTimeout(() => {
-          target.classList.remove('highlight-temp');
-        }, 800);
-      }, 3000);
-    }
-  {% endif %}
 });
 
 
@@ -853,6 +830,42 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 
+{% if highlight_id %}
+const target = document.getElementById("law-{{ highlight_id }}");
+if (target) {
+  target.scrollIntoView({ 
+    behavior: 'smooth',
+    block: 'center'  
+  });
+  target.classList.add('highlight-temp');
+  void target.offsetWidth;
+  target.classList.add('active');
+  setTimeout(() => {
+    target.classList.remove('active');
+    setTimeout(() => {
+      target.classList.remove('highlight-temp');
+    }, 800);
+  }, 3000);
+}
+
+{% elif highlight_group_id %}
+const target = document.getElementById("group-{{ highlight_group_id }}");
+if (target) {
+  target.scrollIntoView({ 
+    behavior: 'smooth',
+    block: 'center'  
+  });
+  target.classList.add('highlight-temp');
+  void target.offsetWidth;
+  target.classList.add('active');
+  setTimeout(() => {
+    target.classList.remove('active');
+    setTimeout(() => {
+      target.classList.remove('highlight-temp');
+    }, 800);
+  }, 3000);
+}
+{% endif %}
 
 
 

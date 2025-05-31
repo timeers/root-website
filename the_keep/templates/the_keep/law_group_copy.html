@@ -3,15 +3,21 @@
 
 {% block content %}
 
-
+<article class="content-section">
 <h1 class='root-title'>Copy Law for {{ law_group.title }}</h1>
-
-
+</article>
+<article class="content-section">
 <form method="post">
   {% csrf_token %}
   from {{ law_group.language }} to:
   {{ form.language|as_crispy_field }}
 
   <button class='btn btn-success' type="submit">Copy</button>
+  {% if post %}
+  <a class="btn btn-secondary" href="{% url 'post-law' slug=post.slug %}">{% trans 'Cancel' %}</a>
+  {% else %}
+  <a class="btn btn-secondary" href="{% url 'law-of-root' lang=law_group.language.code %}">{% trans 'Cancel' %}</a>
+  {% endif %}
 </form>
+</article>
 {% endblock content %}

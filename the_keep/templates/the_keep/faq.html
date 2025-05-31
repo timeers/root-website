@@ -10,19 +10,84 @@
       <h1 class='root-title'>{{ site_title }} FAQ</h1>
     {% endif %}
 
+
+    <div>
+ 
+      {% if available_languages or edit_authorized %}
+            
+            <div class="dropdown d-inline">
+              <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
+              </button>
+              <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+                {% if post %}
+                    {% if available_languages %}
+                        {% for lang in available_languages %}
+                          <li>
+                            <a class="dropdown-item" href="{% url 'lang-post-faq' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                          </li>
+                        {% endfor %}
+                    {% endif %}
+                    {% if edit_authorized %}
+                        {% if available_languages %}
+                          <li><hr class="dropdown-divider"></li>
+                        {% endif %}
+                        {% if unavailable_languages %}
+                            {% for lang in unavailable_languages %}
+                              <li>
+                                <a class="dropdown-item" href="{% url 'lang-post-faq' slug=post.slug lang_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
+                              </li>
+                            {% endfor %}
+                        {% endif %}
+                    {% endif %}
+                {% else %}
+                        {% for lang in available_languages %}
+                          <li>
+                            <a class="dropdown-item" href="{% url 'lang-faq' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                          </li>
+                        {% endfor %}
+
+
+                        {% if edit_authorized %}
+                            {% if available_languages %}
+                              <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            {% if unavailable_languages %}
+                                {% for lang in unavailable_languages %}
+                                  <li>
+                                    <a class="dropdown-item" href="{% url 'lang-faq' lang_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
+                                  </li>
+                                {% endfor %}
+                            {% endif %}
+                        {% endif %}
+
+
+                {% endif %}
+              </ul>
+            </div>
+        
+      {% else %}
+              <small>
+                  {{ selected_language }}
+              </small>
+      {% endif %}
+
+
+
     {% if not post and user.is_staff %}
         <div class="d-flex flex-wrap justify-content-end">
-            <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-add' %}">
+            <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-add' lang_code=lang_code %}">
                 {% trans 'FAQ' %} <i class="bi bi-plus"></i>
             </a>
         </div>
     {% elif post and user.profile.admin or user.profile == post.designer and user.profile.editor %}
       <div class="d-flex flex-wrap justify-content-end">
-          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-faq-add' slug=post.slug %}">
+          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-faq-add' slug=post.slug lang_code=lang_code %}">
               {% trans 'FAQ' %} <i class="bi bi-plus"></i>
           </a>
       </div>
     {% endif %}
+  </div>
   </div>
 
 

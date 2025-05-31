@@ -1,3 +1,4 @@
+{% load i18n %}
 <div class="accordion" id="faq-accordion">
     {% for faq in faqs %}
       <div class="accordion-item">
@@ -18,6 +19,14 @@
         </div>
       </div>
     {% empty %}
-      <div class="alert alert-warning text-center my-1">No FAQs available.</div>
+      {% if available_languages %}
+        <div class="alert alert-warning text-center my-1">
+          {% blocktrans %}
+          No {{selected_language}} FAQs available.
+          {% endblocktrans%}
+        </div>
+      {% else %}
+        <div class="alert alert-warning text-center my-1">{% trans 'No FAQs available.' %}</div>
+      {% endif %}
     {% endfor %}
   </div>

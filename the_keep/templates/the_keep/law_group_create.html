@@ -1,0 +1,22 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n %}
+
+{% block content %}
+<article class="content-section">
+
+    <h1 class='root-title'>Create Law for {{ post.title }}</h1>
+
+</article>
+
+<article class="content-section">
+
+    <form method="post">
+    {% csrf_token %}
+    Select Language:
+    {{ form.language|as_crispy_field }}
+
+    <button class='btn btn-success' type="submit">Create</button>
+    <a class="btn btn-secondary" href="{% url 'post-law' slug=post.slug %}">{% trans 'Cancel' %}</a>
+    </form>
+</article>
+{% endblock content %}

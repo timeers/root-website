@@ -14,18 +14,25 @@ let isInitialLoad = true;
                 allowClear: true,  // Enable the "clear" button (X)
                 width: '200px'
             });
+            {% comment %} $('#language-select').select2({
+                placeholder: "{% trans 'Select Language' %}",  // Optional: display this as the placeholder
+                allowClear: true,  // Enable the "clear" button (X)
+                width: '200px'
+            }); {% endcomment %}
 
             // Prevent the change event from triggering on initial page load
             
 
             // If there's a selected designer, set the value
             const selectedDesigner = "{{ designer }}";  // Get the selected designer from context
-            console.log(selectedDesigner)
+            {% comment %} console.log(selectedDesigner) {% endcomment %}
             if (selectedDesigner) {
                 // Set the selected value in select2
                 $('#designer-select').val(selectedDesigner);
             }
             $('#designer-select').trigger('change')
+
+
         });
 
 

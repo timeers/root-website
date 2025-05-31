@@ -67,6 +67,25 @@
                 <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>
                 <option value="4" {% if status == '4' %}selected{% endif %}>{% trans 'Inactive' %}</option>
             </select>
+            <div>
+            <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
+                <option value="">{% trans 'Select Language' %}</option>
+                {% for language in used_languages %}
+                    <option value="{{ language.code }}" {% if language.code == language_code %}selected{% endif %}>
+                        {{ language }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <select name="expansion" id="expansion-select" class="form-select" aria-label="Select Expansion">
+                <option value="">{% trans 'Select Expansion' %}</option>
+                {% for expansion in expansions %}
+                    <option value="{{ expansion.id }}" {% if expansion.id == selected_expansion %}selected{% endif %}>
+                        {{ expansion }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
             {% if user.is_authenticated and not user.profile.weird %}
                 <div>
                     <small>*Displaying Official Content Only</small>

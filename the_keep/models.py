@@ -2028,6 +2028,7 @@ class FAQ(models.Model):
     answer = models.TextField()
     date_posted = models.DateTimeField(default=timezone.now)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
+    website = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['date_posted']
