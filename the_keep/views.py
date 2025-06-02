@@ -2321,7 +2321,7 @@ def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode
         lawgroup = lawgroups_with_laws[0]['group']
         previous_group = lawgroup.get_previous_by_position()
         next_group = lawgroup.get_next_by_position()
-    else:
+    elif len(lawgroups_with_laws) > 0:
         first_lawgroup = lawgroups_with_laws[0]['group']
         previous_group = first_lawgroup.get_previous_by_position()
         last_lawgroup = lawgroups_with_laws[-1]['group']

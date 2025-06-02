@@ -31,7 +31,7 @@ class LawGroupAdmin(admin.ModelAdmin):
 
 class LawAdmin(admin.ModelAdmin):
     list_display = ('law_code', 'title', 'group__post__title', 'group__language')
-    search_fields = ('group__post__title', 'title')
+    search_fields = ('group__post__title', 'title', 'law_code')
 
 class TranslationAdmin(admin.ModelAdmin):
     list_display = ('translated_title', 'language', 'post__title', 'post__language')
