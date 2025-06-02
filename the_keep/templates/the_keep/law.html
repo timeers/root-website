@@ -656,7 +656,7 @@
       });
 
       if (response.ok) {
-        window.location.href = window.location.pathname;
+        location.reload();  // Refresh to remove deleted law
       } else {
         alert('Failed to delete law.');
       }
@@ -702,7 +702,7 @@
       });
 
       if (response.ok) {
-        window.location.href = window.location.pathname;
+        location.reload(); // Reload to reflect the updated law
       } else {
         alert("Failed to update law.");
       }
@@ -746,7 +746,7 @@
       });
 
       if (response.ok) {
-        window.location.href = window.location.pathname;
+        location.reload(); // Reload to reflect the updated law
       } else {
         alert("Failed to update law.");
       }
@@ -769,7 +769,7 @@
         });
 
         if (response.ok) {
-          window.location.href = window.location.pathname;
+          location.reload();
         } else {
           alert('Move failed');
         }
@@ -806,7 +806,7 @@
     });
 
     if (response.ok) {
-      window.location.href = window.location.pathname;
+      location.reload();  // Reload to show the new law
     } else {
       alert("Failed to add law.");
     }
