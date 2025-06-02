@@ -219,10 +219,19 @@ em, i {
     padding: 10px 20px;
     border: 1px solid #dddddd;
     border-radius: 3px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
   
+  .content-box {
 
+    background: var(--foreground-color);
+    border: 1px solid #dddddd;
+    border-radius: 3px;
+    padding: 4px 8px;
+    flex: 1 1 45%;
+    max-width: 45%;
+
+  }
 
   .responsive-img {
     max-width: 100%;
@@ -1651,6 +1660,21 @@ tr.clickable-row:hover {
   height: 1.2em;              /* Matches the current font size */
   width: auto;              /* Maintains aspect ratio */
   vertical-align: text-bottom;  /* Aligns nicely with the text baseline */
+}
+
+.box-with-bar {
+  position: relative; 
+  padding-bottom: 1px; 
+}
+
+.box-with-bar::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  width: 100%;
+  background-color: black; 
 }
 
 

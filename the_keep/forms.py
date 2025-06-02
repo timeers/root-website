@@ -157,7 +157,7 @@ class TranslationCreateForm(forms.ModelForm):
         
         super().__init__(*args, **kwargs)
         
-        
+        self.post = post
         # If we are updating an existing translation, make the language field read-only
         if self.instance and self.instance.pk:
             # Make the 'language' field read-only
@@ -280,11 +280,18 @@ class TranslationCreateForm(forms.ModelForm):
 
     def clean(self):
             cleaned_data = super().clean()
-            post = cleaned_data.get('post')
+            # post = cleaned_data.get('post')
+            post = self.post
             language = cleaned_data.get('language')
             bgg_link = cleaned_data.get('bgg_link')
             tts_link = cleaned_data.get('tts_link')
             pnp_link = cleaned_data.get('pnp_link')
+            title = cleaned_data.get('translated_title')
+
+            # Check if the same name already exists for another post or translation of another post
+            if Post.objects.exclude(id=post.id).filter(title__iexact=title, component=post.component).exists() or PostTranslation.objects.exclude(Q(id=self.instance.id)|Q(post=post)).filter(translated_title__iexact=title, post__component=post.component).exists():
+                raise ValidationError(f'A {post.component} with the name "{title}" already exists. Please choose a different name.')
+
 
             url_validator = URLValidator()
             for url in [bgg_link, tts_link, pnp_link]:
@@ -580,7 +587,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
             # Check if the same name already exists
-        if Map.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Map.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Map").exists():
             raise ValidationError(f'A map with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
@@ -633,7 +640,7 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
             # Check if the same name already exists
-        if Deck.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Deck.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Deck").exists():
             raise ValidationError(f'A deck with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
@@ -692,7 +699,7 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
             # Check if the same name already exists
-        if Landmark.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Landmark.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Landmark").exists():
             raise ValidationError(f'A landmark with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
@@ -728,7 +735,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
             # Check if the same name already exists
-        if Tweak.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Tweak.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Tweak").exists():
             raise ValidationError(f'A tweak with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
@@ -819,7 +826,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         cleaned_data = super().clean()
         title = cleaned_data.get('title')
             # Check if the same name already exists
-        if Hireling.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Hireling.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Hireling").exists():
             raise ValidationError(f'A hireling with the name "{title}" already exists. Please choose a different name.')
         return cleaned_data
 
@@ -880,7 +887,7 @@ class VagabondCreateForm(PostCreateForm):
             starting_crossbow = cleaned_data.get('starting_crossbow')
             title = cleaned_data.get('title')
             # Check if the same name already exists
-            if Vagabond.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+            if Vagabond.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Vagabond").exists():
                 raise ValidationError(f'A vagabond with the name "{title}" already exists. Please choose a different name.')
             # Check that the VB doesn't have a wild amount of items
             if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 8:
@@ -999,7 +1006,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')
 
-        if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Faction").exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Clockwork").exists():
             raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
 
     def clean(self):
@@ -1081,7 +1088,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')
 
-        if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists():
+        if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Faction").exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Clockwork").exists():
             raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
 
     def clean(self):

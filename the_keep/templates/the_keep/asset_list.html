@@ -14,7 +14,7 @@
 
 
 {% block content %}
-<article class="media content-section mt-2 mb-5">
+<article class="media content-section mt-2">
     <div class="media-body">
 
         <div class="d-flex justify-content-between align-items-center">
@@ -42,89 +42,7 @@
 
     </div>
 </article>
-        {% comment %} {% if shared_assets %}
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3>{% trans 'Shared' %} ({{ shared_assets.count }})</h3>
-                <button class="btn btn-info btn-sm ml-2 ms-2" 
-                type="button" 
-                data-bs-toggle="collapse" 
-                data-bs-target="#collapseRegister" 
-                aria-expanded="false" 
-                aria-controls="collapseRegister" 
-                id="collapseToggleButton">
-            {% trans 'View' %}
-            </button>
-         
-            </div>   
-            
-            
-            <div class="collapse" id="collapseRegister">
-                <article class="media content-section">
-                    <div class="media-body" style="overflow: auto;">
-                <div style="overflow-x: auto;">
-                    <table id="nonsortable-table">
-                        <thead>
-                            <tr>
-                                <th>{% trans 'Name' %}</th>
-                                <th>{% trans 'Category' %}</th>
-                                <th>{% trans 'File' %}</th>
-                                <th>{% trans 'Date' %}</th>
-                                <th>{% trans 'Shared By' %}</th>
-                                {% if profile.player %}
-                                <th></th>
-                                {% endif %}
-                            </tr>
-                        </thead>
-    
-                    
-                        <tbody id="shared-asset-table" class="effort-rows">
-                            {% for obj in shared_assets %}
-                            <tr data-href="{{ obj.get_absolute_url }}">
-                                <td>{{ obj.title }}</td>
-                                <td>{{ obj.category }}</td>
-                                <td>{{ obj.file_type }}</td>
-                                <td>{{ obj.date_updated|date:"m/d/y" }}</td>
-                        
-                                <td>
-                                    {% if obj.shared_by %}
-                                    {{ obj.shared_by.display_name }}
-                                    {% else %}
-                                    ---
-                                    {% endif %}
-                                </td>
-                                {% if profile.player %}
-                                <td>
-                                    {% if obj.shared_by == profile and obj.shared_by %}
-                                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
-                                    {% endif %}
-                                    {% if profile.admin_onboard %}           
-                                    {% if obj.shared_by == None %}
-                                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
-                                    {% endif %}
-                                        <!-- Pins -->
-                                        {% include 'the_keep/partials/asset_pins.html' %}
-                                    {% endif %}
-                                </td>
-                                {% endif %}
-                            </tr>
-                            {% empty %}
-                            <tr>
-                                <td colspan="5">{% trans 'No results found' %}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    
-                    </table>
-
-                </div>
-    
-
-            </div>
-        </article>
-            </div>
-        
-        {% endif %} {% endcomment %}
-
+       
 
         <article class="media content-section">
             <div class="media-body" style="overflow: auto;">
@@ -174,6 +92,7 @@
                                     <option value="jpg" {% if search_type == 'jpg' %}selected{% endif %}>JPG</option>
                                     <option value="doc" {% if search_type == 'doc' %}selected{% endif %}>DOC (Word)</option>
                                     <option value="psd" {% if search_type == 'psd' %}selected{% endif %}>PSD (Photoshop)</option>
+                                    <option value="sai2" {% if search_type == 'sai2' %}selected{% endif %}>Sai2 (Paint Tool)</option>
                                     <option value="video" {% if search_type == 'video' %}selected{% endif %}>{% trans 'Video' %}</option>
                                     <option value="other" {% if search_type == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
                                 </select>

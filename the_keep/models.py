@@ -212,6 +212,9 @@ class Expansion(models.Model):
     end_date = models.DateTimeField(null=True, blank=True)
     open_roster = models.BooleanField(default=False)
 
+    class Meta:
+        ordering = ['title']
+
     # Get groups of components for selected expansion
     def get_posts(self):
         return Post.objects.filter(expansion=self)
@@ -2004,6 +2007,7 @@ class PNPAsset(models.Model):
         DOC = 'DOC', 'DOC'
         PSD = 'PSD', 'PSD'
         VIDEO = 'Video', _('Video')
+        SAI2 = 'Sai2', 'Sai2'
         OTHER = 'Other', _('Other')
 
     date_updated = models.DateTimeField(default=timezone.now)
@@ -2162,6 +2166,19 @@ class LawGroup(models.Model):
             query_params = {'highlight_group': self.id}
             return f'{url}?{urlencode(query_params)}'
 
+
+    def get_previous_by_position(self):
+        return LawGroup.objects.filter(
+            language=self.language,
+            position__lt=self.position
+        ).order_by('-position').first()
+
+    def get_next_by_position(self):
+        return LawGroup.objects.filter(
+            language=self.language,
+            position__gt=self.position
+        ).order_by('position').first()
+
 class Law(models.Model):
     group = models.ForeignKey(LawGroup, on_delete=models.CASCADE, related_name='laws')
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
@@ -2170,6 +2187,7 @@ class Law(models.Model):
     position = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
     law_code = models.CharField(max_length=20, editable=False, blank=True, null=True)
     local_code = models.CharField(max_length=20, editable=False, blank=True, null=True)
+    level = models.IntegerField(blank=True, null=True)
     locked_position = models.BooleanField(default=False)
     allow_sub_laws = models.BooleanField(default=True)
     allow_description = models.BooleanField(default=True)
@@ -2191,6 +2209,18 @@ class Law(models.Model):
             self.position = self.get_next_position()
 
         is_new = self.pk is None
+
+        # Calculate level based on number of parents
+        if not self.level:
+            level = 0
+            parent = self.parent
+            while parent:
+                level += 1
+                parent = parent.parent
+            self.level = level
+
+
+
         super().save(*args, **kwargs)
 
         # Only generate law_code if it's missing or if it's a new object

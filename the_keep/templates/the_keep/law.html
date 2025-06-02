@@ -103,7 +103,7 @@
                 <img class="lg-faction-icon" src="{{ item.group.post.small_icon.url }}">
             {% endif %}
           {% endif %}
-        
+        </h2>
         {% if item.group.post %}
           </a>
         {% endif %}
@@ -164,7 +164,7 @@
                 </div>
                 <div class="law-content">
                   <div class="d-flex justify-content-between align-items-center">
-                    <strong>{{ child.title|format_law_text:lang_code }}.</strong>
+                    <strong>{{ child.title|format_law_text_no_link }}.</strong>
                     {% if not edit_mode %}
                       <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ child.full_url }}" title="Copy link" style="cursor: pointer;"></i>
                     {% endif %}
@@ -411,121 +411,152 @@
 
 
 
-{% comment %} Modals for CRUD {% endcomment %}
+  {% comment %} Modals for CRUD {% endcomment %}
 
-<div id="add-law-modal" class="modal-overlay" style="display: none;">
-  <div class="modal-card">
-      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+  <div id="add-law-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+        <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
 
-  <form id="add-law-form">
-    {% csrf_token %}
-    <input type="hidden" name="group_id" id="modal-group-id">
-    <input type="hidden" name="parent_id" id="modal-parent-id">
-    <input type="hidden" name="prev_id" id="modal-prev-id">
-    <input type="hidden" name="next_id" id="modal-next-id">
-    <div class='root-title h3' id='modal-law-code'></div>
-    <label class='hidden'>Title</label>
-    <input type="text" name="title" required placeholder="Title..."><br>
-
-    <label class='hidden'>Description</label>
-    <textarea name="description" placeholder="Description..." rows="6"></textarea><br>
-    <div class='mb-3'>
-      <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
-    </div>
-
-    <label for="id_reference_laws" class='hidden'>Reference Laws:</label>
-    <div class='mb-4'>
-      <select name="reference_laws" id="id_reference_laws" multiple class="multi-select">
-        {% for law in all_laws %}
-          <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <button class='btn btn-sm btn-primary' type="submit">Add Law</button>
-  </form>
-</div>
-</div>
-
-<div id="edit-law-modal" class="modal-overlay" style="display: none;">
-  <div class="modal-card">
-      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
-      <form id="edit-law-form">
+    <form id="add-law-form">
       {% csrf_token %}
-      <input type="hidden" name="law_id" id="edit-law-id">
-      <div class='root-title h3' id='edit-law-law-code'></div>
-      <label for="edit-law-title" class="hidden">Title:</label>
-      <input type="text" name="title" id="edit-law-title" required placeholder='Title...'>
-      
-      <label for="edit-law-description" class='hidden'>Description:</label>
-      <textarea name="description" id="edit-law-description" placeholder='Description...' rows="6"></textarea>
+      <input type="hidden" name="group_id" id="modal-group-id">
+      <input type="hidden" name="parent_id" id="modal-parent-id">
+      <input type="hidden" name="prev_id" id="modal-prev-id">
+      <input type="hidden" name="next_id" id="modal-next-id">
+      <div class='root-title h3' id='modal-law-code'></div>
+      <label class='hidden'>Title</label>
+      <input type="text" name="title" required placeholder="Title..."><br>
+
+      <label class='hidden'>Description</label>
+      <textarea name="description" placeholder="Description..." rows="6"></textarea><br>
       <div class='mb-3'>
         <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
       </div>
 
-
-      <label for="id_edit_reference_laws" class='hidden'>Reference Laws:</label>
+      <label for="id_reference_laws" class='hidden'>Reference Laws:</label>
       <div class='mb-4'>
-        <select name="reference_laws" id="id_edit_reference_laws" multiple class="multi-select">
-            {% for law in all_laws %}
-                <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
-            {% endfor %}
+        <select name="reference_laws" id="id_reference_laws" multiple class="multi-select">
+          {% for law in all_laws %}
+            <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+          {% endfor %}
         </select>
       </div>
 
-      <button class='btn btn-sm btn-primary' type="submit">Save</button>
-      <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-law-modal').style.display='none'">Cancel</button>
-      </form>
+      <button class='btn btn-sm btn-primary' type="submit">Add Law</button>
+    </form>
   </div>
-</div>
-
-<div id="edit-description-modal" class="modal-overlay" style="display: none;">
-  <div class="modal-card">
-      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
-      <form id="edit-description-form">
-      {% csrf_token %}
-      <input type="hidden" name="law_id" id="edit-description-id">
-      
-      <div class='root-title h3' id='edit-description-law-code'></div>
-      <div id='readonly-law-title'></div>
-      
-      <label for="edit-description-description" class='hidden'>Description:</label>
-      <textarea name="description" id="edit-description-description" placeholder='Description...' rows="6"></textarea>
-      <div class='mb-3'>
-      <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
-      </div>
-
-      <label for="id_edit_description_reference_laws" class='hidden'>Reference Laws:</label>
-      <div class='mb-4'>
-        <select name="reference_laws" id="id_edit_description_reference_laws" multiple class="multi-select">
-            {% for law in all_laws %}
-                <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
-            {% endfor %}
-        </select>
-      </div>
-      <button class='btn btn-sm btn-primary' type="submit">Save</button>
-      <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-description-modal').style.display='none'">Cancel</button>
-      </form>
   </div>
-</div>
 
-<div id="delete-law-modal" class="modal-overlay" style="display: none;">
-  <div class="modal-card">
-      <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
-      <form id="delete-law-form">
-      {% csrf_token %}
-      <input type="hidden" name="law_id" id="delete-law-id">
-      <p>Are you sure you want to delete <strong id="delete-law-title"></strong>?</p>
-      <button class='btn btn-sm btn-danger' type="submit">Yes, delete</button>
-      <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('delete-law-modal').style.display='none'">Cancel</button>
-      </form>
+  <div id="edit-law-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+        <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+        <form id="edit-law-form">
+        {% csrf_token %}
+        <input type="hidden" name="law_id" id="edit-law-id">
+        <div class='root-title h3' id='edit-law-law-code'></div>
+        <label for="edit-law-title" class="hidden">Title:</label>
+        <input type="text" name="title" id="edit-law-title" required placeholder='Title...'>
+        
+        <label for="edit-law-description" class='hidden'>Description:</label>
+        <textarea name="description" id="edit-law-description" placeholder='Description...' rows="6"></textarea>
+        <div class='mb-3'>
+          <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
+        </div>
+
+
+        <label for="id_edit_reference_laws" class='hidden'>Reference Laws:</label>
+        <div class='mb-4'>
+          <select name="reference_laws" id="id_edit_reference_laws" multiple class="multi-select">
+              {% for law in all_laws %}
+                  <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+              {% endfor %}
+          </select>
+        </div>
+
+        <button class='btn btn-sm btn-primary' type="submit">Save</button>
+        <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-law-modal').style.display='none'">Cancel</button>
+        </form>
+    </div>
   </div>
-</div>
+
+  <div id="edit-description-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+        <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+        <form id="edit-description-form">
+        {% csrf_token %}
+        <input type="hidden" name="law_id" id="edit-description-id">
+        
+        <div class='root-title h3' id='edit-description-law-code'></div>
+        <div id='readonly-law-title'></div>
+        
+        <label for="edit-description-description" class='hidden'>Description:</label>
+        <textarea name="description" id="edit-description-description" placeholder='Description...' rows="6"></textarea>
+        <div class='mb-3'>
+        <small>Use {% open_braces %}x{% close_braces %} for animal or item icons, and [[x]] for small caps.</small>
+        </div>
+
+        <label for="id_edit_description_reference_laws" class='hidden'>Reference Laws:</label>
+        <div class='mb-4'>
+          <select name="reference_laws" id="id_edit_description_reference_laws" multiple class="multi-select">
+              {% for law in all_laws %}
+                  <option value="{{ law.id }}">{{ law.law_code }} {% if law.group.post %}{{ law.group.post }} {% endif %}- {{ law.title }}</option>
+              {% endfor %}
+          </select>
+        </div>
+        <button class='btn btn-sm btn-primary' type="submit">Save</button>
+        <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('edit-description-modal').style.display='none'">Cancel</button>
+        </form>
+    </div>
+  </div>
+
+  <div id="delete-law-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+        <button type="button" class="modal-close-button" onclick="hideModal(this.closest('.modal-overlay'))">×</button>
+        <form id="delete-law-form">
+        {% csrf_token %}
+        <input type="hidden" name="law_id" id="delete-law-id">
+        <p>Are you sure you want to delete <strong id="delete-law-title"></strong>?</p>
+        <button class='btn btn-sm btn-danger' type="submit">Yes, delete</button>
+        <button class='btn btn-sm btn-secondary' type="button" onclick="document.getElementById('delete-law-modal').style.display='none'">Cancel</button>
+        </form>
+    </div>
+  </div>
 {% else %}
 
-  <span id="copy-status" class="ms-2 text-success d-none">Copied!</span>
+
+<div class='mb-3 d-flex justify-content-between'>
+
+  {% if previous_group %}
+    <a href="{{ previous_group.get_absolute_url }}" class="content-box d-flex align-items-center clickable-segment text-center">
+        <div class='d-flex align-items-center mr-1'>
+        <i class="bi bi-chevron-left"></i> 
+        </div>
+        <div class='d-flex'>
+          {{ previous_group }}
+        </div>
+
+    </a>
+  {% endif %}
+
+  {% if next_group %}
+    <a href="{{ next_group.get_absolute_url }}" class="content-box d-flex align-items-center clickable-segment text-center">
+  
+        <div class='d-flex'>
+          {{ next_group }} 
+        </div>
+        <div class='d-flex align-items-center ml-1'>
+          <i class="bi bi-chevron-right"></i>
+        </div>
+
+    </a>
+  {% endif %}
+  
+</div>
+
 
 {% endif %}
+
+
 {% endblock content %}
 
 

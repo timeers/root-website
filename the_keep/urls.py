@@ -40,7 +40,8 @@ urlpatterns = [
     path('law-of-root/', views.law_hierarchy_view),
     path('law-of-root/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
     path('law-of-root/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
-    
+    path('law-of-root/table-of-contents/<str:lang_code>/', views.law_table_of_contents, name='law-search'),
+
     path('law/copy_law_group/<int:id>/', views.copy_law_group_view, name='copy-law-group'),
 
     path('faq/', views.faq_search, name='faq'),

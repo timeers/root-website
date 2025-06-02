@@ -7,13 +7,13 @@
         <td>{{ obj.file_type }}</td>
         <td>{{ obj.date_updated|date:"m/d/y" }}</td>
 
-        <td>
+        {% comment %} <td>
             {% if obj.shared_by %}
             {{ obj.shared_by.display_name }}
             {% else %}
             ---
             {% endif %}
-        </td>
+        </td> {% endcomment %}
         {% if profile.player %}
         <td>
             {% if obj.shared_by == profile and obj.shared_by %}

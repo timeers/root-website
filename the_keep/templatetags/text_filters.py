@@ -109,6 +109,42 @@ def format_law_text(value, lang_code='en'):
 
     return mark_safe(final_value)
 
+
+# This makes [[]] into SMALLCAPS () into italics and {{}} into images with optional links to faction laws
+@register.filter
+def format_law_text_no_link(value):
+    # Step 1: Clean input by stripping all HTML
+    clean_value = bleach.clean(str(value), tags=[], strip=True)
+
+    # Step 2: Replace {{ keyword.image }} with image tag
+    def image_replacer(match):
+        keyword = match.group(1)
+        img_url = INLINE_IMAGES.get(keyword)
+
+        if not img_url:
+            return match.group(0)
+
+        img_tag = f'<img src="{img_url}" alt="{keyword}" class="inline-icon">'
+
+        return img_tag
+
+    clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
+
+    # Step 3: Italicize content in parentheses
+    def paren_replacer(match):
+        return f"<em>{match.group(0)}</em>"
+
+    clean_value = re.sub(r"\([^)]*\)", paren_replacer, clean_value)
+
+    # Step 4: Wrap [[text]] in span with class 'smallcaps'
+    def smallcaps_replacer(match):
+        return f"<span class='smallcaps'>{match.group(1)}</span>"
+
+    final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
+
+    return mark_safe(final_value)
+
+
 @register.simple_tag
 def open_braces():
     return '{{'

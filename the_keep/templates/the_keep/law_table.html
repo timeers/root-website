@@ -1,0 +1,83 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block content %}
+
+<article class="content-section">
+  <div class="d-flex justify-content-between align-items-center">
+      <h1 class='root-title'>{% trans 'Law of Root' %}</h1>
+
+      {% if available_languages or edit_authorized %}
+                      
+            <div class="dropdown d-inline">
+              <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
+              </button>
+              <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+                        {% for lang in available_languages %}
+                          <li>
+                            <a class="dropdown-item" href="{% url 'law-search' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                          </li>
+                        {% endfor %}
+              </ul>
+            </div>
+        
+      {% else %}
+              <small>
+                  {{ selected_language }}
+              </small>
+      {% endif %}
+
+  </div>
+
+
+<form id="law-search-form" 
+    class="d-flex align-items-center mb-2 gap-2"
+    hx-get="{% url 'law-search' lang_code=lang_code %}" 
+    hx-target="#law-results" 
+    hx-swap="innerHTML"
+    hx-trigger="submit, input delay:300ms, change" 
+    autocomplete="off">
+    <input type="text" name="q" placeholder="Search Laws..." class="form-control flex-grow-1">
+
+
+    <!-- Hidden field to hold the selected type -->
+    <input type="hidden" name="type" id="law-type-value" value="all">
+
+    <!-- Segmented Button Group -->
+    <div class="btn-group ml-2" role="group" aria-label="Law type filter" id="law-type-buttons">
+      <button type="button" class="btn btn-outline-secondary" data-type="official">Official</button>
+      <button type="button" class="btn btn-outline-secondary active" data-type="all">All</button>
+      <button type="button" class="btn btn-outline-secondary" data-type="fan">Fan</button>
+    </div>
+
+</form>
+  
+
+
+  <div id="law-results">
+    {% include 'the_keep/partials/law_table.html' %}
+  </div>
+</article>
+  {% endblock %}
+
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const buttons = document.querySelectorAll("#law-type-buttons button");
+    const hiddenInput = document.getElementById("law-type-value");
+
+    buttons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        buttons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        hiddenInput.value = btn.getAttribute("data-type");
+
+        // Trigger HTMX form submission manually
+        document.getElementById("law-search-form").dispatchEvent(new Event("submit", { bubbles: true }));
+      });
+    });
+  });
+</script>
+{% endblock scripts %}
