@@ -1275,7 +1275,7 @@ class LanguageSelectionForm(forms.Form):
 class FAQForm(forms.ModelForm):
     class Meta:
         model = FAQ
-        fields = ['question', 'answer']
+        fields = ['question', 'answer', 'reference_laws']
 
     def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)

@@ -34,4 +34,8 @@
         </div>
     </article>
 </a>
+{% empty %}
+    <article class="media content-section">
+        No laws matching "{{query}}".
+    </article>
 {% endfor %}

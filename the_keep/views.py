@@ -299,7 +299,6 @@ class HirelingCreateView(PostCreateView):
         kwargs = super().get_form_kwargs()
         # Add user to the kwargs
         kwargs['designer'] = self.request.user.profile
-        print("TEST")
         return kwargs
 
 @designer_required_class_based_view
@@ -2322,10 +2321,13 @@ def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode
         lawgroup = lawgroups_with_laws[0]['group']
         previous_group = lawgroup.get_previous_by_position()
         next_group = lawgroup.get_next_by_position()
+    else:
+        first_lawgroup = lawgroups_with_laws[0]['group']
+        previous_group = first_lawgroup.get_previous_by_position()
+        last_lawgroup = lawgroups_with_laws[-1]['group']
+        next_group = last_lawgroup.get_next_by_position()
 
-    print(next_group)
-    print(previous_group)
-    
+
     return {
         'lawgroups_with_laws': lawgroups_with_laws,
         'post': post,
@@ -2769,7 +2771,7 @@ def law_table_of_contents(request, lang_code):
 
     laws = Law.objects.filter(group__language__code=lang_code)
 
-    print(laws)
+
 
     # Filter by type
     if filter_type == 'official':
@@ -2887,11 +2889,30 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
                 self._post = None
         return self._post
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+
+        post = self.get_post()
+        lang_code = self.kwargs.get('lang_code')
+        language = Language.objects.filter(code=lang_code).first() if lang_code else None
+        laws_qs = Law.objects.all()
+        if post:
+            laws_qs = laws_qs.filter(
+                Q(group__post__designer=post.designer) |
+                Q(group__post=None) |
+                Q(group__post__official=True)
+            ).distinct()        
+        if language:
+            laws_qs = laws_qs.filter(group__language=language)
+
+        form.fields['reference_laws'].queryset = laws_qs.distinct()
+        return form
+
+
     def test_func(self):
         post = self.get_post()
         if post:
             return self.request.user.profile.admin or post.designer == self.request.user.profile
-        print(self.request.user.is_staff)
         return self.request.user.is_staff
 
     def get_context_data(self, **kwargs):
@@ -2947,6 +2968,13 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             return user_profile.admin or post.designer == user_profile
         # Or allow if user is staff (for FAQs without post)
         return self.request.user.is_staff
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        faq = self.get_object()
+        context['post'] = faq.post
+        return context
+
 
     def get_success_url(self):
         faq = self.get_object()
@@ -2954,6 +2982,26 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         if faq.post:
             return reverse('lang-post-faq', kwargs={'slug': faq.post.slug, 'lang_code': lang_code})
         return reverse('lang-faq', kwargs={'lang_code': lang_code})
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        faq = self.get_object()
+        post = faq.post
+        language = faq.language
+
+        laws_qs = Law.objects.all()
+        if post:
+            laws_qs = laws_qs.filter(
+                Q(group__post__designer=post.designer) |
+                Q(group__post=None) |
+                Q(group__post__official=True)
+            ).distinct()        
+        if language:
+            laws_qs = laws_qs.filter(group__language=language)
+
+        form.fields['reference_laws'].queryset = laws_qs.distinct()
+        return form
+
 
 @editor_required_class_based_view
 class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):

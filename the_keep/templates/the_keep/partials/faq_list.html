@@ -8,7 +8,14 @@
         <div class="accordion-body">
             <div class='d-flex justify-content-between align-items-center'>
                 <div>
-                    {{ faq.answer }}
+                  <div style="white-space: pre-line;">
+                      {{ faq.answer }}
+                  </div>
+                  <div>
+                      {% for reference in faq.reference_laws.all %}
+                        {% include 'the_keep/partials/law_reference.html' %}
+                      {% endfor %}
+                  </div>
                 </div>
                 {% if faq_editable %}
                     <div>

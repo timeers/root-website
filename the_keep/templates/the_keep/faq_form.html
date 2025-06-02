@@ -33,3 +33,15 @@
 </div>
 
 {% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // Apply Select2 to the reference_laws field
+        $('#id_reference_laws').select2({
+        placeholder: "Links to Reference Laws", // Add a placeholder
+        width: '100%' // Set the width to 100% for responsiveness
+    });
+  });
+</script>
+{% endblock scripts %}

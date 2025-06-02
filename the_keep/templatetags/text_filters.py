@@ -130,13 +130,7 @@ def format_law_text_no_link(value):
 
     clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
 
-    # Step 3: Italicize content in parentheses
-    def paren_replacer(match):
-        return f"<em>{match.group(0)}</em>"
-
-    clean_value = re.sub(r"\([^)]*\)", paren_replacer, clean_value)
-
-    # Step 4: Wrap [[text]] in span with class 'smallcaps'
+    # Step 3: Wrap [[text]] in span with class 'smallcaps'
     def smallcaps_replacer(match):
         return f"<span class='smallcaps'>{match.group(1)}</span>"
 

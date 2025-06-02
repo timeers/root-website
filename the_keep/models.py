@@ -2026,25 +2026,6 @@ class PNPAsset(models.Model):
         ordering = ['pinned', 'category', 'date_updated']
 
 
-class FAQ(models.Model):
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)    
-    question = models.TextField()
-    answer = models.TextField()
-    date_posted = models.DateTimeField(default=timezone.now)
-    language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
-    website = models.BooleanField(default=False)
-
-    class Meta:
-        ordering = ['date_posted']
-
-    def __str__(self):
-        return f'{self.question}'
-
-    def save(self, *args, **kwargs):
-        if not self.language:
-            self.language = get_default_language()        
-        super().save(*args, **kwargs)
-
 
 class LawGroup(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)
@@ -2515,6 +2496,33 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
 
     return new_group
 
+
+
+
+class FAQ(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)    
+    question = models.TextField()
+    answer = models.TextField()
+    date_posted = models.DateTimeField(default=timezone.now)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
+    website = models.BooleanField(default=False)
+    reference_laws = models.ManyToManyField(
+        Law,
+        symmetrical=False,
+        blank=True,
+        related_name='faqs'
+    )
+
+    class Meta:
+        ordering = ['date_posted']
+
+    def __str__(self):
+        return f'{self.question}'
+
+    def save(self, *args, **kwargs):
+        if not self.language:
+            self.language = get_default_language()        
+        super().save(*args, **kwargs)
 
 
 

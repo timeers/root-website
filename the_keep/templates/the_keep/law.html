@@ -31,6 +31,19 @@
 
 {% block content %}
 
+<div class='mb-2 d-flex justify-content-between'>
+
+    <a href="{% url 'law-search' lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+        <div class='d-flex align-items-center mr-1'>
+        <i class="bi bi-chevron-left"></i> 
+        </div>
+        <div class='d-flex mx-auto'>
+          Table of Contents
+        </div>
+
+    </a>
+
+</div>
 
 
 <article class="content-section d-flex justify-content-between align-items-center">
@@ -90,10 +103,8 @@
 {% for item in lawgroups_with_laws %}
 <article class="content-section">
 
-  <div id="group-{{ item.group.id }}">
-
     <div class="d-flex justify-content-between align-items-center">
-      <div class='d-flex'>
+      <div id="group-{{ item.group.id }}" class='d-flex'>
         {% if item.group.post %}
           <a href='{{ item.group.post.get_absolute_url }}{% if lang_code %}?lang={{ lang_code }}{% endif %}'>
         {% endif %}
@@ -366,7 +377,7 @@
         {% endfor %}
       
     </div>
-  </div>
+ 
 </article>
 {% empty %}
 <article class="media content-section d-flex justify-content-between align-items-center">
@@ -531,17 +542,19 @@
         <div class='d-flex align-items-center mr-1'>
         <i class="bi bi-chevron-left"></i> 
         </div>
-        <div class='d-flex'>
+        <div class='d-flex mx-auto'>
           {{ previous_group }}
         </div>
 
     </a>
+  {% else %}
+    <div class='d-flex align-items-center mr-1'></div>
   {% endif %}
 
   {% if next_group %}
     <a href="{{ next_group.get_absolute_url }}" class="content-box d-flex align-items-center clickable-segment text-center">
   
-        <div class='d-flex'>
+        <div class='d-flex mx-auto'>
           {{ next_group }} 
         </div>
         <div class='d-flex align-items-center ml-1'>
@@ -549,6 +562,8 @@
         </div>
 
     </a>
+  {% else %}
+    <div class='d-flex align-items-center mr-1'></div>
   {% endif %}
   
 </div>
