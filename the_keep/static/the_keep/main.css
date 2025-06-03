@@ -1508,13 +1508,24 @@ tr.clickable-row:hover {
 
 .law-entry {
   display: grid;
-  grid-template-columns: 50px 1fr;  /* First column fixed at 60px */
+  grid-template-columns: 50px 1fr;  /* First column fixed at 50px */
   column-gap: 0.5em;
   /* align-items: start; */
 }
 .law-entry > :first-child {
   text-align: right;              /* Right-align text in the first column */
 }
+
+.law-entry-sm {
+  display: grid;
+  grid-template-columns: 15px 1fr;
+  column-gap: 0.5em;
+  /* align-items: start; */
+}
+.law-entry-sm > :first-child {
+  text-align: right;              /* Right-align text in the first column */
+}
+
 .law-code {
   font-size: 0.7em;
   color: #555;
@@ -1530,7 +1541,7 @@ tr.clickable-row:hover {
 
 .smallcaps {
   text-transform: uppercase;
-  font-size: 0.7em;
+  font-size: 0.75em;
 } 
 
 .smart-smallcaps {

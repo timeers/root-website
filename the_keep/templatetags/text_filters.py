@@ -107,6 +107,9 @@ def format_law_text(value, lang_code='en'):
 
     final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
 
+    # Step 5: Replace newlines with <br> for visual line breaks
+    final_value = final_value.replace('\n', '<br>')
+
     return mark_safe(final_value)
 
 
@@ -135,6 +138,9 @@ def format_law_text_no_link(value):
         return f"<span class='smallcaps'>{match.group(1)}</span>"
 
     final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
+
+    # Step 5: Replace newlines with <br> for visual line breaks
+    final_value = final_value.replace('\n', '<br>')
 
     return mark_safe(final_value)
 

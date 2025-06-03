@@ -2120,14 +2120,21 @@ class LawGroup(models.Model):
 
     def _alphabetic_position(self, abbreviation):
         """
-        Convert a string abbreviation into a lexicographically ordered numeric position
-        (e.g., 'A' -> 0, 'B' -> 1, ..., 'AA' -> 26, 'AB' -> 27, 'BA' -> 52).
+        Convert a string into a lexicographically sortable numeric position,
+        scoped by post.sorting.
         """
+        abbreviation = abbreviation.strip().lower()
+        max_len = 4  # Max characters to consider
+        padded = abbreviation.ljust(max_len, '\0')  # Null-pad to keep 'a' < 'aa'
         position = 0
-        for char in abbreviation.upper():
-            position = position * 26 + (ord(char) - ord('A'))
-        # Add a large base value to ensure alphabetical entries are sorted after numeric ones
-        return 1_000_000 + position
+        for char in padded:
+            position = position * 256 + ord(char)
+
+        # Offset based on post.sorting or fallback
+        base_offset = self.post.sorting * 10_000_000_000 if self.post else 0
+
+        return base_offset + position
+
 
     def get_absolute_url(self):
         if self.post:

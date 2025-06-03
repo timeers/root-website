@@ -2241,6 +2241,7 @@ def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode
             language = Language.objects.filter(code='en').first()
     else:
         language = Language.objects.filter(code='en').first()
+        lang_code = language.code
 
 
 
@@ -2665,15 +2666,16 @@ def create_law_group(request, slug):
                     locked_position=True,
                     allow_description=False
                 )
-                Law.objects.create(
-                    group=group,
-                    parent=rules_law,
-                    title=get_translated_title("Crafting", language.code),
-                    description="",
-                    position=1,
-                    locked_position=True,
-                    allow_sub_laws=False
-                )
+                if post.component == 'Faction':
+                    Law.objects.create(
+                        group=group,
+                        parent=rules_law,
+                        title=get_translated_title("Crafting", language.code),
+                        description="",
+                        position=1,
+                        locked_position=True,
+                        allow_sub_laws=False
+                    )
 
                 setup_law = Law.objects.create(
                     group=group,
@@ -2693,13 +2695,14 @@ def create_law_group(request, slug):
                 Law.objects.create(group=group, title=get_translated_title("Daylight", language.code), description="", position=5, locked_position=True)
 
                 evening_law = Law.objects.create(group=group, title=get_translated_title("Evening", language.code), description="", position=6, locked_position=True)
-                Law.objects.create(
-                    group=group,
-                    parent=evening_law,
-                    title=get_translated_title("Draw and Discard", language.code),
-                    description="Draw one card, plus one per uncovered draw bonus. Then, if you have more than five cards in your hand, discard cards of your choice until you have five.",
-                    position=1
-                )
+                if post.component == 'Faction':
+                    Law.objects.create(
+                        group=group,
+                        parent=evening_law,
+                        title=get_translated_title("Draw and Discard", language.code),
+                        description="Draw one card, plus one per uncovered draw bonus. Then, if you have more than five cards in your hand, discard cards of your choice until you have five.",
+                        position=1
+                    )
 
             # Discord notification
             fields = [{
@@ -2760,6 +2763,9 @@ def law_table_of_contents(request, lang_code):
     query = request.GET.get("q", "")
     filter_type = request.GET.get('type', 'all')
     language = Language.objects.filter(code=lang_code).first()
+    if not language:
+        language = Language.objects.first()
+    print(language)
     available_languages_qs = LawGroup.objects.exclude(language=language)
     available_languages = Language.objects.filter(
             lawgroup__in=available_languages_qs
@@ -2769,7 +2775,7 @@ def law_table_of_contents(request, lang_code):
         language = Language.objects.filter(code='en').first()
 
 
-    laws = Law.objects.filter(group__language__code=lang_code)
+    laws = Law.objects.filter(group__language=language)
 
 
 
@@ -2791,7 +2797,7 @@ def law_table_of_contents(request, lang_code):
 
     context = {
         'laws': laws,
-        'lang_code': lang_code,
+        'lang_code': language.code,
         'available_languages': available_languages,
         'selected_language': language,
         'query': query
