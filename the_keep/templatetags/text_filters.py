@@ -152,3 +152,16 @@ def open_braces():
 @register.simple_tag
 def close_braces():
     return '}}'
+
+@register.filter
+def ensure_punctuation(text):
+    """
+    Adds a period to the end of the string if it doesn't already end with 
+    ., !, ?, :, ; or a closing quotation mark.
+    """
+    if not text:
+        return ''
+    
+    if re.search(r'[.?!:;”\'"]$', text.strip()):
+        return text
+    return text + '.'

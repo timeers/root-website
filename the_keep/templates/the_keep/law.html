@@ -47,7 +47,7 @@
 
 
 <article class="content-section d-flex justify-content-between align-items-center">
-  <div>
+  <div class='mx-auto'>
   {% comment %} {% if post %}
       <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>{{law_title}}</h1>
   {% else %}
@@ -175,7 +175,7 @@
                 </div>
                 <div class="law-content">
                   <div class="d-flex justify-content-between align-items-center">
-                    <strong>{{ child.title|format_law_text_no_link }}.</strong>
+                    <strong>{{ child.title|ensure_punctuation|format_law_text_no_link }}</strong>
                     {% if not edit_mode %}
                       <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ child.full_url }}" title="Copy link" style="cursor: pointer;"></i>
                     {% endif %}
@@ -199,7 +199,7 @@
                         <span class='law-code'>{{ grandchild.local_code }}</span> 
                         <div class="law-content">
                           <div class="d-flex justify-content-between align-items-center">
-                            <strong>{{ grandchild.title }}.</strong>
+                            <strong>{{ grandchild.title|ensure_punctuation }}</strong>
                             {% if not edit_mode %}
                               <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ grandchild.full_url }}" title="Copy link" style="cursor: pointer;"></i>
                             {% endif %}
@@ -224,7 +224,7 @@
                               <span class='law-code'>{{ great_grandchild.local_code }}</span> 
                               <div class="law-content">
                                 <div class="d-flex justify-content-between align-items-center">
-                                  <strong>{{ great_grandchild.title }}.</strong>
+                                  <strong>{{ great_grandchild.title|ensure_punctuation }}</strong>
                                     {% if not edit_mode %}
                                       <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ great_grandchild.full_url }}" title="Copy link" style="cursor: pointer;"></i>
                                     {% endif %}

@@ -581,7 +581,13 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+    
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
 
     def clean(self):
         cleaned_data = super().clean()
@@ -634,7 +640,13 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+    
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
 
     def clean(self):
         cleaned_data = super().clean()
@@ -690,7 +702,13 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Landmark  # Specify the model to be Landmark
@@ -726,7 +744,13 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
 
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Tweak  # Specify the model to be Tweak
@@ -804,7 +828,13 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
             # Prepare filter for 'other_side'
             other_side_filter = Q(designer=designer, status__lte=designer.view_status)
             
@@ -873,7 +903,13 @@ class VagabondCreateForm(PostCreateForm):
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
     
     def clean(self):
             cleaned_data = super().clean()
@@ -1025,7 +1061,13 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
 
 
 
@@ -1111,7 +1153,13 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             })
         if instance:
             # Exclude the current instance from the queryset
-            self.fields['based_on'].queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            base_queryset = self.fields['based_on'].queryset.exclude(id=instance.id)
+            
+            if instance.based_on:
+                # Ensure the instance's current based_on is included
+                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+
+            self.fields['based_on'].queryset = base_queryset
 
 
 

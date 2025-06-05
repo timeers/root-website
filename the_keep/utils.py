@@ -233,6 +233,24 @@ def slugify_expansion_title(instance, save=False, new_slug=None):
     return instance
 
 
+def slugify_law_group_title(instance, save=False, new_slug=None):
+    if new_slug is not None:
+        slug = new_slug
+    else:
+        slug = slugify(instance.title)
+
+    LawGroup = apps.get_model('the_keep', 'LawGroup')
+    qs = LawGroup.objects.filter(slug=slug).exclude(id=instance.id)
+    if qs.exists():
+        # auto generate new slug
+        rand_int = random.randint(1_000, 9_999)
+        slug = f"{slug}-{rand_int}"
+        return slugify_law_group_title(instance, save=save, new_slug=slug)
+    instance.slug = slug
+    if save:
+        instance.save()
+    return instance
+
  
 def color_distance(rgb1, rgb2):
     """
@@ -490,7 +508,7 @@ def get_translated_title(key, target_lang_code):
 
 
 
-def clean_meta_description(raw_text, max_length=200):
+def clean_meta_description(raw_text, max_length=250):
     text = strip_tags(raw_text or "")
     text = re.sub(r'{{|}}|\[\[|\]\]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()

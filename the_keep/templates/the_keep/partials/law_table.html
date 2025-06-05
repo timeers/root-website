@@ -1,8 +1,8 @@
 {% load i18n text_filters roman_numerals %}
 {% if not query %}
-<div class='box-with-bar mb-2'>
-<h2 class='root-title'>Table of Contents</h2>
-</div>
+    <div class='box-with-bar mb-2'>
+        <h2 class='root-title'>{% trans 'Table of Contents' %}</h2>
+    </div>
 {% endif %}
 {% for law in laws %}
 <a href="{{ law.get_absolute_url }}">
@@ -35,7 +35,17 @@
     </article>
 </a>
 {% empty %}
-    <article class="media content-section">
-        No laws matching "{{query}}".
-    </article>
+    {% if not query %}
+        <article class="media content-section">
+            {% blocktrans %}
+                No {{ selected_language }} laws available.
+            {% endblocktrans %}
+        </article>
+    {% else %}
+        <article class="media content-section">
+            {% blocktrans %}
+                No laws matching "{{query}}".
+            {% endblocktrans %}
+        </article>
+    {% endif %}
 {% endfor %}

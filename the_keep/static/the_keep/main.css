@@ -1675,7 +1675,9 @@ tr.clickable-row:hover {
 
 .box-with-bar {
   position: relative; 
-  padding-bottom: 1px; 
+  padding-left: 4vw;
+  /* padding-bottom: 1px;  */
+  /* text-align: center; */
 }
 
 .box-with-bar::after {
@@ -1683,7 +1685,7 @@ tr.clickable-row:hover {
   position: absolute;
   bottom: 0;
   left: 0;
-  height: 4px;
+  height: 3px;
   width: 100%;
   background-color: black; 
 }

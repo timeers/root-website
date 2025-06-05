@@ -23,7 +23,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from PIL import Image
 from io import BytesIO
 from django.apps import apps
-from .utils import slugify_post_title, slugify_expansion_title, DEFAULT_TITLES_TRANSLATIONS
+from .utils import slugify_post_title, slugify_expansion_title, slugify_law_group_title, DEFAULT_TITLES_TRANSLATIONS
 from the_gatehouse.models import Profile, Language
 from .utils import validate_hex_color, delete_old_image, hex_to_rgb
 import random
@@ -2028,19 +2028,24 @@ class PNPAsset(models.Model):
 
 
 class LawGroup(models.Model):
+    class TypeChoices(models.TextChoices):
+        OFFICIAL = 'Official', _('Official')
+        BOT = 'Bot', _('Bot')
+        FAN = 'Fan', _('Fan')
     post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)
     abbreviation = models.CharField(max_length=10, null=True, blank=True)
     title = models.CharField(max_length=50, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     position = models.FloatField(editable=False, default=0)
+    type = models.CharField(choices=TypeChoices, max_length=10, default="Fan")
     reference_laws = models.ManyToManyField(
         'Law',
         symmetrical=False,
         blank=True,
         related_name='group_references'
     )
-
+    slug = models.SlugField(unique=True, null=True, blank=True)
 
     class Meta:
         ordering = ['position']
@@ -2543,6 +2548,11 @@ def expansion_pre_save(sender, instance, *args, **kwargs):
     if instance.slug is None:
         slugify_expansion_title(instance, save=False)
 
+def law_group_pre_save(sender, instance, *args, **kwargs):
+    # print('pre_save')
+    if instance.slug is None:
+        slugify_law_group_title(instance, save=False)
+
 pre_save.connect(component_pre_save, sender=Map)
 pre_save.connect(component_pre_save, sender=Deck)
 pre_save.connect(component_pre_save, sender=Faction)
@@ -2551,6 +2561,7 @@ pre_save.connect(component_pre_save, sender=Hireling)
 pre_save.connect(component_pre_save, sender=Landmark)
 pre_save.connect(component_pre_save, sender=Tweak)
 pre_save.connect(expansion_pre_save, sender=Expansion)
+pre_save.connect(law_group_pre_save, sender=LawGroup)
 
 
 def component_post_save(sender, instance, created, *args, **kwargs):
@@ -2563,6 +2574,11 @@ def expansion_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_expansion_title(instance, save=True)
 
+def law_group_post_save(sender, instance, created, *args, **kwargs):
+    # print('post_save')
+    if created:
+        slugify_law_group_title(instance, save=True)
+
 post_save.connect(component_post_save, sender=Map)
 post_save.connect(component_post_save, sender=Deck)
 post_save.connect(component_post_save, sender=Faction)
@@ -2571,4 +2587,5 @@ post_save.connect(component_post_save, sender=Hireling)
 post_save.connect(component_post_save, sender=Landmark)
 post_save.connect(component_post_save, sender=Tweak)
 post_save.connect(expansion_post_save, sender=Expansion)
+post_save.connect(law_group_post_save, sender=LawGroup)
 
