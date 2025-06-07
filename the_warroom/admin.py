@@ -298,14 +298,14 @@ class GameAdmin(admin.ModelAdmin):
                 )
                 notes = fields[18]
                 if notes:
-                    notes += "\nImported from WR Playtesting Master Sheet"
+                    notes += " (Imported from WR Playtesting Master Sheet)"
                 else:
                     notes = "Imported from WR Playtesting Master Sheet"
                 # Attempt to find the Map by title
                 map_instance = Map.objects.filter(title__iexact=fields[15]).first()
 
                 if fields[15] and not map_instance:
-                    print(f'Map not Found {fields[15]}')
+                   
                     map_instance = Map.objects.filter(title__iexact="Hypercube").first()
 
                 # Attempt to find the Deck by title
@@ -390,9 +390,11 @@ class GameAdmin(admin.ModelAdmin):
                 if form.is_valid():
                     game_instance = form.save()
                     seat = 1
-                    for i in range(3, len(fields), 2):
-                        print(fields[i], fields[i+1])
+                    for i in range(3, 15, 2):
+                        # print(fields[i], fields[i+1])
                         coalition_faction = None
+                        coalition_instance = None
+                        vagabond_instance = None
                         dominance = None
                         win = False
                         found_vb = None
@@ -407,9 +409,9 @@ class GameAdmin(admin.ModelAdmin):
                             vagabond_instance = Vagabond.objects.filter(title__iexact=found_vb).first()
                             faction_instance = Faction.objects.filter(title__iexact=faction).first()
                             if faction and not faction_instance:
-                                print(f'Faction not Found {faction}')
+                                # print(f'Faction not Found {faction}')
                                 faction_instance = Faction.objects.filter(title__iexact="Treetop Utopia").first()
-                            print(f'Faction: {faction_instance}')
+                            # print(f'Faction: {faction_instance}')
                             if fields[i+1].isnumeric():
                                 score = int(fields[i+1])
                                 if score and score >= 30:
@@ -423,7 +425,7 @@ class GameAdmin(admin.ModelAdmin):
                                     dominance = fields[i+1].split()[0] 
                                     if dominance == 'Bunny':
                                         dominance = 'Rabbit'
-                            print(f'Score: {score}')
+                            # print(f'Score: {score}')
                             coalition_instance = Faction.objects.filter(title__iexact=coalition_faction).first()
 
 

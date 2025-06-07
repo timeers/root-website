@@ -301,55 +301,44 @@ class PlayerGameListView(ListView):
 
 # @player_onboard_required
 def game_detail_view(request, id=None):
-    # hx_url = reverse("game-hx-detail", kwargs={"id": id})
     current_lang_code = get_language()
+
+    obj = get_object_or_404(Game, id=id)
 
     participants = []
     efforts = []
     scorecard_count = 0
     show_detail = False
-    try:
-        obj = Game.objects.get(id=id)
-        for effort in obj.efforts.all():
-            participants.append(effort.player)
-        if obj.recorder:
-            participants.append(obj.recorder)
 
+    for effort in obj.efforts.all():
+        participants.append(effort.player)
+    if obj.recorder:
+        participants.append(obj.recorder)
 
-        # Filter translations by current language
-        translations = PostTranslation.objects.filter(language__code=current_lang_code)
-        # Add efforts directly to context to get the available_scorecard field
-        efforts = obj.efforts.all().prefetch_related(
-            'player', 'vagabond', 'scorecard',
-            Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
-        )
+    translations = PostTranslation.objects.filter(language__code=current_lang_code)
+    efforts = obj.efforts.all().prefetch_related(
+        'player', 'vagabond', 'scorecard',
+        Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
+    )
 
+    for effort in efforts:
+        if hasattr(effort.faction, 'filtered_translations') and effort.faction.filtered_translations:
+            effort.translated_faction_title = effort.faction.filtered_translations[0].translated_title
+        else:
+            effort.translated_faction_title = effort.faction.title
+
+    scorecard_count = ScoreCard.objects.filter(final=True, effort__in=obj.efforts.all()).distinct().count()
+    if scorecard_count != 0:
+        show_detail = True
+
+    if request.user.is_authenticated:
         for effort in efforts:
-            if hasattr(effort.faction, 'filtered_translations') and effort.faction.filtered_translations:
-                effort.translated_faction_title = effort.faction.filtered_translations[0].translated_title
-            else:
-                effort.translated_faction_title = effort.faction.title
-
-
-        # Count the total number of scorecards linked to efforts
-        scorecard_count = ScoreCard.objects.filter(final=True, effort__in=obj.efforts.all()).distinct().count()
-        if scorecard_count != 0:
+            effort.available_scorecard = effort.available_scorecard(request.user)
+        if obj.final and (request.user.profile in participants):
             show_detail = True
 
-        if request.user.is_authenticated:
-            for effort in efforts:
-                effort.available_scorecard = effort.available_scorecard(request.user)
-
-            if obj.final and (request.user.profile in participants):
-                show_detail = True
-
-    except ObjectDoesNotExist:
-        obj = None
-
-
     commentform = GameCommentCreateForm()
-    context=  {
-        # 'hx_url': hx_url,
+    context = {
         'game': obj,
         'commentform': commentform,
         'participants': participants,
