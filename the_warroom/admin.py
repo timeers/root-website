@@ -3,7 +3,7 @@ from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
 from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
-from the_keep.models import Deck, Map, Faction, Vagabond, Tweak
+from the_keep.models import Deck, Map, Faction, Vagabond, Tweak, Landmark, Hireling
 from the_gatehouse.models import Profile
 from django.http import HttpResponseRedirect 
 from .forms import GameImportForm, EffortImportForm
@@ -272,10 +272,7 @@ class GameAdmin(admin.ModelAdmin):
     def upload_weird_root_csv(self, request):
 
         if request.method == 'POST':
-            print("action is posted")
 
-
-            print("action is posted")
             csv_file = request.FILES['csv_upload']
 
             if not csv_file.name.endswith('.csv'):
@@ -290,7 +287,7 @@ class GameAdmin(admin.ModelAdmin):
             for fields in csv_reader:
                 if fields and fields[0].strip().lower().startswith("submitted by"):
                     continue
-                print(len(fields))
+                # print(len(fields))
 
                 if len(fields) < 17:  # Check to ensure there are enough fields
                     print("Not enough fields in this row.")
@@ -300,6 +297,10 @@ class GameAdmin(admin.ModelAdmin):
                     discord=fields[0].lower()
                 )
                 notes = fields[18]
+                if notes:
+                    notes += "\nImported from WR Playtesting Master Sheet"
+                else:
+                    notes = "Imported from WR Playtesting Master Sheet"
                 # Attempt to find the Map by title
                 map_instance = Map.objects.filter(title__iexact=fields[15]).first()
 
@@ -314,6 +315,27 @@ class GameAdmin(admin.ModelAdmin):
                     tweaks = Tweak.objects.filter(title__iexact="Action!")
                 else:
                     deck_instance = Deck.objects.filter(title__iexact=fields[16]).first()
+
+                landmark_list = [item.strip() for item in fields[17].split(',') if item.strip()]
+                landmark_qs = Landmark.objects.none()  # start with an empty queryset
+
+                for name in landmark_list:
+                    try:
+                        matched_landmark = Landmark.objects.get(title__iexact=name)
+                        landmark_qs |= Landmark.objects.filter(pk=matched_landmark.pk)
+                    except Landmark.DoesNotExist:
+                        pass
+
+                hireling_list = [item.strip() for item in fields[19].split(',') if item.strip()]
+                hireling_qs = Hireling.objects.none()  # start with an empty queryset
+
+                for name in hireling_list:
+                    try:
+                        matched_hireling = Hireling.objects.get(title__iexact=name)
+                        hireling_qs |= Hireling.objects.filter(pk=matched_hireling.pk)
+                    except Hireling.DoesNotExist:
+                        pass
+
 
                 if not map_instance:
                     print(f"Map not found: {fields[15]}")
@@ -359,6 +381,8 @@ class GameAdmin(admin.ModelAdmin):
                     'notes': notes,
                     'type': "Live",
                     'tweaks': tweaks,
+                    'landmarks': landmark_qs,
+                    'hirelings': hireling_qs,
                 }
                 # Use GameImportForm for validation
                 form = GameImportForm(game_data)

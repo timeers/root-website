@@ -2405,7 +2405,8 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
             # Try to get a translated title from PostTranslation
             translation = PostTranslation.objects.filter(
                 post=source_group.post,
-                language=target_language
+                language=target_language,
+                type=source_group.type
             ).first()
             if translation:
                 selected_title = translation.translated_title

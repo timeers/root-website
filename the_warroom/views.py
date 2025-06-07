@@ -138,13 +138,13 @@ class GameListView(ListView):
         # Get the total count of games
         games_count = games.count()
         efforts = Effort.objects.filter(game__in=games)
-        if games_count > 100:
+        if games_count > 5000:
             leaderboard_threshold = 10
-        elif games_count > 50:
+        elif games_count > 2000:
             leaderboard_threshold = 5
-        elif games_count > 20:
+        elif games_count > 1500:
             leaderboard_threshold = 3
-        elif games_count > 10:
+        elif games_count > 500:
             leaderboard_threshold = 2
         else:
             leaderboard_threshold = 1
