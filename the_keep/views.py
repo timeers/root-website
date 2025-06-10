@@ -2699,11 +2699,11 @@ def create_law_group(request, slug):
                     allow_description=False,
                     language=language,
                 )
-                Law.objects.bulk_create([
-                    Law(group=group, parent=setup_law, title="Step 1: X", description="", position=1, language=language),
-                    Law(group=group, parent=setup_law, title="Step 2: XX", description="", position=2, language=language),
-                    Law(group=group, parent=setup_law, title="Step 3: XXX", description="", position=3, language=language),
-                ])
+          
+                Law.objects.create(group=group, parent=setup_law, title="Step 1: X", description="", position=1, language=language)
+                Law.objects.create(group=group, parent=setup_law, title="Step 2: XX", description="", position=2, language=language)
+                Law.objects.create(group=group, parent=setup_law, title="Step 3: XXX", description="", position=3, language=language)
+                
 
                 Law.objects.create(group=group, title=get_translated_title("Birdsong", language.code), description="", position=4, locked_position=True, language=language)
                 Law.objects.create(group=group, title=get_translated_title("Daylight", language.code), description="", position=5, locked_position=True, language=language)

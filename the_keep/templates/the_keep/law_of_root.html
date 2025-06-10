@@ -81,7 +81,7 @@
                     {% else %}
                             {% for lang in available_languages %}
                               <li>
-                                <a class="dropdown-item" href="{% url 'law-of-root' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                                <a class="dropdown-item" href="{% url 'new-law' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
                               </li>
                             {% endfor %}
                     {% endif %}

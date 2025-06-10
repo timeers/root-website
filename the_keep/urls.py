@@ -41,8 +41,8 @@ urlpatterns = [
     # path('law-of-root/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
     # path('law-of-root/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
 
-    path('law-of-root/table-of-contents/<str:lang_code>/', views.law_table_of_contents, name='law-search'),
-    
+    path('law-of-root/<str:lang_code>/', views.law_table_of_contents, name='law-search'),
+
     path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
     path('law/<slug:slug>/<str:lang_code>/', views.law_group_view, name='new-law'),
     path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='new-edit-law'),
@@ -86,7 +86,7 @@ urlpatterns = [
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
     # path('expansion/<slug:expansion_slug>/law/', views.law_hierarchy_view, name='expansion-law'),
 
-    # path('old/faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-old'),
+
     
     path('map/<slug:slug>/', ultimate_component_view, name='map-detail'),
     path('deck/<slug:slug>/', ultimate_component_view, name='deck-detail'),

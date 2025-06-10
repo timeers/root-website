@@ -2143,25 +2143,6 @@ class LawGroup(models.Model):
         return base_offset + position
 
 
-    # def get_absolute_url(self):
-    #     if self.post:
-    #         url = reverse('lang-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
-    #         return url
-    #     else:
-    #         url = reverse('law-of-root', kwargs={'lang_code': self.language.code})
-    #         query_params = {'highlight_group': self.id}
-    #         return f'{url}?{urlencode(query_params)}'
-        
-    # def get_edit_url(self):
-    #     if self.post:
-    #         url = reverse('edit-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
-    #         return url
-    #     else:
-    #         url = reverse('edit-law-of-root', kwargs={'lang_code': self.language.code})
-    #         query_params = {'highlight_group': self.id}
-    #         return f'{url}?{urlencode(query_params)}'
-
-
     def get_previous_by_position(self):
         return LawGroup.objects.filter(
             language=self.language,
