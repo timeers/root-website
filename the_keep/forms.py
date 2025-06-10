@@ -310,9 +310,13 @@ class TranslationCreateForm(forms.ModelForm):
 
             # Add custom validation if needed (e.g., ensure a translation doesn't already exist for this post and language)
             if post and language:
-                if PostTranslation.objects.filter(post=post, language=language).exists():
-                    raise forms.ValidationError("A translation for this post in this language already exists.")
-            
+                if self.instance.pk:
+                  if PostTranslation.objects.filter(post=post, language=language).exclude(id=self.instance.id).exists():
+                        raise forms.ValidationError("A translation for this post in this language already exists.")
+                else:
+                    if PostTranslation.objects.filter(post=post, language=language).exists():
+                        raise forms.ValidationError("A translation for this post in this language already exists.")
+                
             # List of the fields you want to check
             required_fields = [
                 'translated_title', 'translated_lore', 'translated_description', 'translated_animal',
@@ -585,7 +589,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
 
@@ -644,7 +648,7 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
 
@@ -706,7 +710,7 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
 
@@ -748,7 +752,7 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
 
@@ -832,7 +836,7 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
             # Prepare filter for 'other_side'
@@ -907,7 +911,7 @@ class VagabondCreateForm(PostCreateForm):
             
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
     
@@ -1065,7 +1069,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
 
@@ -1157,7 +1161,7 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
             
             if instance.based_on:
                 # Ensure the instance's current based_on is included
-                base_queryset = base_queryset | Law.objects.filter(id=instance.based_on.id)
+                base_queryset = base_queryset | Post.objects.filter(id=instance.based_on.id)
 
             self.fields['based_on'].queryset = base_queryset
 
@@ -1269,16 +1273,13 @@ class AddLawForm(forms.Form):
     parent_id = forms.IntegerField(required=False)
     prev_id = forms.IntegerField(required=False)
     next_id = forms.IntegerField(required=False)
+    language_id = forms.IntegerField()
     reference_laws = forms.ModelMultipleChoiceField(
         queryset=Law.objects.all(),
         required=False,
         widget=forms.SelectMultiple(attrs={'class': 'multi-select'})
     )
 
-# class EditLawForm(forms.Form):
-#     law_id = forms.IntegerField()
-#     title = forms.CharField(max_length=50)
-#     description = forms.CharField()
 
 class EditLawForm(forms.ModelForm):
     class Meta:
@@ -1304,16 +1305,13 @@ class CopyLawGroupForm(forms.Form):
         super().__init__(*args, **kwargs)
 
         if source_group:
-            base_qs = Language.objects.exclude(code=source_group.language.code)
+            base_qs = Language.objects.all()
 
-            if source_group.post:
-                # Get languages already used for this post
-                used_languages = LawGroup.objects.filter(post=source_group.post).values_list('language__code', flat=True)
-                base_qs = base_qs.exclude(code__in=used_languages)
-            else:
-                # Get languages already used for this abbreviation
-                used_languages = LawGroup.objects.filter(abbreviation=source_group.abbreviation).values_list('language__code', flat=True)
-                base_qs = base_qs.exclude(code__in=used_languages)
+            # Get language codes used in the laws of this group
+            used_languages = Law.objects.filter(group=source_group).values_list('language__code', flat=True).distinct()
+
+            # Exclude those from the language field queryset
+            base_qs = base_qs.exclude(code__in=used_languages)
 
             self.fields['language'].queryset = base_qs
 

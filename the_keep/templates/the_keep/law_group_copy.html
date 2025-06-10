@@ -9,15 +9,13 @@
 <article class="content-section">
 <form method="post">
   {% csrf_token %}
-  from {{ law_group.language }} to:
+  from {{ source_language }} to:
   {{ form.language|as_crispy_field }}
 
   <button class='btn btn-success' type="submit">Copy</button>
-  {% if post %}
-  <a class="btn btn-secondary" href="{% url 'post-law' slug=post.slug %}">{% trans 'Cancel' %}</a>
-  {% else %}
-  <a class="btn btn-secondary" href="{% url 'law-of-root' lang=law_group.language.code %}">{% trans 'Cancel' %}</a>
-  {% endif %}
+
+  <a class="btn btn-secondary" href="{% url 'new-law' slug=law_group.slug lang_code=lang_code %}">{% trans 'Cancel' %}</a>
+
 </form>
 </article>
 {% endblock content %}

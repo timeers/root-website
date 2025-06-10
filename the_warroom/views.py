@@ -149,12 +149,19 @@ class GameListView(ListView):
         else:
             leaderboard_threshold = 1
 
+        if games_count > 1500:
+            faction_threshold = 10
+        elif games_count > 500:
+            faction_threshold = 5
+        else:
+            faction_threshold = 1
+
         # Get leaderboard data
         context_data.update({
             'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
             'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-            'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-            'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+            'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=faction_threshold),
+            'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=faction_threshold),
             'leaderboard_threshold': leaderboard_threshold,
         })
         

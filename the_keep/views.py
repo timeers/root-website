@@ -42,7 +42,7 @@ from .models import (
     Hireling, Landmark,
     Piece, Tweak,
     PNPAsset, ColorChoices, PostTranslation,
-    FAQ, LawGroup, Law, duplicate_lawgroup_with_laws
+    FAQ, LawGroup, Law, duplicate_laws_for_language
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -216,7 +216,7 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # Handle the case where the deletion fails due to foreign key protection
             messages.error(request, f"The expansion '{name}' cannot be deleted because it has been used in a game.")
             # Redirect back to the post detail page
-            return redirect('expansion-detail', expansion.slug)  # Make sure `post.get_absolute_url()` is correct
+            return redirect('expansion-detail', expansion.slug)
         except IntegrityError:
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")
@@ -446,7 +446,6 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         # print('Trying to delete')
         post = self.get_object()
         name = post.title
-        detail_view = f'{post.component.lower()}-detail'
 
         component_mapping = {
                 "Map": Map,
@@ -491,18 +490,18 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
                 post.save()
                 messages.error(request, f'The {post.component} "{name}" cannot be deleted because it has been used in a game. Status has been set to "Inactive".')
                 # Redirect back to the post detail page
-                return redirect(detail_view, post.slug)
+                return redirect(object.get_absolute_url())
             
 
         except ProtectedError:
             # Handle the case where the deletion fails due to foreign key protection
             messages.error(request, f"The {post.component} '{name}' cannot be deleted because it has been used in a game.")
             # Redirect back to the post detail page
-            return redirect(detail_view, post.slug)
+            return redirect(object.get_absolute_url())
         except IntegrityError:
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")
-            return redirect(detail_view, post.slug) 
+            return redirect(object.get_absolute_url()) 
 
 
 
@@ -2214,183 +2213,185 @@ def assign_full_urls(laws, request):
         if hasattr(law, 'children'):
             assign_full_urls(law.children.all(), request)
 
-def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode=False, lang_code=None):
-    expansion = None
-    post = None
+# def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode=False, lang_code=None):
+#     expansion = None
+#     post = None
 
-    highlight_id = request.GET.get('highlight_law')
-    highlight_group_id = request.GET.get('highlight_group')
+#     highlight_id = request.GET.get('highlight_law')
+#     highlight_group_id = request.GET.get('highlight_group')
     
-    law_meta_description = None
-    law_meta_title = None
-    if highlight_id:
-        selected_law = Law.objects.filter(id=highlight_id).first()
-        if selected_law:
-            law_meta_title = selected_law.group.title + ": " + selected_law.law_code + ' "' + clean_meta_description(selected_law.title) + '"'
-            law_meta_description = clean_meta_description(selected_law.description)
-    elif highlight_group_id:
-        selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
-        if selected_group:
-            law_meta_title = "Law of " + clean_meta_description(selected_group.title)
-            law_meta_description = clean_meta_description(selected_group.description)
+#     law_meta_description = None
+#     law_meta_title = None
+#     if highlight_id:
+#         selected_law = Law.objects.filter(id=highlight_id).first()
+#         if selected_law:
+#             law_meta_title = selected_law.group.title + ": " + selected_law.law_code + ' "' + clean_meta_description(selected_law.title) + '"'
+#             law_meta_description = clean_meta_description(selected_law.description)
+#     elif highlight_group_id:
+#         selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
+#         if selected_group:
+#             law_meta_title = "Law of " + clean_meta_description(selected_group.title)
+#             law_meta_description = clean_meta_description(selected_group.description)
 
 
-    if lang_code:
-        language = Language.objects.filter(code=lang_code).first()
-        if not language:
-            language = Language.objects.filter(code='en').first()
-    else:
-        language = Language.objects.filter(code='en').first()
-        lang_code = language.code
+#     if lang_code:
+#         language = Language.objects.filter(code=lang_code).first()
+#         if not language:
+#             language = Language.objects.filter(code='en').first()
+#     else:
+#         language = Language.objects.filter(code='en').first()
+#         lang_code = language.code
 
 
 
 
 
-    if slug:
-        post = get_object_or_404(Post, slug=slug)
-        groups = LawGroup.objects.filter(post=post, language=language).order_by('position')
-        law_title = f"Law of Root - {post.title}"
-    elif expansion_slug:
-        expansion = get_object_or_404(Expansion, slug=expansion_slug)
-        groups = LawGroup.objects.filter(post__expansion=expansion, language=language).order_by('position')
-        law_title = f"Law of Root - {expansion.title}"
-    else:
-        groups = LawGroup.objects.filter(
-            Q (post=None)| Q(post__official=True),
-            language=language
-            ).order_by('position')
-        law_title = f"Law of Root"
+#     if slug:
+#         post = get_object_or_404(Post, slug=slug)
+#         groups = LawGroup.objects.filter(post=post, language=language).order_by('position')
+#         law_title = f"Law of Root - {post.title}"
+#     elif expansion_slug:
+#         expansion = get_object_or_404(Expansion, slug=expansion_slug)
+#         groups = LawGroup.objects.filter(post__expansion=expansion, language=language).order_by('position')
+#         law_title = f"Law of Root - {expansion.title}"
+#     else:
+#         groups = LawGroup.objects.filter(
+#             Q (post=None)| Q(post__official=True),
+#             language=language
+#             ).order_by('position')
+#         law_title = f"Law of Root"
 
 
-    # Determine other available languages for this context
-    if slug:
-        available_languages_qs = LawGroup.objects.filter(post=post).exclude(language=language)
-    elif expansion_slug:
-        available_languages_qs = LawGroup.objects.filter(post__expansion=expansion).exclude(language=language)
-    else:
-        available_languages_qs = LawGroup.objects.filter(
-            Q(post=None) | Q(post__official=True)
-        ).exclude(language=language)
+#     # Determine other available languages for this context
+#     if slug:
+#         available_languages_qs = LawGroup.objects.filter(post=post).exclude(language=language)
+#     elif expansion_slug:
+#         available_languages_qs = LawGroup.objects.filter(post__expansion=expansion).exclude(language=language)
+#     else:
+#         available_languages_qs = LawGroup.objects.filter(
+#             Q(post=None) | Q(post__official=True)
+#         ).exclude(language=language)
 
-    available_languages = Language.objects.filter(
-            lawgroup__in=available_languages_qs
-        ).exclude(id=language.id).distinct()
-
-
-    edit_authorized = False
-    if request.user.is_authenticated:
-        if request.user.profile.admin:
-            edit_authorized = True
-        elif request.user.profile.editor and post:
-            if request.user.profile == post.designer:
-                edit_authorized = True
+#     available_languages = Language.objects.filter(
+#             lawgroup__in=available_languages_qs
+#         ).exclude(id=language.id).distinct()
 
 
-    lawgroups_with_laws = []
-
-    for group in groups:
-        raw_top_level = (
-            Law.objects
-            .filter(group=group, parent__isnull=True, prime_law=False)
-            .order_by('position')
-            .select_related('group', 'group__post', 'group__language')
-            .prefetch_related(
-            'group', 'children__group', 'children__children__group', 'children__children__children__group',
-            'reference_laws',
-            'children', 'children__reference_laws', 
-            'children__children', 'children__children__reference_laws', 
-            'children__children__children', 'children__children__children__reference_laws', 
-            'children__children__children__children__reference_laws',
-            )
-        )
-        # top_level_laws = with_neighbors(raw_top_level)
-        if edit_mode:
-            top_level_laws = apply_neighbors_recursively(raw_top_level)
-        else:
-            top_level_laws = list(raw_top_level)
-            assign_full_urls(top_level_laws, request)
-        lawgroups_with_laws.append({
-            'group': group,
-            'top_level_laws': top_level_laws
-        })
-
-    previous_group = None
-    next_group = None
-
-    if len(lawgroups_with_laws) == 1:
-        lawgroup = lawgroups_with_laws[0]['group']
-        previous_group = lawgroup.get_previous_by_position()
-        next_group = lawgroup.get_next_by_position()
-    elif len(lawgroups_with_laws) > 0:
-        first_lawgroup = lawgroups_with_laws[0]['group']
-        previous_group = first_lawgroup.get_previous_by_position()
-        last_lawgroup = lawgroups_with_laws[-1]['group']
-        next_group = last_lawgroup.get_next_by_position()
+#     edit_authorized = False
+#     if request.user.is_authenticated:
+#         if request.user.profile.admin:
+#             edit_authorized = True
+#         elif request.user.profile.editor and post:
+#             if request.user.profile == post.designer:
+#                 edit_authorized = True
 
 
-    return {
-        'lawgroups_with_laws': lawgroups_with_laws,
-        'post': post,
-        'expansion': expansion,
-        'lang_code': lang_code,
-        'highlight_id': highlight_id,
-        'highlight_group_id': highlight_group_id,
-        'law_meta_description': law_meta_description,
-        'law_meta_title': law_meta_title,
-        'law_title': law_title,
-        'edit_authorized': edit_authorized,
-        'selected_language': language,
-        'available_languages': available_languages,
-        'previous_group': previous_group,
-        'next_group': next_group,
-    }
+#     lawgroups_with_laws = []
 
-def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
+#     for group in groups:
+#         raw_top_level = (
+#             Law.objects
+#             .filter(group=group, parent__isnull=True, prime_law=False)
+#             .order_by('position')
+#             .select_related('group', 'group__post', 'group__language')
+#             .prefetch_related(
+#             'group', 'children__group', 'children__children__group', 'children__children__children__group',
+#             'reference_laws',
+#             'children', 'children__reference_laws', 
+#             'children__children', 'children__children__reference_laws', 
+#             'children__children__children', 'children__children__children__reference_laws', 
+#             'children__children__children__children__reference_laws',
+#             )
+#         )
+#         # top_level_laws = with_neighbors(raw_top_level)
+#         if edit_mode:
+#             top_level_laws = apply_neighbors_recursively(raw_top_level)
+#         else:
+#             top_level_laws = list(raw_top_level)
+#             assign_full_urls(top_level_laws, request)
+#         lawgroups_with_laws.append({
+#             'group': group,
+#             'top_level_laws': top_level_laws
+#         })
 
-    context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
+#     previous_group = None
+#     next_group = None
+
+#     if len(lawgroups_with_laws) == 1:
+#         lawgroup = lawgroups_with_laws[0]['group']
+#         previous_group = lawgroup.get_previous_by_position()
+#         next_group = lawgroup.get_next_by_position()
+#     elif len(lawgroups_with_laws) > 0:
+#         first_lawgroup = lawgroups_with_laws[0]['group']
+#         previous_group = first_lawgroup.get_previous_by_position()
+#         last_lawgroup = lawgroups_with_laws[-1]['group']
+#         next_group = last_lawgroup.get_next_by_position()
+
+
+#     return {
+#         'lawgroups_with_laws': lawgroups_with_laws,
+#         'post': post,
+#         'expansion': expansion,
+#         'lang_code': lang_code,
+#         'highlight_id': highlight_id,
+#         'highlight_group_id': highlight_group_id,
+#         'law_meta_description': law_meta_description,
+#         'law_meta_title': law_meta_title,
+#         'law_title': law_title,
+#         'edit_authorized': edit_authorized,
+#         'selected_language': language,
+#         'available_languages': available_languages,
+#         'previous_group': previous_group,
+#         'next_group': next_group,
+#     }
+
+# def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
+
+#     context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
     
-    return render(request, 'the_keep/law.html', context)
+#     return render(request, 'the_keep/law.html', context)
 
-@editor_onboard_required
-def law_hierarchy_edit_view(request, slug=None, expansion_slug=None, lang_code=None):
+# @editor_onboard_required
+# def law_hierarchy_edit_view(request, slug=None, expansion_slug=None, lang_code=None):
 
-    user_profile = request.user.profile
+#     user_profile = request.user.profile
 
-    if lang_code:
-        language = Language.objects.filter(code=lang_code).first()
-        if not language:
-            language = Language.objects.filter(code='en').first()
-    else:
-        language = Language.objects.filter(code='en').first()
+#     if lang_code:
+#         language = Language.objects.filter(code=lang_code).first()
+#         if not language:
+#             language = Language.objects.filter(code='en').first()
+#     else:
+#         language = Language.objects.filter(code='en').first()
 
-    if slug:
-        post = get_object_or_404(Post, slug=slug)
-        edit_authorized = user_profile.editor and post.designer == user_profile
-        if not user_profile.admin and not edit_authorized:
-            messages.error(request, f"You are not authorized to edit { post.title }'s Law.")
-            raise PermissionDenied() 
-    elif not user_profile.admin:
-        messages.error(request, f'You are not authorized to edit the Law of Root.')
-        raise PermissionDenied() 
-    if user_profile.admin:
-        all_laws = Law.objects.filter(group__language=language).prefetch_related('group__post')
-    else:
-        all_laws = Law.objects.filter(
-            Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
-            group__language=language
-                ).prefetch_related('group__post')
+#     if slug:
+#         post = get_object_or_404(Post, slug=slug)
+#         edit_authorized = user_profile.editor and post.designer == user_profile
+#         if not user_profile.admin and not edit_authorized:
+#             messages.error(request, f"You are not authorized to edit { post.title }'s Law.")
+#             raise PermissionDenied() 
+#     elif not user_profile.admin:
+#         messages.error(request, f'You are not authorized to edit the Law of Root.')
+#         raise PermissionDenied() 
+#     if user_profile.admin:
+#         all_laws = Law.objects.filter(language=language).prefetch_related('group__post')
+#     else:
+#         all_laws = Law.objects.filter(
+#             Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
+#             language=language
+#                 ).prefetch_related('group__post')
 
-    context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=True, lang_code=lang_code)
-    context['edit_mode'] = True
-    context['all_laws'] = all_laws
+#     context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=True, lang_code=lang_code)
+#     context['edit_mode'] = True
+#     context['all_laws'] = all_laws
 
-    return render(request, 'the_keep/law.html', context)
+#     return render(request, 'the_keep/law.html', context)
 
 @editor_required
 def add_law_ajax(request):
+
     user_profile = request.user.profile
     if request.method == 'POST':
+
         form = AddLawForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
@@ -2398,6 +2399,9 @@ def add_law_ajax(request):
             parent = Law.objects.filter(id=data['parent_id']).first()
             previous = Law.objects.filter(id=data['prev_id']).first()
             next_law = Law.objects.filter(id=data['next_id']).first()
+          
+            language = get_object_or_404(Language, id=data['language_id'])
+       
             reference_ids = request.POST.getlist('reference_laws')
             reference_laws = Law.objects.filter(id__in=reference_ids)
 
@@ -2410,14 +2414,15 @@ def add_law_ajax(request):
                     messages.error(request, f"You do not have authorization to add to the Law of Root.")
                     raise PermissionDenied() 
                 
-            position = Law.get_new_position(previous_law=previous, next_law=next_law, parent_law=parent)
+            position = Law.get_new_position(language=language, previous_law=previous, next_law=next_law, parent_law=parent)
 
             law = Law.objects.create(
                 group=group,
                 parent=parent,
                 title=data['title'],
                 description=data['description'],
-                position=position
+                position=position,
+                language=language
             )
             if reference_laws:
                 law.reference_laws.set(reference_laws)
@@ -2425,6 +2430,9 @@ def add_law_ajax(request):
 
             return JsonResponse({'status': 'success', 'law_id': law.id})
         else:
+            print('bad form')
+            for field, errors in form.errors.items():
+                print(f"{field}: {errors}")
             return JsonResponse({'status': 'error', 'errors': form.errors}, status=400)
     return JsonResponse({'status': 'error'}, status=400)
 
@@ -2445,7 +2453,7 @@ def move_law_ajax(request, law_id, direction):
 
         # Get all sibling laws in order
         siblings = list(
-            Law.objects.filter(group=law.group, parent=law.parent, prime_law=False)
+            Law.objects.filter(group=law.group, parent=law.parent, prime_law=False, language=law.language)
             .order_by('position')
         )
 
@@ -2457,12 +2465,14 @@ def move_law_ajax(request, law_id, direction):
 
         if direction == 'up' and law.prev_law:
             new_pos = Law.get_new_position(
+                language=law.language,
                 previous_law=law.prev_law.prev_law,
                 next_law=law.prev_law,
                 parent_law=law.parent
             )
         elif direction == 'down' and law.next_law:
             new_pos = Law.get_new_position(
+                language=law.language,
                 previous_law=law.next_law,
                 next_law=law.next_law.next_law,
                 parent_law=law.parent
@@ -2557,6 +2567,8 @@ def delete_law_ajax(request):
 @editor_onboard_required
 def create_law_group(request, slug):
     post = get_object_or_404(Post, slug=slug)
+
+
     user_profile = request.user.profile
     if post.designer != user_profile and not user_profile.admin:
         messages.error(request, f"You do not have authorization to create laws for {post}.")
@@ -2564,19 +2576,13 @@ def create_law_group(request, slug):
 
 
     # Determine which languages are available (don't already have a LawGroup)
-    existing_groups = LawGroup.objects.filter(post=post)
-    existing_lang_codes = LawGroup.objects.filter(post=post).values_list('language__code', flat=True)
-    available_languages = Language.objects.exclude(code__in=existing_lang_codes)
+    existing_group = LawGroup.objects.filter(post=post).first()
 
-    # Redirect to copy if law already exists
-    if existing_groups.exists():
-        # Pick the first existing LawGroup to copy from
-        first_group = existing_groups.first()
-        if first_group:
-            return redirect(reverse('copy-law-group', args=[first_group.id]))
-        else:
-            messages.error(request, "Error: Law found but unable to be copied. Contact an admin.")
-            return redirect(post.get_absolute_url())
+    if existing_group:
+        existing_law = Law.objects.filter(group=existing_group).first()
+        return redirect('new-law', slug=existing_law.group.slug, lang_code=existing_law.language.code)
+
+    available_languages = Language.objects.all()
 
 
     if request.method == 'POST':
@@ -2605,11 +2611,10 @@ def create_law_group(request, slug):
             # LawGroup creation or redirect
             group, created = LawGroup.objects.get_or_create(
                 post=post,
-                language=language,
                 defaults={'title': new_title}
             )
             if not created and group.laws.exists():
-                return redirect(group.get_edit_url())
+                return redirect('new-law', slug=group.slug, lang_code=language.code)
 
             # Prime law
             Law.objects.create(
@@ -2618,7 +2623,9 @@ def create_law_group(request, slug):
                 description="",
                 position=1,
                 locked_position=True,
+                allow_description=False,
                 prime_law=True,
+                language=language,
             )
 
             # Overview law
@@ -2628,7 +2635,8 @@ def create_law_group(request, slug):
                 description="",
                 position=1,
                 locked_position=True,
-                allow_sub_laws=False
+                allow_sub_laws=False,
+                language=language,
             )
 
             # Component-specific default laws
@@ -2638,7 +2646,8 @@ def create_law_group(request, slug):
                     title=get_translated_title("Setup Modifications", language.code),
                     description="",
                     position=2,
-                    locked_position=True
+                    locked_position=True,
+                    language=language,
                 )
 
             elif post.component == 'Vagabond':
@@ -2647,14 +2656,16 @@ def create_law_group(request, slug):
                     title=get_translated_title("Starting Items", language.code),
                     description="",
                     position=2,
-                    locked_position=True
+                    locked_position=True,
+                    language=language,
                 )
                 Law.objects.create(
                     group=group,
                     title=f"Special Action: {obj.ability}",
                     description=f"{obj.ability_description}",
                     position=3,
-                    locked_position=True
+                    locked_position=True,
+                    language=language,
                 )
 
             elif post.component in ['Faction', 'Clockwork']:
@@ -2664,7 +2675,8 @@ def create_law_group(request, slug):
                     description="",
                     position=2,
                     locked_position=True,
-                    allow_description=False
+                    allow_description=False,
+                    language=language,
                 )
                 if post.component == 'Faction':
                     Law.objects.create(
@@ -2674,7 +2686,8 @@ def create_law_group(request, slug):
                         description="",
                         position=1,
                         locked_position=True,
-                        allow_sub_laws=False
+                        allow_sub_laws=False,
+                        language=language,
                     )
 
                 setup_law = Law.objects.create(
@@ -2683,25 +2696,27 @@ def create_law_group(request, slug):
                     description="",
                     position=3,
                     locked_position=True,
-                    allow_description=False
+                    allow_description=False,
+                    language=language,
                 )
                 Law.objects.bulk_create([
-                    Law(group=group, parent=setup_law, title="Step 1: X", description="", position=1),
-                    Law(group=group, parent=setup_law, title="Step 2: XX", description="", position=2),
-                    Law(group=group, parent=setup_law, title="Step 3: XXX", description="", position=3),
+                    Law(group=group, parent=setup_law, title="Step 1: X", description="", position=1, language=language),
+                    Law(group=group, parent=setup_law, title="Step 2: XX", description="", position=2, language=language),
+                    Law(group=group, parent=setup_law, title="Step 3: XXX", description="", position=3, language=language),
                 ])
 
-                Law.objects.create(group=group, title=get_translated_title("Birdsong", language.code), description="", position=4, locked_position=True)
-                Law.objects.create(group=group, title=get_translated_title("Daylight", language.code), description="", position=5, locked_position=True)
+                Law.objects.create(group=group, title=get_translated_title("Birdsong", language.code), description="", position=4, locked_position=True, language=language)
+                Law.objects.create(group=group, title=get_translated_title("Daylight", language.code), description="", position=5, locked_position=True, language=language)
 
-                evening_law = Law.objects.create(group=group, title=get_translated_title("Evening", language.code), description="", position=6, locked_position=True)
+                evening_law = Law.objects.create(group=group, title=get_translated_title("Evening", language.code), description="", position=6, locked_position=True, language=language)
                 if post.component == 'Faction':
                     Law.objects.create(
                         group=group,
                         parent=evening_law,
                         title=get_translated_title("Draw and Discard", language.code),
                         description="Draw one card, plus one per uncovered draw bonus. Then, if you have more than five cards in your hand, discard cards of your choice until you have five.",
-                        position=1
+                        position=1,
+                        language=language
                     )
 
             # Discord notification
@@ -2711,7 +2726,7 @@ def create_law_group(request, slug):
             }]
             send_rich_discord_message(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
 
-            return redirect(group.get_edit_url())
+            return redirect('new-law', slug=group.slug, lang_code=language.code)
     else:
         form = LanguageSelectionForm()
         form.fields['language'].queryset = available_languages
@@ -2722,9 +2737,15 @@ def create_law_group(request, slug):
     })
 
 @player_required
-def copy_law_group_view(request, id):
+def copy_law_group_view(request, slug, lang_code):
     user_profile = request.user.profile
-    source_group = get_object_or_404(LawGroup, id=id)
+    source_group = get_object_or_404(LawGroup, slug=slug)
+    source_language = get_object_or_404(Language, code=lang_code)
+
+    existing_laws = Law.objects.filter(group=source_group, language=source_language)
+    if not existing_laws:
+        return redirect('new-law', slug=slug, lang_code=lang_code)
+
     post = source_group.post
     # Admins are always allowed
     if user_profile.admin:
@@ -2746,9 +2767,9 @@ def copy_law_group_view(request, id):
         # form = CopyLawGroupForm(request.POST, source_group=source_group)
         form = CopyLawGroupForm(source_group=source_group, data=request.POST)
         if form.is_valid():
-            language = form.cleaned_data['language']
-            new_group = duplicate_lawgroup_with_laws(source_group, language)
-            return redirect(new_group.get_absolute_url())
+            target_language = form.cleaned_data['language']
+            duplicate_laws_for_language(source_group, source_language, target_language)
+            return redirect('new-law', slug=slug, lang_code=target_language.code)
     else:
         form = CopyLawGroupForm(source_group=source_group)
 
@@ -2756,6 +2777,8 @@ def copy_law_group_view(request, id):
         'law_group': source_group,
         'form': form,
         'post': post,
+        'lang_code': lang_code,
+        'source_language': source_language,
     })
 
 
@@ -2765,19 +2788,12 @@ def law_table_of_contents(request, lang_code):
     language = Language.objects.filter(code=lang_code).first()
     if not language:
         language = Language.objects.first()
-    print(language)
-    available_languages_qs = LawGroup.objects.exclude(language=language)
+    available_languages_qs = Law.objects.exclude(language=language)
     available_languages = Language.objects.filter(
-            lawgroup__in=available_languages_qs
+            law__in=available_languages_qs
         ).exclude(id=language.id).distinct()
 
-    if not language:
-        language = Language.objects.filter(code='en').first()
-
-
-    laws = Law.objects.filter(group__language=language)
-
-
+    laws = Law.objects.filter(language=language)
 
     # Filter by type
     if filter_type == 'official':
@@ -2901,15 +2917,13 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
         post = self.get_post()
         lang_code = self.kwargs.get('lang_code')
         language = Language.objects.filter(code=lang_code).first() if lang_code else None
-        laws_qs = Law.objects.all()
+        laws_qs = Law.objects.filter(language=language)
         if post:
             laws_qs = laws_qs.filter(
                 Q(group__post__designer=post.designer) |
                 Q(group__post=None) |
                 Q(group__post__official=True)
             ).distinct()        
-        if language:
-            laws_qs = laws_qs.filter(group__language=language)
 
         form.fields['reference_laws'].queryset = laws_qs.distinct()
         return form
@@ -2995,15 +3009,13 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         post = faq.post
         language = faq.language
 
-        laws_qs = Law.objects.all()
+        laws_qs = Law.objects.filter(language=language)
         if post:
             laws_qs = laws_qs.filter(
                 Q(group__post__designer=post.designer) |
                 Q(group__post=None) |
                 Q(group__post__official=True)
             ).distinct()        
-        if language:
-            laws_qs = laws_qs.filter(group__language=language)
 
         form.fields['reference_laws'].queryset = laws_qs.distinct()
         return form
@@ -3028,3 +3040,138 @@ class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         if faq.post:
             return reverse('post-faq', kwargs={'slug': faq.post.slug})
         return reverse('faq')
+
+
+
+
+def get_law_group_context(request, slug, lang_code, edit_mode):
+
+    language = Language.objects.filter(code=lang_code).first()
+    if not language:
+        language = Language.objects.filter(code='en').first()
+
+    group = get_object_or_404(LawGroup, slug=slug)
+
+    law_title = f"Law of Root - {group.title}"
+
+
+    highlight_id = request.GET.get('highlight_law')
+    highlight_group_id = request.GET.get('highlight_group')
+    
+    law_meta_description = None
+    law_meta_title = None
+    if highlight_id:
+        selected_law = Law.objects.filter(id=highlight_id).first()
+        if selected_law:
+            law_meta_title = selected_law.group.title + ": " + selected_law.law_code + ' "' + clean_meta_description(selected_law.title) + '"'
+            law_meta_description = clean_meta_description(selected_law.description)
+    elif highlight_group_id:
+        selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
+        if selected_group:
+            law_meta_title = "Law of " + clean_meta_description(selected_group.title)
+            law_meta_description = clean_meta_description(selected_group.description)
+
+    prime_law = Law.objects.filter(group=group, prime_law=True, language=language).first()
+
+    # Determine other available languages for this context
+    available_languages_qs = Law.objects.filter(group__slug=slug).exclude(language=language)
+
+    available_languages = Language.objects.filter(
+            law__in=available_languages_qs
+        ).exclude(id=language.id).distinct()
+
+
+    edit_authorized = False
+    if request.user.is_authenticated:
+        if request.user.profile.admin:
+            edit_authorized = True
+        elif request.user.profile.editor and group.post:
+            if request.user.profile == group.post.designer:
+                edit_authorized = True
+
+
+    raw_top_level = (
+        Law.objects
+        .filter(group=group, parent__isnull=True, prime_law=False, language=language)
+        .order_by('position')
+        .select_related('group', 'group__post', 'group__language')
+        .prefetch_related(
+        'group', 'children__group', 'children__children__group', 'children__children__children__group',
+        'reference_laws',
+        'children', 'children__reference_laws', 
+        'children__children', 'children__children__reference_laws', 
+        'children__children__children', 'children__children__children__reference_laws', 
+        'children__children__children__children__reference_laws',
+        )
+    )
+
+    if edit_mode:
+        top_level_laws = apply_neighbors_recursively(raw_top_level)
+    else:
+        top_level_laws = list(raw_top_level)
+        assign_full_urls(top_level_laws, request)
+    
+    if not top_level_laws:
+        edit_mode = False
+        edit_authorized = False
+
+    previous_group = group.get_previous_by_position()
+    next_group = group.get_next_by_position()
+
+    return {
+        'post': group.post,
+        'lang_code': lang_code,
+        'highlight_id': highlight_id,
+        'highlight_group_id': highlight_group_id,
+        'law_meta_description': law_meta_description,
+        'law_meta_title': law_meta_title,
+        'title': law_title,
+        'edit_authorized': edit_authorized,
+        'selected_language': language,
+        'available_languages': available_languages,
+        'previous_group': previous_group,
+        'next_group': next_group,
+        'prime_law': prime_law,
+        'top_level_laws': top_level_laws,
+        'group': group,
+        'edit_mode': edit_mode,
+    }
+
+def law_group_view(request, slug, lang_code):
+
+    context = get_law_group_context(request, slug=slug, edit_mode=False, lang_code=lang_code)
+    
+    return render(request, 'the_keep/law_of_root.html', context)
+
+@editor_onboard_required
+def law_group_edit_view(request, slug, lang_code):
+
+    user_profile = request.user.profile
+
+
+    language = Language.objects.filter(code=lang_code).first()
+    if not language:
+        language = Language.objects.filter(code='en').first()
+
+    group = get_object_or_404(LawGroup, slug=slug)
+    if group.post:
+        edit_authorized = user_profile.editor and group.post.designer == user_profile
+        if not user_profile.admin and not edit_authorized:
+            messages.error(request, f"You are not authorized to edit { group.post.title }'s Law.")
+            raise PermissionDenied() 
+    elif not user_profile.admin:
+        messages.error(request, f'You are not authorized to edit the Law of Root.')
+        raise PermissionDenied() 
+    
+    if user_profile.admin:
+        all_laws = Law.objects.filter(group__language=language).prefetch_related('group__post')
+    else:
+        all_laws = Law.objects.filter(
+            Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
+            group__language=language
+                ).prefetch_related('group__post')
+
+    context = get_law_group_context(request, slug=slug, edit_mode=True, lang_code=lang_code)
+    context['all_laws'] = all_laws
+
+    return render(request, 'the_keep/law_of_root.html', context)

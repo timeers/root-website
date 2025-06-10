@@ -14,12 +14,12 @@ from django.db.models.functions import Cast, Coalesce
 
 from django.utils import timezone 
 from django.utils.translation import get_language
-# from datetime import timedelta
 from django.urls import reverse
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 
-# import json
+from datetime import date
 from PIL import Image
 from io import BytesIO
 from django.apps import apps
@@ -29,7 +29,6 @@ from .utils import validate_hex_color, delete_old_image, hex_to_rgb
 import random
 from django.conf import settings
 from the_gatehouse.discordservice import send_rich_discord_message
-# from the_gatehouse.utils import build_absolute_uri
 from django.utils.translation import gettext_lazy as _
 from the_gatehouse.utils import int_to_alpha, int_to_roman
 
@@ -2081,8 +2080,11 @@ class LawGroup(models.Model):
 
 
     def generate_abbreviation(self):
-        if self.post and self.post.title:
-            words = re.findall(r"\b[\w']+\b", self.post.title)
+        if self.post or self.title:
+            if self.post and self.post.title:
+                words = re.findall(r"\b[\w']+\b", self.post.title)
+            else:
+                words = re.findall(r"\b[\w']+\b", self.title)
 
             def is_small_word(word):
                 # Normalize leading contractions like "l'École" → "École", "d'Art" → "Art"
@@ -2141,23 +2143,23 @@ class LawGroup(models.Model):
         return base_offset + position
 
 
-    def get_absolute_url(self):
-        if self.post:
-            url = reverse('lang-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
-            return url
-        else:
-            url = reverse('law-of-root', kwargs={'lang_code': self.language.code})
-            query_params = {'highlight_group': self.id}
-            return f'{url}?{urlencode(query_params)}'
+    # def get_absolute_url(self):
+    #     if self.post:
+    #         url = reverse('lang-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
+    #         return url
+    #     else:
+    #         url = reverse('law-of-root', kwargs={'lang_code': self.language.code})
+    #         query_params = {'highlight_group': self.id}
+    #         return f'{url}?{urlencode(query_params)}'
         
-    def get_edit_url(self):
-        if self.post:
-            url = reverse('edit-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
-            return url
-        else:
-            url = reverse('edit-law-of-root', kwargs={'lang_code': self.language.code})
-            query_params = {'highlight_group': self.id}
-            return f'{url}?{urlencode(query_params)}'
+    # def get_edit_url(self):
+    #     if self.post:
+    #         url = reverse('edit-post-law', kwargs={'slug': self.post.slug, 'lang_code': self.language.code})
+    #         return url
+    #     else:
+    #         url = reverse('edit-law-of-root', kwargs={'lang_code': self.language.code})
+    #         query_params = {'highlight_group': self.id}
+    #         return f'{url}?{urlencode(query_params)}'
 
 
     def get_previous_by_position(self):
@@ -2185,14 +2187,13 @@ class Law(models.Model):
     allow_sub_laws = models.BooleanField(default=True)
     allow_description = models.BooleanField(default=True)
     prime_law = models.BooleanField(default=False)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     reference_laws = models.ManyToManyField(
         'self',
         symmetrical=False,
         blank=True,
         related_name='referenced_by'
     )
-    # prev_law = models.ForeignKey("self", null=True, blank=True, related_name='next_laws', on_delete=models.SET_NULL)
-    # next_law = models.ForeignKey("self", null=True, blank=True, related_name='prev_laws', on_delete=models.SET_NULL)
 
     class Meta:
         ordering = ['group', '-prime_law', 'position']
@@ -2259,7 +2260,7 @@ class Law(models.Model):
 
         segments = []
         for level, node in enumerate(path):
-            siblings = Law.objects.filter(parent=node.parent, group=node.group, prime_law=False).order_by('position')
+            siblings = Law.objects.filter(parent=node.parent, group=node.group, prime_law=False, language=self.language).order_by('position')
             index = next((i for i, s in enumerate(siblings, start=1) if s.pk == node.pk), None)
             if index is None:
                 index = 1
@@ -2290,13 +2291,13 @@ class Law(models.Model):
     def get_next_position(self):
         if self.parent:
             last_law = (
-                Law.objects.filter(group=self.group, parent=self.parent, prime_law=False)
+                Law.objects.filter(group=self.group, parent=self.parent, prime_law=False, language=self.language)
                 .order_by('-position')
                 .first()
             )
         else:
             last_law = (
-                Law.objects.filter(group=self.group, parent__isnull=True, prime_law=False)
+                Law.objects.filter(group=self.group, parent__isnull=True, prime_law=False, language=self.language)
                 .order_by('-position')
                 .first()
             )
@@ -2309,14 +2310,19 @@ class Law(models.Model):
         return f'{self.law_code} - {self.title}'
 
     def get_absolute_url(self):
-        if self.group.post:
-            url = reverse('lang-post-law', kwargs={'slug': self.group.post.slug, 'lang_code': self.group.language.code})
-        else:
-            url = reverse('law-of-root', kwargs={'lang_code': self.group.language.code})
-        if self.prime_law:
-            query_params = {'highlight_group': self.group.id}
-        else:
-            query_params = {'highlight_law': self.id}
+        url = reverse('new-law', kwargs={
+            'slug': self.group.slug,
+            'lang_code': self.language.code
+            })
+        query_params = {'highlight_law': self.id}
+        return f'{url}?{urlencode(query_params)}'
+
+    def get_edit_url(self):
+        url = reverse('new-edit-law', kwargs={
+            'slug': self.group.slug,
+            'lang_code': self.language.code
+            })
+        query_params = {'highlight_law': self.id}
         return f'{url}?{urlencode(query_params)}'
 
 
@@ -2325,7 +2331,8 @@ class Law(models.Model):
             group=group,
             parent=parent,
             position__gt=deleted_position, 
-            prime_law=False
+            prime_law=False,
+            language=self.language
         ).order_by('position')
 
         for sibling in affected_siblings:
@@ -2340,7 +2347,7 @@ class Law(models.Model):
 
 
     def rebuild_child_codes(self):
-        children = Law.objects.filter(parent=self).order_by('position')
+        children = Law.objects.filter(parent=self, language=self.language).order_by('position')
         for child in children:
             # child.law_code = child.generate_code()
             law_code, local_code = child.generate_code()
@@ -2364,7 +2371,7 @@ class Law(models.Model):
 
 
     @classmethod
-    def get_new_position(cls, previous_law=None, next_law=None, parent_law=None):
+    def get_new_position(cls, language, previous_law=None, next_law=None, parent_law=None):
         if previous_law and next_law:
             return (previous_law.position + next_law.position) / Decimal('2.0')
         elif previous_law:
@@ -2374,7 +2381,7 @@ class Law(models.Model):
         elif parent_law:
             last_law = (
                 cls.objects
-                .filter(group=parent_law.group, parent=parent_law, prime_law=False)
+                .filter(group=parent_law.group, parent=parent_law, prime_law=False, language=language)
                 .order_by('-position')
                 .first()
             )
@@ -2387,46 +2394,113 @@ class Law(models.Model):
 
 
 
-@transaction.atomic
-def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> LawGroup:
+# @transaction.atomic
+# def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> LawGroup:
 
+#     def find_translation_key_by_title(title, source_lang_code):
+#         title_lower = title.strip().lower()
+#         for original_key, translations in DEFAULT_TITLES_TRANSLATIONS.items():
+#             translated_title = translations.get(source_lang_code)
+#             if translated_title and translated_title.strip().lower() == title_lower:
+#                 return original_key  # Return the canonical key
+#         return None
+
+
+#     selected_title = source_group.title
+#     if source_group.post:
+#             selected_title = source_group.post.title
+#             # Try to get a translated title from PostTranslation
+#             translation = PostTranslation.objects.filter(
+#                 post=source_group.post,
+#                 language=target_language,
+#                 type=source_group.type
+#             ).first()
+#             if translation:
+#                 selected_title = translation.translated_title
+#     # 1. Copy LawGroup
+#     new_group = LawGroup.objects.create(
+#         post=source_group.post,
+#         abbreviation=source_group.abbreviation,
+#         title=selected_title,
+#         description=source_group.description,
+#         language=target_language,
+#         position=source_group.position,
+#     )
+
+#     # 2. Map old Law IDs to new Law instances
+#     law_mapping = {}
+
+#     for law in source_group.laws.all():
+#         new_title = law.title  # default to original title
+
+#         # Case 1: Prime law — use post translation title
+#         if law.prime_law and source_group.post:
+#             new_title = source_group.post.title
+#             translation = PostTranslation.objects.filter(
+#                 post=source_group.post,
+#                 language=target_language
+#             ).first()
+#             if translation:
+#                 new_title = translation.translated_title
+
+#         # Case 2: Known default law — use translated version of canonical title
+#         else:
+#             match_key = find_translation_key_by_title(
+#                 law.title,
+#                 source_group.language.code
+#             )
+#             if match_key:
+#                 translations = DEFAULT_TITLES_TRANSLATIONS.get(match_key, {})
+#                 new_title = translations.get(target_language.code, match_key)  # fallback to English key
+
+#         # Create new law
+#         new_law = Law.objects.create(
+#             group=new_group,
+#             title=new_title,
+#             description=law.description,
+#             position=law.position,
+#             law_code=law.law_code,
+#             local_code=law.local_code,
+#             locked_position=law.locked_position,
+#             allow_sub_laws=law.allow_sub_laws,
+#             allow_description=law.allow_description,
+#             prime_law=law.prime_law,
+#             language=target_language
+#         )
+#         law_mapping[law.id] = new_law
+
+
+#     # 4. Second pass: Set parent references
+#     for old_law in source_group.laws.all():
+#         if old_law.parent_id:
+#             new_law = law_mapping[old_law.id]
+#             new_law.parent = law_mapping.get(old_law.parent_id)
+#             new_law.save()
+
+#     first_law = Law.objects.filter(group=new_group, parent=None, language=target_language).order_by('position').first()
+#     if first_law:
+#         # Rebuild starting from the parent of the first law (which is None)
+#         first_law.rebuild_law_codes(new_group, parent=None, deleted_position=0)
+
+#     return new_group
+
+@transaction.atomic
+def duplicate_laws_for_language(source_group: LawGroup, source_language, target_language):
     def find_translation_key_by_title(title, source_lang_code):
         title_lower = title.strip().lower()
         for original_key, translations in DEFAULT_TITLES_TRANSLATIONS.items():
             translated_title = translations.get(source_lang_code)
             if translated_title and translated_title.strip().lower() == title_lower:
-                return original_key  # Return the canonical key
+                return original_key
         return None
 
-
-    selected_title = source_group.title
-    if source_group.post:
-            selected_title = source_group.post.title
-            # Try to get a translated title from PostTranslation
-            translation = PostTranslation.objects.filter(
-                post=source_group.post,
-                language=target_language,
-                type=source_group.type
-            ).first()
-            if translation:
-                selected_title = translation.translated_title
-    # 1. Copy LawGroup
-    new_group = LawGroup.objects.create(
-        post=source_group.post,
-        abbreviation=source_group.abbreviation,
-        title=selected_title,
-        description=source_group.description,
-        language=target_language,
-        position=source_group.position,
-    )
-
-    # 2. Map old Law IDs to new Law instances
+    # Filter laws by group + source language
+    source_laws = source_group.laws.filter(language=source_language)
     law_mapping = {}
 
-    for law in source_group.laws.all():
-        new_title = law.title  # default to original title
+    for law in source_laws:
+        new_title = law.title
 
-        # Case 1: Prime law — use post translation title
         if law.prime_law and source_group.post:
             new_title = source_group.post.title
             translation = PostTranslation.objects.filter(
@@ -2435,20 +2509,17 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
             ).first()
             if translation:
                 new_title = translation.translated_title
-
-        # Case 2: Known default law — use translated version of canonical title
         else:
             match_key = find_translation_key_by_title(
                 law.title,
-                source_group.language.code
+                source_language.code
             )
             if match_key:
                 translations = DEFAULT_TITLES_TRANSLATIONS.get(match_key, {})
-                new_title = translations.get(target_language.code, match_key)  # fallback to English key
+                new_title = translations.get(target_language.code, match_key)
 
-        # Create new law
         new_law = Law.objects.create(
-            group=new_group,
+            group=source_group,
             title=new_title,
             description=law.description,
             position=law.position,
@@ -2458,56 +2529,22 @@ def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> Law
             allow_sub_laws=law.allow_sub_laws,
             allow_description=law.allow_description,
             prime_law=law.prime_law,
+            language=target_language
         )
         law_mapping[law.id] = new_law
 
-
-    # # 3. First pass: Create all laws without parents
-    # for law in source_group.laws.all():
-
-    #     new_title = law.title  # default: keep original title
-
-    #     # Change title if law matches one of the default titles
-    #     if law.prime_law and source_group.post:
-    #         new_title = selected_title
-    #     elif law.locked_position and law.title in DEFAULT_TITLES_TRANSLATIONS:
-    #         # Normalize to lowercase for case-insensitive lookup
-    #         normalized_title = law.title.lower()
-    #         normalized_translations = {
-    #             key.lower(): value for key, value in DEFAULT_TITLES_TRANSLATIONS.items()
-    #         }
-
-    #         if normalized_title in normalized_translations:
-    #             translations = normalized_translations[normalized_title]
-    #             new_title = translations.get(target_language.code, law.title)
-
-    #     new_law = Law.objects.create(
-    #         group=new_group,
-    #         title=new_title,
-    #         description=law.description,
-    #         position=law.position,
-    #         law_code=law.law_code,
-    #         local_code=law.local_code,
-    #         locked_position=law.locked_position,
-    #         allow_sub_laws=law.allow_sub_laws,
-    #         allow_description=law.allow_description,
-    #         prime_law=law.prime_law,
-    #     )
-    #     law_mapping[law.id] = new_law
-
-    # 4. Second pass: Set parent references
-    for old_law in source_group.laws.all():
+    # Set parent relationships on duplicated laws
+    for old_law in source_laws:
         if old_law.parent_id:
             new_law = law_mapping[old_law.id]
             new_law.parent = law_mapping.get(old_law.parent_id)
             new_law.save()
 
-    first_law = Law.objects.filter(group=new_group, parent=None).order_by('position').first()
-    if first_law:
-        # Rebuild starting from the parent of the first law (which is None)
-        first_law.rebuild_law_codes(new_group, parent=None, deleted_position=0)
+    # Rebuild codes for top-level laws
+    top_laws = Law.objects.filter(group=source_group, parent=None, language=target_language).order_by('position')
+    if top_laws.exists():
+        top_laws.first().rebuild_law_codes(source_group, parent=None, deleted_position=0)
 
-    return new_group
 
 
 
@@ -2537,6 +2574,59 @@ class FAQ(models.Model):
             self.language = get_default_language()        
         super().save(*args, **kwargs)
 
+
+class FeaturedItem(models.Model):
+    date = models.DateField(unique=True)
+    object = models.ForeignKey(Post, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.object} on {self.date}"
+
+
+def get_or_create_today_featured():
+    today = date.today()
+
+    # Check if today's item already exists
+    featured = FeaturedItem.objects.filter(date=today).first()
+    if featured:
+        return featured.object
+
+    # Get all active objects and previously used ones
+    all_ids = list(Post.objects.filter(status__lte=3).values_list('id', flat=True))
+    used_ids = list(FeaturedItem.objects.values_list('object_id', flat=True))
+    unused_ids = list(set(all_ids) - set(used_ids))
+
+    # If everything has been used, reset the history
+    if not unused_ids:
+        FeaturedItem.objects.all().delete()
+        unused_ids = all_ids
+
+    # Pick a random unused object
+    random_id = random.choice(unused_ids)
+    obj = Post.objects.get(id=random_id)
+
+    # Save for today
+    FeaturedItem.objects.create(date=today, object=obj)
+
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(obj.component)
+
+    if not Klass:
+        raise ValueError(f"Unsupported component type: {obj.component}")
+
+    try:
+        return Klass.objects.get(slug=obj.slug)
+    except ObjectDoesNotExist:
+        raise ValueError(f"No {Klass.__name__} found with slug '{obj.slug}'")
 
 
 def component_pre_save(sender, instance, *args, **kwargs):

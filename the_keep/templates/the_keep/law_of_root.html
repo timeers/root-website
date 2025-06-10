@@ -1,6 +1,5 @@
 {% extends 'the_keep/base.html' %}
 {% load text_filters roman_numerals i18n static %}
-{% block title %} - {% if post %}{{ post.title }} {% elif expansion %}{{ expansion.title }} {% endif %}Law{% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
@@ -48,11 +47,6 @@
 
 <article class="content-section d-flex justify-content-between align-items-center">
   <div class='mx-auto'>
-  {% comment %} {% if post %}
-      <h1 class='root-title'{% if post.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ post.color }};"{% endif %}>{{law_title}}</h1>
-  {% else %}
-      <h1 class='root-title'>{{ law_title }}</h1>
-  {% endif %} {% endcomment %}
   <h1 class='root-title'>{% trans 'Law of Root' %}</h1>
   </div>
   <div>
@@ -63,21 +57,25 @@
                   <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
                   </button>
+                  
                   <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+                    
                     {% if post %}
                         {% if available_languages %}
                             {% for lang in available_languages %}
                               <li>
-                                <a class="dropdown-item" href="{% url 'lang-post-law' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                                <a class="dropdown-item" href="{% url 'new-law' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
                               </li>
                             {% endfor %}
                         {% endif %}
-                        {% if edit_authorized and post and lawgroups_with_laws %}
+                        
+                        {% if edit_authorized and post and group %}
+                        
                             {% if available_languages %}
                               <li><hr class="dropdown-divider"></li>
                               {% endif %}
                           <li>
-                            <a class="dropdown-item" href="{% url 'copy-law-group' id=lawgroups_with_laws.0.group.id %}"><small>Add Language</small></a>
+                            <a class="dropdown-item" href="{% url 'copy-law-group' slug=group.slug lang_code=lang_code %}"><small>Add Language</small></a>
                           </li>
                         {% endif %}
                     {% else %}
@@ -100,53 +98,59 @@
 
 </article>
 
-{% for item in lawgroups_with_laws %}
+{% if group %}
 <article class="content-section">
-
+  <div id="law-{{ prime_law.id }}">
     <div class="d-flex justify-content-between align-items-center">
-      <div id="group-{{ item.group.id }}" class='d-flex'>
-        {% if item.group.post %}
-          <a href='{{ item.group.post.get_absolute_url }}{% if lang_code %}?lang={{ lang_code }}{% endif %}'>
+      <div id="group-{{ group.id }}" class='d-flex'>
+        {% if group.post %}
+          <a href='{{ group.post.get_absolute_url }}{% if lang_code %}?lang={{ lang_code }}{% endif %}'>
         {% endif %}
-        <h2 class='root-title'>{{ item.group.abbreviation }}. {{ item.group.title }}
-          {% if item.group.post %}
-            {% if item.group.post.component == 'Faction' or item.group.post.component == 'Clockwork' %}
-                <img class="lg-faction-icon" src="{{ item.group.post.small_icon.url }}">
+        <h2 class='root-title'>{{ group.abbreviation }}. {{ group.title }}
+          {% if group.post %}
+            {% if group.post.component == 'Faction' or group.post.component == 'Clockwork' %}
+                <img class="lg-faction-icon" src="{{ group.post.small_icon.url }}">
             {% endif %}
           {% endif %}
         </h2>
-        {% if item.group.post %}
+        {% if group.post %}
           </a>
         {% endif %}
       </div>
-
       {% if edit_authorized %}
           <div class="d-flex flex-wrap justify-content-end">
               {% if edit_mode %}
-                  <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_absolute_url }}">
+                  <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'new-law' slug=group.slug lang_code=lang_code %}">
                       {% trans 'Done' %} <i class="bi bi-check"></i>
                   </a>
               {% else %}
-                  <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ item.group.get_edit_url }}">
+                  <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'new-edit-law' slug=group.slug lang_code=lang_code %}">
                       {% trans 'Edit Law' %} <i class="bi bi-pencil-square"></i>
                   </a>
               {% endif %}
           </div>
       {% endif %}
     </div>
-    {% if item.group.description %}
-      {{ item.group.description|format_law_text:lang_code }}
-      {% comment %} {% format_law_text item.group.description lang_code %} {% endcomment %}
+    {% if prime_law.description %}
+      {{ prime_law.description|format_law_text:lang_code }}
+      {% comment %} {% format_law_text prime_law.description lang_code %} {% endcomment %}
     {% endif %}
-    {% if item.group.reference_laws %}
-      {% for reference in item.group.reference_laws.all %}
+    {% if prime_law.reference_laws %}
+      {% for reference in prime_law.reference_laws.all %}
         {% include 'the_keep/partials/law_reference.html' %}
       {% endfor %}
     {% endif %}
+    {% if edit_mode and prime_law %}
+      {% with prime_law as selected_law %}
+          {% include 'the_keep/partials/law_buttons.html' %}
+      {% endwith %}
+    {% endif %}
+  </div>
 
-    <div class='ml-3'>
-     
-        {% for law in item.top_level_laws %}
+    <div class=''>
+ 
+        {% for law in top_level_laws %}
+   
           <div id="law-{{ law.id }}">
             <div class="d-flex justify-content-between align-items-center">
               <h4>{{ law.local_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
@@ -250,7 +254,7 @@
                                     <div class='mt-2 ml-5'>
                                         <button class="btn btn-sm btn-success add-law-button"
                                                 data-code="{{ grandchild.law_code }}{{ forloop.counter|add:"1"|alpha }}"
-                                                data-group="{{ item.group.id }}"
+                                                data-group="{{ group.id }}"
                                                 data-parent="{{ grandchild.id }}"
                                                 data-prev=""
                                                 data-next="">
@@ -264,7 +268,7 @@
                                   <div class='mt-2 ml-5'>
                                       <button class="btn btn-sm btn-success add-law-button"
                                               data-code="{{ grandchild.law_code }}a"
-                                              data-group="{{ item.group.id }}"
+                                              data-group="{{ group.id }}"
                                               data-parent="{{ grandchild.id }}"
                                               data-prev=""
                                               data-next="">
@@ -285,7 +289,7 @@
                               <div class='mt-2 ml-5'>
                                   <button class="btn btn-sm btn-success add-law-button"
                                           data-code="{{ child.law_code }}.{{ forloop.counter|add:"1"|roman }}"
-                                          data-group="{{ item.group.id }}"
+                                          data-group="{{ group.id }}"
                                           data-parent="{{ child.id }}"
                                           data-prev=""
                                           data-next="">
@@ -300,7 +304,7 @@
                           <div class='mt-2 ml-5'>
                               <button class="btn btn-sm btn-success add-law-button"
                                       data-code="{{ child.law_code }}.I"
-                                      data-group="{{ item.group.id }}"
+                                      data-group="{{ group.id }}"
                                       data-parent="{{ child.id }}"
                                       data-prev=""
                                       data-next="">
@@ -318,7 +322,7 @@
                         <div class='mt-2 ml-5'>
                             <button class="btn btn-sm btn-success add-law-button"
                                 data-code="{{ law.law_code }}.{{ forloop.counter|add:"1" }}"
-                                data-group="{{ item.group.id }}"
+                                data-group="{{ group.id }}"
                                 data-parent="{{ law.id }}"
                                 data-prev=""
                                 data-next="">
@@ -332,7 +336,7 @@
                     <div class='mt-2 ml-5'>
                         <button class="btn btn-sm btn-success add-law-button"
                             data-code="{{ law.law_code }}.1"
-                            data-group="{{ item.group.id }}"
+                            data-group="{{ group.id }}"
                             data-parent="{{ law.id }}"
                             data-prev=""
                             data-next="">
@@ -350,11 +354,11 @@
               {% if edit_mode %}
                 <div class='mt-2'>
                     <button class="btn btn-sm btn-success add-law-button"
-                        data-code="{{ item.group.abbreviation }}.{{ forloop.counter|add:"1" }}"
-                        data-group="{{ item.group.id }}"
+                        data-code="{{ group.abbreviation }}.{{ forloop.counter|add:"1" }}"
+                        data-group="{{ group.id }}"
                         data-prev="{{ law.id }}"
                         data-next="">
-                        Add {{ item.group.abbreviation }}.{{ forloop.counter|add:"1" }}
+                        Add {{ group.abbreviation }}.{{ forloop.counter|add:"1" }}
                     </button>
                 </div>
               {% endif %}
@@ -365,11 +369,11 @@
           {% if edit_mode %}
             <div class='mt-2'>
                 <button class="btn btn-sm btn-success add-law-button"
-                    data-code="{{ item.group.abbreviation }}.1"
-                    data-group="{{ item.group.id }}"
+                    data-code="{{ group.abbreviation }}.1"
+                    data-group="{{ group.id }}"
                     data-prev=""
                     data-next="">
-                    Add {{ item.group.abbreviation }}.1
+                    Add {{ group.abbreviation }}.1
                 </button>
             </div>
           {% endif %}
@@ -379,7 +383,7 @@
     </div>
  
 </article>
-{% empty %}
+{% else %}
 <article class="media content-section d-flex justify-content-between align-items-center">
   
   {% if post %}
@@ -413,7 +417,7 @@
 
 
 </article>
-{% endfor %}
+{% endif %}
 
 
 
@@ -434,6 +438,7 @@
       <input type="hidden" name="parent_id" id="modal-parent-id">
       <input type="hidden" name="prev_id" id="modal-prev-id">
       <input type="hidden" name="next_id" id="modal-next-id">
+      <input type="hidden" name="language_id" id="modal-language-id">
       <div class='root-title h3' id='modal-law-code'></div>
       <label class='hidden'>Title</label>
       <input type="text" name="title" required placeholder="Title..."><br>
@@ -538,7 +543,7 @@
 <div class='mb-3 d-flex justify-content-between'>
 
   {% if previous_group %}
-    <a href="{{ previous_group.get_absolute_url }}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{% url 'new-law' slug=previous_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
         <div class='d-flex align-items-center mr-1'>
         <i class="bi bi-chevron-left"></i> 
         </div>
@@ -552,7 +557,7 @@
   {% endif %}
 
   {% if next_group %}
-    <a href="{{ next_group.get_absolute_url }}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{% url 'new-law' slug=next_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
   
         <div class='d-flex mx-auto'>
           {{ next_group }} 
@@ -787,6 +792,7 @@
       document.getElementById('modal-parent-id').value = button.dataset.parent || '';
       document.getElementById('modal-prev-id').value = button.dataset.prev || '';
       document.getElementById('modal-next-id').value = button.dataset.next || '';
+      document.getElementById('modal-language-id').value = {{selected_language.id}} || '';
       document.getElementById('modal-law-code').textContent = 'Add ' + (button.dataset.code || '');
 
       showModal('add-law-modal');

@@ -37,12 +37,16 @@ urlpatterns = [
     path('', views.home, name='site-home'),
     path('home/', views.home),
     path('about/', views.about, name='keep-about'),
-    path('law-of-root/', views.law_hierarchy_view),
-    path('law-of-root/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
-    path('law-of-root/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
-    path('law-of-root/table-of-contents/<str:lang_code>/', views.law_table_of_contents, name='law-search'),
+    # path('law-of-root/', views.law_hierarchy_view),
+    # path('law-of-root/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
+    # path('law-of-root/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
 
-    path('law/copy_law_group/<int:id>/', views.copy_law_group_view, name='copy-law-group'),
+    path('law-of-root/table-of-contents/<str:lang_code>/', views.law_table_of_contents, name='law-search'),
+    
+    path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
+    path('law/<slug:slug>/<str:lang_code>/', views.law_group_view, name='new-law'),
+    path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='new-edit-law'),
+    path('law/<slug:slug>/<str:lang_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
 
     path('faq/', views.faq_search, name='faq'),
     path('faq/lang/<str:lang_code>/', views.faq_search, name='lang-faq'),
@@ -80,7 +84,7 @@ urlpatterns = [
     # path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
     path('expansion/<slug:slug>/update/', ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', ExpansionDeleteView.as_view(), name='expansion-delete'),
-    path('expansion/<slug:expansion_slug>/law/', views.law_hierarchy_view, name='expansion-law'),
+    # path('expansion/<slug:expansion_slug>/law/', views.law_hierarchy_view, name='expansion-law'),
 
     # path('old/faction/<slug:slug>/', ComponentDetailListView.as_view(), name='faction-old'),
     
@@ -122,10 +126,10 @@ urlpatterns = [
     path("translations/<slug:slug>/new/", create_post_translation, name='translation-create'),
     path("translations/<slug:slug>/update/<str:lang>/", create_post_translation, name='translation-update'),
 
-    path('law/<slug:slug>/', views.law_hierarchy_view, name='post-law'),
-    path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
-    path('law/<slug:slug>/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-post-law'),
-    path('law/<slug:slug>/<str:lang_code>/', views.law_hierarchy_view, name='lang-post-law'),
+    # path('law/<slug:slug>/', views.law_hierarchy_view, name='post-law'),
+
+    # path('law/<slug:slug>/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-post-law'),
+    # path('law/<slug:slug>/<str:lang_code>/', views.law_hierarchy_view, name='lang-post-law'),
     
     path('faq/<slug:slug>/', views.faq_search, name='post-faq'),
     path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
