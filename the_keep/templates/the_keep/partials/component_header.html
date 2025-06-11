@@ -18,6 +18,34 @@
             </div>
         {% endif %}
         {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
+                {% if not existing_law %}
+                    <div>
+                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create' slug=object.slug %}">
+                            {% trans 'Add Law' %} <i class="bi bi-book"></i>
+                        </a>
+                    </div>
+                {% elif not available_law %}
+                    <div>
+                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'copy-law-group' slug=existing_law.group.slug lang_code=existing_law.language.code %}">
+                            {% trans 'Copy Law' %} <i class="bi bi-book"></i>
+                        </a>
+                    </div>
+                {% else %}
+                    <div>
+                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ available_law.get_edit_url }}">
+                            {% trans 'Edit Law' %} <i class="bi bi-book"></i>
+                        </a>
+                    </div>
+                {% endif %}
+                <div>
+                    <a class="btn btn-info btn-sm mt-1 mb-1 ml-1" href="{% url 'lang-post-faq' slug=object.slug lang_code=language_code %}">
+                        {% if existing_faq %}
+                            {% trans 'Edit FAQ' %} <i class="bi bi-info-circle"></i>
+                        {% else %}
+                            {% trans 'Add FAQ' %} <i class="bi bi-info-circle"></i>
+                        {% endif %}
+                    </a>
+                </div>
                 <!-- Show option to Edit -->
                 <div>
                     <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{{ object.get_edit_url }}">

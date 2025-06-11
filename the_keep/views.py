@@ -621,28 +621,10 @@ def create_post_translation(request, slug, lang=None):
 
 def ultimate_component_view(request, slug):
     
-    language = None
-    # middle_language = get_language()
-    # print(middle_language)
-    # if request.user.is_authenticated:
-    #     language = request.user.profile.language
-    language_code_object = None
-    language_code_override = request.GET.get('lang', None)
-    user_language = get_language()
-    
-    if language_code_override:
-        language_code = language_code_override
-        language_code_object = Language.objects.filter(code=language_code_override).first()
+    language_code = request.GET.get('lang') or get_language()
+    language = Language.objects.filter(code=language_code).first()
 
-    if language_code_object:
-        language = language_code_object
-    else:
-        language_code = user_language
-        language_code_object = Language.objects.filter(code=language_code).first()
-        if language_code_object:
-            language = language_code_object
 
-    # print(language_code_object.code)
     post = get_object_or_404(Post, slug=slug)
     component_mapping = {
             "Map": Map,
@@ -660,21 +642,21 @@ def ultimate_component_view(request, slug):
     # Get the translation if available, fallback to default
     object_translation = object.translations.filter(language=language).first()
 
+    existing_law = Law.objects.filter(group__post=post).first()
+    if existing_law:
+        available_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
+    else:  
+        available_law = None
+
+    existing_faq = FAQ.objects.filter(post=post).first()
+    if existing_faq:
+        available_faq = FAQ.objects.filter(post=post, language=language).first()
+    else:  
+        available_faq = None
+
 
 
     available_translations = object.translations.all().count()
-
-    # # Get a list of other available translations
-    # other_translations = object.translations.exclude(language=language)
-
-    # language_queryset = Language.objects.filter(id__in=other_translations.values_list('language', flat=True))
-
-    # # Add object's language is not already included and is not the current language
-    # if object.language and language and object.language != language and object.language not in language_queryset:
-    #     language_queryset = language_queryset | Language.objects.filter(id=object.language.id)
-
-    # if not object_translation and object.language:
-    #     language_queryset = language_queryset.exclude(id=object.language.id)
 
 
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else object.title
@@ -739,17 +721,11 @@ def ultimate_component_view(request, slug):
         based_on_title = None
 
 
-    if language_code_override:
-        if request.user.is_authenticated:
-            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({user_language}) viewed {object.component}: {object.title} ({language_code_override})')
-        else:
-            send_discord_message(f'{get_uuid(request)} ({user_language}) viewed {object.component}: {object.title} ({language_code_override})')
-    else:
-        if request.user.is_authenticated:
-            send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({user_language}) viewed {object.component}: {object.title}')
-        else:
-            send_discord_message(f'{get_uuid(request)} ({user_language}) viewed {object.component}: {object.title}')
 
+    if request.user.is_authenticated:
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {object.component}: {object.title} ({language_code})')
+    else:
+        send_discord_message(f'{get_uuid(request)} viewed {object.component}: {object.title} ({language_code})')
 
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
@@ -798,23 +774,31 @@ def ultimate_component_view(request, slug):
     if request.user.is_authenticated:
         if not request.user.profile.weird:
             games = games.filter(official=True)
-    # else:
-    #     games = games.filter(official=True)
 
-    # Apply distinct and prefetch_related to all cases  
-    # prefetch_values = [
-    #     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-    #     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-    # ]
-    # games = games.distinct().prefetch_related(*prefetch_values)
+    playtests = games.filter(test_match=True).count()
 
+    games_total = games.count()
 
+    if games_total == 1:
+        if playtests:
+            games_label = _("View 1 Playtest")
+        else:
+            games_label = _("View 1 Game")
+    elif playtests == games_total and playtests != 0:
+        games_label = _("View %(count)d Playtests") % {'count': games_total}
+    elif playtests:
+        if playtests == 1:
+            games_label = _("View %(count)d Games (1 Playtest)") % {
+                'count': games_total
+            }
+        else:
+            games_label = _("View %(count)d Games (%(tests)d Playtests)") % {
+                'count': games_total,
+                'tests': playtests,
+            }
+    else:
+        games_label = _("View %(count)d Games") % {'count': games_total}
 
-    # # commentform = PostCommentCreateForm()
-    # game_filter = GameFilter(request.GET, user=request.user, queryset=games)
-
-    # # Get the filtered queryset
-    # filtered_games = game_filter.qs.distinct()
 
     
     if post.component == "Faction" or post.component == "Clockwork":
@@ -869,54 +853,17 @@ def ultimate_component_view(request, slug):
     # Get top players for factions
     top_players = []
     most_players = []
-    # win_count = 0
-    # coalition_count = 0
-    # win_rate = 0
-    # tourney_points = 0
-    # total_efforts = 0
+
     scorecard_count = None
     detail_scorecard_count = None
-    # On first load get faction and VB Stats
-    # page_number = request.GET.get('page')  # Get the page number from the request
-    # if not page_number:
+
     if object.component == "Faction":
-        # top_players = Profile.top_players(faction_id=object.id, limit=10, game_threshold=5)
-        # most_players = Profile.top_players(faction_id=object.id, limit=10, top_quantity=True, game_threshold=1)
         top_players = Profile.leaderboard(effort_qs=efforts, limit=10, game_threshold=5)
         most_players = Profile.leaderboard(effort_qs=efforts, limit=10, top_quantity=True, game_threshold=1)
-    #     game_values = filtered_games.aggregate(
-    #                 total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
-    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
-    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
-    #             )
+
         scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False).count()
         detail_scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False, total_generic_points=0).count()
-    # if object.component == "Vagabond":
-    #     game_values = filtered_games.aggregate(
-    #                 total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
-    #                 win_count=Count('efforts', filter=Q(efforts__win=True, efforts__vagabond=object)),
-    #                 coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__vagabond=object))
-    #             )
-    # if object.component == "Faction" or object.component == "Vagabond":
-    #     # Access the aggregated values from the dictionary returned by .aggregate()
-    #     total_efforts = game_values['total_efforts']
-    #     win_count = game_values['win_count']
-    #     coalition_count = game_values['coalition_count']
-    # if total_efforts > 0:
-    #     win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
-    # else:
-    #     win_rate = 0
-    # tourney_points = win_count - (coalition_count / 2)
 
-
-
-    # # Paginate games
-    # paginate_by = settings.PAGE_SIZE
-    # paginator = Paginator(filtered_games, paginate_by)  # Use the queryset directly
-    # try:
-    #     page_obj = paginator.get_page(page_number)  # Get the specific page of games
-    # except EmptyPage:
-    #     page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
 
     links_count = object.count_links(request.user)
 
@@ -937,7 +884,8 @@ def ultimate_component_view(request, slug):
     absolute_uri = build_absolute_uri(request, object.get_absolute_url())
     context = {
         'object': object,
-        'games_total': games.count(),
+        'games_total': games_total,
+        'games_label': games_label,
         'top_players': top_players,
         'most_players': most_players,
         'stable_ready': stable_ready,
@@ -977,6 +925,13 @@ def ultimate_component_view(request, slug):
         'complexity_value': complexity_value,
 
         'absolute_uri': absolute_uri,
+
+        'available_law': available_law,
+        'existing_law': existing_law,
+
+        'available_faq': available_faq,
+        'existing_faq': existing_faq,
+
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -1227,7 +1182,7 @@ def component_games(request, slug):
 
 
     context = {
-       'object': object,
+        'object': object,
         'games_total': games.count(),
         'filtered_games': filtered_games.count(),
         'games': page_obj,  # Pagination applied here
@@ -2213,178 +2168,6 @@ def assign_full_urls(laws, request):
         if hasattr(law, 'children'):
             assign_full_urls(law.children.all(), request)
 
-# def get_law_hierarchy_context(request, slug=None, expansion_slug=None, edit_mode=False, lang_code=None):
-#     expansion = None
-#     post = None
-
-#     highlight_id = request.GET.get('highlight_law')
-#     highlight_group_id = request.GET.get('highlight_group')
-    
-#     law_meta_description = None
-#     law_meta_title = None
-#     if highlight_id:
-#         selected_law = Law.objects.filter(id=highlight_id).first()
-#         if selected_law:
-#             law_meta_title = selected_law.group.title + ": " + selected_law.law_code + ' "' + clean_meta_description(selected_law.title) + '"'
-#             law_meta_description = clean_meta_description(selected_law.description)
-#     elif highlight_group_id:
-#         selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
-#         if selected_group:
-#             law_meta_title = "Law of " + clean_meta_description(selected_group.title)
-#             law_meta_description = clean_meta_description(selected_group.description)
-
-
-#     if lang_code:
-#         language = Language.objects.filter(code=lang_code).first()
-#         if not language:
-#             language = Language.objects.filter(code='en').first()
-#     else:
-#         language = Language.objects.filter(code='en').first()
-#         lang_code = language.code
-
-
-
-
-
-#     if slug:
-#         post = get_object_or_404(Post, slug=slug)
-#         groups = LawGroup.objects.filter(post=post, language=language).order_by('position')
-#         law_title = f"Law of Root - {post.title}"
-#     elif expansion_slug:
-#         expansion = get_object_or_404(Expansion, slug=expansion_slug)
-#         groups = LawGroup.objects.filter(post__expansion=expansion, language=language).order_by('position')
-#         law_title = f"Law of Root - {expansion.title}"
-#     else:
-#         groups = LawGroup.objects.filter(
-#             Q (post=None)| Q(post__official=True),
-#             language=language
-#             ).order_by('position')
-#         law_title = f"Law of Root"
-
-
-#     # Determine other available languages for this context
-#     if slug:
-#         available_languages_qs = LawGroup.objects.filter(post=post).exclude(language=language)
-#     elif expansion_slug:
-#         available_languages_qs = LawGroup.objects.filter(post__expansion=expansion).exclude(language=language)
-#     else:
-#         available_languages_qs = LawGroup.objects.filter(
-#             Q(post=None) | Q(post__official=True)
-#         ).exclude(language=language)
-
-#     available_languages = Language.objects.filter(
-#             lawgroup__in=available_languages_qs
-#         ).exclude(id=language.id).distinct()
-
-
-#     edit_authorized = False
-#     if request.user.is_authenticated:
-#         if request.user.profile.admin:
-#             edit_authorized = True
-#         elif request.user.profile.editor and post:
-#             if request.user.profile == post.designer:
-#                 edit_authorized = True
-
-
-#     lawgroups_with_laws = []
-
-#     for group in groups:
-#         raw_top_level = (
-#             Law.objects
-#             .filter(group=group, parent__isnull=True, prime_law=False)
-#             .order_by('position')
-#             .select_related('group', 'group__post', 'group__language')
-#             .prefetch_related(
-#             'group', 'children__group', 'children__children__group', 'children__children__children__group',
-#             'reference_laws',
-#             'children', 'children__reference_laws', 
-#             'children__children', 'children__children__reference_laws', 
-#             'children__children__children', 'children__children__children__reference_laws', 
-#             'children__children__children__children__reference_laws',
-#             )
-#         )
-#         # top_level_laws = with_neighbors(raw_top_level)
-#         if edit_mode:
-#             top_level_laws = apply_neighbors_recursively(raw_top_level)
-#         else:
-#             top_level_laws = list(raw_top_level)
-#             assign_full_urls(top_level_laws, request)
-#         lawgroups_with_laws.append({
-#             'group': group,
-#             'top_level_laws': top_level_laws
-#         })
-
-#     previous_group = None
-#     next_group = None
-
-#     if len(lawgroups_with_laws) == 1:
-#         lawgroup = lawgroups_with_laws[0]['group']
-#         previous_group = lawgroup.get_previous_by_position()
-#         next_group = lawgroup.get_next_by_position()
-#     elif len(lawgroups_with_laws) > 0:
-#         first_lawgroup = lawgroups_with_laws[0]['group']
-#         previous_group = first_lawgroup.get_previous_by_position()
-#         last_lawgroup = lawgroups_with_laws[-1]['group']
-#         next_group = last_lawgroup.get_next_by_position()
-
-
-#     return {
-#         'lawgroups_with_laws': lawgroups_with_laws,
-#         'post': post,
-#         'expansion': expansion,
-#         'lang_code': lang_code,
-#         'highlight_id': highlight_id,
-#         'highlight_group_id': highlight_group_id,
-#         'law_meta_description': law_meta_description,
-#         'law_meta_title': law_meta_title,
-#         'law_title': law_title,
-#         'edit_authorized': edit_authorized,
-#         'selected_language': language,
-#         'available_languages': available_languages,
-#         'previous_group': previous_group,
-#         'next_group': next_group,
-#     }
-
-# def law_hierarchy_view(request, slug=None, expansion_slug=None, lang_code=None):
-
-#     context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=False, lang_code=lang_code)
-    
-#     return render(request, 'the_keep/law.html', context)
-
-# @editor_onboard_required
-# def law_hierarchy_edit_view(request, slug=None, expansion_slug=None, lang_code=None):
-
-#     user_profile = request.user.profile
-
-#     if lang_code:
-#         language = Language.objects.filter(code=lang_code).first()
-#         if not language:
-#             language = Language.objects.filter(code='en').first()
-#     else:
-#         language = Language.objects.filter(code='en').first()
-
-#     if slug:
-#         post = get_object_or_404(Post, slug=slug)
-#         edit_authorized = user_profile.editor and post.designer == user_profile
-#         if not user_profile.admin and not edit_authorized:
-#             messages.error(request, f"You are not authorized to edit { post.title }'s Law.")
-#             raise PermissionDenied() 
-#     elif not user_profile.admin:
-#         messages.error(request, f'You are not authorized to edit the Law of Root.')
-#         raise PermissionDenied() 
-#     if user_profile.admin:
-#         all_laws = Law.objects.filter(language=language).prefetch_related('group__post')
-#     else:
-#         all_laws = Law.objects.filter(
-#             Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
-#             language=language
-#                 ).prefetch_related('group__post')
-
-#     context = get_law_hierarchy_context(request, slug=slug, expansion_slug=expansion_slug, edit_mode=True, lang_code=lang_code)
-#     context['edit_mode'] = True
-#     context['all_laws'] = all_laws
-
-#     return render(request, 'the_keep/law.html', context)
 
 @editor_required
 def add_law_ajax(request):
@@ -2737,10 +2520,17 @@ def create_law_group(request, slug):
     })
 
 @player_required
-def copy_law_group_view(request, slug, lang_code):
+def copy_law_group_view(request, slug, lang_code=None):
     user_profile = request.user.profile
     source_group = get_object_or_404(LawGroup, slug=slug)
-    source_language = get_object_or_404(Language, code=lang_code)
+    if lang_code:
+        source_language = get_object_or_404(Language, code=lang_code)
+    else:
+        first_law = Law.objects.filter(group=source_group).order_by('id').first()
+        if not first_law:
+            source_language = Language.objects.filter(code='en').first()
+        else:
+            source_language = first_law.language
 
     existing_laws = Law.objects.filter(group=source_group, language=source_language)
     if not existing_laws:
@@ -2782,7 +2572,7 @@ def copy_law_group_view(request, slug, lang_code):
     })
 
 
-def law_table_of_contents(request, lang_code):
+def law_table_of_contents(request, lang_code='en'):
     query = request.GET.get("q", "")
     filter_type = request.GET.get('type', 'all')
     language = Language.objects.filter(code=lang_code).first()
@@ -2824,18 +2614,10 @@ def law_table_of_contents(request, lang_code):
     return render(request, "the_keep/law_table.html", context)
 
 
-def faq_search(request, slug=None, lang_code=None):
+def faq_search(request, slug=None, lang_code='en'):
     query = request.GET.get("q", "")
 
-    if lang_code:
-        language = Language.objects.filter(code=lang_code).first()
-        if not language:
-            language = Language.objects.filter(code='en').first()
-    else:
-        language = Language.objects.filter(code='en').first()
-
-
-
+    language = get_object_or_404(Language, code=lang_code)
 
     faq_editable = False
     user_profile = Profile.objects.none()
@@ -3038,8 +2820,8 @@ class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     def get_success_url(self):
         faq = self.get_object()
         if faq.post:
-            return reverse('post-faq', kwargs={'slug': faq.post.slug})
-        return reverse('faq')
+            return reverse('lang-post-faq', kwargs={'slug': faq.post.slug, 'lang_code': faq.language.code})
+        return reverse('lang-faq', kwargs={'lang_code': faq.language.code})
 
 
 
@@ -3094,7 +2876,7 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         Law.objects
         .filter(group=group, parent__isnull=True, prime_law=False, language=language)
         .order_by('position')
-        .select_related('group', 'group__post', 'group__language')
+        .select_related('group', 'group__post')
         .prefetch_related(
         'group', 'children__group', 'children__children__group', 'children__children__children__group',
         'reference_laws',
@@ -3115,8 +2897,8 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         edit_mode = False
         edit_authorized = False
 
-    previous_group = group.get_previous_by_position()
-    next_group = group.get_next_by_position()
+    previous_group = group.get_previous_by_position(language=language)
+    next_group = group.get_next_by_position(language=language)
 
     return {
         'post': group.post,
@@ -3164,11 +2946,11 @@ def law_group_edit_view(request, slug, lang_code):
         raise PermissionDenied() 
     
     if user_profile.admin:
-        all_laws = Law.objects.filter(group__language=language).prefetch_related('group__post')
+        all_laws = Law.objects.filter(language=language).prefetch_related('group__post')
     else:
         all_laws = Law.objects.filter(
             Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
-            group__language=language
+            language=language
                 ).prefetch_related('group__post')
 
     context = get_law_group_context(request, slug=slug, edit_mode=True, lang_code=lang_code)

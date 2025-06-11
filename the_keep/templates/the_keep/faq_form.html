@@ -21,9 +21,9 @@
         <div class="form-group">
             <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
             {% if post %}
-                <a class="btn btn-secondary" href="{% url 'post-faq' post.slug %}">{% trans 'Cancel' %}</a>
+                <a class="btn btn-secondary" href="{% url 'lang-post-faq' slug=post.slug lang_code=post.language.code %}">{% trans 'Cancel' %}</a>
             {% else %}
-                <a class="btn btn-secondary" href="{% url 'faq' %}">{% trans 'Cancel' %}</a>
+                <a class="btn btn-secondary" href="{% url 'lang-faq' lang_code=post.language.code %}">{% trans 'Cancel' %}</a>
             {% endif %}
             {% if object.id %}
                 <a class="btn btn-danger" href="{% url 'faq-delete' object.id %}">{% trans 'Delete' %}</a>

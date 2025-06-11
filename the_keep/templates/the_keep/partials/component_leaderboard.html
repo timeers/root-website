@@ -9,7 +9,7 @@
             <h3 class='root-title'>{% trans 'Games' %}</h3>
         </div>
         <div>
-            {% trans 'View' %} {{ games_total }} {% if games_total != 1 %}{% trans 'Games' %}{% else %}{% trans 'Game' %}{% endif %}
+            {{ games_label }}
         </div>
     </a>
 </article>

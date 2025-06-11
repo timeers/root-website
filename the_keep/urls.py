@@ -37,18 +37,17 @@ urlpatterns = [
     path('', views.home, name='site-home'),
     path('home/', views.home),
     path('about/', views.about, name='keep-about'),
-    # path('law-of-root/', views.law_hierarchy_view),
-    # path('law-of-root/lang/<str:lang_code>/', views.law_hierarchy_view, name='law-of-root'),
-    # path('law-of-root/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-law-of-root'),
 
+    path('law-of-root/', views.law_table_of_contents),
     path('law-of-root/<str:lang_code>/', views.law_table_of_contents, name='law-search'),
 
     path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
+    path('law/<slug:slug>/copy/', views.copy_law_group_view, name='copy-first-law'),
     path('law/<slug:slug>/<str:lang_code>/', views.law_group_view, name='new-law'),
     path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='new-edit-law'),
     path('law/<slug:slug>/<str:lang_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
 
-    path('faq/', views.faq_search, name='faq'),
+    path('faq/', views.faq_search),
     path('faq/lang/<str:lang_code>/', views.faq_search, name='lang-faq'),
     path('faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
 
@@ -131,7 +130,7 @@ urlpatterns = [
     # path('law/<slug:slug>/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-post-law'),
     # path('law/<slug:slug>/<str:lang_code>/', views.law_hierarchy_view, name='lang-post-law'),
     
-    path('faq/<slug:slug>/', views.faq_search, name='post-faq'),
+    # path('faq/<slug:slug>/', views.faq_search, name='post-faq'),
     path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
     path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='lang-post-faq'),
 

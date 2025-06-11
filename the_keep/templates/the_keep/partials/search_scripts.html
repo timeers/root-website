@@ -25,7 +25,7 @@ let isInitialLoad = true;
 
             // If there's a selected designer, set the value
             const selectedDesigner = "{{ designer }}";  // Get the selected designer from context
-            {% comment %} console.log(selectedDesigner) {% endcomment %}
+
             if (selectedDesigner) {
                 // Set the selected value in select2
                 $('#designer-select').val(selectedDesigner);

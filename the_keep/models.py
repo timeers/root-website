@@ -2035,7 +2035,7 @@ class LawGroup(models.Model):
     abbreviation = models.CharField(max_length=10, null=True, blank=True)
     title = models.CharField(max_length=50, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
-    language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
+    # language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     position = models.FloatField(editable=False, default=0)
     type = models.CharField(choices=TypeChoices, max_length=10, default="Fan")
     reference_laws = models.ManyToManyField(
@@ -2061,8 +2061,6 @@ class LawGroup(models.Model):
             old_abbr = LawGroup.objects.filter(pk=self.pk).values_list('abbreviation', flat=True).first()
             abbreviation_changed = (old_abbr != self.abbreviation)
 
-        if not self.language:
-            self.language = get_default_language()
         if not self.title and self.post:
             self.title = self.post.title
         if not self.abbreviation:
@@ -2143,17 +2141,17 @@ class LawGroup(models.Model):
         return base_offset + position
 
 
-    def get_previous_by_position(self):
+    def get_previous_by_position(self, language):
         return LawGroup.objects.filter(
-            language=self.language,
-            position__lt=self.position
-        ).order_by('-position').first()
+            position__lt=self.position,
+            laws__language=language
+        ).distinct().order_by('-position').first()
 
-    def get_next_by_position(self):
+    def get_next_by_position(self, language):
         return LawGroup.objects.filter(
-            language=self.language,
-            position__gt=self.position
-        ).order_by('position').first()
+            position__gt=self.position,
+            laws__language=language
+        ).distinct().order_by('position').first()
 
 class Law(models.Model):
     group = models.ForeignKey(LawGroup, on_delete=models.CASCADE, related_name='laws')
