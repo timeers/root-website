@@ -1,0 +1,20 @@
+{% extends "the_keep/base.html" %}
+{% load i18n crispy_forms_tags %}
+
+{% block content %}
+<article class="content-section">
+  <h1 class='root-title'>{% trans "Edit Law" %}</h1>
+  <p>
+    {% blocktrans %}
+      These changes will affect all laws relating to {{source_group}}
+    {% endblocktrans %}
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    {{ form|crispy }}
+    <button type="submit" class="btn btn-success">{% trans "Save" %}</button>
+    <a href="{% url 'edit-law-view' slug=source_group.slug lang_code=lang_code %}" class="btn btn-secondary">{% trans "Cancel" %}</a>
+  </form>
+</article>
+{% endblock %}

@@ -6,6 +6,7 @@ from .models import (
     LawGroup, Law, FAQ
 )
 from the_gatehouse.models import Profile, Language
+from the_keep.utils import generate_abbreviation_choices
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
@@ -1297,6 +1298,26 @@ class EditLawDescriptionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['description'].required = False
 
+class EditLawGroupForm(forms.ModelForm):
+    class Meta:
+        model = LawGroup
+        fields = ['title', 'abbreviation', 'type']
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if not user.profile.admin:
+            # Non-admin: hide title and type, make abbreviation a select field
+            self.fields.pop('title')
+            self.fields.pop('type')
+
+            instance = kwargs.get('instance')
+            if instance:
+                choices = generate_abbreviation_choices(instance.title)
+                self.fields['abbreviation'] = forms.ChoiceField(
+                    choices=[(abbr, abbr) for abbr in choices],
+                    label="Choose Abbreviation"
+                )
 
 class CopyLawGroupForm(forms.Form):
     language = forms.ModelChoiceField(queryset=Language.objects.none())

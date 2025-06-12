@@ -11,7 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
 from django.db.models.functions import Cast
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
+from django.core.exceptions import PermissionDenied, MultipleObjectsReturned
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import ProtectedError, Count
@@ -52,7 +52,7 @@ from .forms import (MapCreateForm,
                     StatusConfirmForm, TweakCreateForm,
                     PNPAssetCreateForm, TranslationCreateForm,
                     AddLawForm, EditLawForm, EditLawDescriptionForm,
-                    FAQForm, CopyLawGroupForm, LanguageSelectionForm
+                    FAQForm, CopyLawGroupForm, LanguageSelectionForm, EditLawGroupForm
 )
 from .utils import DEFAULT_TITLES_TRANSLATIONS, get_translated_title, clean_meta_description
 from the_tavern.forms import PostCommentCreateForm
@@ -2363,7 +2363,8 @@ def create_law_group(request, slug):
 
     if existing_group:
         existing_law = Law.objects.filter(group=existing_group).first()
-        return redirect('new-law', slug=existing_law.group.slug, lang_code=existing_law.language.code)
+        if existing_law:
+            return redirect('law-view', slug=existing_law.group.slug, lang_code=existing_law.language.code)
 
     available_languages = Language.objects.all()
 
@@ -2397,7 +2398,7 @@ def create_law_group(request, slug):
                 defaults={'title': new_title}
             )
             if not created and group.laws.exists():
-                return redirect('new-law', slug=group.slug, lang_code=language.code)
+                return redirect('law-view', slug=group.slug, lang_code=language.code)
 
             # Prime law
             Law.objects.create(
@@ -2509,7 +2510,7 @@ def create_law_group(request, slug):
             }]
             send_rich_discord_message(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
 
-            return redirect('new-law', slug=group.slug, lang_code=language.code)
+            return redirect('law-view', slug=group.slug, lang_code=language.code)
     else:
         form = LanguageSelectionForm()
         form.fields['language'].queryset = available_languages
@@ -2519,7 +2520,82 @@ def create_law_group(request, slug):
         'post': post,
     })
 
-@player_required
+@editor_onboard_required
+def edit_law_group(request, slug):
+    user_profile = request.user.profile
+    source_group = get_object_or_404(LawGroup, slug=slug)
+    first_law = Law.objects.filter(group=source_group).first()
+    if first_law:
+        lang_code = first_law.language.code
+    else:
+        raise Http404(f"No laws found in {source_group}.")
+    # Authorization
+    if source_group.post:
+        if source_group.post.designer != user_profile and not user_profile.admin:
+            messages.error(request, f"You do not have authorization to edit {source_group}.")
+            raise PermissionDenied() 
+    else:
+        if not user_profile.admin:
+            messages.error(request, f"You do not have authorization to edit the Law of Root.")
+            raise PermissionDenied() 
+
+    if request.method == 'POST':
+        form = EditLawGroupForm(request.POST, instance=source_group, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"{source_group} Law Updated.")
+            return redirect('edit-law-view', slug=source_group.slug, lang_code=lang_code)
+    else:
+        form = EditLawGroupForm(instance=source_group, user=request.user)
+
+    return render(request, 'the_keep/law_group_edit.html', {
+        'form': form,
+        'source_group': source_group,
+        'lang_code': lang_code,
+    })
+
+
+@editor_onboard_required
+def delete_law_group(request, slug, lang_code):
+    user_profile = request.user.profile
+    source_group = get_object_or_404(LawGroup, slug=slug)
+    source_language = get_object_or_404(Language, code=lang_code)
+
+    # Authorization
+    if source_group.post:
+        if source_group.post.designer != user_profile and not user_profile.admin:
+            messages.error(request, f"You do not have authorization to delete laws in {source_group}.")
+            raise PermissionDenied() 
+    else:
+        if not user_profile.admin:
+            messages.error(request, f"You do not have authorization to delete the Law of Root.")
+            raise PermissionDenied() 
+        
+    # POST: Perform deletion
+    if request.method == "POST":
+        laws_to_delete = Law.objects.filter(group=source_group, language=source_language)
+        count = laws_to_delete.count()
+        laws_to_delete.delete()
+        messages.success(request, f"Deleted {count} law(s) from {source_group} in {source_language}.")
+        if source_group.post:
+            return redirect(source_group.post.get_absolute_url()) 
+        else:
+            return redirect('law-of-root', lang_code=lang_code) 
+
+    # GET: Show confirmation page
+    laws_count = Law.objects.filter(group=source_group, language=source_language).count()
+
+    context = {
+        "source_group": source_group,
+        "source_language": source_language,
+        "laws_count": laws_count,
+        'slug': slug,
+        'lang_code': lang_code,
+    }
+
+    return render(request, "the_keep/law_group_delete.html", context)
+
+@editor_onboard_required
 def copy_law_group_view(request, slug, lang_code=None):
     user_profile = request.user.profile
     source_group = get_object_or_404(LawGroup, slug=slug)
@@ -2534,7 +2610,7 @@ def copy_law_group_view(request, slug, lang_code=None):
 
     existing_laws = Law.objects.filter(group=source_group, language=source_language)
     if not existing_laws:
-        return redirect('new-law', slug=slug, lang_code=lang_code)
+        return redirect('law-view', slug=slug, lang_code=lang_code)
 
     post = source_group.post
     # Admins are always allowed
@@ -2559,7 +2635,7 @@ def copy_law_group_view(request, slug, lang_code=None):
         if form.is_valid():
             target_language = form.cleaned_data['language']
             duplicate_laws_for_language(source_group, source_language, target_language)
-            return redirect('new-law', slug=slug, lang_code=target_language.code)
+            return redirect('law-view', slug=slug, lang_code=target_language.code)
     else:
         form = CopyLawGroupForm(source_group=source_group)
 
@@ -2853,7 +2929,12 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
             law_meta_title = "Law of " + clean_meta_description(selected_group.title)
             law_meta_description = clean_meta_description(selected_group.description)
 
-    prime_law = Law.objects.filter(group=group, prime_law=True, language=language).first()
+    try:
+        prime_law = Law.objects.get(group=group, prime_law=True, language=language)
+    except Law.DoesNotExist:
+        raise Http404("No prime law found for this group and language.")
+    except MultipleObjectsReturned:
+        raise Http404("Multiple prime laws found; data integrity issue.")
 
     # Determine other available languages for this context
     available_languages_qs = Law.objects.filter(group__slug=slug).exclude(language=language)

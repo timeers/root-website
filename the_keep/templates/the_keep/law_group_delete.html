@@ -1,0 +1,19 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<article class="content-section">
+  <h1 class='root-title'>{% trans "Delete Laws" %}</h1>
+  <p>
+    {% blocktrans with count=laws_count group=source_group %}
+      Are you sure you want to delete all {{ source_language }} laws for {{ group }}? This cannot be undone, but laws in other languages will not be affected.
+    {% endblocktrans %}
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">{% trans "Delete All" %}</button>
+    <a href="{% url 'edit-law-view' slug=slug lang_code=lang_code %}" class="btn btn-secondary">{% trans "Cancel" %}</a>
+  </form>
+</article>
+{% endblock %}

@@ -32,7 +32,7 @@
 
 <div class='mb-2 d-flex justify-content-between'>
 
-    <a href="{% url 'law-search' lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{% url 'law-of-root' lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
         <div class='d-flex align-items-center mr-1'>
         <i class="bi bi-chevron-left"></i> 
         </div>
@@ -78,7 +78,7 @@
                         {% if available_languages %}
                             {% for lang in available_languages %}
                               <li>
-                                <a class="dropdown-item" href="{% url 'new-law' slug=group.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                                <a class="dropdown-item" href="{% url 'law-view' slug=group.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
                               </li>
                             {% endfor %}
                         {% endif %}
@@ -128,11 +128,17 @@
       {% if edit_authorized %}
           <div class="d-flex flex-wrap justify-content-end">
               {% if edit_mode %}
-                  <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'new-law' slug=group.slug lang_code=lang_code %}">
+                <a class="btn btn-danger btn-sm mt-1 mb-1 ml-1" href="{% url 'delete-law-group' slug=group.slug lang_code=lang_code %}">
+                    <i class="bi bi-trash"></i>
+                </a>
+                <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'edit-law-group' slug=group.slug %}">
+                  <i class="bi bi-pencil-square"></i>
+                </a>
+                  <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'law-view' slug=group.slug lang_code=lang_code %}">
                       {% trans 'Done' %} <i class="bi bi-check"></i>
                   </a>
               {% else %}
-                  <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'new-edit-law' slug=group.slug lang_code=lang_code %}">
+                  <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'edit-law-view' slug=group.slug lang_code=lang_code %}">
                       {% trans 'Edit Law' %} <i class="bi bi-pencil-square"></i>
                   </a>
               {% endif %}
@@ -551,7 +557,7 @@
 <div class='mb-3 d-flex justify-content-between'>
 
   {% if previous_group %}
-    <a href="{% url 'new-law' slug=previous_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{% url 'law-view' slug=previous_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
         <div class='d-flex align-items-center mr-1'>
         <i class="bi bi-chevron-left"></i> 
         </div>
@@ -565,7 +571,7 @@
   {% endif %}
 
   {% if next_group %}
-    <a href="{% url 'new-law' slug=next_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{% url 'law-view' slug=next_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
   
         <div class='d-flex mx-auto'>
           {{ next_group }} 

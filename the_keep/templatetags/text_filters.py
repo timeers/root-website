@@ -88,7 +88,7 @@ def format_law_text(value, lang_code='en'):
         # If this image corresponds to a faction, wrap in a link
         if keyword in FACTION_SLUGS:
             slug = FACTION_SLUGS[keyword]
-            url = reverse('new-law', kwargs={'slug': slug, 'lang_code': lang_code})
+            url = reverse('law-view', kwargs={'slug': slug, 'lang_code': lang_code})
             return f'<a href="{url}">{img_tag}</a>'
 
         return img_tag

@@ -15,7 +15,7 @@ from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
 from django.utils.translation import get_language
 from django.urls import reverse
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -2034,16 +2034,16 @@ class LawGroup(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)
     abbreviation = models.CharField(max_length=10, null=True, blank=True)
     title = models.CharField(max_length=50, null=True, blank=True)
-    description = models.TextField(null=True, blank=True)
+    # description = models.TextField(null=True, blank=True)
     # language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     position = models.FloatField(editable=False, default=0)
     type = models.CharField(choices=TypeChoices, max_length=10, default="Fan")
-    reference_laws = models.ManyToManyField(
-        'Law',
-        symmetrical=False,
-        blank=True,
-        related_name='group_references'
-    )
+    # reference_laws = models.ManyToManyField(
+    #     'Law',
+    #     symmetrical=False,
+    #     blank=True,
+    #     related_name='group_references'
+    # )
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     class Meta:
@@ -2118,7 +2118,12 @@ class LawGroup(models.Model):
     def derive_position_from_abbreviation(self):
         # Attempt to convert abbreviation to a number (if it starts with a digit)
         try:
-            return float(self.abbreviation)
+            position = float(self.abbreviation)
+            if self.type == "Bot":
+                position += 1000
+            # Add random float between 0.01 and 0.99
+            fractional_offset = random.uniform(0.01, 0.99)
+            return position + fractional_offset
         except ValueError:
             # If it's not a number, treat it as an alphabetic string
             return self._alphabetic_position(self.abbreviation)
@@ -2128,17 +2133,24 @@ class LawGroup(models.Model):
         Convert a string into a lexicographically sortable numeric position,
         scoped by post.sorting.
         """
-        abbreviation = abbreviation.strip().lower()
+        abbreviation = str(abbreviation).strip().lower()
         max_len = 4  # Max characters to consider
         padded = abbreviation.ljust(max_len, '\0')  # Null-pad to keep 'a' < 'aa'
         position = 0
         for char in padded:
             position = position * 256 + ord(char)
 
-        # Offset based on post.sorting or fallback
-        base_offset = self.post.sorting * 10_000_000_000 if self.post else 0
+        if self.type == "Bot":
+            base_offset = 1_000_000
+        elif self.type == "Official":
+            base_offset = 0
+        else:
+            base_offset = self.post.sorting * 10_000_000_000 if self.post else 0
 
-        return base_offset + position
+        # Add random float between 0.01 and 0.99
+        fractional_offset = random.uniform(0.01, 0.99)
+   
+        return base_offset + position + fractional_offset
 
 
     def get_previous_by_position(self, language):
@@ -2176,6 +2188,15 @@ class Law(models.Model):
 
     class Meta:
         ordering = ['group', '-prime_law', 'position']
+
+    def clean(self):
+        super().clean()
+        if self.prime_law:
+            qs = Law.objects.filter(group=self.group, language=self.language, prime_law=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError("There can only be one prime law per group and language.")
 
     def save(self, *args, **kwargs):
         if self.position == Decimal('0.00'):
@@ -2289,7 +2310,7 @@ class Law(models.Model):
         return f'{self.law_code} - {self.title}'
 
     def get_absolute_url(self):
-        url = reverse('new-law', kwargs={
+        url = reverse('law-view', kwargs={
             'slug': self.group.slug,
             'lang_code': self.language.code
             })
@@ -2297,7 +2318,7 @@ class Law(models.Model):
         return f'{url}?{urlencode(query_params)}'
 
     def get_edit_url(self):
-        url = reverse('new-edit-law', kwargs={
+        url = reverse('edit-law-view', kwargs={
             'slug': self.group.slug,
             'lang_code': self.language.code
             })

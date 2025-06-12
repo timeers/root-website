@@ -10,6 +10,7 @@ import os
 import math
 import uuid
 
+from itertools import combinations
 
 
 
@@ -518,5 +519,37 @@ def clean_meta_description(raw_text, max_length=250):
 
 
 
+
+
+SMALL_WORDS = {
+    'a', 'an', 'and', 'the', 'of', 'in', 'on', 'to', 'with', 'at', 'by', 'for',
+    'el', 'la', 'los', 'las', 'de', 'del', 'y', 'en', 'con', 'por', 'para',
+    'le', 'les', 'des', 'du', 'et', 'dans', 'avec', 'pour', 'par',
+    'de', 'het', 'een', 'en', 'van', 'tot', 'onder',
+    'i', 'w', 'z', 'na', 'do', 'od', 'za', 'po', 'dla', 'o', 'u',
+    'и', 'в', 'во', 'на', 'с', 'по', 'от', 'до', 'о', 'об', 'при'
+}
+
+def generate_abbreviation_choices(title):
+    words = re.findall(r"\b[\w']+\b", title)
+    words = [w for w in words if w]
+
+    basic = ''.join(w[0] for w in words).upper()
+    no_smalls = [w for w in words if w.lower() not in SMALL_WORDS]
+    compact = ''.join(w[0] for w in no_smalls).upper()
+
+    variants = set()
+    variants.add(basic)
+    variants.add(compact)
+
+    for r in range(2, min(4, len(no_smalls) + 1)):
+        for combo in combinations(no_smalls, r):
+            variants.add(''.join(w[0] for w in combo).upper())
+
+    # Only keep abbreviations with 4 or fewer characters
+    filtered = [abbr for abbr in variants if len(abbr) <= 4]
+
+    # Ensure uniqueness and return sorted list
+    return sorted(filtered) or ['1']
 
 
