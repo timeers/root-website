@@ -1301,7 +1301,11 @@ class EditLawDescriptionForm(forms.ModelForm):
 class EditLawGroupForm(forms.ModelForm):
     class Meta:
         model = LawGroup
-        fields = ['title', 'abbreviation', 'type']
+        fields = ['title', 'abbreviation', 'type', 'public']
+        help_texts = {
+            'public': "If checked, this law group will be visible to other users.",
+            # 'abbreviation': 'Choose an abbreviation for the Law',
+        }
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)

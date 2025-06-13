@@ -2044,6 +2044,7 @@ class LawGroup(models.Model):
     #     blank=True,
     #     related_name='group_references'
     # )
+    public = models.BooleanField(default=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     class Meta:
@@ -2157,13 +2158,15 @@ class LawGroup(models.Model):
     def get_previous_by_position(self, language):
         return LawGroup.objects.filter(
             position__lt=self.position,
-            laws__language=language
+            laws__language=language,
+            public=True,
         ).distinct().order_by('-position').first()
 
     def get_next_by_position(self, language):
         return LawGroup.objects.filter(
             position__gt=self.position,
-            laws__language=language
+            laws__language=language,
+            public=True,
         ).distinct().order_by('position').first()
 
 class Law(models.Model):

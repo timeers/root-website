@@ -24,7 +24,7 @@
                             {% trans 'Add Law' %} <i class="bi bi-book"></i>
                         </a>
                     </div>
-                {% elif not available_law %}
+                {% elif not editable_law %}
                     <div>
                         <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'copy-law-group' slug=existing_law.group.slug lang_code=existing_law.language.code %}">
                             {% trans 'Copy Law' %} <i class="bi bi-book"></i>
@@ -32,7 +32,7 @@
                     </div>
                 {% else %}
                     <div>
-                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ available_law.get_edit_url }}">
+                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{{ editable_law.get_edit_url }}">
                             {% trans 'Edit Law' %} <i class="bi bi-book"></i>
                         </a>
                     </div>

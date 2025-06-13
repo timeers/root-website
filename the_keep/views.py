@@ -644,8 +644,10 @@ def ultimate_component_view(request, slug):
 
     existing_law = Law.objects.filter(group__post=post).first()
     if existing_law:
-        available_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
+        editable_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
+        available_law = Law.objects.filter(group__post=post, language=language, prime_law=True, group__public=True).first()
     else:  
+        editable_law = None
         available_law = None
 
     existing_faq = FAQ.objects.filter(post=post).first()
@@ -932,6 +934,7 @@ def ultimate_component_view(request, slug):
 
         'available_law': available_law,
         'existing_law': existing_law,
+        'editable_law': editable_law,
 
         'available_faq': available_faq,
         'existing_faq': existing_faq,
@@ -2664,8 +2667,16 @@ def law_table_of_contents(request, lang_code='en'):
     available_languages = Language.objects.filter(
             law__in=available_languages_qs
         ).exclude(id=language.id).distinct()
-
-    laws = Law.objects.filter(language=language)
+    if request.user.is_authenticated and request.user.profile.admin:
+        laws = Law.objects.filter(language=language)
+    elif request.user.is_authenticated:
+        laws = Law.objects.filter(
+            Q(language=language) & (
+                Q(group__public=True) | Q(group__post__designer=request.user.profile)
+            )
+        )
+    else:
+        laws = Law.objects.filter(language=language, group__public=True)
 
     # Filter by type
     # if filter_type == 'official':
@@ -2806,6 +2817,27 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
 
 def law_group_view(request, slug, lang_code):
 
+    if request.user.is_authenticated:
+        user_profile = request.user.profile
+    else:
+        user_profile = None
+
+    group = get_object_or_404(LawGroup, slug=slug)
+    access_denied = False
+    if not group.public:
+        if not user_profile:
+            access_denied = True
+        elif group.post:
+            if not (user_profile.admin or group.post.designer == user_profile):
+                access_denied = True
+        else:
+            if not user_profile.admin:
+                access_denied = True
+
+    if access_denied:
+        messages.error(request, f"You are not authorized to view the Law of { group.title }.")
+        raise PermissionDenied() 
+    
     context = get_law_group_context(request, slug=slug, edit_mode=False, lang_code=lang_code)
     
     return render(request, 'the_keep/law_of_root.html', context)
