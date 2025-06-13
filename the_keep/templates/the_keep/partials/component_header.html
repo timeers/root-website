@@ -38,8 +38,8 @@
                     </div>
                 {% endif %}
                 <div>
-                    <a class="btn btn-info btn-sm mt-1 mb-1 ml-1" href="{% url 'lang-post-faq' slug=object.slug lang_code=language_code %}">
-                        {% if existing_faq %}
+                    <a class="btn btn-info btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-view' slug=object.slug lang_code=language_code %}">
+                        {% if available_faq %}
                             {% trans 'Edit FAQ' %} <i class="bi bi-info-circle"></i>
                         {% else %}
                             {% trans 'Add FAQ' %} <i class="bi bi-info-circle"></i>

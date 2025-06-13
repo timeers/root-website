@@ -28,7 +28,7 @@
                     {% trans 'Yes, Delete' %}
                 </button>
                 {% if object.post %}
-                <a class="btn btn-secondary" href="{% url 'lang-post-faq' slug=object.post.slug lang_code=object.language.code %}">{% trans 'Cancel' %}</a>
+                <a class="btn btn-secondary" href="{% url 'faq-view' slug=object.post.slug lang_code=object.language.code %}">{% trans 'Cancel' %}</a>
                 {% else %}
                     <a class="btn btn-secondary" href="{% url 'faq' %}">{% trans 'Cancel' %}</a>
                 {% endif %}

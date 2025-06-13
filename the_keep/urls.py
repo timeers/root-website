@@ -38,9 +38,9 @@ urlpatterns = [
     path('home/', views.home),
     path('about/', views.about, name='keep-about'),
 
+    # Laws
     path('law-of-root/', views.law_table_of_contents),
     path('law-of-root/<str:lang_code>/', views.law_table_of_contents, name='law-of-root'),
-
     path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
     path('law/<slug:slug>/copy/', views.copy_law_group_view, name='copy-first-law'),
     path('law/<slug:slug>/edit/', views.edit_law_group, name='edit-law-group'),
@@ -48,18 +48,21 @@ urlpatterns = [
     path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='edit-law-view'),
     path('law/<slug:slug>/<str:lang_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
     path('law/<slug:slug>/<str:lang_code>/delete/', views.delete_law_group, name='delete-law-group'),
-
-    path('faq/', views.faq_search),
-    path('faq/lang/<str:lang_code>/', views.faq_search, name='lang-faq'),
-    path('faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
-    path('edit/faq/<int:pk>/', views.FAQUpdateView.as_view(), name='faq-edit'),
-    path('delete/faq/<int:pk>/', views.FAQDeleteView.as_view(), name='faq-delete'),
-
+    # AJAX Law Views
     path('ajax/law/add/', views.add_law_ajax, name='add-law-ajax'),
     path('ajax/law/move/<int:law_id>/<str:direction>/', views.move_law_ajax, name='move-law-ajax'),
     path('ajax/law/edit/', views.edit_law_ajax, name='edit-law-ajax'),
     path('ajax/law/edit-description/', views.edit_law_description_ajax, name='edit-law-description-ajax'),
     path('ajax/law/delete/', views.delete_law_ajax, name='delete-law-ajax'),
+
+    # FAQs
+    path('faq/', views.faq_search, name='faq'),
+    path('faq/<str:lang_code>/', views.faq_search, name='lang-faq'),
+    path('faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
+    path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
+    path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='faq-view'),
+    path('edit/faq/<int:pk>/', views.FAQUpdateView.as_view(), name='faq-edit'),
+    path('delete/faq/<int:pk>/', views.FAQDeleteView.as_view(), name='faq-delete'),
 
     path("archive/", list_view, name='archive-home'),
  
@@ -118,24 +121,12 @@ urlpatterns = [
     path("post/<int:id>/bookmark/", bookmark_post, name='bookmark-post'),
     path("stable/<slug:slug>/", confirm_stable, name='confirm-stable'),
     path("testing/<slug:slug>/", confirm_testing, name='confirm-testing'),
-    # path("colors/<slug:slug>/", color_match_view, name='color-match'),
     path('color/<str:color_name>/', color_group_view, name='color-group'),
     path("animals/<slug:slug>/", animal_match_view, name='animal-match'),
     path("status/<slug:slug>/", status_check, name='status-check'),
     path("translations/<slug:slug>/", translations_view, name='post-translations'),
     path("translations/<slug:slug>/new/", create_post_translation, name='translation-create'),
     path("translations/<slug:slug>/update/<str:lang>/", create_post_translation, name='translation-update'),
-
-    # path('law/<slug:slug>/', views.law_hierarchy_view, name='post-law'),
-
-    # path('law/<slug:slug>/edit/<str:lang_code>/', views.law_hierarchy_edit_view, name='edit-post-law'),
-    # path('law/<slug:slug>/<str:lang_code>/', views.law_hierarchy_view, name='lang-post-law'),
-    
-    # path('faq/<slug:slug>/', views.faq_search, name='post-faq'),
-    path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
-    path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='lang-post-faq'),
-
-
 
     path('post/<int:pk>/delete/', PostDeleteView.as_view(), name='post-delete'),
 

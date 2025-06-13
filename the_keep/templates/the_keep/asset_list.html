@@ -1,5 +1,6 @@
 {% extends "the_keep/base.html" %}
 {% load static i18n %}
+{% block main_width_class %}col-md-9{% endblock %}
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">

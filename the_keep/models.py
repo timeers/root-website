@@ -2119,8 +2119,8 @@ class LawGroup(models.Model):
         # Attempt to convert abbreviation to a number (if it starts with a digit)
         try:
             position = float(self.abbreviation)
-            if self.type == "Bot":
-                position += 1000
+            if self.type == "Official":
+                position += -100_000_000_000
             # Add random float between 0.01 and 0.99
             fractional_offset = random.uniform(0.01, 0.99)
             return position + fractional_offset
@@ -2141,9 +2141,10 @@ class LawGroup(models.Model):
             position = position * 256 + ord(char)
 
         if self.type == "Bot":
-            base_offset = 1_000_000
-        elif self.type == "Official":
             base_offset = 0
+        elif self.type == "Official":
+     
+            base_offset = -100_000_000_000
         else:
             base_offset = self.post.sorting * 10_000_000_000 if self.post else 0
 

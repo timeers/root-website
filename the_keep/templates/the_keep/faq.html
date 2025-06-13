@@ -41,7 +41,7 @@
                     {% if available_languages %}
                         {% for lang in available_languages %}
                           <li>
-                            <a class="dropdown-item" href="{% url 'lang-post-faq' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                            <a class="dropdown-item" href="{% url 'faq-view' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
                           </li>
                         {% endfor %}
                     {% endif %}
@@ -52,7 +52,7 @@
                         {% if unavailable_languages %}
                             {% for lang in unavailable_languages %}
                               <li>
-                                <a class="dropdown-item" href="{% url 'lang-post-faq' slug=post.slug lang_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
+                                <a class="dropdown-item" href="{% url 'faq-view' slug=post.slug lang_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
                               </li>
                             {% endfor %}
                         {% endif %}
@@ -109,7 +109,7 @@
 
 
 <form id="faq-search-form" 
-hx-get="{% if post %}{% url 'lang-post-faq' slug=post.slug lang_code=lang_code %}{% else %}{% url 'lang-faq' lang_code=lang_code  %}{% endif %}" 
+hx-get="{% if post %}{% url 'faq-view' slug=post.slug lang_code=lang_code %}{% else %}{% url 'lang-faq' lang_code=lang_code  %}{% endif %}" 
 hx-target="#faq-results" 
 hx-swap="innerHTML"
 hx-trigger="submit, input delay:300ms" 

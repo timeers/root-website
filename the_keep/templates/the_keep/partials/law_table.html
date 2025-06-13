@@ -1,40 +1,32 @@
-{% load i18n text_filters roman_numerals %}
+{% load i18n %}
 {% if not query %}
     <div class='box-with-bar mb-2'>
         <h2 class='root-title'>{% trans 'Table of Contents' %}</h2>
     </div>
 {% endif %}
-{% for law in laws %}
-<a href="{{ law.get_absolute_url }}">
-    <article class="media content-section post-card">
-        <div class="media-body">
-        {% if law.prime_law %}
-            <h2 class="root-title">{{ law.law_code }}. {{ law.title }}</h2>
 
-        {% else %}
-            <div class="d-flex justify-content-between align-items-center">
-                {% if law.level == 0 %}
-                    <h4>{{ law.law_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
-                {% elif law.level == 1 %}
-                    <strong>{{ law.law_code }} {{ law.title|format_law_text_no_link }}.</strong>
-                {% else %}
-                    <strong>{{ law.law_code }} {{ law.title }}.</strong>
-                {% endif %}
-      
-            </div>
+{% if official_laws or bot_laws or fan_laws%}
+    {% if official_laws %}
+        <h3 class='root-title' style='text-decoration: underline;'>Law of Root</h3>
+        {% for law in official_laws %}
+            {% include 'the_keep/partials/law_category.html' %}
+        {% endfor %}
+    {% endif %}
+    {% if bot_laws %}
+        <h3 class='root-title' style='text-decoration: underline;'>Law of Rootbotics</h3>
+        {% for law in bot_laws %}
+            {% include 'the_keep/partials/law_category.html' %}
+        {% endfor %}
+    {% endif %}
+    {% if fan_laws %}
+        <h3 class='root-title' style='text-decoration: underline;'>Fan Content</h3>
+        {% for law in fan_laws %}
+            {% include 'the_keep/partials/law_category.html' %}
+        {% endfor %}
+    {% endif %}
 
-        {% endif %}
-        {% if law.description %}
-            <div class="hidden-description">
-                <div class='limited-text ml-4'>
-                {{ law.description|format_law_text_no_link }}
-                </div>
-            </div>
-        {% endif %}
-        </div>
-    </article>
-</a>
-{% empty %}
+{% else %}
+
     {% if not query %}
         <article class="media content-section">
             {% blocktrans %}
@@ -48,4 +40,5 @@
             {% endblocktrans %}
         </article>
     {% endif %}
-{% endfor %}
+
+{% endif %}

@@ -654,6 +654,10 @@ def ultimate_component_view(request, slug):
     else:  
         available_faq = None
 
+    if available_faq and available_law:
+        col_class = 'w-100'
+    else:
+        col_class = 'w-50'
 
 
     available_translations = object.translations.all().count()
@@ -931,6 +935,8 @@ def ultimate_component_view(request, slug):
 
         'available_faq': available_faq,
         'existing_faq': existing_faq,
+
+        'col_class': col_class,
 
     }
     if request.htmx:
@@ -2662,23 +2668,33 @@ def law_table_of_contents(request, lang_code='en'):
     laws = Law.objects.filter(language=language)
 
     # Filter by type
-    if filter_type == 'official':
-        laws = laws.filter(Q(group__post__isnull=True) | Q(group__post__official=True))
-    elif filter_type == 'fan':
-        laws = laws.filter(group__post__official=False)
+    # if filter_type == 'official':
+    #     laws = laws.filter(Q(group__post__isnull=True) | Q(group__post__official=True))
+    # elif filter_type == 'fan':
+    #     laws = laws.filter(group__post__official=False)
 
-    # Filter by query
+    if filter_type == 'official':
+        laws = laws.filter(Q(group__type='Official') | Q(group__type='Bot'))
+    elif filter_type == 'fan':
+        laws = laws.filter(group__type='Fan')
+
+    search_q = Q(title__icontains=query) | Q(description__icontains=query)
+
     if query:
-        laws = laws.filter(Q(title__icontains=query) | Q(description__icontains=query)).distinct()
+        official_laws = laws.filter(search_q, group__type="Official").distinct()
+        bot_laws = laws.filter(search_q, group__type="Bot").distinct()
+        fan_laws = laws.filter(search_q, group__type="Fan").distinct()
     else:
-        laws = laws.filter(prime_law=True)
+        official_laws = laws.filter(prime_law=True, group__type="Official")
+        bot_laws = laws.filter(prime_law=True, group__type="Bot")
+        fan_laws = laws.filter(prime_law=True, group__type="Fan")
     
 
-
-
-
     context = {
-        'laws': laws,
+        # 'laws': laws,
+        'official_laws': official_laws,
+        'bot_laws': bot_laws,
+        'fan_laws': fan_laws,
         'lang_code': language.code,
         'available_languages': available_languages,
         'selected_language': language,
@@ -2688,218 +2704,6 @@ def law_table_of_contents(request, lang_code='en'):
     if request.htmx:
         return render(request, "the_keep/partials/law_table.html", context)
     return render(request, "the_keep/law_table.html", context)
-
-
-def faq_search(request, slug=None, lang_code='en'):
-    query = request.GET.get("q", "")
-
-    language = get_object_or_404(Language, code=lang_code)
-
-    faq_editable = False
-    user_profile = Profile.objects.none()
-    if request.user.is_authenticated:
-        user_profile = request.user.profile
-    if slug:
-        post = get_object_or_404(Post, slug=slug)
-        faqs = FAQ.objects.filter(post=post, language=language)
-        if user_profile:
-            if user_profile.admin or user_profile == post.designer and user_profile.editor:
-                faq_editable = True
-    else:
-        post = None
-        faqs = FAQ.objects.filter(post=None, language=language)
-        if request.user.is_staff:
-            faq_editable = True
-
-    if query:
-        faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query))
-
-    # Determine other available languages for this context
-    if slug:
-        available_languages_qs = FAQ.objects.filter(post=post).exclude(language=language)
-    else:
-        available_languages_qs = FAQ.objects.filter(
-            Q(post=None) | Q(post__official=True)
-        ).exclude(language=language)
-
-    available_languages = Language.objects.filter(
-            faq__in=available_languages_qs
-        ).exclude(id=language.id).distinct()
-
-    unavailable_languages = Language.objects.exclude(
-        faq__in=available_languages_qs
-    ).exclude(id=language.id).distinct()
-
-    edit_authorized = False
-
-    if request.user.is_staff:
-        edit_authorized = True
-    elif request.user.is_authenticated and post and request.user.profile.editor:
-        if request.user.profile == post.designer:
-            edit_authorized = True
-
-
-    context = {
-        "faqs": faqs,
-        "post": post,
-        'faq_editable': faq_editable,
-        'lang_code': lang_code,
-        'selected_language': language,
-        'available_languages': available_languages,
-        'unavailable_languages': unavailable_languages,
-        'edit_authorized': edit_authorized,
-        }
-
-    if request.htmx:
-        return render(request, "the_keep/partials/faq_list.html", context)
-    return render(request, "the_keep/faq.html", context)
-
-@editor_required_class_based_view
-class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
-    model = FAQ
-    form_class = FAQForm
-    template_name = 'the_keep/faq_form.html'
-
-    def get_post(self):
-        if not hasattr(self, '_post'):
-            slug = self.kwargs.get('slug')
-            if slug:
-                self._post = get_object_or_404(Post, slug=slug)
-            else:
-                self._post = None
-        return self._post
-
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-
-        post = self.get_post()
-        lang_code = self.kwargs.get('lang_code')
-        language = Language.objects.filter(code=lang_code).first() if lang_code else None
-        laws_qs = Law.objects.filter(language=language)
-        if post:
-            laws_qs = laws_qs.filter(
-                Q(group__post__designer=post.designer) |
-                Q(group__post=None) |
-                Q(group__post__official=True)
-            ).distinct()        
-
-        form.fields['reference_laws'].queryset = laws_qs.distinct()
-        return form
-
-
-    def test_func(self):
-        post = self.get_post()
-        if post:
-            return self.request.user.profile.admin or post.designer == self.request.user.profile
-        return self.request.user.is_staff
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['post'] = self.get_post()
-        return context
-
-    def form_valid(self, form):
-        post = self.get_post()
-        lang_code = self.kwargs.get('lang_code')
-
-        if post:
-            form.instance.post = post
-
-        if lang_code:
-            language = Language.objects.filter(code=lang_code).first()
-            if language:
-                form.instance.language = language
-
-        return super().form_valid(form)
-
-    def get_success_url(self):
-        answer_preview = self.object.answer
-        lang_code = self.kwargs.get('lang_code')
-        if answer_preview and len(answer_preview) > 100:
-            answer_preview = answer_preview[:100] + "..."
-
-        fields = [
-            {'name': 'Posted by:', 'value': self.request.user.profile.name},
-            {'name': 'Question:', 'value': self.object.question},
-            {'name': 'Answer:', 'value': answer_preview or ""}
-        ]
-
-        post = self.get_post()
-        if post:
-            send_rich_discord_message(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
-            return reverse('lang-post-faq', kwargs={'slug': post.slug, 'lang_code': lang_code})
-        return reverse('lang-faq', kwargs={'lang_code': lang_code})
-
-@editor_required_class_based_view
-class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
-    model = FAQ
-    form_class = FAQForm
-    template_name = 'the_keep/faq_form.html'  # You can reuse the same form template
-
-    def test_func(self):
-        faq = self.get_object()
-        post = faq.post
-        user_profile = self.request.user.profile
-
-        # Allow if user is admin or designer of the post (if post exists)
-        if post and user_profile:
-            return user_profile.admin or post.designer == user_profile
-        # Or allow if user is staff (for FAQs without post)
-        return self.request.user.is_staff
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        faq = self.get_object()
-        context['post'] = faq.post
-        return context
-
-
-    def get_success_url(self):
-        faq = self.get_object()
-        lang_code = faq.language.code
-        if faq.post:
-            return reverse('lang-post-faq', kwargs={'slug': faq.post.slug, 'lang_code': lang_code})
-        return reverse('lang-faq', kwargs={'lang_code': lang_code})
-
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        faq = self.get_object()
-        post = faq.post
-        language = faq.language
-
-        laws_qs = Law.objects.filter(language=language)
-        if post:
-            laws_qs = laws_qs.filter(
-                Q(group__post__designer=post.designer) |
-                Q(group__post=None) |
-                Q(group__post__official=True)
-            ).distinct()        
-
-        form.fields['reference_laws'].queryset = laws_qs.distinct()
-        return form
-
-
-@editor_required_class_based_view
-class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
-    model = FAQ
-    template_name = 'the_keep/faq_confirm_delete.html'  # Create a simple confirmation template
-
-    def test_func(self):
-        faq = self.get_object()
-        post = faq.post
-        user_profile = self.request.user.profile
-
-        if post:
-            return user_profile.admin or post.designer == user_profile
-        return self.request.user.is_staff
-
-    def get_success_url(self):
-        faq = self.get_object()
-        if faq.post:
-            return reverse('lang-post-faq', kwargs={'slug': faq.post.slug, 'lang_code': faq.language.code})
-        return reverse('lang-faq', kwargs={'lang_code': faq.language.code})
-
-
 
 
 def get_law_group_context(request, slug, lang_code, edit_mode):
@@ -3038,3 +2842,220 @@ def law_group_edit_view(request, slug, lang_code):
     context['all_laws'] = all_laws
 
     return render(request, 'the_keep/law_of_root.html', context)
+
+
+# FAQs
+
+def faq_search(request, slug=None, lang_code='en'):
+    query = request.GET.get("q", "")
+
+    language = get_object_or_404(Language, code=lang_code)
+
+    faq_editable = False
+    user_profile = Profile.objects.none()
+    if request.user.is_authenticated:
+        user_profile = request.user.profile
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+        faqs = FAQ.objects.filter(post=post, language=language)
+        if user_profile:
+            if user_profile.admin or user_profile == post.designer and user_profile.editor:
+                faq_editable = True
+    else:
+        post = None
+        faqs = FAQ.objects.filter(post=None, language=language)
+        if request.user.is_staff:
+            faq_editable = True
+
+    if query:
+        faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query))
+
+    # Determine other available languages for this context
+    if slug:
+        available_languages_qs = FAQ.objects.filter(post=post).exclude(language=language)
+    else:
+        available_languages_qs = FAQ.objects.filter(
+            Q(post=None) | Q(post__official=True)
+        ).exclude(language=language)
+
+    available_languages = Language.objects.filter(
+            faq__in=available_languages_qs
+        ).exclude(id=language.id).distinct()
+
+    unavailable_languages = Language.objects.exclude(
+        faq__in=available_languages_qs
+    ).exclude(id=language.id).distinct()
+
+    edit_authorized = False
+
+    if request.user.is_staff:
+        edit_authorized = True
+    elif request.user.is_authenticated and post and request.user.profile.editor:
+        if request.user.profile == post.designer:
+            edit_authorized = True
+
+
+    context = {
+        "faqs": faqs,
+        "post": post,
+        'faq_editable': faq_editable,
+        'lang_code': lang_code,
+        'selected_language': language,
+        'available_languages': available_languages,
+        'unavailable_languages': unavailable_languages,
+        'edit_authorized': edit_authorized,
+        }
+
+    if request.htmx:
+        return render(request, "the_keep/partials/faq_list.html", context)
+    return render(request, "the_keep/faq.html", context)
+
+@editor_required_class_based_view
+class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
+    model = FAQ
+    form_class = FAQForm
+    template_name = 'the_keep/faq_form.html'
+
+    def get_post(self):
+        if not hasattr(self, '_post'):
+            slug = self.kwargs.get('slug')
+            if slug:
+                self._post = get_object_or_404(Post, slug=slug)
+            else:
+                self._post = None
+        return self._post
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+
+        post = self.get_post()
+        lang_code = self.kwargs.get('lang_code')
+        language = Language.objects.filter(code=lang_code).first() if lang_code else None
+        laws_qs = Law.objects.filter(language=language)
+        if post:
+            laws_qs = laws_qs.filter(
+                Q(group__post__designer=post.designer) |
+                Q(group__post=None) |
+                Q(group__post__official=True)
+            ).distinct()        
+
+        form.fields['reference_laws'].queryset = laws_qs.distinct()
+        return form
+
+
+    def test_func(self):
+        post = self.get_post()
+        if post:
+            return self.request.user.profile.admin or post.designer == self.request.user.profile
+        return self.request.user.is_staff
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['post'] = self.get_post()
+        context['lang_code'] = self.kwargs.get('lang_code')
+        return context
+
+    def form_valid(self, form):
+        post = self.get_post()
+        lang_code = self.kwargs.get('lang_code')
+
+        if post:
+            form.instance.post = post
+
+        if lang_code:
+            language = Language.objects.filter(code=lang_code).first()
+            if language:
+                form.instance.language = language
+
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        answer_preview = self.object.answer
+        lang_code = self.kwargs.get('lang_code')
+        if answer_preview and len(answer_preview) > 100:
+            answer_preview = answer_preview[:100] + "..."
+
+        fields = [
+            {'name': 'Posted by:', 'value': self.request.user.profile.name},
+            {'name': 'Question:', 'value': self.object.question},
+            {'name': 'Answer:', 'value': answer_preview or ""}
+        ]
+
+        post = self.get_post()
+        if post:
+            send_rich_discord_message(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
+            return reverse('faq-view', kwargs={'slug': post.slug, 'lang_code': lang_code})
+        return reverse('lang-faq', kwargs={'lang_code': lang_code})
+
+@editor_required_class_based_view
+class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = FAQ
+    form_class = FAQForm
+    template_name = 'the_keep/faq_form.html'  # You can reuse the same form template
+
+    def test_func(self):
+        faq = self.get_object()
+        post = faq.post
+        user_profile = self.request.user.profile
+
+        # Allow if user is admin or designer of the post (if post exists)
+        if post and user_profile:
+            return user_profile.admin or post.designer == user_profile
+        # Or allow if user is staff (for FAQs without post)
+        return self.request.user.is_staff
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        faq = self.get_object()
+        context['post'] = faq.post
+        context['lang_code'] = faq.language.code
+        return context
+
+
+    def get_success_url(self):
+        faq = self.get_object()
+        lang_code = faq.language.code
+        if faq.post:
+            return reverse('faq-view', kwargs={'slug': faq.post.slug, 'lang_code': lang_code})
+        return reverse('lang-faq', kwargs={'lang_code': lang_code})
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        faq = self.get_object()
+        post = faq.post
+        language = faq.language
+
+        laws_qs = Law.objects.filter(language=language)
+        if post:
+            laws_qs = laws_qs.filter(
+                Q(group__post__designer=post.designer) |
+                Q(group__post=None) |
+                Q(group__post__official=True)
+            ).distinct()        
+
+        form.fields['reference_laws'].queryset = laws_qs.distinct()
+        return form
+
+
+@editor_required_class_based_view
+class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = FAQ
+    template_name = 'the_keep/faq_confirm_delete.html'  # Create a simple confirmation template
+
+    def test_func(self):
+        faq = self.get_object()
+        post = faq.post
+        user_profile = self.request.user.profile
+
+        if post:
+            return user_profile.admin or post.designer == user_profile
+        return self.request.user.is_staff
+
+    def get_success_url(self):
+        faq = self.get_object()
+        if faq.post:
+            return reverse('faq-view', kwargs={'slug': faq.post.slug, 'lang_code': faq.language.code})
+        return reverse('lang-faq', kwargs={'lang_code': faq.language.code})
+
+
+

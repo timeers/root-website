@@ -1,0 +1,31 @@
+{% load i18n text_filters roman_numerals %}
+
+<a href="{{ law.get_absolute_url }}">
+    <article class="media content-section post-card">
+        <div class="media-body">
+        {% if law.prime_law %}
+            <h2 class="root-title">{{ law.law_code }}. {{ law.title }}</h2>
+
+        {% else %}
+            <div class="d-flex justify-content-between align-items-center">
+                {% if law.level == 0 %}
+                    <h4>{{ law.law_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
+                {% elif law.level == 1 %}
+                    <strong>{{ law.law_code }} {{ law.title|format_law_text_no_link }}.</strong>
+                {% else %}
+                    <strong>{{ law.law_code }} {{ law.title }}.</strong>
+                {% endif %}
+    
+            </div>
+
+        {% endif %}
+        {% if law.description %}
+            <div class="hidden-description">
+                <div class='limited-text ml-4'>
+                {{ law.description|format_law_text_no_link }}
+                </div>
+            </div>
+        {% endif %}
+        </div>
+    </article>
+</a>

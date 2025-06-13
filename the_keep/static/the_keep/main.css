@@ -474,6 +474,16 @@ em, i {
   border-radius: 3px;
 }
 
+.wide-icon {
+  max-height: 50px;
+  max-width: 100px; 
+  height: auto;  
+  width: auto;  
+  margin-right: 2px;
+  margin-bottom: 2px;
+  border-radius: 3px;
+}
+
 a {
   color: inherit;
   text-decoration: none; /* Removes underline */
@@ -755,6 +765,19 @@ tr.clickable-row:hover {
 .clickable-segment:hover {
   background-color: #f1f1f1;  /* Light gray background on hover */
 }
+
+.soft-clickable-segment {
+  cursor: pointer;
+  border-radius: 8px; /* Rounded corners */
+  transition: background-color 0.3s ease, box-shadow 0.3s ease; /* Smooth fade */
+  padding: 0.5rem 1rem; /* Optional spacing */
+}
+
+.soft-clickable-segment:hover {
+  background-color: #f9f9f9; /* Even softer light gray */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); /* Subtle shadow on hover */
+}
+
 
 .wrappable-link {
   word-break: break-all;
