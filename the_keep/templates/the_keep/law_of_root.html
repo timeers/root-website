@@ -167,7 +167,7 @@
    
           <div id="law-{{ law.id }}">
             <div class="d-flex justify-content-between align-items-center">
-              <h4>{{ law.local_code }} <span class="smart-smallcaps">{{ law.title }}</span></h4>
+              <h4>{{ law.local_code }} <span class="smallcaps">{{ law.title }}</span></h4>
               {% if not edit_mode %}
                 <i class="bi bi-link-45deg copy-link-icon mr-2" data-link="{{ law.full_url }}" title="Copy link" style="cursor: pointer;"></i>
               {% endif %}
@@ -932,32 +932,6 @@ if (target) {
   }, 3000);
 }
 {% endif %}
-
-
-
-const smallWords = ['and', 'of', 'in', 'on', 'for', 'the', 'a', 'an', 'to', 'with', 'at', 'by', 'from'];
-
-
-
-function stylizeAllSmartSmallCaps() {
-  document.querySelectorAll('.smart-smallcaps').forEach(element => {
-    const words = element.textContent.trim().split(/\s+/);
-    const styledWords = words.map(word => {
-      const lower = word.toLowerCase();
-      if (smallWords.includes(lower)) {
-        return `<span class="small-word">${lower}</span>`;
-      } else {
-        const first = word.charAt(0).toUpperCase();
-        const rest = word.slice(1).toUpperCase();
-        return `<span class="small-word"><span class="large-cap">${first}</span>${rest}</span>`;
-      }
-    });
-    element.innerHTML = styledWords.join(' ');
-  });
-}
-
-// Run on page load
-stylizeAllSmartSmallCaps();
 
 
   </script>

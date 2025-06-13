@@ -2169,7 +2169,7 @@ class LawGroup(models.Model):
 class Law(models.Model):
     group = models.ForeignKey(LawGroup, on_delete=models.CASCADE, related_name='laws')
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
-    title = models.CharField(max_length=50)
+    title = models.CharField(max_length=100)
     description = models.TextField(null=True, blank=True)
     position = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
     law_code = models.CharField(max_length=20, editable=False, blank=True, null=True)

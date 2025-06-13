@@ -10,12 +10,14 @@
         <i class="bi bi-pencil-square"></i>
         </button>
     {% endif %}
-    <button class="btn btn-sm btn-danger delete-law-button"
-    data-id="{{ selected_law.id }}"
-    data-title="{{ selected_law.law_code }} - {{ selected_law.title }}">
-    <i class="bi bi-trash3"></i>
-    </button>
 
+    {% if not selected_law.prime_law %}
+        <button class="btn btn-sm btn-danger delete-law-button"
+        data-id="{{ selected_law.id }}"
+        data-title="{{ selected_law.law_code }} - {{ selected_law.title }}">
+        <i class="bi bi-trash3"></i>
+        </button>
+    {% endif %}
     {% if selected_law.prev_law and not selected_law.prev_law.locked_position %}
         <button
         class="btn btn-sm btn-primary move-law-button"

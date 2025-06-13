@@ -1563,27 +1563,10 @@ tr.clickable-row:hover {
 
 
 .smallcaps {
-  text-transform: uppercase;
-  font-size: 0.75em;
-} 
-
-.smart-smallcaps {
-  font-family: serif;
+  font-variant: small-caps; 
+  font-size: 1.2em;
 }
 
-.smart-smallcaps span {
-  text-transform: uppercase;
-}
-
-.large-cap {
-  font-size: 1.4em;
-  /* vertical-align: -0.1em; */
-}
-
-.small-word {
-  text-transform: lowercase;
-  font-size: 0.9em;
-}
 
 
 .modal-overlay {

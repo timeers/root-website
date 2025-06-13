@@ -2778,9 +2778,9 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         top_level_laws = list(raw_top_level)
         assign_full_urls(top_level_laws, request)
     
-    if not top_level_laws:
-        edit_mode = False
-        edit_authorized = False
+    # if not top_level_laws:
+    #     edit_mode = False
+        # edit_authorized = False
 
     previous_group = group.get_previous_by_position(language=language)
     next_group = group.get_next_by_position(language=language)
