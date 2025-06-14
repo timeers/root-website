@@ -1,5 +1,6 @@
+{% load text_filters %}
 <a href="{{ result.get_absolute_url }}">
     <div class='clickable-segment'>
-        {{ result.group.title }} - {{ result.law_code }}  "{{ result.title }}"
+        {{ result.group.title }} - {{ result.law_code }}  "{{ result.title|format_law_text_no_link }}"
     </div>
 </a>

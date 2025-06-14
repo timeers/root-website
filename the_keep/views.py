@@ -2054,9 +2054,6 @@ def universal_search(request):
     scorecards = ScoreCard.objects.none()
     translations = PostTranslation.objects.none()
     translated_posts = Post.objects.none()
-    laws = Law.objects.none()
-    bot_laws = Law.objects.none()
-    fan_laws = Law.objects.none()
 
     language = get_language()
     language_object = Language.objects.filter(code=language).first()
@@ -2077,6 +2074,9 @@ def universal_search(request):
         resources = PNPAsset.objects.none()
         pieces = Piece.objects.none()
         color_group = None
+        laws = Law.objects.none()
+        bot_laws = Law.objects.none()
+        fan_laws = Law.objects.none()
     else:
         # If the query is not empty, perform the search as usual
         factions = search_translatable_posts(Faction, query, language_object, view_status)
@@ -2108,27 +2108,55 @@ def universal_search(request):
                 language__isnull=False,
                 status__lte=view_status,
                 translations__isnull=False).exclude(language=language_object).distinct().order_by('status')
+            
+        # Laws, look for exact matches first, then contains matches
         laws = Law.objects.filter(
             language__code=language,
             group__type='Official',
             group__public=True
         ).filter(
-            (Q(title__icontains=query) | Q(law_code__iexact=query) | Q(description__icontains=query))
+            (Q(title__iexact=query) | Q(law_code__iexact=query) | Q(description__iexact=query))
         )
+        if not laws:
+            laws = Law.objects.filter(
+                language__code=language,
+                group__type='Official',
+                group__public=True
+            ).filter(
+                (Q(title__icontains=query) | Q(description__icontains=query))
+            )
+
         bot_laws = Law.objects.filter(
             language__code=language,
             group__type='Bot',
             group__public=True
         ).filter(
-            (Q(title__icontains=query) | Q(law_code__iexact=query))
+            (Q(title__iexact=query) | Q(law_code__iexact=query))
         )
+        if not bot_laws:
+            bot_laws = Law.objects.filter(
+                language__code=language,
+                group__type='Bot',
+                group__public=True
+            ).filter(
+                (Q(title__icontains=query))
+            )
+
         fan_laws = Law.objects.filter(
             language__code=language,
             group__type='Fan',
             group__public=True
         ).filter(
-            (Q(title__icontains=query) | Q(law_code__iexact=query))
+            (Q(title__iexact=query) | Q(law_code__iexact=query))
         )
+        if not fan_laws:
+            fan_laws = Law.objects.filter(
+                language__code=language,
+                group__type='Fan',
+                group__public=True
+            ).filter(
+                (Q(title__icontains=query))
+            )
 
     if color_group:
         color_count = 1
