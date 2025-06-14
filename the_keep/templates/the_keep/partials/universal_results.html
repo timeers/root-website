@@ -60,6 +60,28 @@
             {% endfor %}
         {% endif %}
 
+        {% if laws %}
+            <strong>{% trans 'Law of Root' %}</strong>
+            {% for result in laws %}
+                {% include 'the_keep/partials/law_result.html' %}
+            {% endfor %}
+        {% endif %}
+
+        {% if bot_laws %}
+            <strong>{% trans 'Law of Rootbotics' %}</strong>
+            {% for result in bot_laws %}
+                {% include 'the_keep/partials/law_result.html' %}
+            {% endfor %}
+        {% endif %}
+
+        {% if fan_laws %}
+            <strong>{% trans 'Fan Content Law' %}</strong>
+            {% for result in fan_laws %}
+                {% include 'the_keep/partials/law_result.html' %}
+            {% endfor %}
+        {% endif %}
+
+
         {% if games %}
             <strong>{% trans 'Games' %}</strong>
             {% for result in games %}

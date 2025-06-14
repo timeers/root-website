@@ -1303,7 +1303,7 @@ class EditLawGroupForm(forms.ModelForm):
         model = LawGroup
         fields = ['title', 'abbreviation', 'type', 'public']
         help_texts = {
-            'public': "If checked, this law group will be visible to other users.",
+            'public': "If checked, this law group will be visible to other users in all available languages.",
             # 'abbreviation': 'Choose an abbreviation for the Law',
         }
 
@@ -1317,7 +1317,7 @@ class EditLawGroupForm(forms.ModelForm):
 
             instance = kwargs.get('instance')
             if instance:
-                choices = generate_abbreviation_choices(instance.title)
+                choices = generate_abbreviation_choices(instance.title, instance.abbreviation)
                 self.fields['abbreviation'] = forms.ChoiceField(
                     choices=[(abbr, abbr) for abbr in choices],
                     label="Choose Abbreviation"

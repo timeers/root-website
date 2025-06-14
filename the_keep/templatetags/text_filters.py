@@ -103,7 +103,8 @@ def format_law_text(value, lang_code='en'):
 
     # Step 4: Wrap [[text]] in span with class 'smallcaps'
     def smallcaps_replacer(match):
-        return f"<span class='smallcaps'>{match.group(1)}</span>"
+        text = match.group(1).lower()
+        return f"<span class='smallcaps'>{text}</span>"
 
     final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
 

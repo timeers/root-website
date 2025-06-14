@@ -2034,16 +2034,8 @@ class LawGroup(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)
     abbreviation = models.CharField(max_length=10, null=True, blank=True)
     title = models.CharField(max_length=50, null=True, blank=True)
-    # description = models.TextField(null=True, blank=True)
-    # language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     position = models.FloatField(editable=False, default=0)
     type = models.CharField(choices=TypeChoices, max_length=10, default="Fan")
-    # reference_laws = models.ManyToManyField(
-    #     'Law',
-    #     symmetrical=False,
-    #     blank=True,
-    #     related_name='group_references'
-    # )
     public = models.BooleanField(default=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
@@ -2326,8 +2318,9 @@ class Law(models.Model):
             'slug': self.group.slug,
             'lang_code': self.language.code
             })
-        query_params = {'highlight_law': self.id}
-        return f'{url}?{urlencode(query_params)}'
+        # query_params = {'highlight_law': self.id}
+        # return f'{url}?{urlencode(query_params)}'
+        return url
 
 
     def rebuild_law_codes(self, group, parent, deleted_position=0):

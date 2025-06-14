@@ -2054,6 +2054,9 @@ def universal_search(request):
     scorecards = ScoreCard.objects.none()
     translations = PostTranslation.objects.none()
     translated_posts = Post.objects.none()
+    laws = Law.objects.none()
+    bot_laws = Law.objects.none()
+    fan_laws = Law.objects.none()
 
     language = get_language()
     language_object = Language.objects.filter(code=language).first()
@@ -2105,6 +2108,27 @@ def universal_search(request):
                 language__isnull=False,
                 status__lte=view_status,
                 translations__isnull=False).exclude(language=language_object).distinct().order_by('status')
+        laws = Law.objects.filter(
+            language__code=language,
+            group__type='Official',
+            group__public=True
+        ).filter(
+            (Q(title__icontains=query) | Q(law_code__iexact=query) | Q(description__icontains=query))
+        )
+        bot_laws = Law.objects.filter(
+            language__code=language,
+            group__type='Bot',
+            group__public=True
+        ).filter(
+            (Q(title__icontains=query) | Q(law_code__iexact=query))
+        )
+        fan_laws = Law.objects.filter(
+            language__code=language,
+            group__type='Fan',
+            group__public=True
+        ).filter(
+            (Q(title__icontains=query) | Q(law_code__iexact=query))
+        )
 
     if color_group:
         color_count = 1
@@ -2115,7 +2139,9 @@ def universal_search(request):
                      landmarks.count() + hirelings.count() + expansions.count() + 
                      players.count() + games.count() + scorecards.count() + 
                      tournaments.count() + rounds.count() + tweaks.count() + 
-                     resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count())
+                     resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count() +
+                     laws.count() + bot_laws.count() + fan_laws.count()
+                     )
     
     no_results = total_results == 0
 
@@ -2145,6 +2171,9 @@ def universal_search(request):
         'color_group': color_group,
         'translations': translations[:result_count],
         'translated_posts': translated_posts[:result_count],
+        'laws': laws[:result_count],
+        'bot_laws': bot_laws[:result_count],
+        'fan_laws': fan_laws[:result_count],
         'no_results': no_results,
         'query': query,
     }
@@ -2866,7 +2895,7 @@ def law_group_edit_view(request, slug, lang_code):
         all_laws = Law.objects.filter(language=language).prefetch_related('group__post')
     else:
         all_laws = Law.objects.filter(
-            Q(group__post=None) | Q(group__post__official=True) | Q(group__post__designer=user_profile),
+            Q(group__type="Official") | Q(group__post__designer=user_profile),
             language=language
                 ).prefetch_related('group__post')
 

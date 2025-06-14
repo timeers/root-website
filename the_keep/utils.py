@@ -530,7 +530,7 @@ SMALL_WORDS = {
     'и', 'в', 'во', 'на', 'с', 'по', 'от', 'до', 'о', 'об', 'при'
 }
 
-def generate_abbreviation_choices(title):
+def generate_abbreviation_choices(title, abbreviation):
     words = re.findall(r"\b[\w']+\b", title)
     words = [w for w in words if w]
 
@@ -548,6 +548,11 @@ def generate_abbreviation_choices(title):
 
     # Only keep abbreviations with 4 or fewer characters
     filtered = [abbr for abbr in variants if len(abbr) <= 4]
+
+    # Ensure abbreviation is included (if short enough)
+    abbr_clean = abbreviation.strip().upper()
+    if abbr_clean and len(abbr_clean) <= 4 and abbr_clean not in filtered:
+        filtered.append(abbr_clean)
 
     # Ensure uniqueness and return sorted list
     return sorted(filtered) or ['1']
