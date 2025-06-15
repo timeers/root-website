@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-04-21 19:42+0000\n"
-"PO-Revision-Date: 2025-04-21 12:53-0700\n"
+"POT-Creation-Date: 2025-06-15 03:59+0000\n"
+"PO-Revision-Date: 2025-06-14 21:28-0700\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: es\n"
@@ -77,153 +77,159 @@ msgstr ""
 msgid "That page contains no results"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:22
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:23
 msgid "Enter a valid value."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:70
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:71
 msgid "Enter a valid domain name."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:152
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:156
 #: project_env/lib/python3.12/site-packages/django/forms/fields.py:768
 msgid "Enter a valid URL."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:213
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:217
 msgid "Enter a valid integer."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:224
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:228
 msgid "Enter a valid email address."
 msgstr ""
 
 #. Translators: "letters" means latin letters: a-z and A-Z.
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:307
-msgid "Enter a valid “slug” consisting of letters, numbers, underscores or hyphens."
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:311
+msgid ""
+"Enter a valid “slug” consisting of letters, numbers, underscores or hyphens."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:315
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:319
 msgid ""
 "Enter a valid “slug” consisting of Unicode letters, numbers, underscores, or "
 "hyphens."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:327
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:336
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:350
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:331
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:340
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:354
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:2215
 #, python-format
 msgid "Enter a valid %(protocol)s address."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:329
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:333
 msgid "IPv4"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:338
-#: project_env/lib/python3.12/site-packages/django/utils/ipv6.py:30
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:342
+#: project_env/lib/python3.12/site-packages/django/utils/ipv6.py:43
 msgid "IPv6"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:352
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:356
 msgid "IPv4 or IPv6"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:393
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:397
 msgid "Enter only digits separated by commas."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:399
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:403
 #, python-format
 msgid "Ensure this value is %(limit_value)s (it is %(show_value)s)."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:434
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:438
 #, python-format
 msgid "Ensure this value is less than or equal to %(limit_value)s."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:443
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:447
 #, python-format
 msgid "Ensure this value is greater than or equal to %(limit_value)s."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:452
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:456
 #, python-format
 msgid "Ensure this value is a multiple of step size %(limit_value)s."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:459
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:463
 #, python-format
 msgid ""
 "Ensure this value is a multiple of step size %(limit_value)s, starting from "
 "%(offset)s, e.g. %(offset)s, %(valid_value1)s, %(valid_value2)s, and so on."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:491
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:495
 #, python-format
 msgid ""
-"Ensure this value has at least %(limit_value)d character (it has %(show_value)d)."
+"Ensure this value has at least %(limit_value)d character (it has "
+"%(show_value)d)."
 msgid_plural ""
-"Ensure this value has at least %(limit_value)d characters (it has %(show_value)d)."
+"Ensure this value has at least %(limit_value)d characters (it has "
+"%(show_value)d)."
 msgstr[0] ""
 msgstr[1] ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:509
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:513
 #, python-format
 msgid ""
-"Ensure this value has at most %(limit_value)d character (it has %(show_value)d)."
+"Ensure this value has at most %(limit_value)d character (it has "
+"%(show_value)d)."
 msgid_plural ""
-"Ensure this value has at most %(limit_value)d characters (it has %(show_value)d)."
+"Ensure this value has at most %(limit_value)d characters (it has "
+"%(show_value)d)."
 msgstr[0] ""
 msgstr[1] ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:532
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:536
 #: project_env/lib/python3.12/site-packages/django/forms/fields.py:359
 #: project_env/lib/python3.12/site-packages/django/forms/fields.py:398
 msgid "Enter a number."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:534
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:538
 #, python-format
 msgid "Ensure that there are no more than %(max)s digit in total."
 msgid_plural "Ensure that there are no more than %(max)s digits in total."
 msgstr[0] ""
 msgstr[1] ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:539
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:543
 #, python-format
 msgid "Ensure that there are no more than %(max)s decimal place."
 msgid_plural "Ensure that there are no more than %(max)s decimal places."
 msgstr[0] ""
 msgstr[1] ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:544
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:548
 #, python-format
-msgid "Ensure that there are no more than %(max)s digit before the decimal point."
+msgid ""
+"Ensure that there are no more than %(max)s digit before the decimal point."
 msgid_plural ""
 "Ensure that there are no more than %(max)s digits before the decimal point."
 msgstr[0] ""
 msgstr[1] ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:615
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:619
 #, python-format
 msgid ""
 "File extension “%(extension)s” is not allowed. Allowed extensions are: "
 "%(allowed_extensions)s."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/core/validators.py:677
+#: project_env/lib/python3.12/site-packages/django/core/validators.py:681
 msgid "Null characters are not allowed."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/db/models/base.py:1571
+#: project_env/lib/python3.12/site-packages/django/db/models/base.py:1572
 #: project_env/lib/python3.12/site-packages/django/forms/models.py:908
 msgid "and"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/db/models/base.py:1573
+#: project_env/lib/python3.12/site-packages/django/db/models/base.py:1574
 #, python-format
 msgid "%(model_name)s with this %(field_labels)s already exists."
 msgstr ""
@@ -255,7 +261,8 @@ msgstr ""
 #. 'month'. Eg: "Title must be unique for pub_date year"
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:141
 #, python-format
-msgid "%(field_label)s must be unique for %(date_field_label)s %(lookup_type)s."
+msgid ""
+"%(field_label)s must be unique for %(date_field_label)s %(lookup_type)s."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:180
@@ -293,14 +300,16 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1421
 #, python-format
 msgid ""
-"“%(value)s” value has an invalid date format. It must be in YYYY-MM-DD format."
+"“%(value)s” value has an invalid date format. It must be in YYYY-MM-DD "
+"format."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1425
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1560
 #, python-format
 msgid ""
-"“%(value)s” value has the correct format (YYYY-MM-DD) but it is an invalid date."
+"“%(value)s” value has the correct format (YYYY-MM-DD) but it is an invalid "
+"date."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1429
@@ -317,8 +326,8 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1564
 #, python-format
 msgid ""
-"“%(value)s” value has the correct format (YYYY-MM-DD HH:MM[:ss[.uuuuuu]][TZ]) but "
-"it is an invalid date/time."
+"“%(value)s” value has the correct format (YYYY-MM-DD HH:MM[:ss[.uuuuuu]]"
+"[TZ]) but it is an invalid date/time."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1569
@@ -337,8 +346,8 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1859
 #, python-format
 msgid ""
-"“%(value)s” value has an invalid format. It must be in [DD] [[HH:]MM:]ss[.uuuuuu] "
-"format."
+"“%(value)s” value has an invalid format. It must be in [DD] "
+"[[HH:]MM:]ss[.uuuuuu] format."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1863
@@ -421,7 +430,8 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:2521
 #, python-format
 msgid ""
-"“%(value)s” value has an invalid format. It must be in HH:MM[:ss[.uuuuuu]] format."
+"“%(value)s” value has an invalid format. It must be in HH:MM[:ss[.uuuuuu]] "
+"format."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:2525
@@ -436,7 +446,7 @@ msgid "Time"
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/__init__.py:2637
-#: the_keep/templates/the_keep/resource_detail.html:35
+#: the_keep/templates/the_keep/resource_detail.html:39
 msgid "URL"
 msgstr ""
 
@@ -454,9 +464,8 @@ msgid "Universally unique identifier"
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/db/models/fields/files.py:244
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:184
-#: the_keep/templates/the_keep/asset_list.html:61
-#: the_keep/templates/the_keep/asset_list.html:183
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:195
+#: the_keep/templates/the_keep/asset_list.html:113
 msgid "File"
 msgstr ""
 
@@ -562,8 +571,8 @@ msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/forms/fields.py:710
 msgid ""
-"Upload a valid image. The file you uploaded was either not an image or a corrupted "
-"image."
+"Upload a valid image. The file you uploaded was either not an image or a "
+"corrupted image."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/forms/fields.py:882
@@ -583,11 +592,11 @@ msgstr ""
 msgid "Enter a complete value."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/forms/fields.py:1329
+#: project_env/lib/python3.12/site-packages/django/forms/fields.py:1332
 msgid "Enter a valid UUID."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/forms/fields.py:1359
+#: project_env/lib/python3.12/site-packages/django/forms/fields.py:1362
 msgid "Enter a valid JSON."
 msgstr ""
 
@@ -629,15 +638,13 @@ msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/forms/formsets.py:499
 #: the_keep/templates/the_keep/asset_form.html:40
+#: the_keep/templates/the_keep/faq_form.html:30
 #: the_keep/templates/the_keep/post_confirm_delete.html:9
-#: the_keep/templates/the_keep/post_form.html:54
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:54
+#: the_keep/templates/the_keep/post_form.html:306
 #: the_warroom/templates/the_warroom/partials/forms.html:140
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:140
 #: the_warroom/templates/the_warroom/record_scores.html:239
 #: the_warroom/templates/the_warroom/tournament_form.html:23
 #: the_warroom/templates/the_warroom/tournament_round_form.html:29
-#: ⁨the_warroom/templates/the_warroom/tournament_round_form.html 2.py⁩:29
 msgid "Delete"
 msgstr ""
 
@@ -654,8 +661,8 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/forms/models.py:913
 #, python-format
 msgid ""
-"Please correct the duplicate data for %(field_name)s which must be unique for the "
-"%(lookup)s in %(date_field)s."
+"Please correct the duplicate data for %(field_name)s which must be unique "
+"for the %(lookup)s in %(date_field)s."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/forms/models.py:922
@@ -678,8 +685,8 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/forms/utils.py:227
 #, python-format
 msgid ""
-"%(datetime)s couldn’t be interpreted in time zone %(current_timezone)s; it may be "
-"ambiguous or it may not exist."
+"%(datetime)s couldn’t be interpreted in time zone %(current_timezone)s; it "
+"may be ambiguous or it may not exist."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/forms/widgets.py:461
@@ -695,6 +702,7 @@ msgid "Change"
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/forms/widgets.py:800
+#: the_keep/forms.py:971 the_keep/models.py:1437
 msgid "Unknown"
 msgstr ""
 
@@ -1040,22 +1048,22 @@ msgctxt "alt. month"
 msgid "December"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/utils/ipv6.py:8
+#: project_env/lib/python3.12/site-packages/django/utils/ipv6.py:20
 msgid "This is not a valid IPv6 address."
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/utils/text.py:75
+#: project_env/lib/python3.12/site-packages/django/utils/text.py:76
 #, python-format
 msgctxt "String to return when truncating text"
 msgid "%(truncated_text)s…"
 msgstr ""
 
-#: project_env/lib/python3.12/site-packages/django/utils/text.py:286
+#: project_env/lib/python3.12/site-packages/django/utils/text.py:287
 msgid "or"
 msgstr ""
 
 #. Translators: This string is used as a separator between list elements
-#: project_env/lib/python3.12/site-packages/django/utils/text.py:305
+#: project_env/lib/python3.12/site-packages/django/utils/text.py:306
 #: project_env/lib/python3.12/site-packages/django/utils/timesince.py:135
 msgid ", "
 msgstr ""
@@ -1112,39 +1120,39 @@ msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/csrf.py:34
 msgid ""
-"You are seeing this message because this HTTPS site requires a “Referer header” to "
-"be sent by your web browser, but none was sent. This header is required for "
-"security reasons, to ensure that your browser is not being hijacked by third "
-"parties."
+"You are seeing this message because this HTTPS site requires a “Referer "
+"header” to be sent by your web browser, but none was sent. This header is "
+"required for security reasons, to ensure that your browser is not being "
+"hijacked by third parties."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/csrf.py:40
 msgid ""
-"If you have configured your browser to disable “Referer” headers, please re-enable "
-"them, at least for this site, or for HTTPS connections, or for “same-origin” "
-"requests."
+"If you have configured your browser to disable “Referer” headers, please re-"
+"enable them, at least for this site, or for HTTPS connections, or for “same-"
+"origin” requests."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/csrf.py:45
 msgid ""
 "If you are using the <meta name=\"referrer\" content=\"no-referrer\"> tag or "
-"including the “Referrer-Policy: no-referrer” header, please remove them. The CSRF "
-"protection requires the “Referer” header to do strict referer checking. If you’re "
-"concerned about privacy, use alternatives like <a rel=\"noreferrer\" …> for links "
-"to third-party sites."
+"including the “Referrer-Policy: no-referrer” header, please remove them. The "
+"CSRF protection requires the “Referer” header to do strict referer checking. "
+"If you’re concerned about privacy, use alternatives like <a "
+"rel=\"noreferrer\" …> for links to third-party sites."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/csrf.py:54
 msgid ""
 "You are seeing this message because this site requires a CSRF cookie when "
-"submitting forms. This cookie is required for security reasons, to ensure that "
-"your browser is not being hijacked by third parties."
+"submitting forms. This cookie is required for security reasons, to ensure "
+"that your browser is not being hijacked by third parties."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/csrf.py:60
 msgid ""
-"If you have configured your browser to disable cookies, please re-enable them, at "
-"least for this site, or for “same-origin” requests."
+"If you have configured your browser to disable cookies, please re-enable "
+"them, at least for this site, or for “same-origin” requests."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/csrf.py:66
@@ -1182,8 +1190,8 @@ msgstr ""
 #: project_env/lib/python3.12/site-packages/django/views/generic/dates.py:652
 #, python-format
 msgid ""
-"Future %(verbose_name_plural)s not available because %(class_name)s.allow_future "
-"is False."
+"Future %(verbose_name_plural)s not available because "
+"%(class_name)s.allow_future is False."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/generic/dates.py:692
@@ -1242,8 +1250,9 @@ msgstr ""
 #, python-format
 msgid ""
 "You are seeing this page because <a href=\"https://docs.djangoproject.com/en/"
-"%(version)s/ref/settings/#debug\" target=\"_blank\" rel=\"noopener\">DEBUG=True</"
-"a> is in your settings file and you have not configured any URLs."
+"%(version)s/ref/settings/#debug\" target=\"_blank\" "
+"rel=\"noopener\">DEBUG=True</a> is in your settings file and you have not "
+"configured any URLs."
 msgstr ""
 
 #: project_env/lib/python3.12/site-packages/django/views/templates/default_urlconf.html:217
@@ -1277,13 +1286,10 @@ msgstr ""
 
 #: templates/account/account_inactive.html:5
 #: templates/account/account_inactive.html:9
-#: ⁨templates/account/account_inactive.html 2.py⁩:5
-#: ⁨templates/account/account_inactive.html 2.py⁩:9
 msgid "Account Inactive"
 msgstr ""
 
 #: templates/account/account_inactive.html:12
-#: ⁨templates/account/account_inactive.html 2.py⁩:12
 msgid "This account is inactive."
 msgstr ""
 
@@ -1301,82 +1307,71 @@ msgid "Alternative options"
 msgstr ""
 
 #: templates/account/confirm_email_verification_code.html:5
-#: ⁨templates/account/confirm_email_verification_code.html 2.py⁩:5
 msgid "Email Verification"
 msgstr ""
 
 #: templates/account/confirm_email_verification_code.html:9
-#: ⁨templates/account/confirm_email_verification_code.html 2.py⁩:9
 msgid "Enter Email Verification Code"
 msgstr ""
 
 #: templates/account/confirm_email_verification_code.html:15
-#: ⁨templates/account/confirm_email_verification_code.html 2.py⁩:15
 #: templates/account/confirm_login_code.html:15
 #, python-format
 msgid ""
-"We’ve sent a code to %(email_link)s. The code expires shortly, so please enter it "
-"soon."
+"We’ve sent a code to %(email_link)s. The code expires shortly, so please "
+"enter it soon."
 msgstr ""
 
 #: templates/account/confirm_email_verification_code.html:27
-#: ⁨templates/account/confirm_email_verification_code.html 2.py⁩:27
-#: templates/account/email_confirm.html:24 templates/account/reauthenticate.html:17
-#: ⁨templates/account/reauthenticate.html 2.py⁩:17
+#: templates/account/email_confirm.html:24
+#: templates/account/reauthenticate.html:17
 msgid "Confirm"
 msgstr ""
 
 #: templates/account/confirm_email_verification_code.html:31
 #: templates/account/confirm_email_verification_code.html:35
-#: ⁨templates/account/confirm_email_verification_code.html 2.py⁩:31
-#: ⁨templates/account/confirm_email_verification_code.html 2.py⁩:35
 #: templates/account/confirm_login_code.html:32
 #: templates/the_tavern/game_comment_delete.html:14
-#: ⁨templates/the_tavern/game_comment_delete.html 2.py⁩:14
 #: templates/the_tavern/post_comment_delete.html:14
 #: the_gatehouse/templates/the_gatehouse/manage_user.html:72
-#: ⁨the_gatehouse/templates/the_gatehouse/manage_user.html 2.py⁩:72
 #: the_keep/templates/the_keep/asset_confirm_delete.html:14
 #: the_keep/templates/the_keep/asset_form.html:38
 #: the_keep/templates/the_keep/expansion_confirm_delete.html:18
+#: the_keep/templates/the_keep/faq_confirm_delete.html:31
+#: the_keep/templates/the_keep/faq_confirm_delete.html:33
+#: the_keep/templates/the_keep/faq_form.html:25
+#: the_keep/templates/the_keep/faq_form.html:27
+#: the_keep/templates/the_keep/law_group_copy.html:17
+#: the_keep/templates/the_keep/law_group_create.html:19
+#: the_keep/templates/the_keep/law_group_delete.html:16
+#: the_keep/templates/the_keep/law_group_edit.html:17
 #: the_keep/templates/the_keep/post_confirm_delete.html:16
-#: the_keep/templates/the_keep/post_form.html:50
-#: the_keep/templates/the_keep/post_form.html:52
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:50
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:52
+#: the_keep/templates/the_keep/post_form.html:302
+#: the_keep/templates/the_keep/post_form.html:304
 #: the_keep/templates/the_keep/translation_form.html:14
 #: the_warroom/templates/the_warroom/game_delete.html:15
-#: ⁨the_warroom/templates/the_warroom/game_delete.html 2.py⁩:15
 #: the_warroom/templates/the_warroom/game_update.html:14
-#: ⁨the_warroom/templates/the_warroom/game_update.html 2.py⁩:14
 #: the_warroom/templates/the_warroom/partials/forms.html:139
 #: the_warroom/templates/the_warroom/partials/forms.html:142
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:139
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:142
 #: the_warroom/templates/the_warroom/record_scores.html:232
 #: the_warroom/templates/the_warroom/record_scores.html:234
 #: the_warroom/templates/the_warroom/record_scores.html:236
 #: the_warroom/templates/the_warroom/round_confirm_delete.html:11
-#: ⁨the_warroom/templates/the_warroom/round_confirm_delete.html 2.py⁩:11
 #: the_warroom/templates/the_warroom/score_delete.html:15
 #: the_warroom/templates/the_warroom/tournament_confirm_delete.html:11
 #: the_warroom/templates/the_warroom/tournament_form.html:20
 #: the_warroom/templates/the_warroom/tournament_form.html:22
 #: the_warroom/templates/the_warroom/tournament_round_form.html:26
 #: the_warroom/templates/the_warroom/tournament_round_form.html:28
-#: ⁨the_warroom/templates/the_warroom/tournament_round_form.html 2.py⁩:26
-#: ⁨the_warroom/templates/the_warroom/tournament_round_form.html 2.py⁩:28
 msgid "Cancel"
 msgstr ""
 
 #: templates/account/confirm_login_code.html:5
 #: templates/account/confirm_login_code.html:27 templates/account/login.html:5
 #: templates/account/login.html:11 templates/account/login.html:33
-#: ⁨templates/account/login.html 2.py⁩:5 ⁨templates/account/login.html 2.py⁩:11
-#: ⁨templates/account/login.html 2.py⁩:33 templates/account/request_login_code.html:5
+#: templates/account/request_login_code.html:5
 #: templates/socialaccount/login.html:5 templates/socialaccount/login.html:12
 #: templates/socialaccount/login_redirect.html:5
-#: ⁨templates/socialaccount/login_redirect.html 2.py⁩:5
 msgid "Sign In"
 msgstr ""
 
@@ -1409,16 +1404,12 @@ msgid "Make Primary"
 msgstr ""
 
 #: templates/account/email.html:47 templates/account/email_change.html:37
-#: ⁨templates/account/email_change.html 2.py⁩:37
 msgid "Re-send Verification"
 msgstr ""
 
 #: templates/account/email.html:50 templates/socialaccount/connections.html:40
-#: ⁨templates/socialaccount/connections.html 2.py⁩:40
 #: the_warroom/templates/the_warroom/partials/forms.html:56
 #: the_warroom/templates/the_warroom/partials/forms.html:93
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:56
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:93
 msgid "Remove"
 msgstr ""
 
@@ -1435,16 +1426,18 @@ msgid "Do you really want to remove the selected email address?"
 msgstr ""
 
 #: templates/account/email/account_already_exists_message.txt:4
-#: ⁨templates/account/email/account_already_exists_message.txt 2.py⁩:4
 #, python-format
 msgid ""
-"You are receiving this email because you or someone else tried to signup for an\n"
+"You are receiving this email because you or someone else tried to signup for "
+"an\n"
 "account using email address:\n"
 "\n"
 "%(email)s\n"
 "\n"
-"However, an account using that email address already exists.  In case you have\n"
-"forgotten about this, please use the password forgotten procedure to recover\n"
+"However, an account using that email address already exists.  In case you "
+"have\n"
+"forgotten about this, please use the password forgotten procedure to "
+"recover\n"
 "your account:\n"
 "\n"
 "%(password_reset_url)s"
@@ -1468,14 +1461,15 @@ msgstr ""
 
 #: templates/account/email/base_notification.txt:5
 msgid ""
-"You are receiving this mail because the following change was made to your account:"
+"You are receiving this mail because the following change was made to your "
+"account:"
 msgstr ""
 
 #: templates/account/email/base_notification.txt:10
 #, python-format
 msgid ""
-"If you do not recognize this change then please take proper security precautions "
-"immediately. The change to your account originates from:\n"
+"If you do not recognize this change then please take proper security "
+"precautions immediately. The change to your account originates from:\n"
 "\n"
 "- IP address: %(ip)s\n"
 "- Browser: %(user_agent)s\n"
@@ -1488,12 +1482,10 @@ msgid "Your email has been changed from %(from_email)s to %(to_email)s."
 msgstr ""
 
 #: templates/account/email/email_changed_subject.txt:3
-#: ⁨templates/account/email/email_changed_subject.txt 2.py⁩:3
 msgid "Email Changed"
 msgstr ""
 
 #: templates/account/email/email_confirm_message.txt:4
-#: ⁨templates/account/email/email_confirm_message.txt 2.py⁩:4
 msgid "Your email has been confirmed."
 msgstr ""
 
@@ -1504,14 +1496,14 @@ msgstr ""
 #: templates/account/email/email_confirmation_message.txt:5
 #, python-format
 msgid ""
-"You're receiving this email because user %(user_display)s has given your email "
-"address to register an account on %(site_domain)s."
+"You're receiving this email because user %(user_display)s has given your "
+"email address to register an account on %(site_domain)s."
 msgstr ""
 
 #: templates/account/email/email_confirmation_message.txt:7
 msgid ""
-"Your email verification code is listed below. Please enter it in your open browser "
-"window."
+"Your email verification code is listed below. Please enter it in your open "
+"browser window."
 msgstr ""
 
 #: templates/account/email/email_confirmation_message.txt:9
@@ -1529,23 +1521,21 @@ msgid "Email address %(deleted_email)s has been removed from your account."
 msgstr ""
 
 #: templates/account/email/email_deleted_subject.txt:3
-#: ⁨templates/account/email/email_deleted_subject.txt 2.py⁩:3
 msgid "Email Removed"
 msgstr ""
 
 #: templates/account/email/login_code_message.txt:5
 msgid ""
-"Your sign-in code is listed below. Please enter it in your open browser window."
+"Your sign-in code is listed below. Please enter it in your open browser "
+"window."
 msgstr ""
 
 #: templates/account/email/login_code_message.txt:9
 #: templates/account/email/unknown_account_message.txt:6
-#: ⁨templates/account/email/unknown_account_message.txt 2.py⁩:6
 msgid "This mail can be safely ignored if you did not initiate this action."
 msgstr ""
 
 #: templates/account/email/login_code_subject.txt:3
-#: ⁨templates/account/email/login_code_subject.txt 2.py⁩:3
 msgid "Sign-In Code"
 msgstr ""
 
@@ -1554,16 +1544,15 @@ msgid "Your password has been changed."
 msgstr ""
 
 #: templates/account/email/password_changed_subject.txt:3
-#: ⁨templates/account/email/password_changed_subject.txt 2.py⁩:3
 msgid "Password Changed"
 msgstr ""
 
 #: templates/account/email/password_reset_key_message.txt:4
 msgid ""
-"You're receiving this email because you or someone else has requested a password "
-"reset for your user account.\n"
-"It can be safely ignored if you did not request a password reset. Click the link "
-"below to reset your password."
+"You're receiving this email because you or someone else has requested a "
+"password reset for your user account.\n"
+"It can be safely ignored if you did not request a password reset. Click the "
+"link below to reset your password."
 msgstr ""
 
 #: templates/account/email/password_reset_key_message.txt:9
@@ -1572,7 +1561,6 @@ msgid "In case you forgot, your username is %(username)s."
 msgstr ""
 
 #: templates/account/email/password_reset_key_subject.txt:3
-#: ⁨templates/account/email/password_reset_key_subject.txt 2.py⁩:3
 msgid "Password Reset Email"
 msgstr ""
 
@@ -1581,12 +1569,10 @@ msgid "Your password has been reset."
 msgstr ""
 
 #: templates/account/email/password_reset_subject.txt:3
-#: ⁨templates/account/email/password_reset_subject.txt 2.py⁩:3
-#: templates/account/password_reset.html:4 templates/account/password_reset.html:8
+#: templates/account/password_reset.html:4
+#: templates/account/password_reset.html:8
 #: templates/account/password_reset_done.html:6
 #: templates/account/password_reset_done.html:10
-#: ⁨templates/account/password_reset_done.html 2.py⁩:6
-#: ⁨templates/account/password_reset_done.html 2.py⁩:10
 msgid "Password Reset"
 msgstr ""
 
@@ -1595,21 +1581,18 @@ msgid "Your password has been set."
 msgstr ""
 
 #: templates/account/email/password_set_subject.txt:3
-#: ⁨templates/account/email/password_set_subject.txt 2.py⁩:3
 msgid "Password Set"
 msgstr ""
 
 #: templates/account/email/unknown_account_message.txt:4
-#: ⁨templates/account/email/unknown_account_message.txt 2.py⁩:4
 #, python-format
 msgid ""
-"You are receiving this email because you, or someone else, tried to access an "
-"account with email %(email)s. However, we do not have any record of such an "
-"account in our database."
+"You are receiving this email because you, or someone else, tried to access "
+"an account with email %(email)s. However, we do not have any record of such "
+"an account in our database."
 msgstr ""
 
 #: templates/account/email/unknown_account_message.txt:8
-#: ⁨templates/account/email/unknown_account_message.txt 2.py⁩:8
 msgid "If it was you, you can sign up for an account using the link below."
 msgstr ""
 
@@ -1618,54 +1601,52 @@ msgid "Unknown Account"
 msgstr ""
 
 #: templates/account/email_change.html:5 templates/account/email_change.html:9
-#: ⁨templates/account/email_change.html 2.py⁩:5
-#: ⁨templates/account/email_change.html 2.py⁩:9
 msgid "Email Address"
 msgstr ""
 
-#: templates/account/email_change.html:21 templates/account/email_change.html:29
-#: ⁨templates/account/email_change.html 2.py⁩:21
-#: ⁨templates/account/email_change.html 2.py⁩:29
+#: templates/account/email_change.html:21
+#: templates/account/email_change.html:29
 msgid "Current email"
 msgstr ""
 
-#: templates/account/email_change.html:31 ⁨templates/account/email_change.html 2.py⁩:31
+#: templates/account/email_change.html:31
 msgid "Changing to"
 msgstr ""
 
-#: templates/account/email_change.html:35 ⁨templates/account/email_change.html 2.py⁩:35
+#: templates/account/email_change.html:35
 msgid "Your email address is still pending verification."
 msgstr ""
 
-#: templates/account/email_change.html:41 ⁨templates/account/email_change.html 2.py⁩:41
+#: templates/account/email_change.html:41
 msgid "Cancel Change"
 msgstr ""
 
-#: templates/account/email_change.html:49 ⁨templates/account/email_change.html 2.py⁩:49
+#: templates/account/email_change.html:49
 msgid "Change to"
 msgstr ""
 
-#: templates/account/email_change.html:55 ⁨templates/account/email_change.html 2.py⁩:55
+#: templates/account/email_change.html:55
 msgid "Change Email"
 msgstr ""
 
-#: templates/account/email_confirm.html:6 templates/account/email_confirm.html:10
+#: templates/account/email_confirm.html:6
+#: templates/account/email_confirm.html:10
 msgid "Confirm Email Address"
 msgstr ""
 
 #: templates/account/email_confirm.html:16
 #, python-format
 msgid ""
-"Please confirm that <a href=\"mailto:%(email)s\">%(email)s</a> is an email address "
-"for user %(user_display)s."
+"Please confirm that <a href=\"mailto:%(email)s\">%(email)s</a> is an email "
+"address for user %(user_display)s."
 msgstr ""
 
 #: templates/account/email_confirm.html:30
 #: templates/account/messages/email_confirmation_failed.txt:2
-#: ⁨templates/account/messages/email_confirmation_failed.txt 2.py⁩:2
 #, python-format
 msgid ""
-"Unable to confirm %(email)s because it is already confirmed by a different account."
+"Unable to confirm %(email)s because it is already confirmed by a different "
+"account."
 msgstr ""
 
 #: templates/account/email_confirm.html:36
@@ -1675,24 +1656,23 @@ msgid ""
 "href=\"%(email_url)s\">issue a new email confirmation request</a>."
 msgstr ""
 
-#: templates/account/login.html:21 ⁨templates/account/login.html 2.py⁩:21
+#: templates/account/login.html:21
 #, python-format
 msgid ""
-"If you have not created an account yet, then please %(link)ssign up%(end_link)s "
-"first."
+"If you have not created an account yet, then please %(link)ssign "
+"up%(end_link)s first."
 msgstr ""
 
-#: templates/account/login.html:44 ⁨templates/account/login.html 2.py⁩:44
+#: templates/account/login.html:44
 msgid "Sign in with a passkey"
 msgstr ""
 
-#: templates/account/login.html:49 ⁨templates/account/login.html 2.py⁩:49
-#: templates/account/request_login_code.html:9
+#: templates/account/login.html:49 templates/account/request_login_code.html:9
 msgid "Mail me a sign-in code"
 msgstr ""
 
 #: templates/account/logout.html:4 templates/account/logout.html:10
-#: templates/account/logout.html:23 the_keep/templates/includes/header.html:140
+#: templates/account/logout.html:23 the_keep/templates/includes/header.html:119
 msgid "Sign Out"
 msgstr ""
 
@@ -1701,7 +1681,6 @@ msgid "Are you sure you want to sign out?"
 msgstr ""
 
 #: templates/account/messages/cannot_delete_primary_email.txt:2
-#: ⁨templates/account/messages/cannot_delete_primary_email.txt 2.py⁩:2
 #, python-format
 msgid "You cannot remove your primary email address (%(email)s)."
 msgstr ""
@@ -1717,13 +1696,11 @@ msgid "You have confirmed %(email)s."
 msgstr ""
 
 #: templates/account/messages/email_deleted.txt:2
-#: ⁨templates/account/messages/email_deleted.txt 2.py⁩:2
 #, python-format
 msgid "Removed email address %(email)s."
 msgstr ""
 
 #: templates/account/messages/logged_in.txt:3
-#: ⁨templates/account/messages/logged_in.txt 2.py⁩:3
 msgid "Successfully signed in as "
 msgstr ""
 
@@ -1737,37 +1714,29 @@ msgid "A sign-in code has been mailed to %(email)s."
 msgstr ""
 
 #: templates/account/messages/password_changed.txt:2
-#: ⁨templates/account/messages/password_changed.txt 2.py⁩:2
 msgid "Password successfully changed."
 msgstr ""
 
 #: templates/account/messages/password_set.txt:2
-#: ⁨templates/account/messages/password_set.txt 2.py⁩:2
 msgid "Password successfully set."
 msgstr ""
 
 #: templates/account/messages/primary_email_set.txt:2
-#: ⁨templates/account/messages/primary_email_set.txt 2.py⁩:2
 msgid "Primary email address set."
 msgstr ""
 
 #: templates/account/messages/unverified_primary_email.txt:2
-#: ⁨templates/account/messages/unverified_primary_email.txt 2.py⁩:2
 msgid "Your primary email address must be verified."
 msgstr ""
 
-#: templates/account/password_change.html:4 templates/account/password_change.html:8
+#: templates/account/password_change.html:4
+#: templates/account/password_change.html:8
 #: templates/account/password_change.html:20
 #: templates/account/password_reset_from_key.html:5
 #: templates/account/password_reset_from_key.html:12
 #: templates/account/password_reset_from_key.html:30
-#: ⁨templates/account/password_reset_from_key.html 2.py⁩:5
-#: ⁨templates/account/password_reset_from_key.html 2.py⁩:12
-#: ⁨templates/account/password_reset_from_key.html 2.py⁩:30
 #: templates/account/password_reset_from_key_done.html:5
 #: templates/account/password_reset_from_key_done.html:9
-#: ⁨templates/account/password_reset_from_key_done.html 2.py⁩:5
-#: ⁨templates/account/password_reset_from_key_done.html 2.py⁩:9
 msgid "Change Password"
 msgstr ""
 
@@ -1777,8 +1746,8 @@ msgstr ""
 
 #: templates/account/password_reset.html:14
 msgid ""
-"Forgotten your password? Enter your email address below, and we'll send you an "
-"email allowing you to reset it."
+"Forgotten your password? Enter your email address below, and we'll send you "
+"an email allowing you to reset it."
 msgstr ""
 
 #: templates/account/password_reset.html:25
@@ -1790,45 +1759,40 @@ msgid "Please contact us if you have any trouble resetting your password."
 msgstr ""
 
 #: templates/account/password_reset_done.html:16
-#: ⁨templates/account/password_reset_done.html 2.py⁩:16
 msgid ""
-"We have sent you an email. If you have not received it please check your spam "
-"folder. Otherwise contact us if you do not receive it in a few minutes."
+"We have sent you an email. If you have not received it please check your "
+"spam folder. Otherwise contact us if you do not receive it in a few minutes."
 msgstr ""
 
 #: templates/account/password_reset_from_key.html:10
-#: ⁨templates/account/password_reset_from_key.html 2.py⁩:10
 msgid "Bad Token"
 msgstr ""
 
 #: templates/account/password_reset_from_key.html:18
-#: ⁨templates/account/password_reset_from_key.html 2.py⁩:18
 #, python-format
 msgid ""
-"The password reset link was invalid, possibly because it has already been used.  "
-"Please request a <a href=\"%(passwd_reset_url)s\">new password reset</a>."
+"The password reset link was invalid, possibly because it has already been "
+"used.  Please request a <a href=\"%(passwd_reset_url)s\">new password reset</"
+"a>."
 msgstr ""
 
 #: templates/account/password_reset_from_key_done.html:12
-#: ⁨templates/account/password_reset_from_key_done.html 2.py⁩:12
 msgid "Your password is now changed."
 msgstr ""
 
 #: templates/account/password_set.html:5 templates/account/password_set.html:9
-#: templates/account/password_set.html:21 ⁨templates/account/password_set.html 2.py⁩:5
-#: ⁨templates/account/password_set.html 2.py⁩:9
-#: ⁨templates/account/password_set.html 2.py⁩:21
+#: templates/account/password_set.html:21
 msgid "Set Password"
 msgstr ""
 
 #: templates/account/reauthenticate.html:5
-#: ⁨templates/account/reauthenticate.html 2.py⁩:5
 msgid "Enter your password:"
 msgstr ""
 
 #: templates/account/request_login_code.html:12
 msgid ""
-"You will receive an email containing a special code for a password-free sign-in."
+"You will receive an email containing a special code for a password-free sign-"
+"in."
 msgstr ""
 
 #: templates/account/request_login_code.html:24
@@ -1840,14 +1804,12 @@ msgid "Other sign-in options"
 msgstr ""
 
 #: templates/account/signup.html:4 templates/account/signup_by_passkey.html:4
-#: templates/socialaccount/signup.html:5 ⁨templates/socialaccount/signup.html 2.py⁩:5
+#: templates/socialaccount/signup.html:5
 msgid "Signup"
 msgstr ""
 
 #: templates/account/signup.html:8 templates/account/signup_by_passkey.html:29
 #: templates/socialaccount/signup.html:9 templates/socialaccount/signup.html:25
-#: ⁨templates/socialaccount/signup.html 2.py⁩:9
-#: ⁨templates/socialaccount/signup.html 2.py⁩:25
 msgid "Sign Up"
 msgstr ""
 
@@ -1864,14 +1826,12 @@ msgstr ""
 msgid "Other options"
 msgstr ""
 
-#: templates/account/signup_closed.html:5 templates/account/signup_closed.html:9
-#: ⁨templates/account/signup_closed.html 2.py⁩:5
-#: ⁨templates/account/signup_closed.html 2.py⁩:9
+#: templates/account/signup_closed.html:5
+#: templates/account/signup_closed.html:9
 msgid "Sign Up Closed"
 msgstr ""
 
 #: templates/account/signup_closed.html:12
-#: ⁨templates/account/signup_closed.html 2.py⁩:12
 msgid "We are sorry, but the sign up is currently closed."
 msgstr ""
 
@@ -1890,8 +1850,8 @@ msgstr ""
 
 #: templates/account/snippets/warn_no_email.html:3
 msgid ""
-"You currently do not have any email address set up. You should really add an email "
-"address so you can receive notifications, reset your password, etc."
+"You currently do not have any email address set up. You should really add an "
+"email address so you can receive notifications, reset your password, etc."
 msgstr ""
 
 #: templates/account/verification_sent.html:5
@@ -1904,9 +1864,9 @@ msgstr ""
 #: templates/account/verification_sent.html:12
 msgid ""
 "We have sent an email to you for verification. Follow the link provided to "
-"finalize the signup process. If you do not see the verification email in your main "
-"inbox, check your spam folder. Please contact us if you do not receive the "
-"verification email within a few minutes."
+"finalize the signup process. If you do not see the verification email in "
+"your main inbox, check your spam folder. Please contact us if you do not "
+"receive the verification email within a few minutes."
 msgstr ""
 
 #: templates/account/verified_email_required.html:13
@@ -1919,16 +1879,17 @@ msgstr ""
 #: templates/account/verified_email_required.html:18
 msgid ""
 "We have sent an email to you for\n"
-"verification. Please click on the link inside that email. If you do not see the "
-"verification email in your main inbox, check your spam folder. Otherwise\n"
+"verification. Please click on the link inside that email. If you do not see "
+"the verification email in your main inbox, check your spam folder. "
+"Otherwise\n"
 "contact us if you do not receive it within a few minutes."
 msgstr ""
 
 #: templates/account/verified_email_required.html:23
 #, python-format
 msgid ""
-"<strong>Note:</strong> you can still <a href=\"%(email_url)s\">change your email "
-"address</a>."
+"<strong>Note:</strong> you can still <a href=\"%(email_url)s\">change your "
+"email address</a>."
 msgstr ""
 
 #: templates/socialaccount/authentication_error.html:5
@@ -1937,36 +1898,33 @@ msgid "Third-Party Login Failure"
 msgstr ""
 
 #: templates/socialaccount/authentication_error.html:12
-msgid "An error occurred while attempting to login via your third-party account."
+msgid ""
+"An error occurred while attempting to login via your third-party account."
 msgstr ""
 
 #: templates/socialaccount/connections.html:5
 #: templates/socialaccount/connections.html:9
-#: ⁨templates/socialaccount/connections.html 2.py⁩:5
-#: ⁨templates/socialaccount/connections.html 2.py⁩:9
 msgid "Account Connections"
 msgstr ""
 
 #: templates/socialaccount/connections.html:13
-#: ⁨templates/socialaccount/connections.html 2.py⁩:13
 msgid ""
-"You can sign in to your account using any of the following third-party accounts:"
+"You can sign in to your account using any of the following third-party "
+"accounts:"
 msgstr ""
 
 #: templates/socialaccount/connections.html:46
-#: ⁨templates/socialaccount/connections.html 2.py⁩:46
 msgid "You currently have no third-party accounts connected to this account."
 msgstr ""
 
 #: templates/socialaccount/connections.html:50
-#: ⁨templates/socialaccount/connections.html 2.py⁩:50
 msgid "Add a Third-Party Account"
 msgstr ""
 
 #: templates/socialaccount/email/account_connected_message.txt:4
-#: ⁨templates/socialaccount/email/account_connected_message.txt 2.py⁩:4
 #, python-format
-msgid "A third-party account from %(provider)s has been connected to your account."
+msgid ""
+"A third-party account from %(provider)s has been connected to your account."
 msgstr ""
 
 #: templates/socialaccount/email/account_connected_subject.txt:3
@@ -1976,7 +1934,8 @@ msgstr ""
 #: templates/socialaccount/email/account_disconnected_message.txt:4
 #, python-format
 msgid ""
-"A third-party account from %(provider)s has been disconnected from your account."
+"A third-party account from %(provider)s has been disconnected from your "
+"account."
 msgstr ""
 
 #: templates/socialaccount/email/account_disconnected_subject.txt:3
@@ -1986,11 +1945,11 @@ msgstr ""
 #: templates/socialaccount/login.html:15
 #, python-format
 msgid ""
-"You are about to sign in using your existing %(provider)s Account. You will be "
-"redirected to Discord to review these permissions."
+"You are about to sign in using your existing %(provider)s Account. You will "
+"be redirected to Discord to review these permissions."
 msgstr ""
-"Estás a punto de iniciar sesión con tu cuenta de %(provider)s. Serás redirigido a "
-"Discord para revisar estos permisos."
+"Estás a punto de iniciar sesión con tu cuenta de %(provider)s. Serás "
+"redirigido a Discord para revisar estos permisos."
 
 #: templates/socialaccount/login.html:24
 #, python-format
@@ -2009,7 +1968,6 @@ msgid "Login Cancelled"
 msgstr ""
 
 #: templates/socialaccount/login_redirect.html:10
-#: ⁨templates/socialaccount/login_redirect.html 2.py⁩:10
 msgid "Continue"
 msgstr "Continuar"
 
@@ -2018,7 +1976,6 @@ msgid "The third-party account has been connected."
 msgstr ""
 
 #: templates/socialaccount/messages/account_connected_other.txt:2
-#: ⁨templates/socialaccount/messages/account_connected_other.txt 2.py⁩:2
 msgid "The third-party account is already connected to a different account."
 msgstr ""
 
@@ -2026,7 +1983,7 @@ msgstr ""
 msgid "The third-party account has been disconnected."
 msgstr ""
 
-#: templates/socialaccount/signup.html:12 ⁨templates/socialaccount/signup.html 2.py⁩:12
+#: templates/socialaccount/signup.html:12
 #, python-format
 msgid ""
 "You are about to use your %(provider_name)s account to login to\n"
@@ -2039,23 +1996,20 @@ msgstr ""
 
 #: templates/the_tavern/game_comment_form.html:11
 #: templates/the_tavern/post_comment_form.html:12
-#: ⁨templates/the_tavern/post_comment_form.html 2.py⁩:12
-#: the_gatehouse/templates/the_gatehouse/discord_feedback.html:8
-#: ⁨the_gatehouse/templates/the_gatehouse/discord_feedback.html 2.py⁩:8
+#: the_gatehouse/templates/the_gatehouse/discord_feedback.html:24
 #: the_warroom/templates/the_warroom/partials/forms.html:128
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:128
 msgid "Submit"
 msgstr "Enviar"
 
-#: the_gatehouse/admin.py:190
+#: the_gatehouse/admin.py:208
 msgid "Personal info"
 msgstr ""
 
-#: the_gatehouse/admin.py:191
+#: the_gatehouse/admin.py:209
 msgid "Permissions"
 msgstr ""
 
-#: the_gatehouse/admin.py:192
+#: the_gatehouse/admin.py:210
 msgid "Important dates"
 msgstr ""
 
@@ -2080,8 +2034,8 @@ msgid ""
 "Pick what you want to see. If you hide something, it won’t show up in your "
 "searches or game setup."
 msgstr ""
-"Elige lo que quieras ver. Si ocultas algo, no aparecerá en tus búsquedas ni en la "
-"configuración del juego."
+"Elige lo que quieras ver. Si ocultas algo, no aparecerá en tus búsquedas ni "
+"en la configuración del juego."
 
 #: the_gatehouse/forms.py:38
 msgid "Status Visiblity"
@@ -2097,333 +2051,291 @@ msgstr "Establecer automáticamente"
 
 #: the_gatehouse/forms.py:54
 msgid ""
-"Select your preferred language. When available, component content will be shown in "
-"this language by default."
+"Select your preferred language. When available, component content will be "
+"shown in this language by default."
 msgstr ""
 "Seleccione su idioma preferido. Cuando esté disponible, el contenido del "
 "componente se mostrará en este idioma de forma predeterminada."
 
-#: the_gatehouse/forms.py:182 the_gatehouse/forms.py:183
+#: the_gatehouse/forms.py:179 the_gatehouse/forms.py:180
 msgid "Discord Username"
 msgstr "Nombre de usuario de discordia"
 
-#: the_gatehouse/forms.py:187 the_gatehouse/forms.py:188
+#: the_gatehouse/forms.py:184 the_gatehouse/forms.py:185
 msgid "Display Name (optional)"
 msgstr "Nombre para Mostrar (opcional)"
 
-#: the_gatehouse/forms.py:201
+#: the_gatehouse/forms.py:198
 msgid "Player names cannot be longer than 32 characters."
 msgstr "Los nombres de los jugadores no pueden tener más de 32 caracteres."
 
-#: the_gatehouse/forms.py:205
+#: the_gatehouse/forms.py:202
 msgid "Please only use numbers, letters, underscores _ , or periods."
 msgstr "Utilice únicamente números, letras, guiones bajos _ o puntos."
 
-#: the_gatehouse/forms.py:209
+#: the_gatehouse/forms.py:206
 msgid "This Discord username is already registered."
 msgstr "Este nombre de usuario de Discord ya está registrado."
 
-#: the_gatehouse/forms.py:216 the_gatehouse/forms.py:279
+#: the_gatehouse/forms.py:213 the_gatehouse/forms.py:276
 msgid "General Feedback"
 msgstr "Comentarios Generales"
 
-#: the_gatehouse/forms.py:217 the_gatehouse/forms.py:280
+#: the_gatehouse/forms.py:214 the_gatehouse/forms.py:277
 msgid "Usability Feedback"
 msgstr "Comentarios de Usabilidad"
 
-#: the_gatehouse/forms.py:218 the_gatehouse/forms.py:281
+#: the_gatehouse/forms.py:215 the_gatehouse/forms.py:278
+#: the_gatehouse/forms.py:283 the_gatehouse/views.py:824
 msgid "Bug Report"
 msgstr "Informe de Error"
 
-#: the_gatehouse/forms.py:219 the_gatehouse/forms.py:282
+#: the_gatehouse/forms.py:216 the_gatehouse/forms.py:279
 msgid "Feature Request"
 msgstr "Solicitud de Función"
 
-#: the_gatehouse/forms.py:220 the_gatehouse/forms.py:287 the_keep/models.py:259
-#: the_keep/models.py:1801 the_keep/templates/the_keep/asset_list.html:148
+#: the_gatehouse/forms.py:217 the_gatehouse/forms.py:290 the_keep/models.py:279
+#: the_keep/models.py:1990 the_keep/templates/the_keep/asset_list.html:76
 #: the_keep/templates/the_keep/expansion_detail.html:62
 #: the_keep/templates/the_keep/new.html:13
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:13
-#: the_keep/templates/the_keep/partials/component_title.html:13
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:13
+#: the_keep/templates/the_keep/partials/component_title.html:16
 #: the_keep/templates/the_keep/partials/leaderboard.html:6
-#: ⁨the_keep/templates/the_keep/partials/leaderboard.html 2.py⁩:6
 #: the_keep/templates/the_keep/partials/search_bar.html:28
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:28
 #: the_warroom/templates/the_warroom/in_progress.html:45
 #: the_warroom/templates/the_warroom/partials/forms.html:46
 #: the_warroom/templates/the_warroom/partials/forms.html:83
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:46
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:83
-#: the_warroom/templates/the_warroom/partials/game_detail.html:77
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:77
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:76
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:76
+#: the_warroom/templates/the_warroom/partials/game_detail.html:87
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:83
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:60
 #: the_warroom/templates/the_warroom/record_scores.html:41
 #: the_warroom/templates/the_warroom/scorecard_list.html:94
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:94
 msgid "Faction"
 msgstr "Facción"
 
-#: the_gatehouse/forms.py:221 the_gatehouse/forms.py:288 the_keep/forms.py:488
-#: the_keep/models.py:254 the_keep/models.py:1802
-#: the_keep/templates/the_keep/asset_list.html:150
+#: the_gatehouse/forms.py:218 the_gatehouse/forms.py:291 the_keep/forms.py:565
+#: the_keep/models.py:274 the_keep/models.py:1991
+#: the_keep/templates/the_keep/asset_list.html:78
 #: the_keep/templates/the_keep/new.html:23
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:23
 #: the_keep/templates/the_keep/partials/search_bar.html:30
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:30
-#: the_warroom/templates/the_warroom/games_home.html:81
-#: the_warroom/templates/the_warroom/partials/game_detail.html:36
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:36
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:37
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:37
+#: the_warroom/templates/the_warroom/games_home.html:100
+#: the_warroom/templates/the_warroom/partials/game_detail.html:45
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:43
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:32
-#: the_warroom/templates/the_warroom/player_games.html:94
+#: the_warroom/templates/the_warroom/player_games.html:111
 msgid "Map"
 msgstr "Mapa"
 
-#: the_gatehouse/forms.py:222 the_gatehouse/forms.py:290 the_keep/models.py:257
-#: the_keep/models.py:1804 the_keep/templates/the_keep/asset_list.html:149
+#: the_gatehouse/forms.py:219 the_gatehouse/forms.py:293 the_keep/models.py:277
+#: the_keep/models.py:1993 the_keep/templates/the_keep/asset_list.html:77
 #: the_keep/templates/the_keep/new.html:18
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:18
 #: the_keep/templates/the_keep/partials/search_bar.html:29
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:29
 #: the_warroom/templates/the_warroom/partials/forms.html:47
 #: the_warroom/templates/the_warroom/partials/forms.html:84
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:47
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:84
 msgid "Vagabond"
 msgstr "Vagabondo"
 
-#: the_gatehouse/forms.py:223 the_gatehouse/forms.py:289 the_keep/models.py:255
-#: the_keep/models.py:1803 the_keep/templates/the_keep/asset_list.html:151
+#: the_gatehouse/forms.py:220 the_gatehouse/forms.py:292 the_keep/models.py:275
+#: the_keep/models.py:1992 the_keep/templates/the_keep/asset_list.html:79
 #: the_keep/templates/the_keep/new.html:28
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:28
 #: the_keep/templates/the_keep/partials/search_bar.html:31
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:31
-#: the_warroom/templates/the_warroom/games_home.html:85
-#: the_warroom/templates/the_warroom/partials/game_detail.html:35
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:35
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:36
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:36
+#: the_warroom/templates/the_warroom/games_home.html:104
+#: the_warroom/templates/the_warroom/partials/game_detail.html:39
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:37
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:31
-#: the_warroom/templates/the_warroom/player_games.html:98
+#: the_warroom/templates/the_warroom/player_games.html:115
 msgid "Deck"
 msgstr "Baraja"
 
-#: the_gatehouse/forms.py:224 the_gatehouse/forms.py:291 the_keep/models.py:258
-#: the_keep/models.py:1805 the_keep/templates/the_keep/asset_list.html:152
+#: the_gatehouse/forms.py:221 the_gatehouse/forms.py:294 the_keep/models.py:278
+#: the_keep/models.py:1994 the_keep/templates/the_keep/asset_list.html:80
 #: the_keep/templates/the_keep/new.html:33
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:33
 #: the_keep/templates/the_keep/partials/search_bar.html:32
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:32
 msgid "Landmark"
 msgstr "Lugar Mítico"
 
-#: the_gatehouse/forms.py:225 the_gatehouse/forms.py:292 the_keep/models.py:256
-#: the_keep/models.py:1806 the_keep/templates/the_keep/asset_list.html:153
+#: the_gatehouse/forms.py:222 the_gatehouse/forms.py:295 the_keep/models.py:276
+#: the_keep/models.py:1995 the_keep/templates/the_keep/asset_list.html:81
 #: the_keep/templates/the_keep/new.html:43
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:43
 #: the_keep/templates/the_keep/partials/component_title.html:9
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:9
 #: the_keep/templates/the_keep/partials/hireling_otherside.html:6
-#: ⁨the_keep/templates/the_keep/partials/hireling_otherside.html 2.py⁩:6
 #: the_keep/templates/the_keep/partials/search_bar.html:33
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:33
 msgid "Hireling"
 msgstr "Secuaz"
 
-#: the_gatehouse/forms.py:226
+#: the_gatehouse/forms.py:223
 msgid "Playtest Group"
 msgstr "Grupo de Prueba de Juego"
 
-#: the_gatehouse/forms.py:227 the_gatehouse/forms.py:311
+#: the_gatehouse/forms.py:224 the_gatehouse/forms.py:314
 msgid "Outdated Information"
 msgstr "Información Obsoleta"
 
-#: the_gatehouse/forms.py:228 the_gatehouse/forms.py:312
+#: the_gatehouse/forms.py:225 the_gatehouse/forms.py:315
 msgid "Incorrect Information"
 msgstr "Información Incorrecta"
 
-#: the_gatehouse/forms.py:229 the_gatehouse/forms.py:314
+#: the_gatehouse/forms.py:226 the_gatehouse/forms.py:317
 msgid "Offensive Image/Language"
 msgstr "Imagen/Lenguaje Ofensivo"
 
-#: the_gatehouse/forms.py:230 the_gatehouse/forms.py:315
+#: the_gatehouse/forms.py:227 the_gatehouse/forms.py:318
 msgid "Spam"
 msgstr "Basura"
 
-#: the_gatehouse/forms.py:231 the_gatehouse/forms.py:283 the_gatehouse/forms.py:293
-#: the_gatehouse/forms.py:316 the_keep/models.py:1809 the_keep/models.py:1819
-#: the_keep/templates/the_keep/asset_list.html:156
-#: the_keep/templates/the_keep/asset_list.html:170
+#: the_gatehouse/forms.py:228 the_gatehouse/forms.py:280
+#: the_gatehouse/forms.py:296 the_gatehouse/forms.py:319
+#: the_keep/models.py:1999 the_keep/models.py:2010
+#: the_keep/templates/the_keep/asset_list.html:84
+#: the_keep/templates/the_keep/asset_list.html:99
 msgid "Other"
 msgstr "Otro"
 
-#: the_gatehouse/forms.py:232 the_gatehouse/forms.py:299
+#: the_gatehouse/forms.py:229 the_gatehouse/forms.py:302
 msgid "Weird Root"
 msgstr "Weird Root"
 
-#: the_gatehouse/forms.py:233 the_gatehouse/forms.py:305
+#: the_gatehouse/forms.py:230 the_gatehouse/forms.py:308
 msgid "French Root"
 msgstr "Root Francesa"
 
-#: the_gatehouse/forms.py:234 the_gatehouse/forms.py:313
+#: the_gatehouse/forms.py:231 the_gatehouse/forms.py:316
 msgid "Existing Translation Missing"
 msgstr "Falta la Traducción Existente"
 
-#: the_gatehouse/forms.py:237
+#: the_gatehouse/forms.py:234
 msgid "Select Category"
 msgstr "Seleccionar Categoría"
 
-#: the_gatehouse/forms.py:238
+#: the_gatehouse/forms.py:235
 msgid "Details"
 msgstr "Detalles"
 
-#: the_gatehouse/forms.py:243
+#: the_gatehouse/forms.py:240
 msgid "Contact Info (Optional)"
 msgstr "Información de Contacto (Opcional)"
 
-#: the_gatehouse/forms.py:250
+#: the_gatehouse/forms.py:247
 msgid "Does Clearing Priority fill you with a sense of urgency?"
 msgstr "¿Eres un robot?"
 
-#: the_gatehouse/forms.py:272
+#: the_gatehouse/forms.py:269
 msgid "Contact Info"
 msgstr "Información de Contacto"
 
-#: the_gatehouse/forms.py:274
+#: the_gatehouse/forms.py:271
 msgid "Discord Username or Email"
 msgstr "Nombre de usuario o correo electrónico de Discord"
 
-#: the_gatehouse/forms.py:295
+#: the_gatehouse/forms.py:286
 msgid ""
-"Please include details for the Fan Content you would like to be added. Each post "
-"must include at least one link to a Discord Thread or BGG Post, PNP Files or TTS "
-"Mod is a plus. You can make a request for something you did not create, but "
-"include the designer's discord username."
+"Please include as many details as you can that lead up to the bug you "
+"encountered (what page you were trying to view, what you encountered when it "
+"occured, whether you were logged in at the time). Any details provided can "
+"help in debugging."
 msgstr ""
-"Incluye los detalles del contenido de fan que quieres añadir. Cada publicación "
-"debe incluir al menos un enlace a un hilo de Discord o una publicación de BGG. Se "
-"valoran los archivos PNP o la modificación TTS. Puedes solicitar algo que no hayas "
-"creado, pero incluye el nombre de usuario de Discord del diseñador."
 
-#: the_gatehouse/forms.py:301
+#: the_gatehouse/forms.py:298
+msgid ""
+"Please include details for the Fan Content you would like to be added. Each "
+"post must include at least one link to a Discord Thread or BGG Post, PNP "
+"Files or TTS Mod is a plus. You can make a request for something you did not "
+"create, but include the designer's discord username."
+msgstr ""
+"Incluye los detalles del contenido de fan que quieres añadir. Cada "
+"publicación debe incluir al menos un enlace a un hilo de Discord o una "
+"publicación de BGG. Se valoran los archivos PNP o la modificación TTS. "
+"Puedes solicitar algo que no hayas creado, pero incluye el nombre de usuario "
+"de Discord del diseñador."
+
+#: the_gatehouse/forms.py:304
 msgid ""
 "Weird Root is a private server for developing and discussing fan-made Root "
-"content. To keep bots out, invites aren't shared publicly. The easiest way to join "
-"is by messaging someone already in the server. This site isn’t managed by Weird "
-"Root, but if you include a brief message, we’ll do our best to get back to you "
-"soon."
+"content. To keep bots out, invites aren't shared publicly. The easiest way "
+"to join is by messaging someone already in the server. This site isn’t "
+"managed by Weird Root, but if you include a brief message, we’ll do our best "
+"to get back to you soon."
 msgstr ""
-"Weird Root es un servidor privado para desarrollar y debatir contenido creado por "
-"fans de Root. Para evitar bots, las invitaciones no se comparten públicamente. La "
-"forma más fácil de unirse es enviando un mensaje a alguien que ya esté en el "
-"servidor. Este sitio no está administrado por Weird Root, pero si incluyes un "
-"mensaje breve, haremos todo lo posible por responderte pronto."
+"Weird Root es un servidor privado para desarrollar y debatir contenido "
+"creado por fans de Root. Para evitar bots, las invitaciones no se comparten "
+"públicamente. La forma más fácil de unirse es enviando un mensaje a alguien "
+"que ya esté en el servidor. Este sitio no está administrado por Weird Root, "
+"pero si incluyes un mensaje breve, haremos todo lo posible por responderte "
+"pronto."
 
-#: the_gatehouse/forms.py:307
+#: the_gatehouse/forms.py:310
 msgid "Root & co - Communauté FR is a French Discord server"
 msgstr "Root & co - Communauté FR es un servidor de Discord francés"
 
-#: the_gatehouse/forms.py:319
+#: the_gatehouse/forms.py:322
 msgid ""
-"Please provide any relevant information. If information is incorrect or out of "
-"date please provide a link to the updated information."
+"Please provide any relevant information. If information is incorrect or out "
+"of date please provide a link to the updated information."
 msgstr ""
-"Proporcione cualquier información relevante. Si la información es incorrecta o "
-"está desactualizada, proporcione un enlace a la información actualizada."
+"Proporcione cualquier información relevante. Si la información es incorrecta "
+"o está desactualizada, proporcione un enlace a la información actualizada."
 
 #: the_gatehouse/templates/the_gatehouse/manage_user.html:71
-#: ⁨the_gatehouse/templates/the_gatehouse/manage_user.html 2.py⁩:71
-#: the_gatehouse/templates/the_gatehouse/user_settings.html:49
+#: the_gatehouse/templates/the_gatehouse/user_settings.html:50
 #: the_keep/templates/the_keep/asset_form.html:35
 #: the_keep/templates/the_keep/expansion_form.html:15
-#: ⁨the_keep/templates/the_keep/expansion_form.html 2.py⁩:15
-#: the_keep/templates/the_keep/post_form.html:48
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:48
+#: the_keep/templates/the_keep/faq_form.html:23
+#: the_keep/templates/the_keep/law_group_edit.html:16
+#: the_keep/templates/the_keep/post_form.html:300
 #: the_keep/templates/the_keep/translation_form.html:13
 #: the_warroom/templates/the_warroom/game_update.html:13
-#: ⁨the_warroom/templates/the_warroom/game_update.html 2.py⁩:13
 #: the_warroom/templates/the_warroom/record_scores.html:225
 #: the_warroom/templates/the_warroom/tournament_form.html:18
 #: the_warroom/templates/the_warroom/tournament_round_form.html:24
-#: ⁨the_warroom/templates/the_warroom/tournament_round_form.html 2.py⁩:24
 msgid "Save"
 msgstr "Guardar"
 
 #: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:6
-#: ⁨the_gatehouse/templates/the_gatehouse/partials/leaderboard.html 2.py⁩:6
-#: the_warroom/templates/the_warroom/partials/effort_detail.html:16
-#: the_warroom/templates/the_warroom/partials/effort_detail_button.html:16
+#: the_warroom/templates/the_warroom/partials/effort_detail.html:15
+#: the_warroom/templates/the_warroom/partials/effort_detail_button.html:17
 #: the_warroom/templates/the_warroom/partials/forms.html:45
 #: the_warroom/templates/the_warroom/partials/forms.html:82
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:45
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:82
-#: the_warroom/templates/the_warroom/partials/game_detail.html:75
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:75
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:74
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:74
+#: the_warroom/templates/the_warroom/partials/game_detail.html:85
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:81
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:59
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:81
 #: the_warroom/templates/the_warroom/scorecard_list.html:98
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:98
 msgid "Player"
 msgstr "Jugador"
 
 #: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:7
-#: ⁨the_gatehouse/templates/the_gatehouse/partials/leaderboard.html 2.py⁩:7
 #: the_keep/templates/the_keep/partials/game_stats.html:20
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:20
 #: the_keep/templates/the_keep/partials/leaderboard.html:7
-#: ⁨the_keep/templates/the_keep/partials/leaderboard.html 2.py⁩:7
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:307
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:307
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:312
 msgid "Winrate"
 msgstr "Tasa de Ganancia"
 
 #: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:8
-#: ⁨the_gatehouse/templates/the_gatehouse/partials/leaderboard.html 2.py⁩:8
 #: the_keep/templates/the_keep/partials/leaderboard.html:8
-#: ⁨the_keep/templates/the_keep/partials/leaderboard.html 2.py⁩:8
 #: the_warroom/templates/the_warroom/in_progress.html:46
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:306
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:306
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:311
 #: the_warroom/templates/the_warroom/record_scores.html:105
 #: the_warroom/templates/the_warroom/scorecard_list.html:95
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:95
 msgid "Points"
 msgstr "Puntos"
 
 #: the_gatehouse/templates/the_gatehouse/partials/leaderboard.html:9
-#: ⁨the_gatehouse/templates/the_gatehouse/partials/leaderboard.html 2.py⁩:9
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:65
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:65
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:68
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:9
 #: the_keep/templates/the_keep/partials/leaderboard.html:9
-#: ⁨the_keep/templates/the_keep/partials/leaderboard.html 2.py⁩:9
-#: the_keep/templates/the_keep/partials/universal_results.html:64
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:64
+#: the_keep/templates/the_keep/partials/universal_results.html:86
 #: the_keep/templates/the_keep/post_games.html:10
-#: the_keep/templates/the_keep/status_check.html:214
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:214
-#: the_warroom/templates/the_warroom/games_home.html:21
+#: the_keep/templates/the_keep/status_check.html:78
+#: the_warroom/templates/the_warroom/games_home.html:28
 #: the_warroom/templates/the_warroom/in_progress.html:96
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:27
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:305
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:27
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:305
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:310
 #: the_warroom/templates/the_warroom/player_games.html:3
 #: the_warroom/templates/the_warroom/player_games.html:27
-#: the_warroom/templates/the_warroom/player_games.html:67
+#: the_warroom/templates/the_warroom/player_games.html:84
 msgid "Games"
 msgstr "Juegos"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:12
-#: the_keep/templates/the_keep/status_check.html:74
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:74
+#: the_keep/templates/the_keep/status_check.html:114
 msgid "Games Played"
 msgstr "Juegos Jugados"
 
@@ -2434,91 +2346,94 @@ msgid "Bookmarks"
 msgstr "Marcadores"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:20
-#: the_keep/templates/includes/header.html:139
+#: the_keep/templates/includes/header.html:118
 msgid "Settings"
 msgstr "Ajustes"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:26
-#: the_warroom/templates/the_warroom/games_home.html:43
+#: the_warroom/templates/the_warroom/games_home.html:67
 #: the_warroom/templates/the_warroom/in_progress.html:8
 #: the_warroom/templates/the_warroom/partials/game_detail.html:14
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:14
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:14
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:14
-#: the_warroom/templates/the_warroom/player_games.html:43
+#: the_warroom/templates/the_warroom/player_games.html:59
 #: the_warroom/templates/the_warroom/scorecard_list.html:42
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:42
 msgid "In Progress"
 msgstr "En curso"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:88
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:68
+#, python-format
+msgid ""
+"\n"
+"                        Find %(artist_name)s's Artwork Here\n"
+"                        "
+msgstr ""
+"\n"
+"Encuentra las obras de %(artist_name)s aquí\n"
+" "
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:96
 msgid "Posts"
 msgstr "Publicaciones"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:93
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:101
 msgid "Artwork"
 msgstr "Obra de arte"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:99
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:107
 msgid "Stats"
 msgstr "Estadísticas"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:104
-#: the_keep/templates/the_keep/asset_list.html:19
-#: the_keep/templates/the_keep/partials/universal_results.html:118
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:118
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:112
+#: the_keep/templates/the_keep/asset_list.html:23
+#: the_keep/templates/the_keep/partials/universal_results.html:140
 msgid "Resources"
 msgstr "Recursos"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:157
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:165
 msgid "Average Game by Faction"
 msgstr "Juego promedio por facción"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:174
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:182
+msgid "All Resources"
+msgstr "Todos los recursos"
+
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:184
 #: the_keep/templates/the_keep/asset_form.html:6
 #: the_keep/templates/the_keep/asset_list.html:31
 msgid "New Resource"
 msgstr "Nuevo Recurso"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:182
-#: the_keep/forms.py:1039 the_keep/templates/the_keep/asset_list.html:59
-#: the_keep/templates/the_keep/asset_list.html:181
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:304
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:304
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:193
+#: the_keep/forms.py:1184 the_keep/templates/the_keep/asset_list.html:111
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:309
 msgid "Name"
 msgstr "Nombre"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:183
-#: the_keep/templates/the_keep/asset_list.html:60
-#: the_keep/templates/the_keep/asset_list.html:182
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:194
+#: the_keep/templates/the_keep/asset_list.html:112
 msgid "Category"
 msgstr "Categoría"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:185
-#: the_keep/templates/the_keep/asset_list.html:62
-#: the_keep/templates/the_keep/asset_list.html:184
-#: the_keep/templates/the_keep/resource_detail.html:44
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:196
+#: the_keep/templates/the_keep/asset_list.html:114
+#: the_keep/templates/the_keep/resource_detail.html:48
 #: the_warroom/templates/the_warroom/partials/forms.html:119
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:119
 msgid "Date"
 msgstr "Dato"
 
-#: the_gatehouse/templates/the_gatehouse/profile_detail.html:186
-#: the_keep/templates/the_keep/asset_list.html:63
-#: the_keep/templates/the_keep/asset_list.html:185
+#: the_gatehouse/templates/the_gatehouse/profile_detail.html:197
 msgid "Shared By"
 msgstr "Compartido por"
 
 #: the_gatehouse/templates/the_gatehouse/user_bookmarks.html:7
-#: the_keep/templates/includes/header.html:69
+#: the_keep/templates/includes/header.html:48
 #: the_warroom/templates/the_warroom/player_games.html:24
 #: the_warroom/templates/the_warroom/scorecard_list.html:12
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:12
 msgid "Profile"
 msgstr "Perfil"
 
 #: the_gatehouse/templates/the_gatehouse/user_bookmarks.html:19
-#: the_keep/templates/includes/header.html:70
+#: the_keep/templates/includes/header.html:49
 msgid "My Bookmarks"
 msgstr "Mis Marcadores"
 
@@ -2533,13 +2448,14 @@ msgstr "No tienes ninguna publicación marcada como favorita."
 #: the_gatehouse/templates/the_gatehouse/user_bookmarks.html:64
 msgid ""
 "\n"
-"            Click the <i class=\"bi bi-bookmark-plus\"></i> at the top right of "
-"the post you want to save to add it to your Bookmarks.\n"
+"            Click the <i class=\"bi bi-bookmark-plus\"></i> at the top right "
+"of the post you want to save to add it to your Bookmarks.\n"
 "            "
 msgstr ""
 "\n"
-"            Haz clic en <i class=\"bi bi-bookmark-plus\"></i> en la parte superior "
-"derecha de la publicación que deseas guardar para agregarla a tus marcadores.\n"
+"            Haz clic en <i class=\"bi bi-bookmark-plus\"></i> en la parte "
+"superior derecha de la publicación que deseas guardar para agregarla a tus "
+"marcadores.\n"
 "            "
 
 #: the_gatehouse/templates/the_gatehouse/user_bookmarks.html:80
@@ -2549,444 +2465,446 @@ msgstr "No tienes ningún juego marcado como favorito."
 #: the_gatehouse/templates/the_gatehouse/user_bookmarks.html:81
 msgid ""
 "\n"
-"                    Click the <i class=\"bi bi-bookmark-plus\"></i> at the top "
-"right of the game you want to save to add it to your Bookmarks.\n"
+"                    Click the <i class=\"bi bi-bookmark-plus\"></i> at the "
+"top right of the game you want to save to add it to your Bookmarks.\n"
 "                "
 msgstr ""
 "\n"
-"                    Haz clic en <i class=\"bi bi-bookmark-plus\"></i> en la parte "
-"superior derecha del juego que deseas guardar para agregarlo a tus Marcadores.\n"
+"                    Haz clic en <i class=\"bi bi-bookmark-plus\"></i> en la "
+"parte superior derecha del juego que deseas guardar para agregarlo a tus "
+"Marcadores.\n"
 "                "
 
-#: the_gatehouse/views.py:75
+#: the_gatehouse/views.py:81
 msgid "Account updated!"
 msgstr "¡Cuenta actualizada!"
 
-#: the_gatehouse/views.py:876 the_gatehouse/views.py:968
+#: the_gatehouse/views.py:808 the_gatehouse/views.py:903
 msgid "Thank you for your feedback!"
 msgstr "¡Gracias por tus comentarios!"
 
-#: the_gatehouse/views.py:877 the_gatehouse/views.py:879 the_gatehouse/views.py:880
-#: the_gatehouse/views.py:969
+#: the_gatehouse/views.py:809 the_gatehouse/views.py:811
+#: the_gatehouse/views.py:812 the_gatehouse/views.py:904
 msgid "Your request has been received"
 msgstr "Su solicitud ha sido recibida"
 
-#: the_gatehouse/views.py:878 the_gatehouse/views.py:970
+#: the_gatehouse/views.py:810 the_gatehouse/views.py:905
 msgid "Your report has been received"
 msgstr "Su informe ha sido recibido"
 
-#: the_gatehouse/views.py:885
+#: the_gatehouse/views.py:813
+msgid "Thank you for your report"
+msgstr "Gracias por tu informe"
+
+#: the_gatehouse/views.py:818
 #, python-brace-format
 msgid "Report {subject}"
 msgstr "Informe {subject}"
 
-#: the_gatehouse/views.py:887
+#: the_gatehouse/views.py:820
 msgid "Request Invite to Weird Root"
 msgstr "Solicitar una Invitación a Weird Root"
 
-#: the_gatehouse/views.py:889
+#: the_gatehouse/views.py:822
 msgid "Request Invite to French Root"
 msgstr "Solicitar una Invitación a Root Francés"
 
-#: the_gatehouse/views.py:891
+#: the_gatehouse/views.py:826
 msgid "Request a New Post"
 msgstr "Solicitar una Nueva Publicación"
 
-#: the_gatehouse/views.py:893
+#: the_gatehouse/views.py:828
 #, python-brace-format
 msgid "Send {category}"
 msgstr "Enviar {category}"
 
-#: the_gatehouse/views.py:895
+#: the_gatehouse/views.py:830
 msgid "Send Feedback"
 msgstr "Enviar Comentario"
 
-#: the_gatehouse/views.py:971 the_gatehouse/views.py:972
+#: the_gatehouse/views.py:906 the_gatehouse/views.py:907
 msgid ""
-"Your request has been received, you should receive a Discord DM once an admin sees "
-"your request."
+"Your request has been received, you should receive a Discord DM once an "
+"admin sees your request."
 msgstr ""
-"Tu solicitud ha sido recibida, deberías recibir un DM de Discord una vez que un "
-"administrador vea tu solicitud."
+"Tu solicitud ha sido recibida, deberías recibir un DM de Discord una vez que "
+"un administrador vea tu solicitud."
 
-#: the_keep/forms.py:283
+#: the_keep/forms.py:351
 msgid ""
-"Set the current status. Set status to \"Testing\" once a game has been recorded. "
-"Once thoroughly playtested the status can be set to \"Stable\". Set to "
-"\"Inactive\" if you are no longer working on this project."
+"Set the current status. Set status to \"Testing\" once a game has been "
+"recorded. Once thoroughly playtested the status can be set to \"Stable\". "
+"Set to \"Inactive\" if you are no longer working on this project."
 msgstr ""
-"Establece el estado actual. Una vez grabada la partida, cambia el estado a \"En "
-"prueba\". Una vez completadas las pruebas, puedes cambiar el estado a \"Estable\". "
-"Cambia el estado a \"Inactivo\" si ya no trabajas en este proyecto."
+"Establece el estado actual. Una vez grabada la partida, cambia el estado a "
+"\"En prueba\". Una vez completadas las pruebas, puedes cambiar el estado a "
+"\"Estable\". Cambia el estado a \"Inactivo\" si ya no trabajas en este "
+"proyecto."
 
-#: the_keep/forms.py:468
+#: the_keep/forms.py:545
 msgid "Map Name"
 msgstr "Nombre de la Mapa"
 
-#: the_keep/forms.py:472
+#: the_keep/forms.py:549
 msgid "Number of Clearings"
 msgstr "Número de Claro"
 
-#: the_keep/forms.py:477
+#: the_keep/forms.py:554
 msgid "This map has fixed suits for each clearing by default"
 msgstr "Este mapa tiene trajes fijos para cada claro de forma predeterminada"
 
-#: the_keep/forms.py:492
+#: the_keep/forms.py:569
 msgid "Card"
 msgstr "Carta"
 
-#: the_keep/forms.py:496 the_keep/forms.py:545 the_keep/forms.py:605
+#: the_keep/forms.py:573 the_keep/forms.py:628 the_keep/forms.py:694
 msgid "Card Back"
 msgstr "Reverso de la Carta"
 
-#: the_keep/forms.py:532
+#: the_keep/forms.py:615
 msgid "Deck Name"
 msgstr "Nombre de la Baraja"
 
-#: the_keep/forms.py:536
+#: the_keep/forms.py:619
 msgid "Card Count"
 msgstr "Recuento de Cartas"
 
-#: the_keep/forms.py:589
+#: the_keep/forms.py:678
 msgid "Landmark Name"
 msgstr "Nombre del Lugar Mítico"
 
-#: the_keep/forms.py:597
+#: the_keep/forms.py:686
 msgid "Landmark Art"
 msgstr "Arte del Lugar Mítico"
 
-#: the_keep/forms.py:601
+#: the_keep/forms.py:690
 msgid "Landmark Card Front"
 msgstr "Frente de la Carta del Lugar Mítico"
 
-#: the_keep/forms.py:634
+#: the_keep/forms.py:732
 msgid "House Rule Name"
 msgstr "Nombre de la Regla de la Casa"
 
-#: the_keep/forms.py:642
+#: the_keep/forms.py:740
 msgid "House Rule Art"
 msgstr "Arte de la Regla de la Casa"
 
-#: the_keep/forms.py:677
+#: the_keep/forms.py:781
 msgid "Hireling Name"
 msgstr "Nombre del Secuaz"
 
-#: the_keep/forms.py:682 the_keep/models.py:1518
+#: the_keep/forms.py:786 the_keep/models.py:1687
 msgid "Promoted"
 msgstr "Promovido"
 
-#: the_keep/forms.py:683 the_keep/models.py:1519
+#: the_keep/forms.py:787 the_keep/models.py:1688
 msgid "Demoted"
 msgstr "Degradado"
 
-#: the_keep/forms.py:693
+#: the_keep/forms.py:797
 msgid "Based On (Faction or other Hireling):"
 msgstr "Basado en (Facción u otro Secuaz):"
 
-#: the_keep/forms.py:698
+#: the_keep/forms.py:802
 msgid "Other Side"
 msgstr "Otra Lado"
 
-#: the_keep/forms.py:701 the_keep/forms.py:765 the_keep/forms.py:875
-#: the_keep/forms.py:971
+#: the_keep/forms.py:805 the_keep/forms.py:889 the_keep/forms.py:1006
+#: the_keep/forms.py:1110
 msgid "Character Art"
 msgstr "Arte de Personaje"
 
-#: the_keep/forms.py:708
+#: the_keep/forms.py:812
 msgid "Hireling Color"
 msgstr "Color del Secuaz"
 
-#: the_keep/forms.py:715
+#: the_keep/forms.py:819
 msgid "Hireling Card"
 msgstr "Carta del Secuaz"
 
-#: the_keep/forms.py:747
+#: the_keep/forms.py:871
 msgid "Vagabond Name"
 msgstr "Nombre del Vagabondo"
 
-#: the_keep/forms.py:769
+#: the_keep/forms.py:893
 msgid "Vagabond Card"
 msgstr "Carta del Vagabondo"
 
-#: the_keep/forms.py:836
+#: the_keep/forms.py:966
 msgid "Faction Name"
 msgstr "Nombre de Facción"
 
-#: the_keep/forms.py:841 the_keep/models.py:1286
+#: the_keep/forms.py:972 the_keep/models.py:1435
 #: the_keep/templates/the_keep/partials/search_bar.html:45
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:45
 msgid "Insurgent"
 msgstr "Insurgente"
 
-#: the_keep/forms.py:842 the_keep/models.py:1285
+#: the_keep/forms.py:973 the_keep/models.py:1434
 #: the_keep/templates/the_keep/partials/search_bar.html:44
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:44
 msgid "Militant"
 msgstr "Militante"
 
-#: the_keep/forms.py:847 the_keep/models.py:1290
+#: the_keep/forms.py:978 the_keep/models.py:1440
 #: the_keep/templates/the_keep/partials/vagabond_items.html:82
 msgid "None"
 msgstr "Ninguno"
 
-#: the_keep/forms.py:848 the_keep/models.py:1291
+#: the_keep/forms.py:979 the_keep/models.py:1441
 msgid "Low"
 msgstr "Baja"
 
-#: the_keep/forms.py:849 the_keep/models.py:1292
+#: the_keep/forms.py:980 the_keep/models.py:1442
 msgid "Moderate"
 msgstr "Moderada"
 
-#: the_keep/forms.py:850 the_keep/models.py:1293
+#: the_keep/forms.py:981 the_keep/models.py:1443
 msgid "High"
 msgstr "Alto"
 
-#: the_keep/forms.py:871
+#: the_keep/forms.py:1002
 msgid "ADSET Card"
 msgstr "Tarjetas ADSET"
 
-#: the_keep/forms.py:879 the_keep/forms.py:989
+#: the_keep/forms.py:1010 the_keep/forms.py:1128
 msgid "Faction Board Front"
 msgstr "Frente del Tablero de Facción"
 
-#: the_keep/forms.py:883
+#: the_keep/forms.py:1014
 msgid "Faction Board Back"
 msgstr "La Parte Trasera del Tablero de Facción"
 
-#: the_keep/forms.py:887
+#: the_keep/forms.py:1018
 msgid "Icon (Faction Head or Meeple)"
 msgstr "Icono (Cabeza de facción o Meeple)"
 
-#: the_keep/forms.py:894 the_keep/forms.py:982
+#: the_keep/forms.py:1025 the_keep/forms.py:1121
 msgid "Faction Color"
 msgstr "Color del Facción"
 
-#: the_keep/forms.py:961
+#: the_keep/forms.py:1100
 msgid "Clockwork Faction Name"
 msgstr "Nombre del Facción Bot"
 
-#: the_keep/forms.py:975
+#: the_keep/forms.py:1114
 msgid "Icon (Meeple or Relationship Marker)"
 msgstr "Icono (Meeple o Fichas de Relación)"
 
-#: the_keep/forms.py:1018
+#: the_keep/forms.py:1157
 msgid "Give a brief explanation on how to use this Clockwork Faction..."
 msgstr "Dar una breve explicación sobre cómo utilizar esta Facción Mecánica..."
 
-#: the_keep/forms.py:1072
+#: the_keep/forms.py:1217
 msgid "File Type"
 msgstr "Tipo de Archivo"
 
-#: the_keep/models.py:96
+#: the_keep/models.py:110
 msgid "Red"
 msgstr "Rojo"
 
-#: the_keep/models.py:97
+#: the_keep/models.py:111
 msgid "Orange"
 msgstr "Naranja"
 
-#: the_keep/models.py:98
+#: the_keep/models.py:112
 msgid "Yellow"
 msgstr "Amarillo"
 
-#: the_keep/models.py:99
+#: the_keep/models.py:113
 msgid "Green"
 msgstr "Verde"
 
-#: the_keep/models.py:100
+#: the_keep/models.py:114
 msgid "Blue"
 msgstr "Azul"
 
-#: the_keep/models.py:101
+#: the_keep/models.py:115
 msgid "Purple"
 msgstr "Púrpura"
 
-#: the_keep/models.py:102
+#: the_keep/models.py:116
 msgid "White"
 msgstr "Blanco"
 
-#: the_keep/models.py:103
+#: the_keep/models.py:117
 msgid "Grey"
 msgstr "Gris"
 
-#: the_keep/models.py:104
+#: the_keep/models.py:118
 msgid "Black"
 msgstr "Negro"
 
-#: the_keep/models.py:105
+#: the_keep/models.py:119
 msgid "Pink"
 msgstr "Rosa"
 
-#: the_keep/models.py:106
+#: the_keep/models.py:120
 msgid "Brown"
 msgstr "Marrón"
 
-#: the_keep/models.py:107
+#: the_keep/models.py:121
 msgid "Tan"
 msgstr "Bronceado"
 
-#: the_keep/models.py:154 the_keep/templates/the_keep/confirm_stable.html:3
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:3
-#: the_keep/templates/the_keep/partials/component_header.html:11
-#: the_keep/templates/the_keep/partials/component_header.html:134
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:11
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:134
-#: the_keep/templates/the_keep/partials/post.html:45
-#: the_keep/templates/the_keep/partials/search_bar.html:65
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:65
+#: the_keep/models.py:168 the_keep/templates/the_keep/confirm_stable.html:3
+#: the_keep/templates/the_keep/partials/component_header.html:10
+#: the_keep/templates/the_keep/partials/component_header.html:176
+#: the_keep/templates/the_keep/partials/post.html:66
+#: the_keep/templates/the_keep/partials/search_bar.html:66
 #: the_keep/templates/the_keep/partials/status.html:4
-#: ⁨the_keep/templates/the_keep/partials/status.html 2.py⁩:4
 msgid "Stable"
 msgstr "Estable"
 
-#: the_keep/models.py:155 the_keep/templates/the_keep/confirm_testing.html:3
-#: the_keep/templates/the_keep/partials/component_header.html:18
-#: the_keep/templates/the_keep/partials/component_header.html:138
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:18
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:138
-#: the_keep/templates/the_keep/partials/post.html:54
-#: the_keep/templates/the_keep/partials/search_bar.html:66
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:66
+#: the_keep/models.py:169 the_keep/templates/the_keep/confirm_testing.html:3
+#: the_keep/templates/the_keep/partials/component_header.html:17
+#: the_keep/templates/the_keep/partials/component_header.html:180
+#: the_keep/templates/the_keep/partials/post.html:75
+#: the_keep/templates/the_keep/partials/search_bar.html:67
 #: the_keep/templates/the_keep/partials/status.html:7
-#: ⁨the_keep/templates/the_keep/partials/status.html 2.py⁩:7
 msgid "Testing"
 msgstr "Pruebas"
 
-#: the_keep/models.py:156
-#: the_keep/templates/the_keep/partials/component_header.html:142
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:142
-#: the_keep/templates/the_keep/partials/post.html:63
-#: the_keep/templates/the_keep/partials/search_bar.html:67
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:67
+#: the_keep/models.py:170
+#: the_keep/templates/the_keep/partials/component_header.html:184
+#: the_keep/templates/the_keep/partials/post.html:84
+#: the_keep/templates/the_keep/partials/search_bar.html:68
 #: the_keep/templates/the_keep/partials/status.html:10
-#: ⁨the_keep/templates/the_keep/partials/status.html 2.py⁩:10
 msgid "Development"
 msgstr "Desarrollo"
 
-#: the_keep/models.py:157
-#: the_keep/templates/the_keep/partials/component_header.html:146
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:146
-#: the_keep/templates/the_keep/partials/post.html:72
-#: the_keep/templates/the_keep/partials/search_bar.html:68
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:68
+#: the_keep/models.py:171
+#: the_keep/templates/the_keep/partials/component_header.html:188
+#: the_keep/templates/the_keep/partials/post.html:93
+#: the_keep/templates/the_keep/partials/search_bar.html:69
 #: the_keep/templates/the_keep/partials/status.html:13
-#: ⁨the_keep/templates/the_keep/partials/status.html 2.py⁩:13
 msgid "Inactive"
 msgstr "Inactiva"
 
-#: the_keep/models.py:158
-#: the_keep/templates/the_keep/partials/component_header.html:150
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:150
-#: the_keep/templates/the_keep/partials/post.html:81
+#: the_keep/models.py:172
+#: the_keep/templates/the_keep/partials/component_header.html:192
+#: the_keep/templates/the_keep/partials/post.html:102
 #: the_keep/templates/the_keep/partials/status.html:16
-#: ⁨the_keep/templates/the_keep/partials/status.html 2.py⁩:16
 msgid "Abandoned"
 msgstr "Abandonada"
 
-#: the_keep/models.py:260 the_keep/models.py:1287
+#: the_keep/models.py:280 the_keep/models.py:1436
 #: the_keep/templates/the_keep/partials/search_bar.html:34
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:34
-#: the_warroom/templates/the_warroom/partials/effort_detail.html:14
+#: the_warroom/templates/the_warroom/partials/effort_detail.html:12
 #: the_warroom/templates/the_warroom/partials/effort_detail_button.html:14
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:79
 msgid "Clockwork"
 msgstr "Bot"
 
-#: the_keep/models.py:261 the_keep/templates/the_keep/new.html:48
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:48
-#: the_keep/templates/the_keep/partials/component_header.html:70
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:70
-#: the_keep/templates/the_keep/partials/component_title.html:17
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:17
-#: the_keep/templates/the_keep/partials/post.html:30
+#: the_keep/models.py:281 the_keep/templates/the_keep/new.html:48
+#: the_keep/templates/the_keep/partials/component_header.html:97
+#: the_keep/templates/the_keep/partials/component_title.html:20
+#: the_keep/templates/the_keep/partials/post.html:51
 #: the_keep/templates/the_keep/post_form.html:19
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:19
 msgid "House Rule"
 msgstr "Regla de la Casa"
 
-#: the_keep/models.py:1807 the_keep/templates/the_keep/asset_list.html:154
+#: the_keep/models.py:1996 the_keep/templates/the_keep/asset_list.html:82
 msgid "Icons"
 msgstr "Iconos"
 
-#: the_keep/models.py:1808 the_keep/templates/the_keep/asset_list.html:155
+#: the_keep/models.py:1997 the_keep/templates/the_keep/asset_list.html:83
 msgid "Guide"
 msgstr "Guía"
 
-#: the_keep/models.py:1818 the_keep/templates/the_keep/asset_list.html:169
+#: the_keep/models.py:1998
+msgid "Info"
+msgstr ""
+
+#: the_keep/models.py:2008 the_keep/templates/the_keep/asset_list.html:98
 msgid "Video"
 msgstr "Video"
 
+#: the_keep/models.py:2031
+#: the_keep/templates/the_keep/partials/search_bar.html:65
+msgid "Official"
+msgstr "Oficial"
+
+#: the_keep/models.py:2032
+msgid "Bot"
+msgstr "Bot"
+
+#: the_keep/models.py:2033
+msgid "Fan"
+msgstr "Fan"
+
 #: the_keep/templates/includes/footer.html:6
-#: ⁨the_keep/templates/includes/footer.html 2.py⁩:6
-#: the_keep/templates/includes/header.html:157
-#: the_keep/templates/the_keep/about.html:7
+#: the_keep/templates/includes/header.html:136
+#: the_keep/templates/the_keep/about.html:21
 msgid "About"
 msgstr "Acerca de"
 
 #: the_keep/templates/includes/footer.html:10
 #: the_keep/templates/includes/footer.html:12
-#: ⁨the_keep/templates/includes/footer.html 2.py⁩:10
-#: ⁨the_keep/templates/includes/footer.html 2.py⁩:12
 msgid "Original Art by"
 msgstr "Arte Original de"
 
 #: the_keep/templates/includes/footer.html:19
-#: ⁨the_keep/templates/includes/footer.html 2.py⁩:19
-#: the_keep/templates/includes/header.html:153
+#: the_keep/templates/includes/header.html:132
 msgid "Feedback"
 msgstr "Comentario"
 
-#: the_keep/templates/includes/header.html:19 the_keep/templates/the_keep/list.html:3
+#: the_keep/templates/includes/header.html:20
+#: the_keep/templates/the_keep/list.html:3
 msgid "Archive"
 msgstr "Archivo"
 
-#: the_keep/templates/includes/header.html:21
+#: the_keep/templates/includes/header.html:23
 msgid "Battlefield"
 msgstr "Campo de Batalla"
 
-#: the_keep/templates/includes/header.html:23
+#: the_keep/templates/includes/header.html:26
 msgid "Workshop"
 msgstr "Taller"
 
-#: the_keep/templates/includes/header.html:83
-#: the_warroom/templates/the_warroom/player_games.html:65
+#: the_keep/templates/includes/header.html:62
+#: the_warroom/templates/the_warroom/games_home.html:49
+#: the_warroom/templates/the_warroom/player_games.html:82
 msgid "My Games"
 msgstr "Mis Juegos"
 
-#: the_keep/templates/includes/header.html:101
+#: the_keep/templates/includes/header.html:80
+#: the_warroom/templates/the_warroom/score_detail.html:43
 #: the_warroom/templates/the_warroom/scorecard_list.html:64
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:64
 msgid "My Scorecards"
 msgstr "Mis cuadros de mando"
 
-#: the_keep/templates/includes/header.html:118
-#: the_keep/templates/the_keep/asset_list.html:25
+#: the_keep/templates/includes/header.html:93
+msgid "My Posts"
+msgstr "Mis Publicaciones"
+
+#: the_keep/templates/includes/header.html:97
+#: the_keep/templates/the_keep/asset_list.html:35
 msgid "New Post"
 msgstr "Nueva Publicación"
 
-#: the_keep/templates/includes/header.html:120
-#: the_keep/templates/the_keep/asset_list.html:27
+#: the_keep/templates/includes/header.html:99
+#: the_keep/templates/the_keep/asset_list.html:37
 msgid "Request Post"
 msgstr "Solicitar publicación"
 
-#: the_keep/templates/includes/header.html:124
+#: the_keep/templates/includes/header.html:103
 msgid "My Recent Posts"
 msgstr "Mis Publicaciones Recientes"
 
-#: the_keep/templates/includes/header.html:133
+#: the_keep/templates/includes/header.html:112
 msgid "Admin Site"
 msgstr "Sitio de Administración"
 
-#: the_keep/templates/includes/header.html:136
+#: the_keep/templates/includes/header.html:115
 msgid "Users"
 msgstr "Usuarias"
 
-#: the_keep/templates/includes/header.html:152
+#: the_keep/templates/includes/header.html:131
 msgid "Login"
 msgstr "Acceso"
 
 #: the_keep/templates/the_keep/asset_confirm_delete.html:13
 #: the_keep/templates/the_keep/expansion_confirm_delete.html:17
+#: the_keep/templates/the_keep/faq_confirm_delete.html:28
 #: the_keep/templates/the_keep/post_confirm_delete.html:14
 msgid "Yes, Delete"
 msgstr "Si, Eliminar"
@@ -3005,67 +2923,41 @@ msgstr "Publicar enlace al recurso"
 
 #: the_keep/templates/the_keep/asset_form.html:26
 msgid ""
-"If the link is updated, this resource will no longer be pinned. If an update is "
-"needed please contact an admin to have the resource repinned."
+"If the link is updated, this resource will no longer be pinned. If an update "
+"is needed please contact an admin to have the resource repinned."
 msgstr ""
-"Si se actualiza el enlace, este recurso dejará de estar anclado. Si se necesita "
-"una actualización, contacta con un administrador para que lo vuelva a anclar."
+"Si se actualiza el enlace, este recurso dejará de estar anclado. Si se "
+"necesita una actualización, contacta con un administrador para que lo vuelva "
+"a anclar."
 
 #: the_keep/templates/the_keep/asset_form.html:28
 msgid "Resources will be publicly posted to your profile."
 msgstr "Los recursos se publicarán públicamente en su perfil."
 
-#: the_keep/templates/the_keep/asset_list.html:8
-#: the_keep/templates/the_keep/home.html:60
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:60
+#: the_keep/templates/the_keep/asset_list.html:9
+#: the_keep/templates/the_keep/home.html:88
 msgid "The Workshop"
 msgstr "El Taller"
 
-#: the_keep/templates/the_keep/asset_list.html:9
-msgid "Assets and resources for creating Root fan content"
-msgstr ""
-
 #: the_keep/templates/the_keep/asset_list.html:10
-msgid "Assets and for creating Root fan content"
+msgid "Find assets and resources for creating Root fan content."
 msgstr ""
 
-#: the_keep/templates/the_keep/asset_list.html:38
-msgid "Shared"
-msgstr "Compartido"
+#: the_keep/templates/the_keep/asset_list.html:28
+msgid "My Resources"
+msgstr "Mis Recursos"
 
-#: the_keep/templates/the_keep/asset_list.html:46
-#: the_keep/templates/the_keep/home.html:37 the_keep/templates/the_keep/home.html:52
-#: the_keep/templates/the_keep/home.html:69
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:37
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:52
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:69
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:68
-msgid "View"
-msgstr "Ver"
-
-#: the_keep/templates/the_keep/asset_list.html:103
-msgid "No results found"
-msgstr "No se encontraron resultados"
-
-#: the_keep/templates/the_keep/asset_list.html:124
-msgid "Pinned"
-msgstr "Fijado"
-
-#: the_keep/templates/the_keep/asset_list.html:147
+#: the_keep/templates/the_keep/asset_list.html:75
 #: the_keep/templates/the_keep/partials/search_bar.html:43
 #: the_keep/templates/the_keep/partials/search_bar.html:50
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:43
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:50
 msgid "All"
 msgstr "Todos"
 
-#: the_keep/templates/the_keep/asset_list.html:162
+#: the_keep/templates/the_keep/asset_list.html:90
 msgid "All Files"
 msgstr "Todos los Archivos"
 
 #: the_keep/templates/the_keep/confirm_stable.html:7
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:7
 #, python-format
 msgid ""
 "\n"
@@ -3077,7 +2969,6 @@ msgstr ""
 "    "
 
 #: the_keep/templates/the_keep/confirm_stable.html:12
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:12
 #, python-format
 msgid ""
 "\n"
@@ -3089,53 +2980,49 @@ msgstr ""
 "    "
 
 #: the_keep/templates/the_keep/confirm_stable.html:17
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:17
 #, python-format
 msgid ""
 "\n"
-"        If you think you will make any large changes to this %(post_component)s "
-"you can always do this later.\n"
+"        If you think you will make any large changes to this "
+"%(post_component)s you can always do this later.\n"
 "    "
 msgstr ""
 "\n"
-"        Si cree que realizará cambios importantes en este %(post_component)s, "
-"siempre puede hacerlo más tarde.\n"
+"        Si cree que realizará cambios importantes en este "
+"%(post_component)s, siempre puede hacerlo más tarde.\n"
 "    "
 
 #: the_keep/templates/the_keep/confirm_stable.html:22
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:22
 #, python-format
 msgid ""
 "\n"
-"        By marking %(post_title)s as \"Stable\" you convey to other users that "
-"they can confidently use it without any large rule gaps or balance issues.\n"
+"        By marking %(post_title)s as \"Stable\" you convey to other users "
+"that they can confidently use it without any large rule gaps or balance "
+"issues.\n"
 "        Of course this does not mean that this %(post_component)s will be "
 "completely balanced. Much of the balance in Root comes from the player "
 "interaction.\n"
 "    "
 msgstr ""
 "\n"
-"        Al marcar %(post_title)s como \"Estable\", transmite a otros usuarios que "
-"pueden usarlo con confianza sin grandes lagunas en las reglas ni problemas de "
-"equilibrio.\n"
-"        Claro que esto no significa que este %(post_component)s esté completamente "
-"equilibrado. Gran parte del equilibrio en Root proviene de la interacción del "
-"jugador.\n"
+"        Al marcar %(post_title)s como \"Estable\", transmite a otros "
+"usuarios que pueden usarlo con confianza sin grandes lagunas en las reglas "
+"ni problemas de equilibrio.\n"
+"        Claro que esto no significa que este %(post_component)s esté "
+"completamente equilibrado. Gran parte del equilibrio en Root proviene de la "
+"interacción del jugador.\n"
 "    "
 
 #: the_keep/templates/the_keep/confirm_stable.html:28
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:28
 msgid "If you are ready to confirm, click \"Yes!\""
 msgstr "Si está listo para confirmar, haga clic en \"¡Sí!\""
 
 #: the_keep/templates/the_keep/confirm_stable.html:33
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:33
 #: the_keep/templates/the_keep/confirm_testing.html:18
 msgid "Yes!"
 msgstr "¡Sí!"
 
 #: the_keep/templates/the_keep/confirm_stable.html:34
-#: ⁨the_keep/templates/the_keep/confirm_stable.html 2.py⁩:34
 #: the_keep/templates/the_keep/confirm_testing.html:19
 msgid "Not yet..."
 msgstr "Aún no..."
@@ -3148,15 +3035,15 @@ msgstr "¿Listo para la prueba?"
 #, python-format
 msgid ""
 "\n"
-"        By marking %(post_title)s as \"Testing\" you convey to other users that "
-"you are testing and fine tuning this %(post_component)s, you can always undo this "
-"later.\n"
+"        By marking %(post_title)s as \"Testing\" you convey to other users "
+"that you are testing and fine tuning this %(post_component)s, you can always "
+"undo this later.\n"
 "    "
 msgstr ""
 "\n"
-"        Al marcar %(post_title)s como \"Prueba\", le transmite a otros usuarios "
-"que está probando y afinando este %(post_component)s; siempre puede deshacer esto "
-"más tarde.\n"
+"        Al marcar %(post_title)s como \"Prueba\", le transmite a otros "
+"usuarios que está probando y afinando este %(post_component)s; siempre puede "
+"deshacer esto más tarde.\n"
 "    "
 
 #: the_keep/templates/the_keep/confirm_testing.html:13
@@ -3164,110 +3051,229 @@ msgid "If you have started testing, click \"Yes!\""
 msgstr "Si ya has comenzado la prueba, haz clic en \"¡Sí!\""
 
 #: the_keep/templates/the_keep/expansion_detail.html:26
-#: the_keep/templates/the_keep/partials/component_header.html:77
-#: the_keep/templates/the_keep/partials/component_header.html:108
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:77
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:108
-#: the_keep/templates/the_keep/partials/post.html:97
+#: the_keep/templates/the_keep/partials/component_header.html:104
+#: the_keep/templates/the_keep/partials/component_header.html:141
+#: the_keep/templates/the_keep/partials/post.html:118
 msgid "by"
 msgstr "por"
 
 #: the_keep/templates/the_keep/expansion_detail.html:60
 #: the_keep/templates/the_keep/partials/universal_results.html:8
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:8
-#: the_warroom/templates/the_warroom/games_home.html:89
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:361
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:361
-#: the_warroom/templates/the_warroom/player_games.html:102
+#: the_warroom/templates/the_warroom/games_home.html:108
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:366
+#: the_warroom/templates/the_warroom/player_games.html:119
 msgid "Factions"
 msgstr "Facciones"
 
-#: the_keep/templates/the_keep/home.html:14 the_keep/templates/the_keep/home.html:15
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:14
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:15
-msgid ""
-"The {{site_title}} is a site for posting and discoverting fan-created content for "
-"the woodland war game, Root, by Leder Games"
+#: the_keep/templates/the_keep/faq.html:97
+#: the_keep/templates/the_keep/faq.html:103
+#: the_keep/templates/the_keep/partials/component_law_faq.html:24
+msgid "FAQ"
 msgstr ""
 
-#: the_keep/templates/the_keep/home.html:25
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:25
+#: the_keep/templates/the_keep/faq_confirm_delete.html:9
+msgid "Delete FAQ?"
+msgstr "¿Eliminar preguntas frecuentes?"
+
+#: the_keep/templates/the_keep/home.html:35
 #: the_keep/templates/the_keep/list.html:10
 msgid "The Archive"
 msgstr "El Archivo"
 
-#: the_keep/templates/the_keep/home.html:28
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:28
+#: the_keep/templates/the_keep/home.html:38
 msgid "Discover more ways to play Root."
 msgstr "Descubre más formas de jugar Root."
 
-#: the_keep/templates/the_keep/home.html:30
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:30
+#: the_keep/templates/the_keep/home.html:40
 msgid "Find factions, maps, and more. Made by the Root community."
 msgstr "Encuentra facciones, mapas y más. Creado por la comunidad Root."
 
-#: the_keep/templates/the_keep/home.html:45
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:45
-#: the_warroom/templates/the_warroom/games_home.html:10
+#: the_keep/templates/the_keep/home.html:47
+#: the_keep/templates/the_keep/home.html:71
+#: the_keep/templates/the_keep/home.html:97
+msgid "View"
+msgstr "Ver"
+
+#: the_keep/templates/the_keep/home.html:64
+#: the_warroom/templates/the_warroom/games_home.html:12
 msgid "The Battlefield"
 msgstr "El Campo de Batalla"
 
-#: the_keep/templates/the_keep/home.html:48
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:48
+#: the_keep/templates/the_keep/home.html:67
 msgid "Record your games of Root!"
 msgstr "¡Graba tus partidas de Root!"
 
-#: the_keep/templates/the_keep/home.html:50
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:50
+#: the_keep/templates/the_keep/home.html:69
 msgid "Track stats and compare faction matchups."
 msgstr ""
-"Realiza un seguimiento de las estadísticas y compara los enfrentamientos entre "
-"facciones."
+"Realiza un seguimiento de las estadísticas y compara los enfrentamientos "
+"entre facciones."
 
-#: the_keep/templates/the_keep/home.html:64
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:64
-msgid "Submit your fan content."
-msgstr "Envía tu contenido de fan."
-
-#: the_keep/templates/the_keep/home.html:66
-#: ⁨the_keep/templates/the_keep/home.html 2.py⁩:66
+#: the_keep/templates/the_keep/home.html:92
 msgid "Search PNP resources & templates to make your own Factions."
 msgstr "Busca recursos y plantillas de PNP para crear tus propias facciones."
 
-#: the_keep/templates/the_keep/list.html:11 the_keep/templates/the_keep/list.html:12
-msgid "Search official and fan made Root components"
+#: the_keep/templates/the_keep/home.html:95
+msgid "Submit your fan content."
+msgstr "Envía tu contenido de fan."
+
+#: the_keep/templates/the_keep/law_group_delete.html:6
+msgid "Delete Laws"
+msgstr "Eliminar Leyes"
+
+#: the_keep/templates/the_keep/law_group_delete.html:8
+#, python-format
+msgid ""
+"\n"
+"      Are you sure you want to delete all %(source_language)s laws for "
+"%(group)s? This cannot be undone, but laws in other languages will not be "
+"affected.\n"
+"    "
 msgstr ""
 
-#: the_keep/templates/the_keep/new.html:9 ⁨the_keep/templates/the_keep/new.html 2.py⁩:9
+#: the_keep/templates/the_keep/law_group_delete.html:15
+msgid "Delete All"
+msgstr "Eliminar Todo"
+
+#: the_keep/templates/the_keep/law_group_edit.html:6
+#: the_keep/templates/the_keep/law_of_root.html:148
+#: the_keep/templates/the_keep/partials/component_header.html:36
+msgid "Edit Law"
+msgstr "Editar la Ley"
+
+#: the_keep/templates/the_keep/law_group_edit.html:8
+#, python-format
+msgid ""
+"\n"
+"      These changes will affect all laws relating to %(source_group)s\n"
+"    "
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:14
+msgid "The Law of Root"
+msgstr "La Ley de Root"
+
+#: the_keep/templates/the_keep/law_of_root.html:17
+#, python-format
+msgid ""
+"\n"
+"          <meta property=\"og:description\" content=\"The strictly defined, "
+"formal rules of %(post_title)s\">\n"
+"          <meta name=\"description\" content=\"The strictly defined, formal "
+"rules of %(post_title)s\">\n"
+"      "
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:22
+msgid ""
+"The strictly defined, formal rules of Root in a concise reference style."
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:65
+#: the_keep/templates/the_keep/partials/universal_results.html:64
+msgid "Law of Root"
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:67
+msgid "Law of Root (Draft)"
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:144
+msgid "Done"
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:418
+#, python-format
+msgid ""
+"\n"
+"          No %(selected_language)s Laws Recorded for %(post_title)s\n"
+"        "
+msgstr ""
+
+#: the_keep/templates/the_keep/law_of_root.html:422
+#, python-format
+msgid ""
+"\n"
+"          No Laws Recorded for %(post_title)s\n"
+"        "
+msgstr ""
+"\n"
+"No hay leyes registradas para %(post_title)s\n"
+" "
+
+#: the_keep/templates/the_keep/law_of_root.html:430
+msgid "Add Laws"
+msgstr "Añadir Leyes"
+
+#: the_keep/templates/the_keep/law_of_root.html:436
+msgid "No Laws Recorded"
+msgstr "No hay leyes registradas"
+
+#: the_keep/templates/the_keep/law_of_root.html:438
+#, python-format
+msgid ""
+"\n"
+"            No %(selected_language)s Laws Recorded\n"
+"          "
+msgstr ""
+"\n"
+"No se han registrado %(selected_language)s leyes\n"
+" "
+
+#: the_keep/templates/the_keep/law_table.html:10
+#: the_keep/templates/the_keep/law_table.html:24
+msgid "The Laws of Root"
+msgstr "Las leyes de Root"
+
+#: the_keep/templates/the_keep/law_table.html:11
+msgid ""
+"The strictly defined rules of Root — both official and unofficial — "
+"presented in a concise reference style."
+msgstr ""
+
+#: the_keep/templates/the_keep/list.html:11
+msgid "Search official and fan made Root components."
+msgstr ""
+
+#: the_keep/templates/the_keep/new.html:9
 msgid "Post a New"
 msgstr "Publicar un Nuevo"
 
 #: the_keep/templates/the_keep/new.html:38
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:38
-#: the_keep/templates/the_keep/partials/component_title.html:19
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:19
+#: the_keep/templates/the_keep/partials/component_title.html:22
 msgid "Clockwork Faction"
 msgstr "Facción Bot"
 
 #: the_keep/templates/the_keep/new.html:53
-#: ⁨the_keep/templates/the_keep/new.html 2.py⁩:53
 msgid "Expansion"
 msgstr "Expansión"
 
-#: the_keep/templates/the_keep/partials/asset_list_table.html:34
-#: ⁨the_keep/templates/the_keep/partials/asset_list_table.html 2.py⁩:34
+#: the_keep/templates/the_keep/partials/asset_list_table.html:35
 msgid "No Pinned Resources Found"
 msgstr "No se encontraron recursos fijados"
 
-#: the_keep/templates/the_keep/partials/component_header.html:25
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:25
+#: the_keep/templates/the_keep/partials/component_header.html:24
+msgid "Add Law"
+msgstr "Añadir Ley"
+
+#: the_keep/templates/the_keep/partials/component_header.html:30
+msgid "Copy Law"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/component_header.html:43
+msgid "Edit FAQ"
+msgstr "Editar FAQ"
+
+#: the_keep/templates/the_keep/partials/component_header.html:45
+msgid "Add FAQ"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/component_header.html:52
 #: the_keep/templates/the_keep/post_form.html:8
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:8
 msgid "Edit"
 msgstr "Editar"
 
-#: the_keep/templates/the_keep/partials/component_header.html:58
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:58
+#: the_keep/templates/the_keep/partials/component_header.html:85
 #, python-format
 msgid ""
 "\n"
@@ -3278,8 +3284,7 @@ msgstr ""
 "                        Regla de la Casa %(object_animal)s\n"
 "                        "
 
-#: the_keep/templates/the_keep/partials/component_header.html:62
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:62
+#: the_keep/templates/the_keep/partials/component_header.html:89
 #, python-format
 msgid ""
 "\n"
@@ -3290,14 +3295,12 @@ msgstr ""
 "                        %(object_component)s %(object_animal)s\n"
 "                    "
 
-#: the_keep/templates/the_keep/partials/component_header.html:98
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:98
-#: the_keep/templates/the_keep/partials/post.html:100
+#: the_keep/templates/the_keep/partials/component_header.html:125
+#: the_keep/templates/the_keep/partials/post.html:121
 msgid "Art by"
 msgstr "Arte por"
 
-#: the_keep/templates/the_keep/partials/component_header.html:104
-#: ⁨the_keep/templates/the_keep/partials/component_header.html 2.py⁩:104
+#: the_keep/templates/the_keep/partials/component_header.html:137
 #, python-format
 msgid ""
 "\n"
@@ -3308,136 +3311,83 @@ msgstr ""
 "                        Basado en %(based_on_title)s\n"
 "                        "
 
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:9
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:9
+#: the_keep/templates/the_keep/partials/component_header.html:219
+msgid " Translation by"
+msgstr " Traducción por"
+
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:25
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:32
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:32
 msgid "Leaderboards"
 msgstr "Tablas de Clasificación"
 
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:9
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:9
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:25
 msgid "Leaderboard"
 msgstr "Tabla de Clasificación"
 
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:14
 #: the_keep/templates/the_keep/partials/component_leaderboard.html:30
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:14
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:30
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:46
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:28
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:43
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:92
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:107
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:28
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:43
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:92
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:107
 #: the_warroom/templates/the_warroom/partials/player_stats.html:18
 #: the_warroom/templates/the_warroom/partials/player_stats.html:29
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:18
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:29
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:151
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:166
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:226
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:241
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:151
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:166
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:226
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:241
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:153
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:168
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:229
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:244
 msgid "By Winrate"
 msgstr "Por Tasa de Ganancia"
 
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:17
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:42
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:17
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:42
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:33
+#: the_keep/templates/the_keep/partials/component_leaderboard.html:58
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:31
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:58
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:95
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:122
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:31
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:58
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:95
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:122
 #: the_warroom/templates/the_warroom/partials/player_stats.html:15
 #: the_warroom/templates/the_warroom/partials/player_stats.html:44
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:15
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:44
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:154
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:181
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:229
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:256
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:154
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:181
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:229
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:256
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:156
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:184
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:232
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:259
 msgid "By Games Won"
 msgstr "Por Juegos Ganados"
 
-#: the_keep/templates/the_keep/partials/component_leaderboard.html:68
-#: ⁨the_keep/templates/the_keep/partials/component_leaderboard.html 2.py⁩:68
-#: the_warroom/templates/the_warroom/game_detail_page.html:36
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:36
-#: the_warroom/templates/the_warroom/in_progress.html:48
-#: the_warroom/templates/the_warroom/partials/game_detail.html:18
-#: the_warroom/templates/the_warroom/partials/game_detail.html:31
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:18
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:31
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:18
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:31
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:18
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:31
-#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:14
-#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:27
-#: the_warroom/templates/the_warroom/record_scores.html:59
-#: the_warroom/templates/the_warroom/record_scores.html:66
-msgid "Game"
-msgstr "Juego"
-
 #: the_keep/templates/the_keep/partials/component_title.html:5
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:5
 msgid "Clearing Map"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/component_title.html:14
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:14
+#: the_keep/templates/the_keep/partials/component_title.html:17
 #: the_keep/templates/the_keep/partials/search_bar.html:48
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:48
 msgid "Reach"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/component_title.html:22
-#: ⁨the_keep/templates/the_keep/partials/component_title.html 2.py⁩:22
+#: the_keep/templates/the_keep/partials/component_title.html:25
 msgid "Card Deck"
 msgstr "Cartas por Baraja"
 
 #: the_keep/templates/the_keep/partials/faction_attributes.html:7
-#: ⁨the_keep/templates/the_keep/partials/faction_attributes.html 2.py⁩:7
 msgid "Complexity"
 msgstr "Complejidad"
 
 #: the_keep/templates/the_keep/partials/faction_attributes.html:15
-#: ⁨the_keep/templates/the_keep/partials/faction_attributes.html 2.py⁩:15
 msgid "Aggression"
 msgstr "Agresividad"
 
 #: the_keep/templates/the_keep/partials/faction_attributes.html:25
-#: ⁨the_keep/templates/the_keep/partials/faction_attributes.html 2.py⁩:25
 msgid "Card Wealth"
 msgstr "Abundancia de Cartas"
 
 #: the_keep/templates/the_keep/partials/faction_attributes.html:33
-#: ⁨the_keep/templates/the_keep/partials/faction_attributes.html 2.py⁩:33
 msgid "Crafting Ability"
 msgstr "Capacidad de Fabricación"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:8
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:8
 msgid "Points Breakdown"
 msgstr "Desglose de Puntos"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:12
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:12
 #, python-format
 msgid ""
 "\n"
@@ -3446,207 +3396,222 @@ msgid ""
 "                        "
 msgstr ""
 "\n"
-"                        Las categorías de puntos para esta facción se basan en "
-"%(detail_scorecard_count)s tarjetas de puntuación enviadas por los usuarios.\n"
+"                        Las categorías de puntos para esta facción se basan "
+"en %(detail_scorecard_count)s tarjetas de puntuación enviadas por los "
+"usuarios.\n"
 "                        "
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:16
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:16
-msgid "Point categories for this faction are based on 1 user submitted scorecard."
+msgid ""
+"Point categories for this faction are based on 1 user submitted scorecard."
 msgstr ""
-"Las categorías de puntos para esta facción se basan en la tarjeta de puntuación "
-"enviada por 1 usuario."
+"Las categorías de puntos para esta facción se basan en la tarjeta de "
+"puntuación enviada por 1 usuario."
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:18
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:18
 msgid ""
 "Faction points are scored with faction abilities, crafting points are from "
-"crafting items, battle points are from removing cardboard in battle, other points "
-"are anything else."
+"crafting items, battle points are from removing cardboard in battle, other "
+"points are anything else."
 msgstr ""
-"Los puntos de facción se obtienen con las habilidades de facción, los puntos de "
-"elaboración se obtienen al elaborar objetos, los puntos de batalla se obtienen al "
-"quitar cartón en la batalla y los demás puntos son cualquier otra cosa."
+"Los puntos de facción se obtienen con las habilidades de facción, los puntos "
+"de elaboración se obtienen al elaborar objetos, los puntos de batalla se "
+"obtienen al quitar cartón en la batalla y los demás puntos son cualquier "
+"otra cosa."
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:36
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:36
 msgid "Chart based on:"
 msgstr "Gráfico basado en:"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:167
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:167
 msgid "Plays"
 msgstr "Juegos"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:168
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:168
 msgid "Insurgent Plays"
 msgstr "Juegos de insurgentes"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:169
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:169
 msgid "Militant Plays"
 msgstr "Juegos de militantes"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:170
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:170
 msgid "Total Plays"
 msgstr "Total de Jugadas"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:176
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:176
 msgid "Average"
 msgstr "Promedio"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:203
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:203
 msgid "Insurgent Factions"
 msgstr "Facciones insurgentes"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:212
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:212
 msgid "Militant Factions"
 msgstr "Facciones militantes"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:221
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:221
 msgid "All Factions"
 msgstr "Todas las facciones"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:238
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:238
-#: the_warroom/templates/the_warroom/score_detail.html:218
+#: the_warroom/templates/the_warroom/score_detail.html:226
 msgid "Turn Number"
 msgstr "Número de turno"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:249
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:249
-#: the_warroom/templates/the_warroom/score_detail.html:229
+#: the_warroom/templates/the_warroom/score_detail.html:237
 msgid "Game Points"
 msgstr "Puntos de juego"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:273
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:273
 #: the_warroom/templates/the_warroom/partials/scorecard.html:8
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:8
 #: the_warroom/templates/the_warroom/record_scores.html:100
-#: the_warroom/templates/the_warroom/score_detail.html:251
+#: the_warroom/templates/the_warroom/score_detail.html:259
 msgid "Faction Points"
 msgstr "Puntos de Facción"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:274
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:274
 #: the_warroom/templates/the_warroom/partials/scorecard.html:9
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:9
 #: the_warroom/templates/the_warroom/record_scores.html:101
-#: the_warroom/templates/the_warroom/score_detail.html:252
+#: the_warroom/templates/the_warroom/score_detail.html:260
 msgid "Crafting Points"
 msgstr "Puntos de Fabricación"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:275
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:275
 #: the_warroom/templates/the_warroom/partials/scorecard.html:10
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:10
 #: the_warroom/templates/the_warroom/record_scores.html:102
-#: the_warroom/templates/the_warroom/score_detail.html:253
+#: the_warroom/templates/the_warroom/score_detail.html:261
 msgid "Battle Points"
 msgstr "Puntos de Batalla"
 
 #: the_keep/templates/the_keep/partials/faction_stats.html:276
-#: ⁨the_keep/templates/the_keep/partials/faction_stats.html 2.py⁩:276
 #: the_warroom/templates/the_warroom/partials/scorecard.html:11
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:11
 #: the_warroom/templates/the_warroom/record_scores.html:103
-#: the_warroom/templates/the_warroom/score_detail.html:254
+#: the_warroom/templates/the_warroom/score_detail.html:262
 msgid "Other Points"
 msgstr "Otras Puntos"
 
+#: the_keep/templates/the_keep/partials/faq_list.html:31
+#, python-format
+msgid ""
+"\n"
+"          No %(selected_language)s FAQs available.\n"
+"          "
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/faq_list.html:36
+msgid "No FAQs available."
+msgstr ""
+
 #: the_keep/templates/the_keep/partials/game_stats.html:11
 #: the_keep/templates/the_keep/partials/game_stats.html:23
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:11
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:23
 msgid "Recorded Games"
 msgstr "Juegos Grabados"
 
 #: the_keep/templates/the_keep/partials/game_stats.html:13
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:13
 msgid "Filtered Games"
 msgstr "Juegos Filtrados"
 
 #: the_keep/templates/the_keep/partials/game_stats.html:19
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:19
 msgid "Recorded Wins"
 msgstr "Victorias Registradas"
 
 #: the_keep/templates/the_keep/partials/game_stats.html:21
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:21
 msgid "Points (1/2 for Coalition Wins)"
 msgstr "Puntos (1/2 por Victorias de Coalición)"
 
 #: the_keep/templates/the_keep/partials/game_stats.html:24
-#: ⁨the_keep/templates/the_keep/partials/game_stats.html 2.py⁩:24
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:7
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:7
 msgid "Total Games"
 msgstr "Juegos Totales"
 
-#: the_keep/templates/the_keep/partials/links.html:7
+#: the_keep/templates/the_keep/partials/law_table.html:4
+msgid "Table of Contents"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/law_table.html:32
+#, python-format
+msgid ""
+"\n"
+"                No %(selected_language)s laws available.\n"
+"            "
+msgstr ""
+"\n"
+"No hay %(selected_language)s leyes disponibles.\n"
+" "
+
+#: the_keep/templates/the_keep/partials/law_table.html:38
+#, python-format
+msgid ""
+"\n"
+"                No laws matching \"%(query)s\".\n"
+"            "
+msgstr ""
+"\n"
+"No hay leyes que coincidan con \"%(query)s”.\n"
+" "
+
+#: the_keep/templates/the_keep/partials/links.html:8
 msgid "Links"
 msgstr "Enlaces"
 
-#: the_keep/templates/the_keep/partials/links.html:7
+#: the_keep/templates/the_keep/partials/links.html:8
 #: the_warroom/templates/the_warroom/assign_effort.html:37
 msgid "Link"
 msgstr "Enlace"
 
-#: the_keep/templates/the_keep/partials/links.html:12
+#: the_keep/templates/the_keep/partials/links.html:13
 msgid "Find at Leder Games"
 msgstr "Encuéntralo en Leder Games"
 
-#: the_keep/templates/the_keep/partials/links.html:18
+#: the_keep/templates/the_keep/partials/links.html:19
 msgid "Board Game Geek Post"
 msgstr "Publicación Board Game Geek"
 
-#: the_keep/templates/the_keep/partials/links.html:24
+#: the_keep/templates/the_keep/partials/links.html:25
 msgid "Tabletop Simulator"
 msgstr ""
 
-#: the_keep/templates/the_keep/partials/links.html:30
+#: the_keep/templates/the_keep/partials/links.html:31
 msgid "Woodland Warriors Thread"
 msgstr "Hilo Woodland Warriors"
 
-#: the_keep/templates/the_keep/partials/links.html:39
+#: the_keep/templates/the_keep/partials/links.html:40
 msgid "Weird Root Thread"
 msgstr "Hilo Weird Root"
 
-#: the_keep/templates/the_keep/partials/links.html:44
+#: the_keep/templates/the_keep/partials/links.html:45
 msgid "Request Invite to WR"
 msgstr "Solicitar una Invitación a WR"
 
-#: the_keep/templates/the_keep/partials/links.html:49
+#: the_keep/templates/the_keep/partials/links.html:50
 msgid "Join on Discord for Link"
 msgstr "Únete al Discord para obtener el enlace"
 
-#: the_keep/templates/the_keep/partials/links.html:55
+#: the_keep/templates/the_keep/partials/links.html:56
 msgid "Log In for Link"
 msgstr "Inicie Sesión para Obtener el Enlace"
 
-#: the_keep/templates/the_keep/partials/links.html:64
+#: the_keep/templates/the_keep/partials/links.html:65
 msgid "French Root Thread"
 msgstr "Hilo Root Francesa"
 
-#: the_keep/templates/the_keep/partials/links.html:71
+#: the_keep/templates/the_keep/partials/links.html:72
 msgid "Print & Play Files"
 msgstr "Archivos para Imprimir y Jugar"
 
-#: the_keep/templates/the_keep/partials/links.html:77
+#: the_keep/templates/the_keep/partials/links.html:78
 msgid "STL Files"
 msgstr "Archivos STL"
 
+#: the_keep/templates/the_keep/partials/links.html:84
+msgid "RootJam Page"
+msgstr ""
+
 #: the_keep/templates/the_keep/partials/piece_add.html:15
-#: ⁨the_keep/templates/the_keep/partials/piece_add.html 2.py⁩:15
 #: the_keep/templates/the_keep/partials/piece_update.html:13
-#: ⁨the_keep/templates/the_keep/partials/piece_update.html 2.py⁩:13
 msgid "Choose Icon"
 msgstr "Elija el Icono"
 
@@ -3654,44 +3619,44 @@ msgstr "Elija el Icono"
 msgid "Edit Components"
 msgstr "Editar Componentes"
 
-#: the_keep/templates/the_keep/partials/pieces.html:16
+#: the_keep/templates/the_keep/partials/pieces.html:20
 msgid "Component Manifest"
 msgstr "Componentes"
 
-#: the_keep/templates/the_keep/partials/pieces.html:23
+#: the_keep/templates/the_keep/partials/pieces.html:30
 msgid "Warriors"
 msgstr "Guerreros"
 
-#: the_keep/templates/the_keep/partials/pieces.html:43
+#: the_keep/templates/the_keep/partials/pieces.html:50
 msgid "Buildings"
 msgstr "Edificios"
 
-#: the_keep/templates/the_keep/partials/pieces.html:63
+#: the_keep/templates/the_keep/partials/pieces.html:70
 msgid "Tokens"
 msgstr "Fichas"
 
-#: the_keep/templates/the_keep/partials/pieces.html:83
-#: the_keep/templates/the_keep/partials/pieces.html:92
+#: the_keep/templates/the_keep/partials/pieces.html:90
+#: the_keep/templates/the_keep/partials/pieces.html:99
 msgid "Cards"
 msgstr "Cartas"
 
-#: the_keep/templates/the_keep/partials/pieces.html:99
+#: the_keep/templates/the_keep/partials/pieces.html:106
 msgid "Edit Cards"
 msgstr "Editar Tarjetas"
 
-#: the_keep/templates/the_keep/partials/pieces.html:124
+#: the_keep/templates/the_keep/partials/pieces.html:130
 msgid "Other Pieces"
 msgstr "Otras Piezas"
 
-#: the_keep/templates/the_keep/partials/pieces.html:130
+#: the_keep/templates/the_keep/partials/pieces.html:136
 msgid "Relationship Markers"
 msgstr "Fichas de Relación"
 
-#: the_keep/templates/the_keep/partials/pieces.html:152
+#: the_keep/templates/the_keep/partials/pieces.html:158
 msgid "Save All"
 msgstr "Guardar Todo"
 
-#: the_keep/templates/the_keep/partials/post.html:25
+#: the_keep/templates/the_keep/partials/post.html:46
 #, python-format
 msgid ""
 "\n"
@@ -3702,7 +3667,7 @@ msgstr ""
 "                            %(component)s Oficial\n"
 "                        "
 
-#: the_keep/templates/the_keep/partials/post.html:32
+#: the_keep/templates/the_keep/partials/post.html:53
 #, python-format
 msgid ""
 "\n"
@@ -3713,8 +3678,7 @@ msgstr ""
 "                            %(component)s Hecho por Fan\n"
 "                        "
 
-#: the_keep/templates/the_keep/partials/post_snippet_medium.html:30
-#: ⁨the_keep/templates/the_keep/partials/post_snippet_medium.html 2.py⁩:30
+#: the_keep/templates/the_keep/partials/post_snippet_medium.html:34
 #, python-format
 msgid ""
 "\n"
@@ -3725,8 +3689,7 @@ msgstr ""
 "                            %(result_component)s Oficial\n"
 "                        "
 
-#: the_keep/templates/the_keep/partials/post_snippet_medium.html:34
-#: ⁨the_keep/templates/the_keep/partials/post_snippet_medium.html 2.py⁩:34
+#: the_keep/templates/the_keep/partials/post_snippet_medium.html:38
 #, python-format
 msgid ""
 "\n"
@@ -3737,8 +3700,7 @@ msgstr ""
 "                            %(result_component)s Hecho por Fan\n"
 "                        "
 
-#: the_keep/templates/the_keep/partials/post_snippet_medium.html:40
-#: ⁨the_keep/templates/the_keep/partials/post_snippet_medium.html 2.py⁩:40
+#: the_keep/templates/the_keep/partials/post_snippet_medium.html:44
 #, python-format
 msgid ""
 "\n"
@@ -3750,141 +3712,125 @@ msgstr ""
 "                        "
 
 #: the_keep/templates/the_keep/partials/related_posts.html:5
-#: ⁨the_keep/templates/the_keep/partials/related_posts.html 2.py⁩:5
 msgid "Related"
 msgstr "Relacionados"
 
 #: the_keep/templates/the_keep/partials/search_bar.html:11
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:11
 msgid "Search by Name or Animal..."
 msgstr "Buscar por Nombre o Animal..."
 
 #: the_keep/templates/the_keep/partials/search_bar.html:16
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:16
 #: the_keep/templates/the_keep/partials/search_scripts.html:13
 msgid "Select Designer"
 msgstr "Selecciona un Diseñador"
 
 #: the_keep/templates/the_keep/partials/search_bar.html:27
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:27
 msgid "All Components"
 msgstr "Todos los Componentes"
 
 #: the_keep/templates/the_keep/partials/search_bar.html:35
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:35
 #: the_keep/templates/the_keep/partials/universal_results.html:50
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:50
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:460
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:460
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:465
 msgid "House Rules"
 msgstr "Reglas de la Casa"
 
 #: the_keep/templates/the_keep/partials/search_bar.html:41
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:41
 msgid "Faction Type"
 msgstr "Tipo de Facción"
 
 #: the_keep/templates/the_keep/partials/search_bar.html:64
-#: ⁨the_keep/templates/the_keep/partials/search_bar.html 2.py⁩:64
 msgid "Status (All)"
 msgstr "Estado (Todos)"
+
+#: the_keep/templates/the_keep/partials/search_bar.html:73
+msgid "Select Language"
+msgstr "Seleccionar Idioma"
+
+#: the_keep/templates/the_keep/partials/search_bar.html:82
+msgid "Select Expansion"
+msgstr "Seleccionar Expansión"
 
 #: the_keep/templates/the_keep/partials/search_results.html:39
 msgid "No Results"
 msgstr "Sin Resultados"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:4
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:4
 msgid "No results found for"
 msgstr "No se encontraron resultados para"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:15
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:15
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:381
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:381
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:386
 msgid "Decks"
 msgstr "Barajas"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:22
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:22
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:401
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:401
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:406
 msgid "Maps"
 msgstr "Mapas"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:29
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:29
-#: the_warroom/templates/the_warroom/games_home.html:91
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:420
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:420
-#: the_warroom/templates/the_warroom/player_games.html:104
+#: the_warroom/templates/the_warroom/games_home.html:110
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:425
+#: the_warroom/templates/the_warroom/player_games.html:121
 msgid "Vagabonds"
 msgstr "Vagabundos"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:36
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:36
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:433
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:433
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:438
 msgid "Landmarks"
 msgstr "Lugares Míticos"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:43
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:43
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:447
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:447
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:452
 msgid "Hirelings"
 msgstr "Secuaces"
 
 #: the_keep/templates/the_keep/partials/universal_results.html:57
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:57
 msgid "Expansions"
 msgstr "Expansiones"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:68
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:68
-#: the_warroom/templates/the_warroom/game_detail_page.html:112
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:112
-#: the_warroom/templates/the_warroom/score_detail.html:82
+#: the_keep/templates/the_keep/partials/universal_results.html:71
+msgid "Law of Rootbotics"
+msgstr ""
+
+#: the_keep/templates/the_keep/partials/universal_results.html:78
+msgid "Fan Content Law"
+msgstr "Ley de Contenido de Fan"
+
+#: the_keep/templates/the_keep/partials/universal_results.html:90
+#: the_warroom/templates/the_warroom/game_detail_page.html:132
+#: the_warroom/templates/the_warroom/score_detail.html:90
 msgid "Recorded by"
 msgstr "Grabado por"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:75
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:75
-#: the_warroom/templates/the_warroom/games_home.html:27
+#: the_keep/templates/the_keep/partials/universal_results.html:97
+#: the_warroom/templates/the_warroom/games_home.html:34
 msgid "Series"
 msgstr "Serie"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:93
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:93
+#: the_keep/templates/the_keep/partials/universal_results.html:115
 #: the_warroom/templates/the_warroom/in_progress.html:36
-#: the_warroom/templates/the_warroom/score_detail.html:10
 #: the_warroom/templates/the_warroom/scorecard_list.html:15
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:15
 msgid "Scorecards"
 msgstr "Tanteadores"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:104
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:104
+#: the_keep/templates/the_keep/partials/universal_results.html:126
 msgid "Profiles"
 msgstr "Perfiles"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:129
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:129
+#: the_keep/templates/the_keep/partials/universal_results.html:155
 msgid "Pieces"
 msgstr "Piezas"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:138
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:138
+#: the_keep/templates/the_keep/partials/universal_results.html:164
 msgid "Translations"
 msgstr "Traducciones"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:148
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:148
+#: the_keep/templates/the_keep/partials/universal_results.html:174
 msgid "Color Match"
 msgstr "Colores Similares"
 
-#: the_keep/templates/the_keep/partials/universal_results.html:153
-#: ⁨the_keep/templates/the_keep/partials/universal_results.html 2.py⁩:153
+#: the_keep/templates/the_keep/partials/universal_results.html:179
 msgid "Components"
 msgstr "Componentes"
 
@@ -3892,7 +3838,7 @@ msgstr "Componentes"
 msgid "Find..."
 msgstr "Encontrar..."
 
-#: the_keep/templates/the_keep/partials/vagabond_ability.html:4
+#: the_keep/templates/the_keep/partials/vagabond_ability.html:5
 msgid "Ability"
 msgstr "Habilidad"
 
@@ -3960,31 +3906,22 @@ msgstr "Ballestas"
 msgid "Edit Items"
 msgstr "Editar Objectos"
 
-#: the_keep/templates/the_keep/post_detail.html:41
-#: ⁨the_keep/templates/the_keep/post_detail.html 2.py⁩:41
+#: the_keep/templates/the_keep/post_detail.html:50
 #: the_keep/templates/the_keep/post_games.html:29
-#: the_keep/templates/the_keep/status_check.html:246
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:246
-#: the_warroom/templates/the_warroom/game_detail_page.html:174
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:174
+#: the_keep/templates/the_keep/status_check.html:309
+#: the_warroom/templates/the_warroom/game_detail_page.html:194
 msgid "Is something missing or incorrect?"
 msgstr "¿Falta algo o está mal?"
 
-#: the_keep/templates/the_keep/post_detail.html:49
-#: ⁨the_keep/templates/the_keep/post_detail.html 2.py⁩:49
-msgid "Translation by"
-msgstr "Traducción por"
-
 #: the_keep/templates/the_keep/post_form.html:6
-#: ⁨the_keep/templates/the_keep/post_form.html 2.py⁩:6
 msgid "New"
 msgstr "Nuevo"
 
 #: the_keep/templates/the_keep/post_games.html:39
 #: the_keep/templates/the_keep/post_games.html:43
 #: the_keep/templates/the_keep/post_games.html:47
-#: the_warroom/templates/the_warroom/games_home.html:121
-#: the_warroom/templates/the_warroom/player_games.html:134
+#: the_warroom/templates/the_warroom/games_home.html:150
+#: the_warroom/templates/the_warroom/player_games.html:153
 msgid "Select an option"
 msgstr "Seleccione una opción"
 
@@ -3993,8 +3930,7 @@ msgid "Available Translations"
 msgstr "Traducciones disponibles"
 
 #: the_keep/templates/the_keep/post_translations.html:41
-#: the_warroom/templates/the_warroom/game_detail_page.html:162
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:162
+#: the_warroom/templates/the_warroom/game_detail_page.html:182
 msgid "Update"
 msgstr "Actualizar"
 
@@ -4006,35 +3942,32 @@ msgstr "Nueva traducción"
 msgid "Is an existing translation missing?"
 msgstr "¿Falta una traducción existente?"
 
-#: the_keep/templates/the_keep/resource_detail.html:29
+#: the_keep/templates/the_keep/resource_detail.html:33
 msgid "Resource"
 msgstr "Recurso"
 
-#: the_keep/templates/the_keep/resource_detail.html:32
+#: the_keep/templates/the_keep/resource_detail.html:36
 msgid "Type"
 msgstr "Tipo"
 
-#: the_keep/templates/the_keep/resource_detail.html:39
+#: the_keep/templates/the_keep/resource_detail.html:43
 msgid "Shared by"
 msgstr "Compartido por"
 
 #: the_keep/templates/the_keep/status_check.html:10
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:10
 msgid "Status"
 msgstr "Estado"
 
 #: the_keep/templates/the_keep/status_check.html:25
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:25
-msgid "Progress"
-msgstr "Progreso"
+msgid "Recorded Progress"
+msgstr "Progreso Registrado"
 
 #: the_keep/templates/the_keep/status_check.html:37
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:37
 #, python-format
 msgid ""
 "\n"
-"            This %(object_component)s has been abandoned by the designer and no "
-"further development is planned.\n"
+"            This %(object_component)s has been abandoned by the designer and "
+"no further development is planned.\n"
 "        "
 msgstr ""
 "\n"
@@ -4043,126 +3976,165 @@ msgstr ""
 "         "
 
 #: the_keep/templates/the_keep/status_check.html:41
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:41
 #, python-format
 msgid ""
 "\n"
-"            This %(object_component)s is not currently being worked on and is "
-"considered inactive.<br>\n"
+"            This %(object_component)s is not currently being worked on and "
+"is considered inactive.<br>\n"
 "            The designer, if they choose, can make this %(object_component)s "
 "active again.\n"
 "        "
 msgstr ""
 "\n"
-"No se está trabajando en este %(object_component)s y se considera inactivo.<br>\n"
+"No se está trabajando en este %(object_component)s y se considera inactivo."
+"<br>\n"
 "El diseñador, si lo desea, puede reactivar este %(object_component)s.\n"
 "        "
 
 #: the_keep/templates/the_keep/status_check.html:46
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:46
 #, python-format
 msgid ""
 "\n"
-"            This %(object_component)s is still in the design stage, potentially "
-"undergoing major changes before being considered stable.<br>\n"
-"            Once a game has been recorded the designer can choose the \"Testing\" "
-"status.\n"
+"            This %(object_component)s is still in the design stage, "
+"potentially undergoing major changes before being considered stable.<br>\n"
 "        "
 msgstr ""
 "\n"
-"            Este %(object_component)s aún se encuentra en fase de diseño y podría "
-"experimentar cambios importantes antes de considerarse estable.<br>\n"
-"            Una vez grabado un juego, el diseñador puede elegir el estado \"En "
-"prueba”.\n"
-"         "
+"Este %(object_component)s aún se encuentra en la etapa de diseño y podría "
+"sufrir cambios importantes antes de considerarse estable.<br>\n"
+" "
 
-#: the_keep/templates/the_keep/status_check.html:51
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:51
-#, python-format
+#: the_keep/templates/the_keep/status_check.html:50
 msgid ""
-"\n"
-"            This %(object_component)s is being tested. It has reached a playable "
-"state but changes and fine tuning may be necessary before it is stable.<br>\n"
-"        "
+"Once a game has been recorded, the designer can select the \"Testing\" "
+"status."
 msgstr ""
-"\n"
-"            Este %(object_component)s se encuentra en fase de prueba. Ya es "
-"jugable, pero podrían ser necesarios cambios y ajustes para que sea estable.<br>\n"
-"        "
 
-#: the_keep/templates/the_keep/status_check.html:55
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:55
+#: the_keep/templates/the_keep/status_check.html:52
+msgid "Once they are ready, the designer can select the \"Testing\" status."
+msgstr ""
+
+#: the_keep/templates/the_keep/status_check.html:57
 #, python-format
 msgid ""
 "\n"
-"            This %(object_component)s is considered stable and no major changes "
-"are expected.\n"
-"        "
+"                This %(object_component)s is being tested. It has met all "
+"required metrics, but changes and fine tuning may be necessary before it is "
+"stable. Once they are ready, the designer can select the \"Stable\" status."
+"<br>\n"
+"            "
 msgstr ""
 "\n"
-"            Este %(object_component)s se considera estable y no se esperan cambios "
-"importantes.\n"
-"        "
+"Este %(object_component)s se está probando. Cumple con todas las métricas "
+"requeridas, pero podrían ser necesarios cambios y ajustes antes de que sea "
+"estable. Una vez listo, el diseñador puede seleccionar el estado "
+"\"Estable”.\n"
+" "
+
+#: the_keep/templates/the_keep/status_check.html:61
+#, python-format
+msgid ""
+"\n"
+"                This %(object_component)s is being tested. It has reached a "
+"playable state, but changes and fine tuning may be necessary before it is "
+"stable.<br>\n"
+"            "
+msgstr ""
+"\n"
+"Este %(object_component)s se está probando. Ya es jugable, pero podrían ser "
+"necesarios cambios y ajustes para que sea estable.\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:66
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:66
+#, python-format
+msgid ""
+"\n"
+"            This %(object_component)s is considered stable and no major "
+"changes are expected.\n"
+"        "
+msgstr ""
+"\n"
+"            Este %(object_component)s se considera estable y no se esperan "
+"cambios importantes.\n"
+"        "
+
+#: the_keep/templates/the_keep/status_check.html:82
+#, python-format
+msgid ""
+"\n"
+"                        View %(play_count)s Games\n"
+"                        "
+msgstr ""
+"\n"
+"                        Ver %(play_count)s Juegos\n"
+"                        "
+
+#: the_keep/templates/the_keep/status_check.html:86
+#, python-format
+msgid ""
+"\n"
+"                        View %(play_count)s Game\n"
+"                        "
+msgstr ""
+"\n"
+"                        Ver %(play_count)s Juego\n"
+"                        "
+
+#: the_keep/templates/the_keep/status_check.html:98
+msgid "No Games Recorded"
+msgstr "No hay juegos grabados"
+
+#: the_keep/templates/the_keep/status_check.html:106
 msgid "Recorded Stats"
 msgstr "Estadísticas Registradas"
 
-#: the_keep/templates/the_keep/status_check.html:80
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:80
+#: the_keep/templates/the_keep/status_check.html:120
 msgid "Unique Players"
 msgstr "Jugadores Únicos"
 
-#: the_keep/templates/the_keep/status_check.html:90
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:90
+#: the_keep/templates/the_keep/status_check.html:130
 msgid "Wins"
 msgstr "Victorias"
 
-#: the_keep/templates/the_keep/status_check.html:96
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:96
+#: the_keep/templates/the_keep/status_check.html:136
 msgid "Losses"
 msgstr "Perdidas"
 
-#: the_keep/templates/the_keep/status_check.html:108
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:108
+#: the_keep/templates/the_keep/status_check.html:148
 msgid "Official Factions"
 msgstr "Facciones Oficiales"
 
-#: the_keep/templates/the_keep/status_check.html:115
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:115
+#: the_keep/templates/the_keep/status_check.html:173
 msgid "Official Maps"
 msgstr "Mapas Oficiales"
 
-#: the_keep/templates/the_keep/status_check.html:123
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:123
+#: the_keep/templates/the_keep/status_check.html:197
 msgid "Official Decks"
 msgstr "Barajas Oficiales"
 
-#: the_keep/templates/the_keep/status_check.html:140
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:140
+#: the_keep/templates/the_keep/status_check.html:233
 msgid "Stability"
 msgstr "Estabilidad"
 
-#: the_keep/templates/the_keep/status_check.html:141
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:141
+#: the_keep/templates/the_keep/status_check.html:234
 #, python-format
 msgid ""
 "\n"
-"                There are two ways to mark this %(object_component)s as Stable:\n"
+"                There are two ways to mark this %(object_component)s as "
+"Stable:\n"
 "            "
 msgstr ""
 "\n"
-"                Hay dos formas de marcar este %(object_component)s como estable:\n"
+"                Hay dos formas de marcar este %(object_component)s como "
+"estable:\n"
 "            "
 
-#: the_keep/templates/the_keep/status_check.html:146
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:146
+#: the_keep/templates/the_keep/status_check.html:239
 #, python-format
 msgid ""
 "\n"
-"                    If this %(object_component)s has a Stable Weird Root thread "
-"you can request to have the status changed.\n"
+"                    If this %(object_component)s has a Stable Weird Root "
+"thread you can request to have the status changed.\n"
 "                "
 msgstr ""
 "\n"
@@ -4170,27 +4142,24 @@ msgstr ""
 "estable, puede solicitar que se cambie el estado.\n"
 "                "
 
-#: the_keep/templates/the_keep/status_check.html:152
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:152
+#: the_keep/templates/the_keep/status_check.html:245
 #, python-format
 msgid ""
 "\n"
-"                    The designer can mark this %(object_component)s as stable once "
-"these requirements have been met:\n"
+"                    The designer can mark this %(object_component)s as "
+"stable once these requirements have been met:\n"
 "                "
 msgstr ""
 "\n"
-"                    El diseñador puede marcar %(object_component)s como estable "
-"una vez que se cumplan estos requisitos:\n"
+"                    El diseñador puede marcar %(object_component)s como "
+"estable una vez que se cumplan estos requisitos:\n"
 "                "
 
-#: the_keep/templates/the_keep/status_check.html:160
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:160
+#: the_keep/templates/the_keep/status_check.html:253
 msgid "At Least 1 Win and 1 Loss against other players"
 msgstr "Al menos 1 victoria y 1 derrota contra otros jugadores"
 
-#: the_keep/templates/the_keep/status_check.html:164
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:164
+#: the_keep/templates/the_keep/status_check.html:257
 #, python-format
 msgid ""
 "\n"
@@ -4201,8 +4170,7 @@ msgstr ""
 "                    %(play_threshold)s juegos grabados\n"
 "                    "
 
-#: the_keep/templates/the_keep/status_check.html:169
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:169
+#: the_keep/templates/the_keep/status_check.html:262
 #, python-format
 msgid ""
 "\n"
@@ -4213,22 +4181,20 @@ msgstr ""
 "                    Con %(player_threshold)s Jugadores únicos\n"
 "                    "
 
-#: the_keep/templates/the_keep/status_check.html:176
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:176
+#: the_keep/templates/the_keep/status_check.html:269
 #, python-format
 msgid ""
 "\n"
-"                            Against the %(official_faction_threshold)s Official "
-"Factions \n"
+"                            Against the %(official_faction_threshold)s "
+"Official Factions \n"
 "                        "
 msgstr ""
 "\n"
-"                            Contra las %(official_faction_threshold)s facciones "
-"oficiales\n"
+"                            Contra las %(official_faction_threshold)s "
+"facciones oficiales\n"
 "                        "
 
-#: the_keep/templates/the_keep/status_check.html:180
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:180
+#: the_keep/templates/the_keep/status_check.html:273
 #, python-format
 msgid ""
 "\n"
@@ -4241,8 +4207,7 @@ msgstr ""
 "oficiales\n"
 "                        "
 
-#: the_keep/templates/the_keep/status_check.html:187
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:187
+#: the_keep/templates/the_keep/status_check.html:280
 #, python-format
 msgid ""
 "\n"
@@ -4253,8 +4218,7 @@ msgstr ""
 "                    En los %(official_map_threshold)s mapas oficiales\n"
 "                    "
 
-#: the_keep/templates/the_keep/status_check.html:194
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:194
+#: the_keep/templates/the_keep/status_check.html:287
 #, python-format
 msgid ""
 "\n"
@@ -4265,84 +4229,82 @@ msgstr ""
 "                    Con %(official_deck_threshold)s de los Decks Oficiales\n"
 "                    "
 
-#: the_keep/templates/the_keep/status_check.html:201
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:201
+#: the_keep/templates/the_keep/status_check.html:294
 #, python-format
 msgid ""
 "\n"
 "            Meeting these requirements does not necessarily mean that a "
-"%(object_component)s is considered Stable. For example, a %(object_component)s "
-"might undergo major changes halfway through playtesting, and as a result, more "
-"than 10 games may be necessary before the designer is ready to mark the "
-"%(object_component)s as 'Stable.'\n"
+"%(object_component)s is considered Stable. For example, a "
+"%(object_component)s might undergo major changes halfway through "
+"playtesting, and as a result, more than 10 games may be necessary before the "
+"designer is ready to mark the %(object_component)s as \"Stable\".\n"
 "            "
 msgstr ""
 "\n"
-"      Cumplir estos requisitos no significa necesariamente que un "
-"%(object_component)s se considere estable. Por ejemplo, un %(object_component)s "
-"podría sufrir cambios importantes a mitad de las pruebas de juego y, como "
-"resultado, podrían necesitarse más de 10 partidas antes de que el diseñador esté "
-"listo para marcarlo como estable.\n"
-"            "
+"Cumplir estos requisitos no significa necesariamente que un "
+"%(object_component)s se considere estable. Por ejemplo, un "
+"%(object_component)s podría experimentar cambios importantes a mitad de las "
+"pruebas de juego y, como resultado, podrían necesitarse más de 10 partidas "
+"antes de que el diseñador esté listo para marcarlo como \"estable”.\n"
+" "
 
-#: the_keep/templates/the_keep/status_check.html:218
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:218
+#: the_keep/views.py:790
+msgid "View 1 Playtest"
+msgstr "Ver 1 Prueba de Juego"
+
+#: the_keep/views.py:792
+msgid "View 1 Game"
+msgstr "Ver 1 Juego"
+
+#: the_keep/views.py:794
 #, python-format
-msgid ""
-"\n"
-"                        View %(play_count)s Games\n"
-"                        "
+msgid "View %(count)d Playtests"
 msgstr ""
-"\n"
-"                        Ver %(play_count)s Juegos\n"
-"                        "
 
-#: the_keep/templates/the_keep/status_check.html:222
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:222
+#: the_keep/views.py:797
 #, python-format
-msgid ""
-"\n"
-"                        View %(play_count)s Game\n"
-"                        "
+msgid "View %(count)d Games (1 Playtest)"
 msgstr ""
-"\n"
-"                        Ver %(play_count)s Juego\n"
-"                        "
 
-#: the_keep/templates/the_keep/status_check.html:234
-#: ⁨the_keep/templates/the_keep/status_check.html 2.py⁩:234
-msgid "No Games Recorded"
-msgstr "No hay juegos grabados"
+#: the_keep/views.py:801
+#, python-format
+msgid "View %(count)d Games (%(tests)d Playtests)"
+msgstr ""
 
-#: the_keep/views.py:1050 the_keep/views.py:1139
+#: the_keep/views.py:806
+#, python-format
+msgid "View %(count)d Games"
+msgstr "Ver %(count)d Juegos"
+
+#: the_keep/views.py:1005 the_keep/views.py:1094
 msgid "{} Components"
 msgstr "Componentes de {}"
 
-#: the_keep/views.py:1140
+#: the_keep/views.py:1095
 msgid "Other {} Components:"
 msgstr "Otros Componentes del {}"
 
-#: the_keep/views.py:1738
+#: the_keep/views.py:1715
 msgid "{} has not yet met the stability requirements."
 msgstr "{} aún no ha cumplido los requisitos de estabilidad."
 
-#: the_keep/views.py:1743 the_keep/views.py:1794
+#: the_keep/views.py:1720 the_keep/views.py:1772
 msgid "You are not authorized to make this change."
 msgstr "No estás autorizado a realizar este cambio."
 
-#: the_keep/views.py:1754
+#: the_keep/views.py:1731
 msgid "{} has been marked as \"Stable\"."
 msgstr "{} ha sido marcado como \"Estable\"."
 
-#: the_keep/views.py:1789
+#: the_keep/views.py:1767
 msgid "{} has not yet recorded a playtest."
 msgstr "{} aún no ha grabado una prueba de juego."
 
-#: the_keep/views.py:1804
+#: the_keep/views.py:1782
 msgid "{} has been marked as \"Testing\"."
 msgstr "{} ha sido marcado como \"Prueba\"."
 
-#: the_warroom/forms.py:40 the_warroom/forms.py:118
+#: the_warroom/forms.py:41 the_warroom/forms.py:111
 msgid "Game Nickname (optional)"
 msgstr "Apodo del juego (opcional)"
 
@@ -4371,116 +4333,88 @@ msgid "Available Scorecard"
 msgstr "Tarjeta de Puntos Disponible"
 
 #: the_warroom/templates/the_warroom/game_delete.html:14
-#: ⁨the_warroom/templates/the_warroom/game_delete.html 2.py⁩:14
 #: the_warroom/templates/the_warroom/round_confirm_delete.html:10
-#: ⁨the_warroom/templates/the_warroom/round_confirm_delete.html 2.py⁩:10
 #: the_warroom/templates/the_warroom/score_delete.html:14
 #: the_warroom/templates/the_warroom/tournament_confirm_delete.html:10
 msgid "Yes, delete"
 msgstr "Si, eliminar"
 
 #: the_warroom/templates/the_warroom/game_detail_page.html:29
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:29
 msgid "Playtest Details"
 msgstr "Detalles de la prueba de juego"
 
 #: the_warroom/templates/the_warroom/game_detail_page.html:31
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:31
 msgid "Game Details"
 msgstr "Detalles del Juego"
 
 #: the_warroom/templates/the_warroom/game_detail_page.html:43
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:43
 msgid "Undrafted Faction"
 msgstr "Facción no reclutada"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:62
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:62
+#: the_warroom/templates/the_warroom/game_detail_page.html:82
 msgid "Random Clearings"
 msgstr "Claros Aleatorios"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:104
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:104
+#: the_warroom/templates/the_warroom/game_detail_page.html:124
 msgid "Link to Game Thread"
 msgstr "Enlace al hilo del juego"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:118
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:118
+#: the_warroom/templates/the_warroom/game_detail_page.html:138
 msgid "Multihanded Playtests are not counted in Player Leaderboard standings"
 msgstr ""
 "Las pruebas de juego con varias manos no se cuentan en la clasificación de "
 "jugadores"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:135
-#: the_warroom/templates/the_warroom/game_detail_page.html:148
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:135
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:148
+#: the_warroom/templates/the_warroom/game_detail_page.html:155
+#: the_warroom/templates/the_warroom/game_detail_page.html:168
 msgid "Edit Game"
 msgstr "Editar Juego"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:136
-#: the_warroom/templates/the_warroom/game_detail_page.html:149
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:136
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:149
+#: the_warroom/templates/the_warroom/game_detail_page.html:156
+#: the_warroom/templates/the_warroom/game_detail_page.html:169
 msgid "Delete Game"
 msgstr "Eliminar Juego"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:143
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:143
+#: the_warroom/templates/the_warroom/game_detail_page.html:163
 msgid "Edit Options"
 msgstr "Editar Opciones"
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:145
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:145
+#: the_warroom/templates/the_warroom/game_detail_page.html:165
 msgid "This game is in progress and can still be edited."
 msgstr "Este juego está en progreso y aún se puede editar."
 
-#: the_warroom/templates/the_warroom/game_detail_page.html:159
-#: ⁨the_warroom/templates/the_warroom/game_detail_page.html 2.py⁩:159
+#: the_warroom/templates/the_warroom/game_detail_page.html:179
 msgid "Change the Nickname, Notes or Discord Link for this game."
 msgstr "Cambia el apodo, las notas o el enlace de Discord para este juego."
 
 #: the_warroom/templates/the_warroom/game_update.html:9
-#: ⁨the_warroom/templates/the_warroom/game_update.html 2.py⁩:9
 msgid "Update Game"
 msgstr "Actualizar Juego"
 
-#: the_warroom/templates/the_warroom/games_home.html:11
-#: the_warroom/templates/the_warroom/games_home.html:12
+#: the_warroom/templates/the_warroom/games_home.html:13
 msgid "Record and view games of Root to track Faction and Player stats"
 msgstr ""
 
-#: the_warroom/templates/the_warroom/games_home.html:33
-#: the_warroom/templates/the_warroom/player_games.html:32
-#: the_warroom/templates/the_warroom/scorecard_list.html:31
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:31
-msgid "New Scorecard"
-msgstr "Nuevo Tanteador"
+#: the_warroom/templates/the_warroom/games_home.html:54
+#: the_warroom/templates/the_warroom/player_games.html:38
+msgid "Record"
+msgstr "Registro"
 
-#: the_warroom/templates/the_warroom/games_home.html:37
-#: the_warroom/templates/the_warroom/player_games.html:35
-#: the_warroom/templates/the_warroom/scorecard_list.html:35
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:35
-msgid "New Game"
-msgstr "Nuevo Juego"
-
-#: the_warroom/templates/the_warroom/games_home.html:68
-#: the_warroom/templates/the_warroom/player_games.html:81
+#: the_warroom/templates/the_warroom/games_home.html:87
+#: the_warroom/templates/the_warroom/player_games.html:98
 msgid "Filters"
 msgstr "Filtros"
 
-#: the_warroom/templates/the_warroom/games_home.html:95
+#: the_warroom/templates/the_warroom/games_home.html:114
 #: the_warroom/templates/the_warroom/partials/forms.html:37
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:37
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:36
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:36
-#: the_warroom/templates/the_warroom/player_games.html:108
+#: the_warroom/templates/the_warroom/player_games.html:125
 msgid "Players"
 msgstr "Jugadores"
 
-#: the_warroom/templates/the_warroom/games_home.html:99
-#: the_warroom/templates/the_warroom/partials/game_filter_form.html:12
-#: the_warroom/templates/the_warroom/player_games.html:112
+#: the_warroom/templates/the_warroom/games_home.html:128
+#: the_warroom/templates/the_warroom/partials/game_filter_form.html:17
+#: the_warroom/templates/the_warroom/player_games.html:131
 msgid "Filter"
 msgstr "Filtrar"
 
@@ -4488,17 +4422,17 @@ msgstr "Filtrar"
 #, python-format
 msgid ""
 "\n"
-"            You have %(in_progress_scorecards_count)s unlinked Scorecard(s) and "
-"%(in_progress_games_count)s in progress Game(s). Once complete each Scorecard "
-"should be linked to a matching Game and each Game should be finalized by clicking "
-"\"Submit\".\n"
+"            You have %(in_progress_scorecards_count)s unlinked Scorecard(s) "
+"and %(in_progress_games_count)s in progress Game(s). Once complete each "
+"Scorecard should be linked to a matching Game and each Game should be "
+"finalized by clicking \"Submit\".\n"
 "        "
 msgstr ""
 "\n"
-"            Tienes %(in_progress_scorecards_count)s tarjetas de puntuación sin "
-"vincular y %(in_progress_games_count)s juegos en progreso. Una vez completada, "
-"cada tarjeta de puntuación debe vincularse a un juego correspondiente y cada juego "
-"debe finalizarse haciendo clic en \"Enviar\".\n"
+"            Tienes %(in_progress_scorecards_count)s tarjetas de puntuación "
+"sin vincular y %(in_progress_games_count)s juegos en progreso. Una vez "
+"completada, cada tarjeta de puntuación debe vincularse a un juego "
+"correspondiente y cada juego debe finalizarse haciendo clic en \"Enviar\".\n"
 "        "
 
 #: the_warroom/templates/the_warroom/in_progress.html:14
@@ -4506,27 +4440,29 @@ msgstr ""
 msgid ""
 "\n"
 "            You have %(in_progress_games_count)s in progress Game(s) and no "
-"unlinked Scorecards. Once the game is completed, click \"Submit\" to finalize it.\n"
+"unlinked Scorecards. Once the game is completed, click \"Submit\" to "
+"finalize it.\n"
 "        "
 msgstr ""
 "\n"
-"            Tienes %(in_progress_games_count)s partidas en progreso y ninguna "
-"tarjeta de puntuación sin vincular. Una vez completada la partida, haz clic en "
-"\"Enviar\" para finalizarla.\n"
+"            Tienes %(in_progress_games_count)s partidas en progreso y "
+"ninguna tarjeta de puntuación sin vincular. Una vez completada la partida, "
+"haz clic en \"Enviar\" para finalizarla.\n"
 "        "
 
 #: the_warroom/templates/the_warroom/in_progress.html:18
 #, python-format
 msgid ""
 "\n"
-"            You have %(in_progress_scorecards_count)s unlinked Scorecard(s) and no "
-"in process Games. Once complete, link each Scorecard to a matching Game.\n"
+"            You have %(in_progress_scorecards_count)s unlinked Scorecard(s) "
+"and no in process Games. Once complete, link each Scorecard to a matching "
+"Game.\n"
 "        "
 msgstr ""
 "\n"
-"            Tienes %(in_progress_scorecards_count)s tarjetas de puntuación sin "
-"vincular y ningún juego en curso. Una vez completado, vincula cada tarjeta de "
-"puntuación a un juego correspondiente.\n"
+"            Tienes %(in_progress_scorecards_count)s tarjetas de puntuación "
+"sin vincular y ningún juego en curso. Una vez completado, vincula cada "
+"tarjeta de puntuación a un juego correspondiente.\n"
 "        "
 
 #: the_warroom/templates/the_warroom/in_progress.html:22
@@ -4539,12 +4475,21 @@ msgstr "Estas tarjetas de puntuación no se han vinculado a ningún juego:"
 
 #: the_warroom/templates/the_warroom/in_progress.html:47
 #: the_warroom/templates/the_warroom/partials/scorecard.html:6
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:6
 #: the_warroom/templates/the_warroom/record_scores.html:99
 #: the_warroom/templates/the_warroom/scorecard_list.html:166
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:166
 msgid "Turn"
 msgstr "Turno"
+
+#: the_warroom/templates/the_warroom/in_progress.html:48
+#: the_warroom/templates/the_warroom/partials/game_detail.html:31
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:31
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:14
+#: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:27
+#: the_warroom/templates/the_warroom/record_scores.html:59
+#: the_warroom/templates/the_warroom/record_scores.html:66
+#: the_warroom/templates/the_warroom/score_detail.html:13
+msgid "Game"
+msgstr "Juego"
 
 #: the_warroom/templates/the_warroom/in_progress.html:100
 msgid "These games have not been submitted"
@@ -4552,199 +4497,147 @@ msgstr "Estos juegos no han sido enviados"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:48
 #: the_warroom/templates/the_warroom/partials/forms.html:85
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:48
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:85
 msgid "Captains"
 msgstr "Capitanes"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:49
 #: the_warroom/templates/the_warroom/partials/forms.html:86
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:49
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:86
-#: the_warroom/templates/the_warroom/partials/game_detail.html:78
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:78
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:77
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:77
+#: the_warroom/templates/the_warroom/partials/game_detail.html:88
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:84
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:61
 msgid "Score"
 msgstr "Resultado"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:50
 #: the_warroom/templates/the_warroom/partials/forms.html:87
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:50
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:87
 msgid "Win"
 msgstr "Ganar"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:51
 #: the_warroom/templates/the_warroom/partials/forms.html:88
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:51
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:88
 msgid "Coalition"
 msgstr "Coalición"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:52
 #: the_warroom/templates/the_warroom/partials/forms.html:89
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:52
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:89
 msgid "Dominance"
 msgstr "Dominio"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:97
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:97
 msgid "Add Player"
 msgstr "Agregar Jugador"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:99
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:99
 msgid "Misc."
 msgstr "Varios."
 
 #: the_warroom/templates/the_warroom/partials/forms.html:130
-#: ⁨the_warroom/templates/the_warroom/partials/forms.html 2.py⁩:130
 msgid "Save Progress"
 msgstr "Guardar Progreso"
 
 #: the_warroom/templates/the_warroom/partials/game_detail.html:22
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:22
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:22
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:22
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:18
 msgid "Solo"
 msgstr "Solo"
 
 #: the_warroom/templates/the_warroom/partials/game_detail.html:25
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:25
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:25
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:25
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:21
 msgid "Co-op"
 msgstr "Cooperativa"
 
 #: the_warroom/templates/the_warroom/partials/game_detail.html:29
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:29
 #: the_warroom/templates/the_warroom/partials/game_detail_button.html:29
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:29
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:25
 msgid "Playtest"
 msgstr "Prueba de juego"
 
-#: the_warroom/templates/the_warroom/partials/game_detail.html:49
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:49
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:45
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:45
+#: the_warroom/templates/the_warroom/partials/game_detail.html:59
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:52
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:40
 msgid "Landmarks:"
 msgstr "Lugares Míticos:"
 
-#: the_warroom/templates/the_warroom/partials/game_detail.html:55
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:55
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:54
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:54
+#: the_warroom/templates/the_warroom/partials/game_detail.html:65
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:61
 #: the_warroom/templates/the_warroom/partials/scorecard_game_summary.html:46
 msgid "Hirelings:"
 msgstr "Secuaces:"
 
-#: the_warroom/templates/the_warroom/partials/game_detail.html:61
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:61
-#: the_warroom/templates/the_warroom/partials/game_detail_button.html:60
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail_button.html 2.py⁩:60
+#: the_warroom/templates/the_warroom/partials/game_detail.html:71
+#: the_warroom/templates/the_warroom/partials/game_detail_button.html:67
 msgid "House Rules:"
 msgstr "Reglas de la Casa:"
 
-#: the_warroom/templates/the_warroom/partials/game_detail.html:81
-#: ⁨the_warroom/templates/the_warroom/partials/game_detail.html 2.py⁩:81
+#: the_warroom/templates/the_warroom/partials/game_detail.html:91
 #: the_warroom/templates/the_warroom/record_scores.html:16
 msgid "Detail"
 msgstr "Detalle"
 
-#: the_warroom/templates/the_warroom/partials/game_filter_form.html:5
+#: the_warroom/templates/the_warroom/partials/game_filter_form.html:10
 msgid "Filter Games"
 msgstr "Filtrar Juegos"
 
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:20
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:20
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:143
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:143
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:145
 msgid "Player Leaderboards"
 msgstr "Tablas de Clasificación de Jugadores"
 
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:22
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:22
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:145
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:200
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:145
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:200
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:147
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:203
 msgid "Player Leaderboard"
 msgstr "Tabla de Clasificación de Jugadores"
 
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:70
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:134
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:70
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:134
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:193
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:268
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:193
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:268
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:196
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:271
 msgid "Leaderboard Threshold of"
 msgstr "Umbral de Clasificación de"
 
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:84
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:84
 #: the_warroom/templates/the_warroom/partials/player_stats.html:6
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:6
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:218
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:218
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:221
 msgid "Faction Leaderboards"
 msgstr "Tablas de Clasificación de Facción"
 
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:86
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:86
 #: the_warroom/templates/the_warroom/partials/player_stats.html:8
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:8
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:220
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:275
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:220
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:275
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:223
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:278
 msgid "Faction Leaderboard"
 msgstr "Tabla de Clasificación de Facción"
 
 #: the_warroom/templates/the_warroom/partials/game_list_home.html:182
-#: ⁨the_warroom/templates/the_warroom/partials/game_list_home.html 2.py⁩:182
 msgid "No matching games recorded."
 msgstr "No se registraron partidas coincidentes."
 
 #: the_warroom/templates/the_warroom/partials/player_stats.html:56
-#: ⁨the_warroom/templates/the_warroom/partials/player_stats.html 2.py⁩:56
 msgid "No games recorded."
 msgstr "No hay juegos grabados."
 
 #: the_warroom/templates/the_warroom/partials/scorecard.html:13
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:13
 msgid "Turn Total"
 msgstr "Total de Turnos"
 
 #: the_warroom/templates/the_warroom/partials/scorecard.html:15
 #: the_warroom/templates/the_warroom/partials/scorecard.html:59
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:15
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:59
 #: the_warroom/templates/the_warroom/record_scores.html:107
 msgid "Dom"
 msgstr "Dom"
 
 #: the_warroom/templates/the_warroom/partials/scorecard.html:74
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:74
 #: the_warroom/templates/the_warroom/record_scores.html:146
 msgid "Total"
 msgstr "Total"
 
 #: the_warroom/templates/the_warroom/partials/scorecard.html:89
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:89
 msgid "Notes"
 msgstr "Notas"
 
 #: the_warroom/templates/the_warroom/partials/scorecard.html:93
-#: ⁨the_warroom/templates/the_warroom/partials/scorecard.html 2.py⁩:93
 msgid "Recorded on"
 msgstr "Grabado en"
 
@@ -4753,69 +4646,56 @@ msgid "Faction N/A"
 msgstr "Facción N/A"
 
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:23
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:23
 msgid "Rounds"
 msgstr "Rondas"
 
 #: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:43
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:43
 msgid "Assets"
 msgstr "Activos"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:61
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:61
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:62
 msgid "Add Round"
 msgstr "Agregar Ronda"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:202
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:202
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:205
 msgid "No Players have reached the Game Threshold of"
 msgstr "Ningún jugador ha alcanzado el Umbral de juego de"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:204
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:279
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:204
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:279
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:207
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:282
 msgid "No Games have been Recorded"
 msgstr "No se han grabado juegos"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:277
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:277
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:280
 msgid "No Factions have reached the Game Threshold of"
 msgstr "Ningún facción ha alcanzado el Umbral de juego de"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:295
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:295
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:299
 msgid "Manage Players"
 msgstr "Administrar Jugadores"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:325
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:325
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:330
 msgid "Player Name"
 msgstr "Nombre del Jugador"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:328
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:328
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:333
 msgid "Games Played by Player"
 msgstr "Juegos Jugados por Jugador"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:331
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:331
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:336
 msgid "Points Earned"
 msgstr "Puntos Ganados"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:334
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:334
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:339
 msgid "Total Win Rate"
 msgstr "Tasa de Ganancia Total"
 
-#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:356
-#: ⁨the_warroom/templates/the_warroom/partials/tournament_round_detail.html 2.py⁩:356
+#: the_warroom/templates/the_warroom/partials/tournament_round_detail.html:361
 #: the_warroom/templates/the_warroom/tournament_manage_assets.html:6
 msgid "Manage Assets"
 msgstr "Administrar Activos"
 
-#: the_warroom/templates/the_warroom/player_games.html:90
+#: the_warroom/templates/the_warroom/player_games.html:107
 msgid "Playing as:"
 msgstr "Jugando como:"
 
@@ -4837,11 +4717,11 @@ msgstr "Registrar Jugador"
 
 #: the_warroom/templates/the_warroom/record_game.html:30
 msgid ""
-"If a player is missing you can add them here (if they do not have Discord choose a "
-"unique name for them)."
+"If a player is missing you can add them here (if they do not have Discord "
+"choose a unique name for them)."
 msgstr ""
-"Si falta un jugador, puedes agregarlo aquí (si no tiene Discord, elige un nombre "
-"único para él)."
+"Si falta un jugador, puedes agregarlo aquí (si no tiene Discord, elige un "
+"nombre único para él)."
 
 #: the_warroom/templates/the_warroom/record_scores.html:7
 msgid "Update Detailed Game Scores"
@@ -4906,47 +4786,46 @@ msgstr "Está seguro de que desea eliminar el tanteador seleccionado"
 msgid "Scorecard"
 msgstr "Tanteador"
 
-#: the_warroom/templates/the_warroom/score_detail.html:28
+#: the_warroom/templates/the_warroom/score_detail.html:34
 msgid "Points per Turn"
 msgstr "Puntos por turno"
 
-#: the_warroom/templates/the_warroom/score_detail.html:36
-msgid "View Game"
-msgstr "Ver juego"
-
-#: the_warroom/templates/the_warroom/score_detail.html:68
+#: the_warroom/templates/the_warroom/score_detail.html:76
 #: the_warroom/templates/the_warroom/scorecard_list.html:96
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:96
 msgid "Turns"
 msgstr "Vueltas"
 
-#: the_warroom/templates/the_warroom/score_detail.html:194
+#: the_warroom/templates/the_warroom/score_detail.html:202
 msgid "This Game"
 msgstr "Este Juego"
 
-#: the_warroom/templates/the_warroom/score_detail.html:202
+#: the_warroom/templates/the_warroom/score_detail.html:210
 msgid "Faction Average"
 msgstr "Promedio de facción"
 
+#: the_warroom/templates/the_warroom/scorecard_list.html:31
+msgid "New Scorecard"
+msgstr "Nuevo Tanteador"
+
+#: the_warroom/templates/the_warroom/scorecard_list.html:35
+msgid "New Game"
+msgstr "Nuevo Juego"
+
 #: the_warroom/templates/the_warroom/scorecard_list.html:79
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:79
 msgid "Your Recorded Average by Faction"
 msgstr "Su promedio registrado por facción"
 
 #: the_warroom/templates/the_warroom/scorecard_list.html:83
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:83
 msgid ""
-"Based on the data you've recorded. Data for your plays can be found in the profile "
-"stats tab."
+"Based on the data you've recorded. Data for your plays can be found in the "
+"profile stats tab."
 msgstr ""
 
 #: the_warroom/templates/the_warroom/scorecard_list.html:90
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:90
 msgid "Completed Scorecards"
 msgstr "Tarjetas de puntuación completadas"
 
 #: the_warroom/templates/the_warroom/scorecard_list.html:112
-#: ⁨the_warroom/templates/the_warroom/scorecard_list.html 2.py⁩:112
 msgid "You have not recorded any scorecards"
 msgstr "No has grabado ninguna tarjeta de puntuación"
 
@@ -5066,8 +4945,17 @@ msgstr ""
 msgid "Save Changes"
 msgstr "Guardar Cambios"
 
-#~ msgid "Official"
-#~ msgstr "Oficial"
+#~ msgid "Shared"
+#~ msgstr "Compartido"
+
+#~ msgid "No results found"
+#~ msgstr "No se encontraron resultados"
+
+#~ msgid "Pinned"
+#~ msgstr "Fijado"
+
+#~ msgid "Progress"
+#~ msgstr "Progreso"
 
 #~ msgid "Fan Made"
 #~ msgstr "Hecho por Fan"
@@ -5084,9 +4972,6 @@ msgstr "Guardar Cambios"
 
 #~ msgid "Choose what is visible to you."
 #~ msgstr "Elige lo que es visible para ti."
-
-#~ msgid "My Posts"
-#~ msgstr "Mis Publicaciones"
 
 #~ msgid "In Progress Games"
 #~ msgstr "Juegos en Progreso"
@@ -5114,6 +4999,3 @@ msgstr "Guardar Cambios"
 
 #~ msgid "War Room"
 #~ msgstr "Sala de Batalla"
-
-#~ msgid "The War Room"
-#~ msgstr "La Sala de Batalla"

@@ -103,7 +103,7 @@ def format_law_text(value, lang_code='en'):
 
     # Step 4: Wrap [[text]] in span with class 'smallcaps'
     def smallcaps_replacer(match):
-        text = match.group(1).lower()
+        text = match.group(1).upper()
         return f"<span class='smallcaps'>{text}</span>"
 
     final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
@@ -136,7 +136,8 @@ def format_law_text_no_link(value):
 
     # Step 3: Wrap [[text]] in span with class 'smallcaps'
     def smallcaps_replacer(match):
-        return f"<span class='smallcaps'>{match.group(1)}</span>"
+        text = match.group(1).upper()
+        return f"<span class='smallcaps'>{text}</span>"
 
     final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
 
@@ -166,3 +167,30 @@ def ensure_punctuation(text):
     if re.search(r'[.?!:;”\'"]$', text.strip()):
         return text
     return text + '.'
+
+@register.filter
+def emphasize_caps(value):
+    """
+    Wrap capital letters and punctuation in <span class="large-char">.
+    Then convert the rest of the string to uppercase for a small-caps effect.
+    """
+    if not value:
+        return ''
+
+    clean_value = bleach.clean(str(value), tags=[], strip=True)
+
+    def replacer(match):
+        char = match.group(0)
+        return f"<span class='large-char'>{char}</span>"
+
+    wrapped = re.sub(r'([A-Z]|[“”"\'.,:;!?()\[\]])', replacer, clean_value)
+
+    def uppercase_non_spans(text):
+        parts = re.split(r'(<span.*?>.*?</span>)', text)
+        return ''.join(
+            part if part.startswith('<span') else part.upper()
+            for part in parts
+        )
+
+    final = uppercase_non_spans(wrapped)
+    return mark_safe(final)

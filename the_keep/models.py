@@ -2209,7 +2209,10 @@ class Law(models.Model):
                 parent = parent.parent
             self.level = level
 
-
+        # Ensure title ends with proper punctuation
+        if self.title and self.level > 0:
+            if not re.search(r'[.?!:;”\'"]$', self.title.strip()):
+                self.title = self.title.strip() + '.'
 
         super().save(*args, **kwargs)
 

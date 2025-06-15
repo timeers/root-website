@@ -9,11 +9,9 @@
         {% else %}
             <div class="d-flex justify-content-between align-items-center">
                 {% if law.level == 0 %}
-                    <h4>{{ law.law_code }} <span class="smallcaps">{{ law.title }}</span></h4>
-                {% elif law.level == 1 %}
-                    <strong>{{ law.law_code }} {{ law.title|format_law_text_no_link }}.</strong>
+                    <h4>{{ law.law_code }} <span class="smallcaps">{{ law.title|emphasize_caps }}</span></h4>
                 {% else %}
-                    <strong>{{ law.law_code }} {{ law.title }}.</strong>
+                    <strong>{{ law.law_code }} {{ law.title|format_law_text_no_link|ensure_punctuation }}</strong>
                 {% endif %}
     
             </div>

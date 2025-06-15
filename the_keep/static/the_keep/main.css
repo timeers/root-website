@@ -1561,10 +1561,16 @@ tr.clickable-row:hover {
   font-size: 1em;
 }
 
+.smart-smallcaps {
+  font-size: 0.8em;
+}
+
+.large-char {
+  font-size: 1.5em;
+}
 
 .smallcaps {
-  font-variant: small-caps; 
-  font-size: 1.2em;
+  font-size: 0.8em;
 }
 
 
