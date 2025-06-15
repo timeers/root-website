@@ -1,6 +1,20 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
 
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/law-icon.png' %}">
+<meta property="og:site_name" content="{{ site_title }}">
+
+{% trans "The Laws of Root" as law_of_root_title %}
+{% trans 'The strictly defined rules of Root — both official and unofficial — presented in a concise reference style.' as law_description %}
+<meta property="og:title" content="{{ law_of_root_title }}">
+<meta property="og:description" content="{{ law_description }}">
+<meta name="description" content="{{ law_description }}">
+
+{% endblock meta %}
+
 {% block content %}
 
 <article class="content-section">
