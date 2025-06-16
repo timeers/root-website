@@ -60,11 +60,12 @@
 
 
 <article class="content-section d-flex justify-content-between align-items-center{% if not group.public %} light-yellow{% endif %}">
-  <div class='mx-auto'>
+  <div class='mx-auto text-center'>
   {% if group.public %}
     <h1 class='root-title'>{% trans 'Law of Root' %}</h1>
   {% else %}
     <h1 class='root-title'>{% trans 'Law of Root (Draft)' %}</h1>
+    <small>*Set to "Public" in the settings once finalized</small>
   {% endif %}
   
   </div>

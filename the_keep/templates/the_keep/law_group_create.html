@@ -9,10 +9,16 @@
 </article>
 
 <article class="content-section">
-
+    The Law of Root is a strictly defined set of rules, presented in a concise reference style.
+    <br>
+    Before creating the Law for "{{ post.title }}", familiarize yourself with the format of existing Law entries.
+    <br><br>
+    If your goal is to clarify a few rules for your {{ post.component }}, consider creating a detailed FAQ instead.
+    A FAQ can often be just as helpful and provides a less formal way to explain key areas of your {{ post.component }}.
+    <br><br>
     <form method="post">
         {% csrf_token %}
-        Select Language:
+ 
         {{ form.language|as_crispy_field }}
 
         <button class='btn btn-success' type="submit">Create</button>

@@ -1303,7 +1303,7 @@ class EditLawGroupForm(forms.ModelForm):
         model = LawGroup
         fields = ['title', 'abbreviation', 'type', 'public']
         help_texts = {
-            'public': "If checked, this law group will be visible to other users in all available languages.",
+            'public': "Public laws are visible to other users in all available languages.",
             # 'abbreviation': 'Choose an abbreviation for the Law',
         }
 

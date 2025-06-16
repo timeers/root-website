@@ -2036,7 +2036,7 @@ class LawGroup(models.Model):
     title = models.CharField(max_length=50, null=True, blank=True)
     position = models.FloatField(editable=False, default=0)
     type = models.CharField(choices=TypeChoices, max_length=10, default="Fan")
-    public = models.BooleanField(default=True)
+    public = models.BooleanField(default=False)
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     class Meta:

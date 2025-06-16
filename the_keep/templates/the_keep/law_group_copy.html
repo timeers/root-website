@@ -7,6 +7,12 @@
 <h1 class='root-title'>Copy Law for {{ law_group.title }}</h1>
 </article>
 <article class="content-section">
+  Copying the Law of {{ law_group.title }} will duplicate each law into a new language.
+  Some key titles will be translated automatically, but you will need to manually translate the rest. Any references to {{source_language}} Laws will not transfer over and may not be available to reference in the new language.
+  <br><br>
+  Because the Law of Root is intended to be a strictly defined set of rules, make sure you only copy it to a language you can accurately translate.
+  In most cases, using Google Translate will not be sufficient to capture the necessary nuance.
+  <br><br>
 <form method="post">
   {% csrf_token %}
   Copy from {{ source_language }} to:
