@@ -1,4 +1,6 @@
 import random
+import yaml
+import re
 # import logging
 from itertools import groupby
 from django.utils import timezone 
@@ -2115,7 +2117,7 @@ def universal_search(request):
             group__type='Official',
             group__public=True
         ).filter(
-            (Q(title__iexact=query) | Q(law_code__iexact=query) | Q(description__iexact=query))
+            (Q(plain_title__iexact=query) | Q(law_code__iexact=query) | Q(plain_description__iexact=query))
         )
         if not laws:
             laws = Law.objects.filter(
@@ -2123,7 +2125,7 @@ def universal_search(request):
                 group__type='Official',
                 group__public=True
             ).filter(
-                (Q(title__icontains=query) | Q(description__icontains=query))
+                (Q(plain_title__icontains=query) | Q(plain_description__icontains=query))
             )
 
         bot_laws = Law.objects.filter(
@@ -2131,7 +2133,7 @@ def universal_search(request):
             group__type='Bot',
             group__public=True
         ).filter(
-            (Q(title__iexact=query) | Q(law_code__iexact=query))
+            (Q(plain_title__iexact=query) | Q(law_code__iexact=query))
         )
         if not bot_laws:
             bot_laws = Law.objects.filter(
@@ -2139,7 +2141,7 @@ def universal_search(request):
                 group__type='Bot',
                 group__public=True
             ).filter(
-                (Q(title__icontains=query))
+                (Q(plain_title__icontains=query))
             )
 
         fan_laws = Law.objects.filter(
@@ -2147,7 +2149,7 @@ def universal_search(request):
             group__type='Fan',
             group__public=True
         ).filter(
-            (Q(title__iexact=query) | Q(law_code__iexact=query))
+            (Q(plain_title__iexact=query) | Q(law_code__iexact=query))
         )
         if not fan_laws:
             fan_laws = Law.objects.filter(
@@ -2155,7 +2157,7 @@ def universal_search(request):
                 group__type='Fan',
                 group__public=True
             ).filter(
-                (Q(title__icontains=query))
+                (Q(plain_title__icontains=query))
             )
 
     if color_group:
@@ -2933,7 +2935,120 @@ def law_group_edit_view(request, slug, lang_code):
     return render(request, 'the_keep/law_of_root.html', context)
 
 
-# FAQs
+def serialize_law(law):
+    entry = {
+        'name': replace_placeholders(law.title.strip())
+    }
+
+    if law.plain_title and law.plain_title.strip() != law.title.strip():
+        entry['plainName'] = replace_placeholders(law.plain_title.strip())
+
+    if law.description:
+        text = replace_placeholders(law.description.strip())
+
+        references = ''
+        if law.reference_laws:
+            for reference in law.reference_laws.all():
+                if reference.group.type == "Official":
+                    references += f"(`rule:{reference.law_code}`)"
+                else:
+                    references += f"({reference})"
+        if law.level == 0:
+            entry['pretext'] = text + references
+        else:
+            entry['text'] = text + references
+
+
+    children = law.children.all().order_by('position')
+    if children.exists():
+        if law.level == 0:
+            entry['children'] = [serialize_law(child) for child in children]
+        else:
+            entry['subchildren'] = [serialize_law(child) for child in children]
+
+    return entry
+
+INLINE_MAP = {
+    'torch': '`item:torch`',
+    'tea': '`item:tea`',
+    'sword': '`item:sword`',
+    'bag': '`item:sack`',
+    'sack': '`item:sack`',
+    'hammer': '`item:hammer`',
+    'crossbow': '`item:crossbow`',
+    'coins': '`item:coin`',
+    'coin': '`item:coin`',
+    'boot': '`item:boot`',
+    'hired': '`hireling:whenhired`',
+    'ability': '`hireling:ability`',
+    'daylight': '`hireling:daylight`',
+    'birdsong': '`hireling:birdsong`',
+    'bunny': '`faction:woodland`',
+    'rabbit': '`faction:woodland`',
+    'mouse': '`faction:woodland`',
+    'rat': '`faction:warlord`',
+    'raccoon': '`faction:vagabond`',
+    'vb': '`faction:vagabond`',
+    'otter': '`faction:riverfolk`',
+    'cat': '`faction:marquise`',
+    'badger': '`faction:keepers`',
+    'bird': '`faction:eyrie`',
+    'mole': '`faction:duchy`',
+    'lizard': '`faction:cult`',
+    'crow': '`faction:corvid`',
+}
+
+
+def replace_placeholders(text):
+    def replacer(match):
+        key = match.group(1).strip()
+        return INLINE_MAP.get(key, match.group(0))  # fallback to original if not found
+
+    return re.sub(r'\{\{\s*(\w+)\s*\}\}', replacer, text or '')
+
+
+@player_required
+def export_laws_yaml_view(request, group_slug, lang_code):
+    try:
+        group = LawGroup.objects.get(slug=group_slug)
+        language = Language.objects.get(code=lang_code)
+        laws = Law.objects.filter(group=group, language=language).select_related('parent').prefetch_related('children')
+        if group.post:
+            law_color = group.post.color
+        else:
+            law_color = '#000000'
+        prime_law = laws.filter(prime_law=True).first()
+        if not prime_law:
+            raise Http404("No prime law found.")
+
+        output = [{
+            'name': prime_law.title.strip(),
+            'color': law_color,
+            'children': []
+        }]
+
+        # Only add pretext if description exists
+        if prime_law.description:
+            output[0]['pretext'] = replace_placeholders(prime_law.description.strip())
+
+        top_level_laws = laws.filter(parent__isnull=True, prime_law=False).order_by('position')
+        for law in top_level_laws:
+            output[0]['children'].append(serialize_law(law))
+
+        yml_data = yaml.dump(output, allow_unicode=True, sort_keys=False)
+
+        response = HttpResponse(yml_data, content_type='application/x-yaml')
+        filename = f"{group.slug}_{lang_code}.yml"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    except LawGroup.DoesNotExist:
+        raise Http404("Law group not found.")
+    except Language.DoesNotExist:
+        raise Http404("Language not found.")
+
+
+# FAQs FAQ Views
 
 def faq_search(request, slug=None, lang_code='en'):
     query = request.GET.get("q", "")

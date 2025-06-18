@@ -25,7 +25,7 @@ from io import BytesIO
 from django.apps import apps
 from .utils import slugify_post_title, slugify_expansion_title, slugify_law_group_title, DEFAULT_TITLES_TRANSLATIONS
 from the_gatehouse.models import Profile, Language
-from .utils import validate_hex_color, delete_old_image, hex_to_rgb
+from .utils import validate_hex_color, delete_old_image, hex_to_rgb, strip_formatting
 import random
 from django.conf import settings
 from the_gatehouse.discordservice import send_rich_discord_message
@@ -2175,6 +2175,8 @@ class Law(models.Model):
     allow_description = models.BooleanField(default=True)
     prime_law = models.BooleanField(default=False)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
+    plain_title = models.TextField(null=True, blank=True)
+    plain_description = models.TextField(null=True, blank=True)
     reference_laws = models.ManyToManyField(
         'self',
         symmetrical=False,
@@ -2213,6 +2215,9 @@ class Law(models.Model):
         if self.title and self.level > 0:
             if not re.search(r'[.?!:;”\'"]$', self.title.strip()):
                 self.title = self.title.strip() + '.'
+
+        self.plain_title = strip_formatting(self.title)
+        self.plain_description = strip_formatting(self.description)
 
         super().save(*args, **kwargs)
 

@@ -48,6 +48,9 @@ urlpatterns = [
     path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='edit-law-view'),
     path('law/<slug:slug>/<str:lang_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
     path('law/<slug:slug>/<str:lang_code>/delete/', views.delete_law_group, name='delete-law-group'),
+
+    path('export-laws/<slug:group_slug>/<str:lang_code>/', views.export_laws_yaml_view, name='export-laws-yaml'),
+    
     # AJAX Law Views
     path('ajax/law/add/', views.add_law_ajax, name='add-law-ajax'),
     path('ajax/law/move/<int:law_id>/<str:direction>/', views.move_law_ajax, name='move-law-ajax'),

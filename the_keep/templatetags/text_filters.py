@@ -27,7 +27,7 @@ INLINE_IMAGES = {
     'tea': static('items/law/tea.png'),
     'sword': static('items/law/sword.png'),
     'bag': static('items/law/bag.png'),
-    'sack': static('items/law/sack.png'),
+    'sack': static('items/law/bag.png'),
     'hammer': static('items/law/hammer.png'),
     'crossbow': static('items/law/crossbow.png'),
     'coins': static('items/law/coin.png'),

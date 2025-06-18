@@ -558,3 +558,15 @@ def generate_abbreviation_choices(title, abbreviation):
     return sorted(filtered) or ['1']
 
 
+def strip_formatting(text):
+    if not text:
+        return ''
+    
+    # Remove {{...}} blocks (like {{ keyword.image }})
+    text = re.sub(r'\{\{.*?\}\}', '', text)
+    
+    # Remove ** for small caps and _ for italics
+    text = text.replace('**', '').replace('_', '')
+    
+    # Strip extra whitespace
+    return text.strip()
