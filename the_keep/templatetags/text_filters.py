@@ -95,18 +95,20 @@ def format_law_text(value, lang_code='en'):
 
     clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
 
-    # Step 3: Italicize content in parentheses
-    def paren_replacer(match):
-        return f"<em>{match.group(0)}</em>"
+    # Step 3: Wrap _text_ in <em> for italics
+    def italics_replacer(match):
+        return f"<em>{match.group(1)}</em>"
 
-    clean_value = re.sub(r"\([^)]*\)", paren_replacer, clean_value)
+    clean_value = re.sub(r"_(.*?)_", italics_replacer, clean_value)
 
-    # Step 4: Wrap [[text]] in span with class 'smallcaps'
+
+    # Step 4: Wrap **text** in span with class 'smallcaps'
     def smallcaps_replacer(match):
         text = match.group(1).upper()
         return f"<span class='smallcaps'>{text}</span>"
 
-    final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
+    final_value = re.sub(r"\*\*([^\*]+)\*\*", smallcaps_replacer, clean_value)
+
 
     # Step 5: Replace newlines with <br> for visual line breaks
     final_value = final_value.replace('\n', '<br>')
@@ -134,12 +136,20 @@ def format_law_text_no_link(value):
 
     clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
 
-    # Step 3: Wrap [[text]] in span with class 'smallcaps'
+    # Step 3: Wrap _text_ in <em> for italics
+    def italics_replacer(match):
+        return f"<em>{match.group(1)}</em>"
+
+    clean_value = re.sub(r"_(.*?)_", italics_replacer, clean_value)
+
+
+    # Step 4: Wrap **text** in span with class 'smallcaps'
     def smallcaps_replacer(match):
         text = match.group(1).upper()
         return f"<span class='smallcaps'>{text}</span>"
 
-    final_value = re.sub(r"\[\[([^\]]+)\]\]", smallcaps_replacer, clean_value)
+    final_value = re.sub(r"\*\*([^\*]+)\*\*", smallcaps_replacer, clean_value)
+
 
     # Step 5: Replace newlines with <br> for visual line breaks
     final_value = final_value.replace('\n', '<br>')
