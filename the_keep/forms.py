@@ -550,6 +550,10 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
+    forests = forms.IntegerField(
+        label=_('Number of Forests'),
+        required=False
+    )
     fixed_clearings = forms.BooleanField(
         label=_('This map has fixed suits for each clearing by default'), initial=False, required=False
     )
@@ -575,7 +579,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'fixed_clearings', 'board_image', 'card_image', 'card_2_image', 'based_on'] + bottom_fields
+        fields = top_fields + ['clearings', 'forests', 'fixed_clearings', 'board_image', 'card_image', 'card_2_image', 'based_on'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated
@@ -1356,3 +1360,6 @@ class FAQForm(forms.ModelForm):
             self.fields['answer'].widget.attrs.update({
                 'rows': '2'
                 })
+
+class YAMLUploadForm(forms.Form):
+    file = forms.FileField(label="Upload YAML Law file")

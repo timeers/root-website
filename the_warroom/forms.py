@@ -231,23 +231,31 @@ class GameCreateForm(forms.ModelForm):
 
             # Check that all game components are official
             official_only = True
-            if not map.official or not deck.official:
-                official_only = False
-            elif tweaks:
-                for tweak in tweaks:
-                    if not tweak.official:
-                        official_only = False
-                        break
-            elif landmarks:
-                for landmark in landmarks:
-                    if not landmark.official:
-                        official_only = False
-                        break
-            elif hirelings:
-                for hireling in hirelings:
-                    if not hireling.official:
-                        official_only = False
-                        break
+            if map and deck:
+                if not map.official or not deck.official:
+                    official_only = False
+                elif tweaks:
+                    for tweak in tweaks:
+                        if not tweak.official:
+                            official_only = False
+                            break
+                elif landmarks:
+                    for landmark in landmarks:
+                        if not landmark.official:
+                            official_only = False
+                            break
+                elif hirelings:
+                    for hireling in hirelings:
+                        if not hireling.official:
+                            official_only = False
+                            break
+            else:
+                if map:
+                    validation_errors_to_display.append('Select a Deck')
+                elif deck:
+                    validation_errors_to_display.append('Select a Map')
+                else:
+                    validation_errors_to_display.append('Select a Map and a Deck')
 
 
             for effort_form in self.effort_formset.forms:

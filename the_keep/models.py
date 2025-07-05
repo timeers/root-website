@@ -1135,6 +1135,7 @@ class Tweak(Post):
 
 class Map(Post):
     clearings = models.IntegerField(default=12)
+    forests = models.IntegerField(blank=True, null=True)
     fixed_clearings = models.BooleanField(default=False)
     default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
     def save(self, *args, **kwargs):
@@ -2031,6 +2032,7 @@ class LawGroup(models.Model):
         OFFICIAL = 'Official', _('Official')
         BOT = 'Bot', _('Bot')
         FAN = 'Fan', _('Fan')
+        APPENDIX = 'Appendix', _('Appendix')
     post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)
     abbreviation = models.CharField(max_length=10, null=True, blank=True)
     title = models.CharField(max_length=50, null=True, blank=True)
@@ -2112,7 +2114,7 @@ class LawGroup(models.Model):
         # Attempt to convert abbreviation to a number (if it starts with a digit)
         try:
             position = float(self.abbreviation)
-            if self.type == "Official":
+            if self.type == "Official" or self.type == "Appendix":
                 position += -100_000_000_000
             # Add random float between 0.01 and 0.99
             fractional_offset = random.uniform(0.01, 0.99)
@@ -2135,7 +2137,7 @@ class LawGroup(models.Model):
 
         if self.type == "Bot":
             base_offset = 0
-        elif self.type == "Official":
+        elif self.type == "Official" or self.type == "Appendix":
      
             base_offset = -100_000_000_000
         else:
@@ -2169,6 +2171,7 @@ class Law(models.Model):
     position = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
     law_code = models.CharField(max_length=20, editable=False, blank=True, null=True)
     local_code = models.CharField(max_length=20, editable=False, blank=True, null=True)
+    law_index = models.CharField(max_length=20, editable=False, blank=True, null=True)
     level = models.IntegerField(blank=True, null=True)
     locked_position = models.BooleanField(default=False)
     allow_sub_laws = models.BooleanField(default=True)
@@ -2177,6 +2180,7 @@ class Law(models.Model):
     language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     plain_title = models.TextField(null=True, blank=True)
     plain_description = models.TextField(null=True, blank=True)
+
     reference_laws = models.ManyToManyField(
         'self',
         symmetrical=False,
@@ -2212,9 +2216,9 @@ class Law(models.Model):
             self.level = level
 
         # Ensure title ends with proper punctuation
-        if self.title and self.level > 0:
-            if not re.search(r'[.?!:;”\'"]$', self.title.strip()):
-                self.title = self.title.strip() + '.'
+        # if self.title and self.level > 0:
+        #     if not re.search(r'[.?!:;”\'"]$', self.title.strip()):
+        #         self.title = self.title.strip() + '.'
 
         self.plain_title = strip_formatting(self.title)
         self.plain_description = strip_formatting(self.description)
@@ -2222,12 +2226,13 @@ class Law(models.Model):
         super().save(*args, **kwargs)
 
         # Only generate law_code if it's missing or if it's a new object
-        if not self.law_code or not self.local_code or is_new:
-            law_code, local_code = self.generate_code()
+        if not self.law_code or not self.local_code or not self.law_index or is_new:
+            law_code, local_code, law_index = self.generate_code()
             self.law_code = law_code
             self.local_code = local_code
+            self.law_index = law_index
             # self.law_code = self.generate_code()
-            super().save(update_fields=['law_code', 'local_code'])
+            super().save(update_fields=['law_code', 'local_code', 'law_index'])
         
     def delete(self, *args, **kwargs):
         group = self.group
@@ -2254,7 +2259,7 @@ class Law(models.Model):
         abbreviation = self.group.abbreviation
 
         if self.prime_law:
-            return abbreviation, abbreviation
+            return abbreviation, abbreviation, ""
 
         path = []
         current = self
@@ -2263,16 +2268,20 @@ class Law(models.Model):
             current = current.parent
 
         segments = []
+        index_segments = []
         for level, node in enumerate(path):
             siblings = Law.objects.filter(parent=node.parent, group=node.group, prime_law=False, language=self.language).order_by('position')
             index = next((i for i, s in enumerate(siblings, start=1) if s.pk == node.pk), None)
             if index is None:
                 index = 1
+
+            # Standard formatted segment for law_code
             segment = format_code_segment(level, index)
             segments.append(segment)
 
+            # Always-plain integer segment for law_index
+            index_segments.append(str(index))
         
-
         # Join first 3 levels with dots, then the rest without separator
         if len(segments) <= 3:
             full_code = '.'.join(segments)
@@ -2284,11 +2293,12 @@ class Law(models.Model):
         law_code = f"{abbreviation}.{full_code}"
 
         # Local code: just the last segment if there are 2 or more
-        if len(segments) >= 3:
-            local_code = segments[-1]
-        else:
-            local_code = law_code  # fallback to full code if it's top-level
-        return law_code, local_code
+        local_code = segments[-1] if len(segments) >= 3 else law_code
+
+        # law_index for use with Seyria
+        law_index = '.'.join(index_segments)
+
+        return law_code, local_code, law_index
 
 
 
@@ -2342,10 +2352,11 @@ class Law(models.Model):
 
         for sibling in affected_siblings:
             # sibling.law_code = sibling.generate_code()
-            law_code, local_code = sibling.generate_code()
+            law_code, local_code, law_index = sibling.generate_code()
             sibling.law_code = law_code
             sibling.local_code = local_code
-            sibling.save(update_fields=['law_code', 'local_code'])
+            sibling.law_index = law_index
+            sibling.save(update_fields=['law_code', 'local_code', 'law_index'])
             sibling.rebuild_child_codes()
    
 
@@ -2355,20 +2366,22 @@ class Law(models.Model):
         children = Law.objects.filter(parent=self, language=self.language).order_by('position')
         for child in children:
             # child.law_code = child.generate_code()
-            law_code, local_code = child.generate_code()
+            law_code, local_code, law_index = child.generate_code()
             child.law_code = law_code
             child.local_code = local_code
-            child.save(update_fields=['law_code', 'local_code'])
+            child.law_index = law_index
+            child.save(update_fields=['law_code', 'local_code', 'law_index'])
             child.rebuild_child_codes()
 
 
 
     def update_code_and_descendants(self):
         # self.law_code = self.generate_code()
-        law_code, local_code = self.generate_code()
+        law_code, local_code, law_index = self.generate_code()
         self.law_code = law_code
         self.local_code = local_code
-        self.save(update_fields=['law_code', 'local_code'])
+        self.law_index = law_index
+        self.save(update_fields=['law_code', 'local_code', 'law_index'])
         for child in self.children.all().order_by('position'):
             child.update_code_and_descendants()
 
@@ -2397,97 +2410,15 @@ class Law(models.Model):
         else:
             return Decimal('1.0')
 
+    def get_law_index(self):
+        all_groups = LawGroup.objects.all().order_by('position')  # Adjust ordering if needed
+        group_ids = list(all_groups.values_list('id', flat=True))
+        group_index = group_ids.index(self.group.id) + 1
+        if self.law_index:
+            return f"{group_index}.{self.law_index}"
+        else:
+            return f"{group_index}.0"
 
-
-# @transaction.atomic
-# def duplicate_lawgroup_with_laws(source_group: LawGroup, target_language) -> LawGroup:
-
-#     def find_translation_key_by_title(title, source_lang_code):
-#         title_lower = title.strip().lower()
-#         for original_key, translations in DEFAULT_TITLES_TRANSLATIONS.items():
-#             translated_title = translations.get(source_lang_code)
-#             if translated_title and translated_title.strip().lower() == title_lower:
-#                 return original_key  # Return the canonical key
-#         return None
-
-
-#     selected_title = source_group.title
-#     if source_group.post:
-#             selected_title = source_group.post.title
-#             # Try to get a translated title from PostTranslation
-#             translation = PostTranslation.objects.filter(
-#                 post=source_group.post,
-#                 language=target_language,
-#                 type=source_group.type
-#             ).first()
-#             if translation:
-#                 selected_title = translation.translated_title
-#     # 1. Copy LawGroup
-#     new_group = LawGroup.objects.create(
-#         post=source_group.post,
-#         abbreviation=source_group.abbreviation,
-#         title=selected_title,
-#         description=source_group.description,
-#         language=target_language,
-#         position=source_group.position,
-#     )
-
-#     # 2. Map old Law IDs to new Law instances
-#     law_mapping = {}
-
-#     for law in source_group.laws.all():
-#         new_title = law.title  # default to original title
-
-#         # Case 1: Prime law — use post translation title
-#         if law.prime_law and source_group.post:
-#             new_title = source_group.post.title
-#             translation = PostTranslation.objects.filter(
-#                 post=source_group.post,
-#                 language=target_language
-#             ).first()
-#             if translation:
-#                 new_title = translation.translated_title
-
-#         # Case 2: Known default law — use translated version of canonical title
-#         else:
-#             match_key = find_translation_key_by_title(
-#                 law.title,
-#                 source_group.language.code
-#             )
-#             if match_key:
-#                 translations = DEFAULT_TITLES_TRANSLATIONS.get(match_key, {})
-#                 new_title = translations.get(target_language.code, match_key)  # fallback to English key
-
-#         # Create new law
-#         new_law = Law.objects.create(
-#             group=new_group,
-#             title=new_title,
-#             description=law.description,
-#             position=law.position,
-#             law_code=law.law_code,
-#             local_code=law.local_code,
-#             locked_position=law.locked_position,
-#             allow_sub_laws=law.allow_sub_laws,
-#             allow_description=law.allow_description,
-#             prime_law=law.prime_law,
-#             language=target_language
-#         )
-#         law_mapping[law.id] = new_law
-
-
-#     # 4. Second pass: Set parent references
-#     for old_law in source_group.laws.all():
-#         if old_law.parent_id:
-#             new_law = law_mapping[old_law.id]
-#             new_law.parent = law_mapping.get(old_law.parent_id)
-#             new_law.save()
-
-#     first_law = Law.objects.filter(group=new_group, parent=None, language=target_language).order_by('position').first()
-#     if first_law:
-#         # Rebuild starting from the parent of the first law (which is None)
-#         first_law.rebuild_law_codes(new_group, parent=None, deleted_position=0)
-
-#     return new_group
 
 @transaction.atomic
 def duplicate_laws_for_language(source_group: LawGroup, source_language, target_language):
@@ -2529,6 +2460,7 @@ def duplicate_laws_for_language(source_group: LawGroup, source_language, target_
             description=law.description,
             position=law.position,
             law_code=law.law_code,
+            law_index=law.law_index,
             local_code=law.local_code,
             locked_position=law.locked_position,
             allow_sub_laws=law.allow_sub_laws,

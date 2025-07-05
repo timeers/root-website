@@ -56,13 +56,30 @@ from .forms import (MapCreateForm,
                     AddLawForm, EditLawForm, EditLawDescriptionForm,
                     FAQForm, CopyLawGroupForm, LanguageSelectionForm, EditLawGroupForm
 )
-from .utils import DEFAULT_TITLES_TRANSLATIONS, get_translated_title, clean_meta_description
+from .utils import (get_translated_title, clean_meta_description, 
+                    serialize_group, NoPrimeLawError, update_laws_by_structure, create_laws_from_yaml
+                    )
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
 from django.db import models
 from django.db.models import OuterRef, Subquery, F, Value
 from django.db.models.functions import Coalesce
+
+from yaml.representer import SafeRepresenter
+
+class DoubleQuoted(str):
+    pass
+
+class QuotedDumper(yaml.SafeDumper):
+    pass
+
+def quoted_presenter(dumper, data):
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
+
+QuotedDumper.add_representer(DoubleQuoted, quoted_presenter)
+QuotedDumper.add_representer(str, quoted_presenter)
+
 
 # logger = logging.getLogger(__name__)
 
@@ -2935,107 +2952,31 @@ def law_group_edit_view(request, slug, lang_code):
     return render(request, 'the_keep/law_of_root.html', context)
 
 
-def serialize_law(law):
-    entry = {
-        'name': replace_placeholders(law.title.strip())
-    }
-
-    if law.plain_title and law.plain_title.strip() != law.title.strip():
-        entry['plainName'] = replace_placeholders(law.plain_title.strip())
-
-    if law.description:
-        text = replace_placeholders(law.description.strip())
-
-        references = ''
-        if law.reference_laws:
-            for reference in law.reference_laws.all():
-                if reference.group.type == "Official":
-                    references += f"(`rule:{reference.law_code}`)"
-                else:
-                    references += f"({reference})"
-        if law.level == 0:
-            entry['pretext'] = text + references
-        else:
-            entry['text'] = text + references
-
-
-    children = law.children.all().order_by('position')
-    if children.exists():
-        if law.level == 0:
-            entry['children'] = [serialize_law(child) for child in children]
-        else:
-            entry['subchildren'] = [serialize_law(child) for child in children]
-
-    return entry
-
-INLINE_MAP = {
-    'torch': '`item:torch`',
-    'tea': '`item:tea`',
-    'sword': '`item:sword`',
-    'bag': '`item:sack`',
-    'sack': '`item:sack`',
-    'hammer': '`item:hammer`',
-    'crossbow': '`item:crossbow`',
-    'coins': '`item:coin`',
-    'coin': '`item:coin`',
-    'boot': '`item:boot`',
-    'hired': '`hireling:whenhired`',
-    'ability': '`hireling:ability`',
-    'daylight': '`hireling:daylight`',
-    'birdsong': '`hireling:birdsong`',
-    'bunny': '`faction:woodland`',
-    'rabbit': '`faction:woodland`',
-    'mouse': '`faction:woodland`',
-    'rat': '`faction:warlord`',
-    'raccoon': '`faction:vagabond`',
-    'vb': '`faction:vagabond`',
-    'otter': '`faction:riverfolk`',
-    'cat': '`faction:marquise`',
-    'badger': '`faction:keepers`',
-    'bird': '`faction:eyrie`',
-    'mole': '`faction:duchy`',
-    'lizard': '`faction:cult`',
-    'crow': '`faction:corvid`',
-}
-
-
-def replace_placeholders(text):
-    def replacer(match):
-        key = match.group(1).strip()
-        return INLINE_MAP.get(key, match.group(0))  # fallback to original if not found
-
-    return re.sub(r'\{\{\s*(\w+)\s*\}\}', replacer, text or '')
-
-
-@player_required
 def export_laws_yaml_view(request, group_slug, lang_code):
     try:
         group = LawGroup.objects.get(slug=group_slug)
         language = Language.objects.get(code=lang_code)
-        laws = Law.objects.filter(group=group, language=language).select_related('parent').prefetch_related('children')
-        if group.post:
-            law_color = group.post.color
-        else:
-            law_color = '#000000'
-        prime_law = laws.filter(prime_law=True).first()
+        prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
         if not prime_law:
             raise Http404("No prime law found.")
 
-        output = [{
-            'name': prime_law.title.strip(),
-            'color': law_color,
-            'children': []
-        }]
+        try:
+            output = serialize_group(prime_law)
+        except NoPrimeLawError:
+            raise Http404("No prime law found.")
 
-        # Only add pretext if description exists
-        if prime_law.description:
-            output[0]['pretext'] = replace_placeholders(prime_law.description.strip())
+        # yml_data = yaml.dump(output, allow_unicode=True, sort_keys=False)
+        # Adding double quote and wide lines
+        yaml.representer.SafeRepresenter.default_style = '"'
+        yaml.representer.SafeRepresenter.default_width = 100000  # effectively disables line breaks
 
-        top_level_laws = laws.filter(parent__isnull=True, prime_law=False).order_by('position')
-        for law in top_level_laws:
-            output[0]['children'].append(serialize_law(law))
-
-        yml_data = yaml.dump(output, allow_unicode=True, sort_keys=False)
+        yml_data = yaml.dump(
+            output,
+            allow_unicode=True,
+            sort_keys=False,
+            Dumper=QuotedDumper,
+            width=100000  
+        )
 
         response = HttpResponse(yml_data, content_type='application/x-yaml')
         filename = f"{group.slug}_{lang_code}.yml"
@@ -3046,6 +2987,150 @@ def export_laws_yaml_view(request, group_slug, lang_code):
         raise Http404("Law group not found.")
     except Language.DoesNotExist:
         raise Http404("Language not found.")
+
+
+
+from .forms import YAMLUploadForm
+from .utils import serialize_group, compare_structure_strict 
+
+@admin_required
+def upload_and_compare_yaml_view(request, group_slug, lang_code):
+    if request.method == 'POST':
+        form = YAMLUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = request.FILES['file']
+            uploaded_yaml = yaml.safe_load(uploaded_file)
+
+            try:
+                group = LawGroup.objects.get(slug=group_slug)
+                language = Language.objects.get(code=lang_code)
+                prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
+                if not prime_law:
+                    return HttpResponse("No prime law found.", status=404)
+
+                generated_yaml = serialize_group(prime_law)
+
+                # Compare structures
+                mismatches = compare_structure_strict(generated_yaml, uploaded_yaml)
+
+                if not mismatches:
+                    update_laws_by_structure(generated_yaml, uploaded_yaml, lang_code)
+                    prime_law = Law.objects.filter(group__slug=group_slug, language__code=lang_code, prime_law=True).first()
+                    messages.success(request, f'Law for {prime_law.group} successfully updated!')
+                    return redirect(prime_law.get_absolute_url())
+                 
+
+
+                return render(request, 'the_keep/law_upload_comparison.html', {
+                    'form': form,
+                    'mismatches': mismatches,
+                })
+
+            except Exception as e:
+                return HttpResponse(f"Error: {str(e)}", status=500)
+
+    else:
+        form = YAMLUploadForm()
+
+    return render(request, 'the_keep/law_upload_form.html', {'form': form})
+
+@admin_required
+def update_official_laws(request, lang_code):
+    if request.method == 'POST':
+        form = YAMLUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = request.FILES['file']
+            try:
+                uploaded_yaml = yaml.safe_load(uploaded_file)
+                language = Language.objects.get(code=lang_code)
+
+                # Accept list of groups and convert to dict keyed by name
+                if isinstance(uploaded_yaml, list):
+                    uploaded_yaml = {entry['name']: entry for entry in uploaded_yaml}
+                elif not isinstance(uploaded_yaml, dict):
+                    return HttpResponse("YAML must be a list or dictionary of law groups.", status=400)
+
+
+                matched_yaml = {}
+                unmatched_yaml = {}
+
+                for group_title, group_data in uploaded_yaml.items():
+                    # Match by post title
+                    post = Post.objects.filter(title=group_title).first()
+                    if post:
+                        matched_yaml[group_title] = {'data': group_data, 'post': post}
+                    else:
+                        unmatched_yaml[group_title] = {'data': group_data, 'post': None}
+
+                # Filter LawGroups
+                lawgroups_with_post = LawGroup.objects.filter(type='Official', post__isnull=False)
+                lawgroups_without_post = LawGroup.objects.filter(type='Official', post__isnull=True)
+
+                # First group: post is not None
+                for group_title, content in matched_yaml.items():
+                    post = content['post']
+                    group_data = content['data']
+
+                    group = lawgroups_with_post.filter(post=post).first()
+                    if not group:
+                        # Create LawGroup if it doesn't exist
+                        group = LawGroup.objects.create(
+                            post=post,
+                            type="Official"
+                        )
+                        messages.info(request, f"Created Law for '{group_title}'.")
+
+
+                    prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
+                    if not prime_law:
+                        # Create law structure from YAML if no prime law exists
+                        # create_laws_from_yaml(group, language, group_data)
+                        create_laws_from_yaml(group, language, [group_data])
+                        messages.success(request, f"Created new law structure for group '{group_title}'.")
+                        continue
+
+                    generated_yaml = serialize_group(prime_law)
+                    mismatches = compare_structure_strict(generated_yaml, [group_data])
+
+                    if not mismatches:
+                        update_laws_by_structure(generated_yaml, [group_data], lang_code)
+                        messages.success(request, f"Law for {group.title} successfully updated!")
+                    else:
+                        messages.warning(request, f"Structure mismatch in group '{group_title}': {mismatches}")
+
+                # Second group: post is None
+                for group_title, content in unmatched_yaml.items():
+                    group_data = content['data']
+                    group = lawgroups_without_post.filter(title=group_title).first()
+                    if not group:
+                        continue
+
+                    prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
+                    if not prime_law:
+                        # create_laws_from_yaml(group, language, group_data)
+                        create_laws_from_yaml(group, language, [group_data])
+
+                        messages.success(request, f"Created new law structure for group '{group_title}'.")
+                        continue
+
+                    generated_yaml = serialize_group(prime_law)
+                    mismatches = compare_structure_strict(generated_yaml, [group_data])
+
+                    if not mismatches:
+                        update_laws_by_structure(generated_yaml, [group_data], lang_code)
+                        messages.success(request, f"Law for {group.title} successfully updated!")
+                    else:
+                        messages.warning(request, f"Structure mismatch in group '{group_title}': {mismatches}")
+
+                return redirect('law-of-root', lang_code=lang_code)
+
+            except Exception as e:
+                return HttpResponse(f"Error processing YAML: {str(e)}", status=500)
+
+    else:
+        form = YAMLUploadForm()
+
+    return render(request, 'the_keep/law_upload_form.html', {'form': form})
 
 
 # FAQs FAQ Views

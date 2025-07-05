@@ -41,6 +41,7 @@ urlpatterns = [
     # Laws
     path('law-of-root/', views.law_table_of_contents),
     path('law-of-root/<str:lang_code>/', views.law_table_of_contents, name='law-of-root'),
+    path('law-of-root/<str:lang_code>/update/', views.update_official_laws, name='update-law-of-root'),
     path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
     path('law/<slug:slug>/copy/', views.copy_law_group_view, name='copy-first-law'),
     path('law/<slug:slug>/edit/', views.edit_law_group, name='edit-law-group'),
@@ -48,6 +49,7 @@ urlpatterns = [
     path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='edit-law-view'),
     path('law/<slug:slug>/<str:lang_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
     path('law/<slug:slug>/<str:lang_code>/delete/', views.delete_law_group, name='delete-law-group'),
+    path('law/<slug:group_slug>/<str:lang_code>/compare/', views.upload_and_compare_yaml_view, name='compare-law-group'),
 
     path('export-laws/<slug:group_slug>/<str:lang_code>/', views.export_laws_yaml_view, name='export-laws-yaml'),
     

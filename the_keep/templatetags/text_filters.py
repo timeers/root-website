@@ -4,6 +4,7 @@ from django.utils.safestring import mark_safe
 from django.templatetags.static import static
 from django import template
 from django.urls import reverse
+from the_keep.utils import FACTION_SLUGS
 
 register = template.Library()
 
@@ -50,23 +51,6 @@ INLINE_IMAGES = {
     'mole': static('items/law/mole.png'),
     'lizard': static('items/law/lizard.png'),
     'crow': static('items/law/crow.png'),
-}
-
-# This will link the official faction icons to the corresponding law pages
-FACTION_SLUGS = {
-    'bunny': 'woodland-alliance',
-    'rabbit': 'woodland-alliance',
-    'mouse': 'woodland-alliance',
-    'rat': 'lord-of-the-hundreds',
-    'raccoon': 'vagabond',
-    'vb': 'vagabond',
-    'otter': 'riverfolk-company',
-    'cat': 'marquise-de-cat',
-    'badger': 'keepers-in-iron',
-    'bird': 'eyrie-dynasties',
-    'mole': 'underground-duchy',
-    'lizard': 'lizard-cult',
-    'crow': 'corvid-conspiracy',
 }
 
 # This makes [[]] into SMALLCAPS () into italics and {{}} into images with optional links to faction laws

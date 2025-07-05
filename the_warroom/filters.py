@@ -101,9 +101,10 @@ class GameFilter(django_filters.FilterSet):
         if selected_factions:
             # Build the filter condition for all selected factions
             for faction in selected_factions:
-                queryset = queryset.filter(
-                    Q(efforts__faction=faction)  # Filter by any selected faction
-                )
+                if faction:
+                    queryset = queryset.filter(
+                        Q(efforts__faction=faction)  # Filter by any selected faction
+                    )
 
         if selected_vagabonds:
             # Build the filter condition for all selected vagabonds

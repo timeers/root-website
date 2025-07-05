@@ -4,14 +4,34 @@ from django.utils.html import strip_tags
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.conf import settings
+from django.db import transaction
 import re
 from PIL import Image
 import os
 import math
 import uuid
+import string
 
 from itertools import combinations
 
+class NoPrimeLawError(Exception):
+    pass
+
+FACTION_SLUGS = {
+    'bunny': 'woodland-alliance',
+    'rabbit': 'woodland-alliance',
+    'mouse': 'woodland-alliance',
+    'rat': 'lord-of-the-hundreds',
+    'raccoon': 'vagabond',
+    'vb': 'vagabond',
+    'otter': 'riverfolk-company',
+    'cat': 'marquise-de-cat',
+    'badger': 'keepers-in-iron',
+    'bird': 'eyrie-dynasties',
+    'mole': 'underground-duchy',
+    'lizard': 'lizard-cult',
+    'crow': 'corvid-conspiracy',
+}
 
 
 def resize_image(image_field, max_size):
@@ -570,3 +590,391 @@ def strip_formatting(text):
     
     # Strip extra whitespace
     return text.strip()
+
+
+def serialize_group(prime_law):
+    Law = apps.get_model('the_keep', 'Law')
+    laws = Law.objects.filter(group=prime_law.group, language=prime_law.language).select_related('parent').prefetch_related('children')
+    if prime_law.group.post:
+        law_color = prime_law.group.post.color
+    else:
+        law_color = '#000000'
+    if not prime_law:
+        raise NoPrimeLawError("No prime law found.")
+
+    # Only add pretext if description exists
+    if prime_law.description:
+        text = replace_placeholders(prime_law.description.strip())
+        references = ''
+        if prime_law.reference_laws:
+            for reference in prime_law.reference_laws.all():
+                if reference.group.type == "Official":
+                    references += f"(`rule:{reference.get_law_index()}`)"
+                else:
+                    references += f"({reference})"
+        output = [{
+            'name': prime_law.title.strip(),
+            'color': law_color,
+            'pretext': text + references,
+            'id': prime_law.id,
+            'children': []
+        }]
+    else:
+        output = [{
+            'name': prime_law.title.strip(),
+            'color': law_color,
+            'id': prime_law.id,
+            'children': []
+        }]
+
+    top_level_laws = laws.filter(parent__isnull=True, prime_law=False).order_by('position')
+    for law in top_level_laws:
+        output[0]['children'].append(serialize_law(law))
+    return output
+
+
+
+def serialize_law(law):
+    entry = {
+        'name': replace_placeholders(law.title.strip())
+    }
+
+    if law.plain_title and law.plain_title.strip() != law.title.strip():
+        entry['plainName'] = replace_placeholders(law.plain_title.strip())
+
+    if law.description:
+        text = replace_placeholders(law.description.strip())
+
+        references = ''
+        if law.reference_laws:
+            for reference in law.reference_laws.all():
+                if reference.group.type == "Official":
+                    references += f"(`rule:{reference.get_law_index()}`)"
+                else:
+                    references += f"({reference})"
+        if law.level == 0:
+            entry['pretext'] = text + references
+        else:
+            entry['text'] = text + references
+
+    entry['id'] = law.id
+
+    children = law.children.all().order_by('position')
+    if children.exists():
+        if law.level == 0:
+            entry['children'] = [serialize_law(child) for child in children]
+        else:
+            entry['subchildren'] = [serialize_law(child) for child in children]
+
+    return entry
+# mapying from RDB to seyria
+INLINE_MAP = {
+    'torch': '`item:torch`',
+    'tea': '`item:tea`',
+    'sword': '`item:sword`',
+    'bag': '`item:sack`',
+    'sack': '`item:sack`',
+    'hammer': '`item:hammer`',
+    'crossbow': '`item:crossbow`',
+    'coins': '`item:coin`',
+    'coin': '`item:coin`',
+    'boot': '`item:boot`',
+    'hired': '`hireling:whenhired`',
+    'ability': '`hireling:ability`',
+    'daylight': '`hireling:daylight`',
+    'birdsong': '`hireling:birdsong`',
+    'cat': '`faction:marquise:6.1`',
+    'bird': '`faction:eyrie:7.1`',
+    'bunny': '`faction:woodland:8.1`',
+    'rabbit': '`faction:woodland:8.1`',
+    'mouse': '`faction:woodland:8.1`',
+    'raccoon': '`faction:vagabond:9.1`',
+    'vb': '`faction:vagabond:9.1`',
+    'lizard': '`faction:cult:10.1`',
+    'otter': '`faction:riverfolk:11.1`',
+    'mole': '`faction:duchy:12.1`',
+    'crow': '`faction:corvid:13.1`',
+    'rat': '`faction:warlord:14.1`',
+    'badger': '`faction:keepers:15.1`',
+}
+# Replace RDB bracket tags with seyria format
+def replace_placeholders(text):
+    def replacer(match):
+        key = match.group(1).strip()
+        return INLINE_MAP.get(key, match.group(0))  # fallback to original if not found
+
+    return re.sub(r'\{\{\s*(\w+)\s*\}\}', replacer, text or '')
+
+def normalize_name(name):
+    if not name:
+        return ''
+    return name.strip().rstrip(string.punctuation).lower()
+
+# WIP for comparing an uploaded yaml law file with the current law
+def compare_structure_strict(generated, uploaded, path="'Law'"):
+    mismatches = []
+
+    if type(generated) != type(uploaded):
+        mismatches.append(f"Type mismatch at {path}: {type(generated).__name__} vs {type(uploaded).__name__}")
+        return mismatches
+
+    if isinstance(generated, list):
+        if len(generated) != len(uploaded):
+            mismatches.append(f"Length mismatch at {path}: {len(generated)} vs {len(uploaded)}")
+
+        gen_names = [normalize_name(item.get('name')) for item in generated]
+        up_names = [normalize_name(item.get('name')) for item in uploaded]
+
+
+        for name in up_names:
+            if name not in gen_names:
+                mismatches.append(f"Unexpected item '{name}' found in uploaded at {path}")
+
+        for i, (gen_item, up_item) in enumerate(zip(generated, uploaded)):
+            expected_name = gen_item.get('name')
+            actual_name = up_item.get('name')
+            # new_path = f"{path}[{i}] ('{expected_name}')"
+            new_path = f"{path} > '{expected_name}'"
+
+            if expected_name != actual_name:
+                if actual_name in gen_names:
+                    correct_index = gen_names.index(actual_name)
+                    mismatches.append(
+                        f"Order mismatch at {new_path}: expected '{expected_name}', got '{actual_name}' "
+                        f"(found at index {correct_index})"
+                    )
+                else:
+                    mismatches.append(
+                        f"Name mismatch at {new_path}: expected '{expected_name}', got '{actual_name}'"
+                    )
+
+            mismatches += compare_structure_strict(gen_item, up_item, new_path)
+
+    elif isinstance(generated, dict):
+        for key in ('children', 'subchildren'):
+            gen_child = generated.get(key, [])
+            up_child = uploaded.get(key, [])
+            if gen_child or up_child:
+                child_path = f"{path}"
+                mismatches += compare_structure_strict(gen_child, up_child, child_path)
+
+    return mismatches
+
+
+
+
+
+def update_laws_by_structure(generated_data, uploaded_data, lang_code):
+    Law = apps.get_model('the_keep', 'Law')
+    @transaction.atomic
+    def recursive_update(generated, uploaded):
+        for gen_item, up_item in zip(generated, uploaded):
+            law_id = gen_item.get("id")
+            if law_id is None:
+                continue  # Skip if no ID found
+            try:
+                law = Law.objects.get(id=law_id)
+            except Law.DoesNotExist:
+                continue  # Optionally log or collect for reporting
+
+            # Use uploaded text or pretext to update description
+            new_desc = up_item.get("text") or up_item.get("pretext")
+            new_title, _ = replace_special_references(up_item.get("name"), lang_code)
+            reference_laws = None
+            law.title = new_title
+            if new_desc:
+                description, reference_laws = replace_special_references(new_desc.strip(), lang_code)
+                law.description = description
+            law.save()
+            if reference_laws:
+                law.reference_laws.set(reference_laws)  # This replaces all existing references
+            else:
+                law.reference_laws.clear()  # If no references found, clear the field
+
+            # Recurse through children/subchildren
+            for key in ("children", "subchildren"):
+                if key in gen_item or key in up_item:
+                    gen_children = gen_item.get(key, [])
+                    up_children = up_item.get(key, [])
+                    recursive_update(gen_children, up_children)
+
+    # Run the update inside an atomic block
+    recursive_update(generated_data, uploaded_data)
+
+# maping from seyria to rdb {{ }} format
+REFERENCE_MAP = {
+    'whenhired': 'hired',
+    'ability': 'ability',
+    'daylight': 'daylight',
+    'birdsong': 'birdsong',
+    'marquise': 'cat',
+    'eyrie': 'bird',
+    'woodland': 'bunny',
+    'vagabond': 'vb',
+    'cult': 'lizard',
+    'riverfolk': 'otter',
+    'duchy': 'mole',
+    'corvid': 'crow',
+    'warlord': 'rat',
+    'keepers': 'badger',
+}
+
+def replace_special_references(text, lang_code):
+    reference_laws = set()
+    Law = apps.get_model('the_keep', 'Law')
+    LawGroup = apps.get_model('the_keep', 'LawGroup')
+
+    def find_law_by_rule_index(rule_index_str, lang_code, second_pass=False):
+
+        try:
+            group_idx_str, law_idx_str = rule_index_str.split('.', 1)
+            group_idx = int(group_idx_str)
+
+            if law_idx_str == "0":
+                law_idx_str = ""
+
+        except ValueError:
+            return None
+
+        all_groups = list(LawGroup.objects.all())
+        if group_idx - 1 >= len(all_groups) or group_idx <= 0:
+            return None
+
+        group = all_groups[group_idx - 1]
+        law = Law.objects.filter(group=group, law_index=law_idx_str, language__code=lang_code).first()
+
+        # if not second_pass:
+        #     # Get the last LawGroup that is Official and has a post
+        #     last_official_group = (
+        #         LawGroup.objects
+        #         .filter(type='Official', post__isnull=False)
+        #         .last()
+        #     )
+
+        #     if last_official_group:
+        #         # Get index in full list (1-based)
+        #         try:
+        #             last_index = all_groups.index(last_official_group) + 1
+        #             if last_index < group_idx:
+
+        #                 print(f'{group_idx} larger than last post group')
+        #             print(f"Last official LawGroup with post is at index {last_index}")
+        #         except ValueError:
+        #             print("Last qualified LawGroup not found in full list.")
+        #     else:
+        #         print("No Official LawGroup with post found.")
+
+        return law
+
+    # def rule_replacer(match):
+    #     rule_content = match.group(1)
+    #     law = find_law_by_rule_index(rule_content, lang_code)
+    #     if law:
+    #         reference_laws.add(law)
+    #         return ""  # Remove the (`rule:x`) reference entirely
+    #     else:
+    #         return f"({rule_content})"  # Replace with a fallback if no law found
+
+    def rule_replacer(match):
+        full_match = match.group(0)
+        rule_content = match.group(1)
+
+        print(f"Rule replacer {match}")
+
+        law = find_law_by_rule_index(rule_content, lang_code)
+        if law:
+            reference_laws.add(law)
+
+            # Check if there's a space before the match — remove it later
+            if full_match.startswith(" (") or full_match.startswith(" (`rule:"):
+                return ""  # Remove the whole match and let re.sub() handle space collapse
+            return ""
+        else:
+            return f"({rule_content})"
+
+    def backtick_replacer(match):
+        content = match.group(1)
+
+        # Handle rule: still if present and not already matched in previous pass
+        if content.startswith("rule:"):
+            print(f"Backtick replacer {content}")
+            rule_content = content[5:]
+            law = find_law_by_rule_index(rule_content, lang_code)
+            if law:
+                rule_content=law.law_code
+                reference_laws.add(law)
+                return f"{rule_content}"  # Remove `rule:x`
+            else:
+                return f"{rule_content}"
+
+        # map faction references
+        if content.startswith("faction:"):
+            parts = content.split(":")
+            if len(parts) >= 2:
+                key = parts[1]
+                if key in REFERENCE_MAP:
+                    return f"{{{{{REFERENCE_MAP[key]}}}}}"
+
+        # map hireling references
+        elif content.startswith("hireling:"):
+            parts = content.split(":")
+            if len(parts) == 2:
+                key = parts[1]
+                if key in REFERENCE_MAP:
+                    return f"{{{{{REFERENCE_MAP[key]}}}}}"
+
+        # Replace `item:x` with {{x}}
+        elif content.startswith("item:"):
+            parts = content.split(":")
+            if len(parts) == 2:
+                key = parts[1]
+                return f"{{{{{key}}}}}"
+
+        return match.group(0)  # leave unchanged
+
+    # First handle (`rule:x`) with optional leading space
+    # text = re.sub(r'\(`rule:([^\)]+)`\)', rule_replacer, text)
+    # text = re.sub(r'\s?\(`rule:([^\)]+)`\)', rule_replacer, text)
+
+    # Then handle remaining `...` references
+    text = re.sub(r'`([^`]+)`', backtick_replacer, text)
+
+    return text, list(reference_laws)
+
+def create_laws_from_yaml(group, language, yaml_data):
+    Law = apps.get_model('the_keep', 'Law')
+    lang_code = language.code
+
+    def create_law(entry, lang_code, parent=None, position=0, is_prime=False):
+        # Prefer 'pretext' if present, otherwise use 'text'
+        raw_description = entry.get('pretext') or entry.get('text', '')
+        if raw_description:
+            description, reference_laws = replace_special_references(raw_description, lang_code=lang_code)
+        else:
+            description, reference_laws = '', []        
+        raw_title = entry['name']
+        title, _ = replace_special_references(raw_title, lang_code=lang_code)
+        if parent and parent.prime_law:
+            parent=None
+
+        law = Law.objects.create(
+            title=title,
+            group=group,
+            language=language,
+            parent=parent,
+            position=position,
+            prime_law=is_prime,
+            description=description
+        )
+        if reference_laws:
+            law.reference_laws.set(reference_laws)  # This replaces all existing references
+        else:
+            law.reference_laws.clear()
+        # Handle both 'children' and 'subchildren'
+        for key in ('children', 'subchildren'):
+            for i, child in enumerate(entry.get(key, [])):
+                create_law(child, lang_code, parent=law, position=i)
+
+    for i, entry in enumerate(yaml_data):
+        is_prime = i == 0  # Treat first item as prime law
+        create_law(entry, lang_code, parent=None, position=i, is_prime=is_prime)

@@ -1,5 +1,6 @@
+{% load text_filters %}
 {% if edit_mode %}
-    ({{ reference }})
+    ({{ reference|format_law_text_no_link }})
 {% else %}
-    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference }}</a>)
+    (<a class='clickable-link' href='{{ reference.get_absolute_url }}'>{{ reference|format_law_text_no_link }}</a>)
 {% endif %}

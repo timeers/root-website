@@ -26,11 +26,11 @@ class FAQAdmin(admin.ModelAdmin):
     search_fields = ('post__title', 'question')
 
 class LawGroupAdmin(admin.ModelAdmin):
-    list_display = ('abbreviation', 'title', 'type', 'position')
+    list_display = ('abbreviation', 'title', 'type', 'public')
     search_fields = ('post__title', 'title', 'abbreviation')
 
 class LawAdmin(admin.ModelAdmin):
-    list_display = ('law_code', 'title', 'group__post', 'language')
+    list_display = ('law_code', 'title', 'group__post', 'language', 'law_index')
     search_fields = ('group__post__title', 'title', 'law_code')
 
 class TranslationAdmin(admin.ModelAdmin):
