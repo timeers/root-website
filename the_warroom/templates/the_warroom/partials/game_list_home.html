@@ -147,12 +147,21 @@
 
 
         {% if forloop.last and games.has_next %}
-            <div hx-trigger="revealed" 
-            hx-get="{% url 'games-home' %}?page={{ page_obj.number|add:1 }}"
-            hx-target="#search-contents"
-            hx-swap="beforeend"
-            hx-include="#gamefilterform"
-            hx-indicator="#spinner">
+            {% if not player_view %}
+                <div hx-trigger="revealed" 
+                hx-get="{% url 'games-home' %}?page={{ page_obj.number|add:1 }}"
+                hx-target="#search-contents"
+                hx-swap="beforeend"
+                hx-include="#gamefilterform"
+                hx-indicator="#spinner">
+            {% else %}
+                <div hx-trigger="revealed" 
+                hx-get="{% url 'player-games' slug=player_slug %}?page={{ page_obj.number|add:1 }}"
+                hx-target="#search-contents"
+                hx-swap="beforeend"
+                hx-include="#gamefilterform"
+                hx-indicator="#spinner">
+            {% endif %}
         {% else %}
             <div>
         {% endif %}

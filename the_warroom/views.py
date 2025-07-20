@@ -271,6 +271,8 @@ class PlayerGameListView(ListView):
             'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
             'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
             'leaderboard_threshold': leaderboard_threshold,
+            'player_view': True,
+            'player_slug': self.kwargs.get('slug'),
         })
         
         # Use the player stored in self._player
