@@ -28,3 +28,12 @@
     <h2 class='root-title mx-auto'>{{ object.component }}</h2>
 {% endif %}
 </div>
+{% if object.forests %}
+    <div class="d-flex flex-wrap">
+        <h4 class='root-title mx-auto'>
+            {% blocktrans with object.forests as forests %}
+            with {{ forests }} Forests
+            {% endblocktrans %}
+        </h4>
+    </div>
+{% endif %}
