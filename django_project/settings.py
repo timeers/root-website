@@ -201,6 +201,7 @@ LANGUAGES = [
     ('nl', _('Dutch')),
     ('pl', _('Polish')),
     ('ru', _('Russian')),
+    ('de', _('German')),
 ]
 
 TIME_ZONE = 'UTC'

@@ -734,6 +734,11 @@ def ultimate_component_view(request, slug):
     else:
         object_card_2_image_url = None
 
+    # Links
+    tts_link = object_translation.tts_link if object_translation and object_translation.tts_link else object.tts_link
+    bgg_link = object_translation.bgg_link if object_translation and object_translation.bgg_link else object.bgg_link
+    pnp_link = object_translation.pnp_link if object_translation and object_translation.pnp_link else object.pnp_link
+
 
     if object.based_on:
         translation = PostTranslation.objects.filter(
@@ -959,6 +964,10 @@ def ultimate_component_view(request, slug):
         'existing_faq': existing_faq,
 
         'col_class': col_class,
+
+        'tts_link': tts_link,
+        'bgg_link': bgg_link,
+        'pnp_link': pnp_link,
 
     }
     if request.htmx:

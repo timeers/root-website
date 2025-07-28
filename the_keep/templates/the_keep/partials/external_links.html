@@ -13,14 +13,14 @@
             {% trans 'Find at Leder Games' %}
         </a>
     {% endif %}
-    {% if object.bgg_link %}
-        <a class="mr-2 mt-1" href="{{ object.bgg_link }}" style="display: inline-flex; align-items: center;">
+    {% if bgg_link %}
+        <a class="mr-2 mt-1" href="{{ bgg_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/BGG.webp' %}" alt="Board Game Geek">
             {% trans 'Board Game Geek Post' %}
         </a>
     {% endif %}
-    {% if object.tts_link %}
-        <a class="mr-2 mt-1" href="{{ object.tts_link }}" style="display: inline-flex; align-items: center;">
+    {% if tts_link %}
+        <a class="mr-2 mt-1" href="{{ tts_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/TTS.webp' %}" alt="Tabletop Simulator">
             {% trans 'Tabletop Simulator' %}
         </a>
@@ -66,8 +66,8 @@
         </a>
     {% endif %}
 
-    {% if object.pnp_link  %}
-        <a class="mr-2 mt-1" href="{{ object.pnp_link }}" style="display: inline-flex; align-items: center;">
+    {% if pnp_link  %}
+        <a class="mr-2 mt-1" href="{{ pnp_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/PNP.webp' %}" alt="Print & Play">
             {% trans 'Print & Play Files' %}
         </a>
