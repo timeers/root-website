@@ -143,6 +143,8 @@ class GameListView(ListView):
         elif games_count > 2000:
             leaderboard_threshold = 5
         elif games_count > 1500:
+            leaderboard_threshold = 4
+        elif games_count > 1000:
             leaderboard_threshold = 3
         elif games_count > 500:
             leaderboard_threshold = 2

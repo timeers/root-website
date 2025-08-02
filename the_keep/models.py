@@ -1528,7 +1528,7 @@ class Faction(Post):
         queryset = cls.objects.all()
 
         # Filter for finished games only
-        queryset = queryset.filter(efforts__in=effort_qs, efforts__game__final=True)
+        queryset = queryset.filter(efforts__in=effort_qs, efforts__game__final=True, component='Faction')
 
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
