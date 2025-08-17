@@ -701,7 +701,7 @@ class Post(models.Model):
 
         
     class Meta:
-        ordering = ['sorting', '-official', 'status', '-date_posted']
+        ordering = ['sorting', '-official', 'status', '-date_posted', 'id']
 
 
 

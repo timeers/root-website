@@ -808,7 +808,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         "feedback": _('Thank you for your feedback!'),
         "request": _('Your request has been received'),
         "report": _('Your report has been received'),
-        "weird-root": _('Your request has been received'),
+        "weird-root": _('Your request has been received, you should receive a Discord DM once an admin sees your request.'),
         "french-root": _('Your request has been received'),
         "bug": _('Thank you for your report'),
     }

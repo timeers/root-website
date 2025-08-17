@@ -1463,7 +1463,7 @@ def _search_components(request, slug=None):
     ).distinct()
 
 
-
+    
     paginator = Paginator(posts, settings.PAGE_SIZE)
 
     try:

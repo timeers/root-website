@@ -4,7 +4,6 @@
 {% if posts %}
     {% for object in posts %}
         
-    
             {% if forloop.last and posts.has_next %}
             <div id="{{ forloop.counter }}" 
             hx-trigger="revealed" 
