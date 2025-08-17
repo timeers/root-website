@@ -1463,7 +1463,7 @@ def _search_components(request, slug=None):
     ).distinct()
 
 
-    
+    posts = posts.order_by('sorting', '-official', 'status', '-date_posted', 'id')
     paginator = Paginator(posts, settings.PAGE_SIZE)
 
     try:
