@@ -7,9 +7,9 @@
 <meta property="og:image" content="{% static 'images/law-icon.png' %}">
 <meta property="og:site_name" content="{{ site_title }}">
 {% if law_meta_title %}
-  <meta property="og:title" content="{{ law_meta_title }}">
-  <meta property="og:description" content="{{ law_meta_description }}">
-  <meta name="description" content="{{ law_meta_description }}">
+  <meta property="og:title" content="{{ law_meta_title|format_law_text_only }}">
+  <meta property="og:description" content="{{ law_meta_description|format_law_text_only }}">
+  <meta name="description" content="{{ law_meta_description|format_law_text_only }}">
 {% else %}
   {% trans "The Law of Root" as law_of_root_title %}
   {% if post %}

@@ -140,6 +140,38 @@ def format_law_text_no_link(value):
 
     return mark_safe(final_value)
 
+# Converts law text to text only for meta descriptions.
+@register.filter
+def format_law_text_only(value):
+    import bleach
+    import re
+    from django.utils.safestring import mark_safe
+
+    # Step 1: Strip all HTML
+    clean_value = bleach.clean(str(value), tags=[], strip=True)
+
+    # Step 2: Remove complete {{ ... }} patterns
+    clean_value = re.sub(r"\{\{\s*[^}]+\s*\}\}", "", clean_value)
+
+    # Step 3: Remove underscores
+    clean_value = clean_value.replace("_", "")
+
+    # Step 4: Convert **text** to UPPERCASE
+    clean_value = re.sub(r"\*\*([^\*]+)\*\*", lambda m: m.group(1).upper(), clean_value)
+
+    # Step 5: Handle unclosed **text ... to end of line
+    clean_value = re.sub(r"\*\*([^\n<]*)", lambda m: m.group(1).upper(), clean_value)
+
+    # Step 6: Remove everything from leftover '{{' to the end of the string
+    clean_value = re.sub(r"\{\{.*", "", clean_value)
+
+    # Step 7: Replace newlines and collapse excess whitespace
+    final_value = clean_value.replace('\n', ' ')
+
+    return mark_safe(final_value)
+
+
+
 
 @register.simple_tag
 def open_braces():
