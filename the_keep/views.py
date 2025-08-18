@@ -1460,10 +1460,8 @@ def _search_components(request, slug=None):
             ),
             'lore'  # Fall back to the default lore if there's no translation
         )
-    ).distinct()
-
-
-    posts = posts.order_by('sorting', '-official', 'status', '-date_posted', 'id')
+    ).distinct().order_by('sorting', '-official', 'status', '-date_posted', 'id')
+    
     paginator = Paginator(posts, settings.PAGE_SIZE)
 
     try:
