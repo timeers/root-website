@@ -51,6 +51,9 @@ INLINE_IMAGES = {
     'mole': static('items/law/mole.png'),
     'lizard': static('items/law/lizard.png'),
     'crow': static('items/law/crow.png'),
+    'frog': static('items/law/frog.png'),
+    'bat': static('items/law/bat.png'),
+    'skunk': static('items/law/skunk.png'),
 }
 
 # This makes [[]] into SMALLCAPS () into italics and {{}} into images with optional links to faction laws

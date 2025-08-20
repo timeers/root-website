@@ -2819,7 +2819,10 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
     if highlight_id:
         selected_law = Law.objects.filter(id=highlight_id).first()
         if selected_law:
-            law_meta_title = selected_law.group.title + ": " + selected_law.law_code + " '" + clean_meta_description(selected_law.title) + "'"
+            if selected_law.prime_law:
+                law_meta_title = "Law of " + clean_meta_description(selected_law.title)
+            else:
+                law_meta_title = "Law of Root - " + selected_law.group.title + ": " + selected_law.law_code + " '" + clean_meta_description(selected_law.title) + "'"
             law_meta_description = clean_meta_description(selected_law.description)
     elif highlight_group_id:
         selected_group = LawGroup.objects.filter(id=highlight_group_id).first()

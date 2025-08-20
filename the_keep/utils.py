@@ -31,6 +31,9 @@ FACTION_SLUGS = {
     'mole': 'underground-duchy',
     'lizard': 'lizard-cult',
     'crow': 'corvid-conspiracy',
+    'frog': 'lilypad-diaspora',
+    'bat': 'twilight-council',
+    'skunk': 'knaves-of-the-deepwood',
 }
 
 
@@ -696,6 +699,9 @@ INLINE_MAP = {
     'crow': '`faction:corvid:13.1`',
     'rat': '`faction:warlord:14.1`',
     'badger': '`faction:keepers:15.1`',
+    'frog': '`faction:diaspora:16.1`',
+    'bat': '`faction:council:17.1`',
+    'skunk': '`faction:knaves:18.1`',
 }
 # Replace RDB bracket tags with seyria format
 def replace_placeholders(text):
@@ -817,6 +823,10 @@ REFERENCE_MAP = {
     'corvid': 'crow',
     'warlord': 'rat',
     'keepers': 'badger',
+    'diaspora': 'frog',
+    'council': 'bat',
+    'knaves': 'skunk',
+
 }
 
 def replace_special_references(text, lang_code):
