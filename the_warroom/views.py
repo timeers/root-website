@@ -1184,7 +1184,11 @@ def tournament_detail_view(request, tournament_slug):
     top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=leaderboard_threshold)
     most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold)
 
+    meta_title = tournament.name
+    meta_description = tournament.description
+
     context = {
+        'tournament': tournament,
         'object': tournament,
         'active': active_rounds,
         'future': future_rounds,
@@ -1195,6 +1199,8 @@ def tournament_detail_view(request, tournament_slug):
         'most_factions': most_factions,
         'leaderboard_threshold': leaderboard_threshold,
         'playable_round': playable_round,
+        'meta_title': meta_title,
+        'meta_description': meta_description,
         # 'players': players,
         # 'games': games,
     }
@@ -1554,7 +1560,8 @@ def round_detail_view(request, tournament_slug, round_slug):
     #     )
     # ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
 
-
+    meta_title = f'{tournament.name} - {round.name}'
+    meta_description = tournament.description
 
     # games = round.games.all()
 
@@ -1567,6 +1574,8 @@ def round_detail_view(request, tournament_slug, round_slug):
         'most_factions': most_factions,
         'leaderboard_threshold': threshold,
         'playable_round': playable_round,
+        'meta_title': meta_title,
+        'meta_description': meta_description,
         # 'players': players,
         # 'games': games,
     }

@@ -10,6 +10,7 @@ from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tw
 from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
 from .utils import slugify_tournament_name, slugify_round_name
+from the_keep.utils import delete_old_image
 
 class PlatformChoices(models.TextChoices):
     TTS = 'Tabletop Simulator'
@@ -39,6 +40,7 @@ class Tournament(models.Model):
         ALL = "All"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
+    picture = models.ImageField(upload_to='boards', null=True, blank=True)
 
     players = models.ManyToManyField(Profile, blank=True, related_name='current_tournaments')
     eliminated_players = models.ManyToManyField(Profile, blank=True, related_name='past_tournaments')
@@ -119,7 +121,21 @@ class Tournament(models.Model):
         all_players = players.union(eliminated_players)
 
         return all_players
+    
+    def save(self, *args, **kwargs):
 
+        # Check if the image field has changed (only works if the instance is already saved)
+        if self.pk:  # If the object already exists in the database
+            old_instance = Tournament.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            field_name = 'picture'
+
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image:
+                delete_old_image(old_image)
+        
+        super().save(*args, **kwargs)
 
 # This is a round of a tournament, series or playtest. It allows for leaderboard splits and a set end date.
 class Round(models.Model):

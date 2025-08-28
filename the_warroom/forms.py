@@ -752,9 +752,11 @@ class TournamentCreateForm(forms.ModelForm):
         required=False,
         label='Allowed Coalitions'
     )
+    picture = forms.ImageField(required=False)
+    
     class Meta:
         model = Tournament
-        fields = ['name', 'designer', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'open_assets', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams']
+        fields = ['name', 'designer', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'open_assets', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams', 'picture']
         labels = {
             'name': 'Series Name',
             'designer': 'Owner (will be able to edit Rounds)',
@@ -768,7 +770,8 @@ class TournamentCreateForm(forms.ModelForm):
             'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
             'open_assets': 'Allow all Official and Fan Content',
             'include_fan_content': 'Include Fan Content',
-            'include_clockwork': 'Include Clockwork Factions'
+            'include_clockwork': 'Include Clockwork Factions',
+            'picture': 'Series Image',
         }
     def __init__(self, user=None, *args, **kwargs):
         super(TournamentCreateForm, self).__init__(*args, **kwargs)
@@ -816,7 +819,7 @@ class TournamentCreateForm(forms.ModelForm):
 
         return instance
 
-
+# view for non admin tournament hosts
 class TournamentUpdateForm(forms.ModelForm):
     PLATFORM_CHOICES = [
         (None, 'Any platform'),  # Represents the null choice

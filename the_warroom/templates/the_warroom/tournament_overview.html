@@ -1,5 +1,17 @@
 {% extends 'the_keep/base.html' %}
+{% load static i18n %}
 {% block title %} - {{ object.name }}{% endblock %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+<meta property="og:site_name" content="{{site_title}}">
+
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{meta_description}}">
+<meta name="description" content="{{meta_description}}">
+{% endblock meta%}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap">
