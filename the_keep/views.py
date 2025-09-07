@@ -155,6 +155,11 @@ def expansion_detail_view(request, slug):
 
     links_count = expansion.count_links(request.user)
 
+    tts_link = expansion.tts_link
+    bgg_link = expansion.bgg_link
+    pnp_link = expansion.pnp_link
+
+
     if expansion.open_roster and (expansion.end_date > timezone.now() or not expansion.end_date):
         open_expansion = True
     else:
@@ -174,6 +179,9 @@ def expansion_detail_view(request, slug):
         'tweaks': tweaks,
         'links_count': links_count,
         'open_expansion': open_expansion,
+        'tts_link': tts_link,
+        'bgg_link': bgg_link,
+        'pnp_link': pnp_link,
     }
 
     return render(request, 'the_keep/expansion_detail.html', context)
