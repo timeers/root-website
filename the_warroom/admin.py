@@ -178,17 +178,31 @@ class GameAdmin(admin.ModelAdmin):
                         
                     for i in range(4):
                         discord_value = fields[1+i].split('+')[0].lower()
+                        dwd_value = fields[1 + i]
+                        display_name = dwd_value.split('+')[0]
+
+                        # Try to get the Profile by discord
+                        player_instance = Profile.objects.filter(discord=discord_value).first()
+                        # If not found by discord, try by dwd
+                        if player_instance is None:
+                            player_instance = Profile.objects.filter(dwd=dwd_value).first()
+
+                        # If still not found, create a new Profile
+                        if player_instance is None:
+                            player_instance = Profile(discord=discord_value, dwd=dwd_value, display_name=display_name)
+                            player_instance.save()
+
                         # player_instance = Profile.objects.get_or_create(discord=fields[1+i])
                         # print(discord_value)
                         # print(fields[1+i])
 
-                        player_instance, _ = Profile.objects.update_or_create(
-                            discord=discord_value,
-                            defaults={
-                                'dwd': fields[1+i],
-                                'display_name': fields[1+i].split('+')[0]
-                                }
-                            )
+                        # player_instance, _ = Profile.objects.update_or_create(
+                        #     discord=discord_value,
+                        #     defaults={
+                        #         'dwd': fields[1+i],
+                        #         'display_name': fields[1+i].split('+')[0]
+                        #         }
+                        #     )
 
                         coalition_faction = None
                         dominance = None
