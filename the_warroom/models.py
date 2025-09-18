@@ -213,7 +213,7 @@ class Game(models.Model):
     deck = models.ForeignKey(Deck, on_delete=models.PROTECT, blank=True, null=True, related_name='games')
     map = models.ForeignKey(Map, on_delete=models.PROTECT,blank=True, null=True, related_name='games')
 
-    round = models.ForeignKey(Round, on_delete=models.PROTECT, null=True, blank=True, related_name='games')
+    round = models.ForeignKey(Round, on_delete=models.SET_NULL, null=True, blank=True, related_name='games')
     
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')
