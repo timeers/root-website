@@ -1,0 +1,20 @@
+<div class="mb-3">
+    <label for="{{ prefix }}_qty">{{ label }} Quantity</label>
+    <div class="d-flex align-items-center gap-2">
+      <!-- Operator Selector -->
+      <div class="btn-group" role="group" aria-label="{{ label }} operator">
+        <input type="radio" class="btn-check" name="{{ prefix }}_op" id="{{ prefix }}_op_lt" value="lt" autocomplete="off" {% if op == 'lt' %}checked{% endif %}>
+        <label class="btn btn-outline-secondary" for="{{ prefix }}_op_lt">&lt;</label>
+  
+        <input type="radio" class="btn-check" name="{{ prefix }}_op" id="{{ prefix }}_op_exact" value="exact" autocomplete="off" {% if op == 'exact' %}checked{% endif %}>
+        <label class="btn btn-outline-secondary" for="{{ prefix }}_op_exact">=</label>
+  
+        <input type="radio" class="btn-check" name="{{ prefix }}_op" id="{{ prefix }}_op_gt" value="gt" autocomplete="off" {% if op == 'gt' %}checked{% endif %}>
+        <label class="btn btn-outline-secondary" for="{{ prefix }}_op_gt">&gt;</label>
+      </div>
+  
+      <!-- Quantity Input -->
+      <input type="number" class="form-control w-auto" name="{{ prefix }}_qty" id="{{ prefix }}_qty" value="{{ qty|default_if_none:'' }}" min="0">
+    </div>
+  </div>
+  

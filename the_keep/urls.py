@@ -28,7 +28,9 @@ from .views import (
     animal_match_view,
     status_check,
     translations_view, create_post_translation,
-    expansion_detail_view
+    expansion_detail_view,
+
+    advanced_search
 )
 from .api_views import search_posts
 from . import views
@@ -70,6 +72,8 @@ urlpatterns = [
     path('delete/faq/<int:pk>/', views.FAQDeleteView.as_view(), name='faq-delete'),
 
     path("archive/", list_view, name='archive-home'),
+
+    path("search/<str:component_type>/", advanced_search, name='advanced-search'),
  
     # used for search
     path("hx/search/", search_view, name='search'),

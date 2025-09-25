@@ -1136,6 +1136,9 @@ class Tweak(Post):
 class Map(Post):
     clearings = models.IntegerField(default=12)
     forests = models.IntegerField(blank=True, null=True)
+    river_clearings = models.IntegerField(blank=True, null=True)
+    building_slots = models.IntegerField(blank=True, null=True)
+    ruins = models.IntegerField(blank=True, null=True, default=4)
     fixed_clearings = models.BooleanField(default=False)
     default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
     def save(self, *args, **kwargs):

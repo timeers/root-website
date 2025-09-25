@@ -550,6 +550,19 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         min_value=1,  # Add validation for minimum value if necessary
         required=True
     )
+    river_clearings = forms.IntegerField(
+        label=_('Number of River Clearings'),
+        required=False
+    )
+    building_slots = forms.IntegerField(
+        label=_('Number of Building Slots'),
+        required=False
+    )
+    ruins = forms.IntegerField(
+        label=_('Number of Ruins'), initial=4,
+        min_value=1,  # Add validation for minimum value if necessary
+        required=True
+    )
     forests = forms.IntegerField(
         label=_('Number of Forests'),
         required=False
@@ -579,7 +592,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
     )
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Map  # Specify the model to be Map
-        fields = top_fields + ['clearings', 'forests', 'fixed_clearings', 'board_image', 'card_image', 'card_2_image', 'based_on'] + bottom_fields
+        fields = top_fields + ['clearings', 'forests', 'river_clearings', 'building_slots', 'ruins', 'fixed_clearings', 'board_image', 'card_image', 'card_2_image', 'based_on'] + bottom_fields
 
     def __init__(self, *args, **kwargs):
         # Check if an instance is being created or updated

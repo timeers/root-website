@@ -10,7 +10,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
+from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, Sum
 from django.db.models.functions import Cast
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned
@@ -1485,6 +1485,410 @@ def _search_components(request, slug=None):
         posts = paginator.page(paginator.num_pages)
     return posts, search or "", search_type or "", designer or "", faction_type or "", reach_value or "", status or "", language_code or "", expansion or ""
 
+# ADVANCED SEARCH VIEWS
+
+def get_view_status(user):
+    if user.is_authenticated:
+        return user.profile.view_status
+    return 4
+
+def get_designers(user, view_status, component):
+    if not user.is_authenticated:
+        return Profile.objects.annotate(
+            posts_count=Count('posts'),
+            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status, posts__component=component))
+        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+
+    if user.profile.weird:
+        return Profile.objects.annotate(
+            posts_count=Count('posts'),
+            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status, posts__component=component))
+        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+
+    return Profile.objects.annotate(
+        official_posts_count=Count('posts', filter=Q(posts__official=True)),
+        valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status, posts__component=component))
+    ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
+
+def get_artists(user, view_status, component):
+    if not user.is_authenticated:
+        return Profile.objects.annotate(
+            posts_count=Count('artist_posts'),
+            valid_posts_count=Count('artist_posts', filter=Q(posts__status__lte=view_status, posts__component=component))
+        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+
+    if user.profile.weird:
+        return Profile.objects.annotate(
+            posts_count=Count('artist_posts'),
+            valid_posts_count=Count('artist_posts', filter=Q(posts__status__lte=view_status, posts__component=component))
+        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+
+    return Profile.objects.annotate(
+        official_posts_count=Count('artist_posts', filter=Q(posts__official=True)),
+        valid_posts_count=Count('artist_posts', filter=Q(posts__status__lte=view_status, posts__component=component))
+    ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
+
+def build_post_queryset(user, view_status, component):
+
+    component_mapping = {
+        "Post": Post,
+        "Map": Map,
+        "Deck": Deck,
+        "Landmark": Landmark,
+        "Tweak": Tweak,
+        "Hireling": Hireling,
+        "Vagabond": Vagabond,
+        "Faction": Faction,
+        "Clockwork": Faction,
+    }
+    Klass = component_mapping.get(component)
+
+
+    qs = Klass.objects.prefetch_related('designer').filter(status__lte=view_status, component=component)
+
+    if user.is_authenticated and not user.profile.weird:
+        qs = qs.filter(official=True)
+
+    return qs
+
+def apply_filters(qs, filters, component):
+
+    if filters.get('search'):
+        search_term = filters['search']
+        qs = qs.filter(
+            Q(title__icontains=search_term) |
+            Q(translations__translated_title__icontains=search_term)
+        )
+
+    if filters.get('designer'):
+        qs = qs.filter(designer__id=filters['designer'])
+
+    if filters.get('artist'):
+        qs = qs.filter(artist__id=filters['artist'])
+
+    if filters.get('expansion'):
+        qs = qs.filter(expansion__id=filters['expansion'])
+
+    if filters.get('status'):
+        qs = qs.filter(status=filters['status'])
+
+    if filters.get('official'):
+        qs = qs.filter(official=filters['official'])
+
+    if filters.get('language_code'):
+        qs = qs.filter(
+            Q(language__code=filters['language_code']) |
+            Q(translations__language__code=filters['language_code'])
+        )
+    if component != "Map":
+        if filters.get('color'):
+            qs = qs.filter(color_group=filters['color'])
+        if filters.get('animal'):
+            search_animal = filters['animal']
+            qs = qs.filter(
+                Q(animal__icontains=search_animal) |
+                Q(translations__translated_animal__icontains=search_animal)
+            )
+    else:
+    # Map specific filters
+        if filters.get('clearings'):
+            qs = qs.filter(clearings=filters['clearings'])
+        if filters.get('forests'):
+            qs = qs.filter(forests=filters['forests'])
+        if filters.get('river_clearings'):
+            qs = qs.filter(river_clearings=filters['river_clearings'])
+        if filters.get('building_slots'):
+            qs = qs.filter(building_slots=filters['building_slots'])
+        if filters.get('ruins'):
+            qs = qs.filter(ruins=filters['ruins'])
+
+    # Vagabond specific filters
+    if component == "Vagabond":
+        if filters.get('ability'):
+            qs = qs.filter(ability__icontains=filters['ability'])
+        if filters.get('ability_description'):
+            qs = qs.filter(ability_description__icontains=filters['ability_description'])
+        if filters.get('ability_item'):
+            qs = qs.filter(ability_item__iexact=filters['ability_item'])
+        if filters.get('starting_coins'):
+            qs = qs.filter(starting_coins=filters['starting_coins'])
+        if filters.get('starting_boots'):
+            qs = qs.filter(starting_boots=filters['starting_boots'])
+        if filters.get('starting_bag'):
+            qs = qs.filter(starting_bag=filters['starting_bag'])
+        if filters.get('starting_tea'):
+            qs = qs.filter(starting_tea=filters['starting_tea'])
+        if filters.get('starting_hammer'):
+            qs = qs.filter(starting_hammer=filters['starting_hammer'])
+        if filters.get('starting_crossbow'):
+            qs = qs.filter(starting_crossbow=filters['starting_crossbow'])
+        if filters.get('starting_sword'):
+            qs = qs.filter(starting_sword=filters['starting_sword'])
+        if filters.get('starting_torch'):
+            qs = qs.filter(starting_torch=filters['starting_torch'])
+
+    # Faction specific filters
+    if component == "Faction":
+        if filters.get('aggression'):
+            qs = qs.filter(aggression=filters['aggression'])
+        if filters.get('complexity'):
+            qs = qs.filter(complexity=filters['complexity'])
+        if filters.get('card_wealth'):
+            qs = qs.filter(card_wealth=filters['card_wealth'])
+        if filters.get('crafting_ability'):
+            qs = qs.filter(crafting_ability=filters['crafting_ability'])
+        if filters.get('faction_type'):
+            qs = qs.filter(type=filters['faction_type'])
+        if filters.get('reach_value'):
+            qs = qs.filter(reach=filters['reach_value'])
+
+    # Hireling specific filters
+    if component == "Hireling":
+        if filters.get('hireling_type'):
+            qs = qs.filter(type=filters['hireling_type'])
+
+    # Deck specific filters
+    if component == "Deck":
+        if filters.get('card_total'):
+            qs = qs.filter(type=filters['card_total'])
+
+    # Pieces
+    if filters.get('warrior_qty'):
+        qs = filter_by_piece_quantity(queryset=qs, piece_type="W", quantity=filters['warrior_qty'], comparator=filters['warrior_op'])
+    if filters.get('building_qty'):
+        qs = filter_by_piece_quantity(queryset=qs, piece_type="B", quantity=filters['building_qty'], comparator=filters['building_op'])
+    if filters.get('token_qty'):
+        qs = filter_by_piece_quantity(queryset=qs, piece_type="T", quantity=filters['token_qty'], comparator=filters['token_op'])
+    if filters.get('card_qty'):
+        qs = filter_by_piece_quantity(queryset=qs, piece_type="C", quantity=filters['card_qty'], comparator=filters['card_op'])
+    if filters.get('other_qty'):
+        qs = filter_by_piece_quantity(queryset=qs, piece_type="O", quantity=filters['other_qty'], comparator=filters['other_op'])
+
+
+    return qs
+
+def generate_filters(request):
+    filters = {
+        'search': request.GET.get('search', ''),
+        'status': request.GET.get('status', ''),
+        'designer': request.GET.get('designer', ''),
+        'artist': request.GET.get('artist', ''),
+        'language_code': request.GET.get('language_code', ''),
+        'expansion': request.GET.get('expansion', ''),
+        'official': request.GET.get('official', ''),
+        'animal': request.GET.get('animal', ''),
+        'color': request.GET.get('color', ''),
+        # factions
+        'faction_type': request.GET.get('faction_type', ''),
+        'reach_value': request.GET.get('reach_value', ''),
+        'aggression': request.GET.get('aggression', ''),
+        'complexity': request.GET.get('complexity', ''),
+        'card_wealth': request.GET.get('card_wealth', ''),
+        'crafting_ability': request.GET.get('crafting_ability', ''),
+        # maps
+        'clearings': request.GET.get('clearings', ''),
+        'forests': request.GET.get('forests', ''),
+        'river_clearings': request.GET.get('river_clearings', ''),
+        'building_slots': request.GET.get('building_slots', ''),
+        'ruins': request.GET.get('ruins', ''),
+        # vagabonds
+        'ability': request.GET.get('ability', ''),
+        'ability_description': request.GET.get('ability_description', ''),
+        'ability_item': request.GET.get('ability_item', ''),
+        'starting_coins': request.GET.get('starting_coins', ''),
+        'starting_boots': request.GET.get('starting_boots', ''),
+        'starting_bag': request.GET.get('starting_bag', ''),
+        'starting_tea': request.GET.get('starting_tea', ''),
+        'starting_hammer': request.GET.get('starting_hammer', ''),
+        'starting_crossbow': request.GET.get('starting_crossbow', ''),
+        'starting_sword': request.GET.get('starting_sword', ''),
+        'starting_torch': request.GET.get('starting_torch', ''),
+        # hirelings
+        'hireling_type': request.GET.get('hireling_type', ''),
+        # decks
+        'card_total': request.GET.get('card_total', ''),
+
+        # pieces
+        'warrior_qty': request.GET.get('warrior_qty', ''),
+        'warrior_op': request.GET.get('warrior_op', ''),
+        'building_qty': request.GET.get('building_qty', ''),
+        'building_op': request.GET.get('building_op', ''),
+        'token_qty': request.GET.get('token_qty', ''),
+        'token_op': request.GET.get('token_op', ''),
+        'card_qty': request.GET.get('card_qty', ''),
+        'card_op': request.GET.get('card_op', ''),
+        'other_qty': request.GET.get('other_qty', ''),
+        'other_op': request.GET.get('other_op', ''),
+    }
+
+    return filters
+
+
+
+def filter_by_piece_quantity(queryset, *, piece_type, quantity=None, comparator='exact'):
+    """
+    Filters Posts by the total quantity of a given piece (W, B, T, C, O).
+    Input:
+        queryset: The base Post queryset.
+        piece_type: 'W' (Warrior), 'B' (Building), 'T' (Token), 'C' (Card), 'O' (Other)
+        quantity: An integer value to compare against.
+        comparator: One of 'lt', 'lte', 'gt', 'gte', 'exact'.
+    Output:
+        filtered Posts
+    """
+    # Safety check for valid comparator otherwise return qs
+    if comparator not in ['lt', 'lte', 'gt', 'gte', 'exact']:
+        return queryset
+    # Build the annotation name dynamically
+    annotation_name = f'total_{piece_type.lower()}_pieces'
+    # Annotate total quantity for the given piece type
+    queryset = queryset.annotate(
+        **{
+            annotation_name: Coalesce(
+                Sum('pieces__quantity', filter=Q(pieces__type=piece_type)),
+                0
+            )
+        }
+    )
+    # Apply the filter if quantity is provided
+    if quantity is not None:
+        filter_lookup = {f'{annotation_name}__{comparator}': quantity}
+        queryset = queryset.filter(**filter_lookup)
+
+    return queryset
+
+
+
+def annotate_with_translations(qs, language_object):
+    return qs.annotate(
+        selected_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object
+                ).values('translated_title')[:1],
+                output_field=models.CharField()
+            ),
+            'title'
+        ),
+        selected_description=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object
+                ).values('translated_description')[:1],
+                output_field=models.TextField()
+            ),
+            'description'
+        ),
+        selected_lore=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('pk'),
+                    language=language_object
+                ).values('translated_lore')[:1],
+                output_field=models.TextField()
+            ),
+            'lore'
+        )
+    ).distinct().order_by('sorting', '-official', 'status', '-date_posted', 'id')
+
+
+def paginate(queryset, page_number):
+    paginator = Paginator(queryset, settings.PAGE_SIZE)
+    try:
+        return paginator.page(page_number)
+    except (PageNotAnInteger, EmptyPage, ValueError):
+        return paginator.page(1)
+
+COMPONENT_TYPE_MAP = {
+    "map": Post.ComponentChoices.MAP,
+    "deck": Post.ComponentChoices.DECK,
+    "faction": Post.ComponentChoices.FACTION,
+    "vagabond": Post.ComponentChoices.VAGABOND,
+    "landmark": Post.ComponentChoices.LANDMARK,
+    "hireling": Post.ComponentChoices.HIRELING,
+    "clockwork": Post.ComponentChoices.CLOCKWORK,
+    "tweak": Post.ComponentChoices.TWEAK,
+    "houserule": Post.ComponentChoices.TWEAK,  # tweak alias
+    "post": "Post",  # special case if you're handling raw posts
+}
+
+def advanced_search(request, component_type):
+    component = COMPONENT_TYPE_MAP.get(component_type.lower())
+
+    if not component:
+        raise Http404("Invalid component type")
+
+    filters = generate_filters(request)
+
+    page = request.GET.get('page', 1)
+
+    view_status = get_view_status(request.user)
+    designers = get_designers(request.user, view_status, component)
+    artists = get_artists(request.user, view_status, component)
+    if component != "Post":
+        expansions = Expansion.objects.filter(posts__component=component).distinct()
+    else:
+        expansions = Expansion.objects.all()
+
+    posts = build_post_queryset(request.user, view_status, component)
+    posts = apply_filters(posts, filters, component)
+
+    # Language logic
+    used_languages = Language.objects.filter(
+        Q(post__component=component) |
+        Q(posttranslation__post__component=component)
+    ).distinct()
+    language_code = filters.get('language_code') or get_language()
+    language_object = Language.objects.filter(code=language_code).first() or Language.objects.get(code='en')
+
+    posts = annotate_with_translations(posts, language_object)
+    posts = paginate(posts, page)
+
+    tabs = ["Faction", "Map", "Deck", "Vagabond", "Landmark", "Hireling", "Clockwork", "Tweak"]
+
+    context = {
+        "posts": posts,
+        "designers": designers,
+        "artists": artists,
+        "expansions": expansions,
+        "used_languages": used_languages,
+        "language_code": language_code,
+        "tabs": tabs,
+        "is_search_view": True,
+        "component_type": component,
+
+        "search": filters.get('search', ""),
+        "status": filters.get('status', ""),
+        "selected_designer": filters.get('designer', ""),
+        "selected_artist": filters.get('artist', ""),
+        "selected_expansion": filters.get('expansion', ""),
+        "selected_language": filters.get('language_code', ""),
+        "color": filters.get('color', ''),
+        "animal": filters.get('animal', ''),
+
+        # Faction Specific
+        "faction_type": filters.get('faction_type', ""),
+        "reach_value": filters.get('reach_value', ""),
+
+
+        # Pieces
+        "warrior_qty": filters.get('warrior_qty', ""),
+        "warrior_op": filters.get('warrior_op', ""),
+        "building_qty": filters.get('building_qty', ""),
+        "building_op": filters.get('building_op', ""),
+        "token_qty": filters.get('token_qty', ""),
+        "token_op": filters.get('token_op', ""),
+        "card_qty": filters.get('card_qty', ""),
+        "card_op": filters.get('card_op', ""),
+        "other_qty": filters.get('other_qty', ""),
+        "other_op": filters.get('other_op', ""),
+    }
+
+    return render(request, "the_keep/advanced_search.html", context)
+
+# END ADVANCED SEARCHES
 
 
 @editor_required

@@ -202,16 +202,19 @@
                 {% endif %}
                 {% comment %} End Vagabond Fields {% endcomment %}
 
-                {% comment %} Deck Fields {% endcomment %}
+                {% comment %} Map Fields {% endcomment %}
                 {% if form.clearings %}
                 <div class='soft-shadow'>
-                    <span class="h5 root-title">Clearings</span>
+                    <span class="h5 root-title">Map Specific Details</span>
                     {{ form.clearings|as_crispy_field }}
                     {{ form.fixed_clearings|as_crispy_field }}
                     {{ form.forests|as_crispy_field }}
+                    {{ form.river_clearings|as_crispy_field }}
+                    {{ form.building_slots|as_crispy_field }}
+                    {{ form.ruins|as_crispy_field }}
                 </div>
                 {% endif %}
-                {% comment %} End Deck Fields {% endcomment %}
+                {% comment %} End Map Fields {% endcomment %}
 
                 {% comment %} Image Fields {% endcomment %}
                 <div class='soft-shadow'>

@@ -1,0 +1,21 @@
+<label for="faction_type">{% trans 'Faction Type' %}: </label>
+<select id="faction_type" name="faction_type" value="{{ faction_type }}">
+    <option value="">{% trans 'All' %}</option>  
+    <option value="M" {% if faction_type == 'M' %}selected{% endif %}>{% trans 'Militant' %}</option>
+    <option value="I" {% if faction_type == 'I' %}selected{% endif %}>{% trans 'Insurgent' %}</option>
+</select>
+
+<label for="reach_value">{% trans 'Reach' %}: </label>
+<select id="reach_value" name="reach_value" value="{{ reach_value }}">
+    <option value="">{% trans 'All' %}</option>
+    <option value=10 {% if reach_value == 10 %}selected{% endif %}>10</option>
+    <option value=9 {% if reach_value == 9 %}selected{% endif %}>9</option>
+    <option value=8 {% if reach_value == 8 %}selected{% endif %}>8</option>
+    <option value=7 {% if reach_value == 7 %}selected{% endif %}>7</option>
+    <option value=6 {% if reach_value == 6 %}selected{% endif %}>6</option>
+    <option value=5 {% if reach_value == 5 %}selected{% endif %}>5</option>
+    <option value=4 {% if reach_value == 4 %}selected{% endif %}>4</option>
+    <option value=3 {% if reach_value == 3 %}selected{% endif %}>3</option>
+    <option value=2 {% if reach_value == 2 %}selected{% endif %}>2</option>
+    <option value=1 {% if reach_value == 1 %}selected{% endif %}>1</option>
+</select>
