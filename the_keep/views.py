@@ -13,7 +13,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, Sum
 from django.db.models.functions import Cast
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.core.exceptions import PermissionDenied, MultipleObjectsReturned
+from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import ProtectedError, Count
@@ -44,7 +44,7 @@ from .models import (
     Hireling, Landmark,
     Piece, Tweak,
     PNPAsset, ColorChoices, PostTranslation,
-    FAQ, LawGroup, Law, duplicate_laws_for_language
+    FAQ, LawGroup, Law, duplicate_laws_for_language, StatusChoices
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -1580,7 +1580,8 @@ def apply_filters(qs, filters, component):
             Q(language__code=filters['language_code']) |
             Q(translations__language__code=filters['language_code'])
         )
-    if component != "Map":
+
+    if component == "Faction" or component == 'Hireling' or component == 'Vagabond' or component == 'Clockwork':
         if filters.get('color'):
             qs = qs.filter(color_group=filters['color'])
         if filters.get('animal'):
@@ -1589,18 +1590,19 @@ def apply_filters(qs, filters, component):
                 Q(animal__icontains=search_animal) |
                 Q(translations__translated_animal__icontains=search_animal)
             )
-    else:
+    
     # Map specific filters
-        if filters.get('clearings'):
-            qs = qs.filter(clearings=filters['clearings'])
-        if filters.get('forests'):
-            qs = qs.filter(forests=filters['forests'])
-        if filters.get('river_clearings'):
-            qs = qs.filter(river_clearings=filters['river_clearings'])
-        if filters.get('building_slots'):
-            qs = qs.filter(building_slots=filters['building_slots'])
-        if filters.get('ruins'):
-            qs = qs.filter(ruins=filters['ruins'])
+    if component == "Map":
+        if filters.get('clearings_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="clearings", quantity=filters['clearings_qty'], comparator=filters['clearings_op'])
+        if filters.get('forests_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="forests", quantity=filters['forests_qty'], comparator=filters['forests_op'])
+        if filters.get('river_clearings_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="river_clearings", quantity=filters['river_clearings_qty'], comparator=filters['river_clearings_op'])
+        if filters.get('building_slots_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="building_slots", quantity=filters['building_slots_qty'], comparator=filters['building_slots_op'])
+        if filters.get('ruins_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="ruins", quantity=filters['ruins_qty'], comparator=filters['ruins_op'])
 
     # Vagabond specific filters
     if component == "Vagabond":
@@ -1610,22 +1612,22 @@ def apply_filters(qs, filters, component):
             qs = qs.filter(ability_description__icontains=filters['ability_description'])
         if filters.get('ability_item'):
             qs = qs.filter(ability_item__iexact=filters['ability_item'])
-        if filters.get('starting_coins'):
-            qs = qs.filter(starting_coins=filters['starting_coins'])
-        if filters.get('starting_boots'):
-            qs = qs.filter(starting_boots=filters['starting_boots'])
-        if filters.get('starting_bag'):
-            qs = qs.filter(starting_bag=filters['starting_bag'])
-        if filters.get('starting_tea'):
-            qs = qs.filter(starting_tea=filters['starting_tea'])
-        if filters.get('starting_hammer'):
-            qs = qs.filter(starting_hammer=filters['starting_hammer'])
-        if filters.get('starting_crossbow'):
-            qs = qs.filter(starting_crossbow=filters['starting_crossbow'])
-        if filters.get('starting_sword'):
-            qs = qs.filter(starting_sword=filters['starting_sword'])
-        if filters.get('starting_torch'):
-            qs = qs.filter(starting_torch=filters['starting_torch'])
+        if filters.get('coins_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_coins", quantity=filters['coins_qty'], comparator=filters['coins_op'])
+        if filters.get('boots_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_boots", quantity=filters['boots_qty'], comparator=filters['boots_op'])
+        if filters.get('bag_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_bag", quantity=filters['bag_qty'], comparator=filters['bag_op'])
+        if filters.get('tea_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_tea", quantity=filters['tea_qty'], comparator=filters['tea_op'])
+        if filters.get('hammer_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_hammer", quantity=filters['hammer_qty'], comparator=filters['hammer_op'])
+        if filters.get('crossbow_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_crossbow", quantity=filters['crossbow_qty'], comparator=filters['crossbow_op'])
+        if filters.get('sword_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_sword", quantity=filters['sword_qty'], comparator=filters['sword_op'])
+        if filters.get('torch_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_torch", quantity=filters['torch_qty'], comparator=filters['torch_op'])
 
     # Faction specific filters
     if component == "Faction":
@@ -1639,8 +1641,9 @@ def apply_filters(qs, filters, component):
             qs = qs.filter(crafting_ability=filters['crafting_ability'])
         if filters.get('faction_type'):
             qs = qs.filter(type=filters['faction_type'])
-        if filters.get('reach_value'):
-            qs = qs.filter(reach=filters['reach_value'])
+        if filters.get('reach_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="reach", quantity=filters['reach_qty'], comparator=filters['reach_op'])
+
 
     # Hireling specific filters
     if component == "Hireling":
@@ -1649,8 +1652,9 @@ def apply_filters(qs, filters, component):
 
     # Deck specific filters
     if component == "Deck":
-        if filters.get('card_total'):
-            qs = qs.filter(type=filters['card_total'])
+        if filters.get('card_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="card_total", quantity=filters['card_qty'], comparator=filters['card_op'])
+
 
     # Pieces
     if filters.get('warrior_qty'):
@@ -1680,34 +1684,50 @@ def generate_filters(request):
         'color': request.GET.get('color', ''),
         # factions
         'faction_type': request.GET.get('faction_type', ''),
-        'reach_value': request.GET.get('reach_value', ''),
+        'reach_qty': request.GET.get('reach_qty', ''),
+        'reach_op': request.GET.get('reach_op', ''),
         'aggression': request.GET.get('aggression', ''),
         'complexity': request.GET.get('complexity', ''),
         'card_wealth': request.GET.get('card_wealth', ''),
         'crafting_ability': request.GET.get('crafting_ability', ''),
         # maps
-        'clearings': request.GET.get('clearings', ''),
-        'forests': request.GET.get('forests', ''),
-        'river_clearings': request.GET.get('river_clearings', ''),
-        'building_slots': request.GET.get('building_slots', ''),
-        'ruins': request.GET.get('ruins', ''),
+        'clearings_qty': request.GET.get('clearings_qty', ''),
+        'clearings_op': request.GET.get('clearings_op', ''),
+        'forests_qty': request.GET.get('forests_qty', ''),
+        'forests_op': request.GET.get('forests_op', ''),
+        'river_clearings_qty': request.GET.get('river_clearings_qty', ''),
+        'river_clearings_op': request.GET.get('river_clearings_op', ''),
+        'building_slots_qty': request.GET.get('building_slots_qty', ''),
+        'building_slots_op': request.GET.get('building_slots_op', ''),
+        'ruins_qty': request.GET.get('ruins_qty', ''),
+        'ruins_op': request.GET.get('ruins_op', ''),
         # vagabonds
         'ability': request.GET.get('ability', ''),
         'ability_description': request.GET.get('ability_description', ''),
         'ability_item': request.GET.get('ability_item', ''),
-        'starting_coins': request.GET.get('starting_coins', ''),
-        'starting_boots': request.GET.get('starting_boots', ''),
-        'starting_bag': request.GET.get('starting_bag', ''),
-        'starting_tea': request.GET.get('starting_tea', ''),
-        'starting_hammer': request.GET.get('starting_hammer', ''),
-        'starting_crossbow': request.GET.get('starting_crossbow', ''),
-        'starting_sword': request.GET.get('starting_sword', ''),
-        'starting_torch': request.GET.get('starting_torch', ''),
+        'coins_qty': request.GET.get('coins_qty', ''),
+        'coins_op': request.GET.get('coins_op', ''),
+        'boots_qty': request.GET.get('boots_qty', ''),
+        'boots_op': request.GET.get('boots_op', ''),
+        'bag_qty': request.GET.get('bag_qty', ''),
+        'bag_op': request.GET.get('bag_op', ''),
+        'tea_qty': request.GET.get('tea_qty', ''),
+        'tea_op': request.GET.get('tea_op', ''),
+        'hammer_qty': request.GET.get('hammer_qty', ''),
+        'hammer_op': request.GET.get('hammer_op', ''),
+        'crossbow_qty': request.GET.get('crossbow_qty', ''),
+        'crossbow_op': request.GET.get('crossbow_op', ''),
+        'sword_qty': request.GET.get('sword_qty', ''),
+        'sword_op': request.GET.get('sword_op', ''),
+        'torch_qty': request.GET.get('torch_qty', ''),
+        'torch_op': request.GET.get('torch_op', ''),
         # hirelings
         'hireling_type': request.GET.get('hireling_type', ''),
         # decks
-        'card_total': request.GET.get('card_total', ''),
-
+        'card_qty': request.GET.get('card_qty', ''),
+        'card_op': request.GET.get('card_op', ''),
+        # clockwork
+        # house rule
         # pieces
         'warrior_qty': request.GET.get('warrior_qty', ''),
         'warrior_op': request.GET.get('warrior_op', ''),
@@ -1722,6 +1742,126 @@ def generate_filters(request):
     }
 
     return filters
+
+LABEL_MAP = {
+    "search": "Search",
+    "designer": "Designer",
+    "artist": "Artist",
+    "language_code": "Language",
+    "expansion": "Expansion",
+    "status": "Status",
+    "animal": "Animal",
+    "color": "Color",
+    
+    # Faction
+    "faction_type": "Faction Type",
+    "reach": "Reach",
+    "aggression": "Aggression",
+    "complexity": "Complexity",
+    "card_wealth": "Card Wealth",
+    "crafting_ability": "Crafting Ability",
+
+    # Map
+    "clearings": "Clearings",
+    "forests": "Forests",
+    "river_clearings": "River Clearings",
+    "building_slots": "Building Slots",
+    "ruins": "Ruins",
+
+    # Vagabond
+    "ability": "Ability",
+    "ability_description": "Ability Description",
+    "ability_item": "Ability Item",
+    "coins": "Coins",
+    "boots": "Boots",
+    "bag": "Bags",
+    "tea": "Tea",
+    "hammer": "Hammers",
+    "crossbow": "Crossbows",
+    "sword": "Swords",
+    "torch": "Torches",
+
+    # Deck
+    "card": "Deck Card Count",
+
+    # Hireling
+    "hireling_type": "Hireling Type",
+
+    # Pieces
+    "warrior": "Warrior Count",
+    "building": "Building Count",
+    "token": "Token Count",
+    "other": "Other Count",
+}
+
+
+OPERATOR_SYMBOLS = {
+    'lt': '<',
+    'lte': '≤',
+    'gt': '>',
+    'gte': '≥',
+    'exact': '=',
+}
+
+
+def get_name_from_id(model, id_value):
+    try:
+        obj = model.objects.get(id=id_value)
+        return str(obj)
+    except (ObjectDoesNotExist, ValueError):
+        return id_value  # Fallback to showing the raw value
+
+def describe_filters(filters):
+    descriptions = []
+    used_keys = set()
+
+    ID_LOOKUPS = {
+        'designer': Profile,
+        'artist': Profile,
+        'expansion': Expansion,
+    }
+
+    for key, value in filters.items():
+        if not value or key in used_keys:
+            continue
+
+        # Quantity/Operator pair
+        if key.endswith('_qty'):
+            prefix = key[:-4]
+            qty = value
+            op_key = f"{prefix}_op"
+            op = filters.get(op_key, 'exact')
+
+            label = LABEL_MAP.get(prefix, prefix.replace('_', ' ').title())
+            symbol = OPERATOR_SYMBOLS.get(op, '=')
+
+            descriptions.append(f"{label} {symbol} {qty}")
+            used_keys.update({key, op_key})
+
+        elif key.endswith('_op') and f"{key[:-3]}_qty" in filters:
+            continue  # Already handled
+
+        # Handle ID lookups
+        elif key in ID_LOOKUPS:
+            label = LABEL_MAP.get(key, key.replace('_', ' ').title())
+            name = get_name_from_id(ID_LOOKUPS[key], value)
+            descriptions.append(f"{label}: {name}")
+            used_keys.add(key)
+        # Handle statuses
+        elif key == "status":
+            label = LABEL_MAP.get("status", "Status")
+            try:
+                status_label = StatusChoices(value).label
+                descriptions.append(f"{label}: {status_label}")
+            except ValueError:
+                descriptions.append(f"{label}: {value}")  # fallback
+
+        else:
+            label = LABEL_MAP.get(key, key.replace('_', ' ').title())
+            descriptions.append(f"{label}: {value}")
+            used_keys.add(key)
+
+    return ", ".join(descriptions)
 
 
 
@@ -1757,6 +1897,30 @@ def filter_by_piece_quantity(queryset, *, piece_type, quantity=None, comparator=
 
     return queryset
 
+
+def filter_by_field_quantity(queryset, *, field_type, quantity=None, comparator='exact'):
+    """
+    Filters Posts by the total quantity of a given field (W, B, T, C, O).
+    Input:
+        queryset: The base Post queryset.
+        field_type: the name of the field (eg. clearings, card_amount, forests, building_slots)
+        quantity: An integer value to compare against.
+        comparator: One of 'lt', 'lte', 'gt', 'gte', 'exact'.
+    Output:
+        filtered Posts
+    """
+    # Safety check for valid comparator otherwise return qs
+    if comparator not in ['lt', 'lte', 'gt', 'gte', 'exact']:
+        return queryset
+    # Apply the filter if quantity is provided
+    if quantity is not None:
+        filter_lookup = {f'{field_type}__{comparator}': quantity}
+        try:
+            queryset = queryset.filter(**filter_lookup)
+        except FieldError:
+            pass
+
+    return queryset
 
 
 def annotate_with_translations(qs, language_object):
@@ -1847,6 +2011,10 @@ def advanced_search(request, component_type):
     posts = paginate(posts, page)
 
     tabs = ["Faction", "Map", "Deck", "Vagabond", "Landmark", "Hireling", "Clockwork", "Tweak"]
+    
+    # Meta data
+    meta_title = f"{component} Search"
+    meta_description = describe_filters(filters=filters)
 
     context = {
         "posts": posts,
@@ -1858,6 +2026,8 @@ def advanced_search(request, component_type):
         "tabs": tabs,
         "is_search_view": True,
         "component_type": component,
+        "meta_title": meta_title,
+        "meta_description": meta_description,
 
         "search": filters.get('search', ""),
         "status": filters.get('status', ""),
@@ -1870,8 +2040,50 @@ def advanced_search(request, component_type):
 
         # Faction Specific
         "faction_type": filters.get('faction_type', ""),
-        "reach_value": filters.get('reach_value', ""),
+        "reach_qty": filters.get('reach_qty', ""),
+        "reach_op": filters.get('reach_op', ""),
+        'aggression': filters.get('aggression', ''),
+        'complexity': filters.get('complexity', ''),
+        'card_wealth': filters.get('card_wealth', ''),
+        'crafting_ability': filters.get('crafting_ability', ''),
+        # Map
+        'clearings_qty': filters.get('clearings_qty', ''),
+        'clearings_op': filters.get('clearings_op', ''),
+        'forests_qty': filters.get('forests_qty', ''),
+        'forests_op': filters.get('forests_op', ''),
+        'river_clearings_qty': filters.get('river_clearings_qty', ''),
+        'river_clearings_op': filters.get('river_clearings_op', ''),
+        'building_slots_qty': filters.get('building_slots_qty', ''),
+        'building_slots_op': filters.get('building_slots_op', ''),
+        'ruins_qty': filters.get('ruins_qty', ''),
+        'ruins_op': filters.get('ruins_op', ''),
+        # Deck
+        'card_qty': filters.get('card_qty', ''),
+        'card_op': filters.get('card_op', ''),
+        # Hireling
+        'hireling_type': filters.get('hireling_type', ''),
+        # Vagabond
+        'ability': filters.get('ability', ''),
+        'ability_description': filters.get('ability_description', ''),
+        'ability_item': filters.get('ability_item', ''),
 
+        'coins_qty': filters.get('coins_qty', ''),
+        'coins_op': filters.get('coins_op', ''),
+        'boots_qty': filters.get('boots_qty', ''),
+        'boots_op': filters.get('boots_op', ''),
+        'bag_qty': filters.get('bag_qty', ''),
+        'bag_op': filters.get('bag_op', ''),
+        'tea_qty': filters.get('tea_qty', ''),
+        'tea_op': filters.get('tea_op', ''),
+        'hammer_qty': filters.get('hammer_qty', ''),
+        'hammer_op': filters.get('hammer_op', ''),
+        'crossbow_qty': filters.get('crossbow_qty', ''),
+        'crossbow_op': filters.get('crossbow_op', ''),
+        'sword_qty': filters.get('sword_qty', ''),
+        'sword_op': filters.get('sword_op', ''),
+        'torch_qty': filters.get('torch_qty', ''),
+        'torch_op': filters.get('torch_op', ''),
+        # Landmark
 
         # Pieces
         "warrior_qty": filters.get('warrior_qty', ""),
@@ -1886,7 +2098,11 @@ def advanced_search(request, component_type):
         "other_op": filters.get('other_op', ""),
     }
 
-    return render(request, "the_keep/advanced_search.html", context)
+    if request.htmx:
+        print("HTMX")
+        return render(request, "the_keep/partials/advanced_search_results.html", context)    
+    else:
+        return render(request, "the_keep/advanced_search.html", context)
 
 # END ADVANCED SEARCHES
 

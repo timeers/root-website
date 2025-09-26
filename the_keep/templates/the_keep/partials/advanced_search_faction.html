@@ -1,3 +1,4 @@
+{% load i18n %}
 <label for="faction_type">{% trans 'Faction Type' %}: </label>
 <select id="faction_type" name="faction_type" value="{{ faction_type }}">
     <option value="">{% trans 'All' %}</option>  
@@ -5,7 +6,7 @@
     <option value="I" {% if faction_type == 'I' %}selected{% endif %}>{% trans 'Insurgent' %}</option>
 </select>
 
-<label for="reach_value">{% trans 'Reach' %}: </label>
+{% comment %} <label for="reach_value">{% trans 'Reach' %}: </label>
 <select id="reach_value" name="reach_value" value="{{ reach_value }}">
     <option value="">{% trans 'All' %}</option>
     <option value=10 {% if reach_value == 10 %}selected{% endif %}>10</option>
@@ -18,4 +19,22 @@
     <option value=3 {% if reach_value == 3 %}selected{% endif %}>3</option>
     <option value=2 {% if reach_value == 2 %}selected{% endif %}>2</option>
     <option value=1 {% if reach_value == 1 %}selected{% endif %}>1</option>
-</select>
+</select> {% endcomment %}
+<div class="mb-3">
+    <div class="d-flex align-items-center gap-2">
+      <!-- Operator Selector -->
+      <div class="mb-2">
+        <label for="reach_qty">Reach</label>
+        <select name="reach_op" id="reach_op" class="form-select form-select-sm">
+          <option value="">------</option>
+          <option value="lt" {% if reach_op == 'lt' %}selected{% endif %}>Less Than</option>
+          <option value="exact" {% if reach_op == 'exact' %}selected{% endif %}>Equal</option>
+          <option value="gt" {% if reach_op == 'gt' %}selected{% endif %}>Greater Than</option>
+        </select>
+      </div>
+      
+  
+      <!-- Quantity Input -->
+      <input type="number" class="form-control w-auto" name="reach_qty" id="reach_qty" value="{{ reach_qty|default_if_none:'' }}" min="0">
+    </div>
+  </div>

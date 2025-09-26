@@ -1,0 +1,19 @@
+<div class="mb-3">
+    <div class="d-flex align-items-center gap-2">
+      <!-- Operator Selector -->
+      <div class="mb-2">
+        <label for="{{ prefix }}_qty">{{ label }} Quantity</label>
+        <select name="{{ prefix }}_op" id="{{ prefix }}_op" class="form-select form-select-sm">
+          <option value="">------</option>
+          <option value="lt" {% if op == 'lt' %}selected{% endif %}>Less Than</option>
+          <option value="exact" {% if op == 'exact' %}selected{% endif %}>Equal</option>
+          <option value="gt" {% if op == 'gt' %}selected{% endif %}>Greater Than</option>
+        </select>
+      </div>
+      
+  
+      <!-- Quantity Input -->
+      <input type="number" class="form-control w-auto" name="{{ prefix }}_qty" id="{{ prefix }}_qty" value="{{ qty|default_if_none:'' }}" min="0">
+    </div>
+  </div>
+  

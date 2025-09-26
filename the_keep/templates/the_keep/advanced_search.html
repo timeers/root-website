@@ -1,5 +1,16 @@
 {% extends 'the_keep/base.html' %}
 {% load static i18n %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/archive-icon.png' %}">
+<meta property="og:site_name" content="{{site_title}}">
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{meta_description}}">
+<meta name="description" content="{{meta_description}}">
+{% endblock meta%}
+
 {% block content %}
 <h1 class='root-title'>Advanced Search</h1>
 
@@ -16,7 +27,7 @@
             </a>
           {% else %}
             <a class="nav-link {% if component_type == tab %}active{% endif %}"
-                href="{% url 'advanced-search' component_type=tab|lower %}?search={{search}}&status={{status}}&designer={{selected_designer}}&language_code={{selected_language}}&expansion={{selected_expansion}}">
+                href="{% url 'advanced-search' component_type=tab|lower %}?search={{search}}&status={{status}}&designer={{selected_designer}}&language_code={{selected_language}}&expansion={{selected_expansion}}&animal={{animal}}&color={{color}}">
                 {% if tab == "Tweak" %}
                     House Rule
                 {% else %}
@@ -31,12 +42,13 @@
 
 <article class="media content-section mt-2">
     <div class="media-body">
-        <form class="mb-2" method="get" action="">
+        <form id='advanced-search-form' class="mb-2" method="get" action="">
 
             {% comment %} <input type="text" name="search" placeholder="Search name or animal..." value="{{ search }}"> {% endcomment %}
             <input type="text" name="search" id="search" placeholder="Search by Name..." value="{{ search }}" class="form-control mb-1">
-            <input type="text" name="animal" id="animal" placeholder="Search by Animal..." value="{{ animal }}" class="form-control mb-1">
-
+            {% if component_type == "Faction" or component_type == "Hireling" or component_type == "Vagabond" or component_type == "Clockwork" %}
+                <input type="text" name="animal" id="animal" placeholder="Search by Animal..." value="{{ animal }}" class="form-control mb-1">
+            {% endif %}
             <div>
             <!-- Designer Search Dropdown -->
             <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
@@ -65,7 +77,7 @@
                 <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>
                 <option value="4" {% if status == '4' %}selected{% endif %}>{% trans 'Inactive' %}</option>
             </select>
-            
+
             <div>
             <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
                 <option value="">{% trans 'Select Language' %}</option>
@@ -92,12 +104,16 @@
                 </div>
             {% endif %}
         </div>
+        
+        {% if component_type == "Faction" %}
+            {% include "the_keep/partials/advanced_search_faction.html" %}
+        {% endif %}
 
-        {% include "the_keep/partials/piece_quantity_filter.html" with prefix="warrior" label="Warrior" op=warrior_op qty=warrior_qty %}
-        {% include "the_keep/partials/piece_quantity_filter.html" with prefix="building" label="Building" op=building_op qty=building_qty %}
-        {% include "the_keep/partials/piece_quantity_filter.html" with prefix="token" label="Token" op=token_op qty=token_qty %}
-        {% include "the_keep/partials/piece_quantity_filter.html" with prefix="card" label="Card" op=card_op qty=card_qty %}
-        {% include "the_keep/partials/piece_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty %}
+        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="warrior" label="Warrior" op=warrior_op qty=warrior_qty %}
+        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building" label="Building" op=building_op qty=building_qty %}
+        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="token" label="Token" op=token_op qty=token_qty %}
+        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="card" label="Card" op=card_op qty=card_qty %}
+        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty %}
 
           
           <div class="mt-3">
@@ -112,11 +128,9 @@
 </article>
 
 
-{% for object in posts %}
-<div>
-    {% include 'the_keep/partials/post.html' %}
-</div>
-{% endfor %}
+
+    {% include 'the_keep/partials/advanced_search_results.html' %}
+
 
 {% endblock content %}
 
