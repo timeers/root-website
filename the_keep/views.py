@@ -2031,10 +2031,22 @@ def advanced_search(request, component_type):
     tabs = ["Faction", "Map", "Deck", "Vagabond", "Landmark", "Hireling", "Clockwork", "Tweak"]
     
     # Meta data
-    meta_title = f"{component} Search"
-    meta_description = f'Results: {post_count}, {describe_filters(filters=filters)}'
+    if component == "Tweak":
+        meta_title = "House Rule Search"
+    else:
+        meta_title = f"{component} Search"
+    filter_description = describe_filters(filters=filters)
+    if filter_description:
+        meta_description = f'Results: {post_count}, {filter_description}'
+    else:
+        if component == "Clockwork":
+            meta_description = f'Search Root Clockwork Fan Factions using advanced filters'
+        elif component == "Tweak":
+            meta_description = f'Search Root House Rules using advanced filters'
+        else:
+            meta_description = f'Search Root Fan {component}s using advanced filters'
 
-    # Determine if piece filters are necessary
+    # Determine if filters are necessary
     has_piece_type = {
         type_choice.label.lower(): Piece.objects.filter(
             type=type_choice.value,
@@ -2057,13 +2069,6 @@ def advanced_search(request, component_type):
         ]
     else:
         used_item_choices = {}
-    # color_choices = {
-    #     color_choice.label.lower(): Post.objects.filter(
-    #         component=component,
-    #         color_group=color_choice.value
-    #     ).exists()
-    #     for color_choice in ColorChoices
-    # }
     used_color_choices = [
         {"value": color_choice.value, "label": color_choice.label}
         for color_choice in ColorChoices
