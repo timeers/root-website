@@ -2,21 +2,17 @@ import random
 import yaml
 import re
 # import logging
-from itertools import groupby
 from django.utils import timezone 
-from django.utils import translation
 from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, Sum
-from django.db.models.functions import Cast
+from django.db.models import Count, F, Q, Value, Sum, ProtectedError, Count, IntegerField
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import ProtectedError, Count
 from django.urls import reverse, reverse_lazy
 from django.contrib import messages
 from django.utils.translation import get_language
@@ -31,7 +27,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
-from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
+from the_gatehouse.models import Profile, Language
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, tester_required,
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
@@ -1485,6 +1481,14 @@ def _search_components(request, slug=None):
         posts = paginator.page(paginator.num_pages)
     return posts, search or "", search_type or "", designer or "", faction_type or "", reach_value or "", status or "", language_code or "", expansion or ""
 
+
+
+
+
+
+
+
+
 # ADVANCED SEARCH VIEWS
 
 def get_view_status(user):
@@ -1612,10 +1616,10 @@ def apply_filters(qs, filters, component):
             qs = qs.filter(ability_description__icontains=filters['ability_description'])
         if filters.get('ability_item'):
             qs = qs.filter(ability_item__iexact=filters['ability_item'])
-        if filters.get('coins_qty'):
-            qs = filter_by_field_quantity(queryset=qs, field_type="starting_coins", quantity=filters['coins_qty'], comparator=filters['coins_op'])
-        if filters.get('boots_qty'):
-            qs = filter_by_field_quantity(queryset=qs, field_type="starting_boots", quantity=filters['boots_qty'], comparator=filters['boots_op'])
+        if filters.get('coin_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_coins", quantity=filters['coin_qty'], comparator=filters['coin_op'])
+        if filters.get('boot_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="starting_boots", quantity=filters['boot_qty'], comparator=filters['boot_op'])
         if filters.get('bag_qty'):
             qs = filter_by_field_quantity(queryset=qs, field_type="starting_bag", quantity=filters['bag_qty'], comparator=filters['bag_op'])
         if filters.get('tea_qty'):
@@ -1639,6 +1643,7 @@ def apply_filters(qs, filters, component):
             qs = qs.filter(card_wealth=filters['card_wealth'])
         if filters.get('crafting_ability'):
             qs = qs.filter(crafting_ability=filters['crafting_ability'])
+
         if filters.get('faction_type'):
             qs = qs.filter(type=filters['faction_type'])
         if filters.get('reach_qty'):
@@ -1652,10 +1657,9 @@ def apply_filters(qs, filters, component):
 
     # Deck specific filters
     if component == "Deck":
-        if filters.get('card_qty'):
-            qs = filter_by_field_quantity(queryset=qs, field_type="card_total", quantity=filters['card_qty'], comparator=filters['card_op'])
-
-
+        if filters.get('card_total_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="card_total", quantity=filters['card_total_qty'], comparator=filters['card_total_op'])
+        
     # Pieces
     if filters.get('warrior_qty'):
         qs = filter_by_piece_quantity(queryset=qs, piece_type="W", quantity=filters['warrior_qty'], comparator=filters['warrior_op'])
@@ -1705,10 +1709,10 @@ def generate_filters(request):
         'ability': request.GET.get('ability', ''),
         'ability_description': request.GET.get('ability_description', ''),
         'ability_item': request.GET.get('ability_item', ''),
-        'coins_qty': request.GET.get('coins_qty', ''),
-        'coins_op': request.GET.get('coins_op', ''),
-        'boots_qty': request.GET.get('boots_qty', ''),
-        'boots_op': request.GET.get('boots_op', ''),
+        'coin_qty': request.GET.get('coin_qty', ''),
+        'coin_op': request.GET.get('coin_op', ''),
+        'boot_qty': request.GET.get('boot_qty', ''),
+        'boot_op': request.GET.get('boot_op', ''),
         'bag_qty': request.GET.get('bag_qty', ''),
         'bag_op': request.GET.get('bag_op', ''),
         'tea_qty': request.GET.get('tea_qty', ''),
@@ -1724,8 +1728,8 @@ def generate_filters(request):
         # hirelings
         'hireling_type': request.GET.get('hireling_type', ''),
         # decks
-        'card_qty': request.GET.get('card_qty', ''),
-        'card_op': request.GET.get('card_op', ''),
+        'card_total_qty': request.GET.get('card_total_qty', ''),
+        'card_total_op': request.GET.get('card_total_op', ''),
         # clockwork
         # house rule
         # pieces
@@ -1744,7 +1748,7 @@ def generate_filters(request):
     return filters
 
 LABEL_MAP = {
-    "search": "Search",
+    "search": "Search Term",
     "designer": "Designer",
     "artist": "Artist",
     "language_code": "Language",
@@ -1772,8 +1776,8 @@ LABEL_MAP = {
     "ability": "Ability",
     "ability_description": "Ability Description",
     "ability_item": "Ability Item",
-    "coins": "Coins",
-    "boots": "Boots",
+    "coin": "Coins",
+    "boot": "Boots",
     "bag": "Bags",
     "tea": "Tea",
     "hammer": "Hammers",
@@ -1782,7 +1786,7 @@ LABEL_MAP = {
     "torch": "Torches",
 
     # Deck
-    "card": "Deck Card Count",
+    "card_total": "Deck Card Count",
 
     # Hireling
     "hireling_type": "Hireling Type",
@@ -1791,6 +1795,7 @@ LABEL_MAP = {
     "warrior": "Warrior Count",
     "building": "Building Count",
     "token": "Token Count",
+    "card": "Card Count",
     "other": "Other Count",
 }
 
@@ -1891,16 +1896,21 @@ def filter_by_piece_quantity(queryset, *, piece_type, quantity=None, comparator=
         }
     )
     # Apply the filter if quantity is provided
-    if quantity is not None:
+    try:
+        if quantity is not None:
+            quantity = int(quantity)
+    except (ValueError, TypeError):
+        return queryset
+    try:
         filter_lookup = {f'{annotation_name}__{comparator}': quantity}
         queryset = queryset.filter(**filter_lookup)
-
+    except FieldError:
+        pass
     return queryset
-
 
 def filter_by_field_quantity(queryset, *, field_type, quantity=None, comparator='exact'):
     """
-    Filters Posts by the total quantity of a given field (W, B, T, C, O).
+    Filters Posts by the total quantity of a given field.
     Input:
         queryset: The base Post queryset.
         field_type: the name of the field (eg. clearings, card_amount, forests, building_slots)
@@ -1909,16 +1919,24 @@ def filter_by_field_quantity(queryset, *, field_type, quantity=None, comparator=
     Output:
         filtered Posts
     """
+ 
+    print(f'Comparator:{comparator}, Field Type:{field_type}, Quantity:{quantity}')
     # Safety check for valid comparator otherwise return qs
     if comparator not in ['lt', 'lte', 'gt', 'gte', 'exact']:
         return queryset
     # Apply the filter if quantity is provided
-    if quantity is not None:
+    try:
+        if quantity is not None:
+            quantity = int(quantity)
+    except (ValueError, TypeError):
+        return queryset
+    
+    try:
         filter_lookup = {f'{field_type}__{comparator}': quantity}
-        try:
-            queryset = queryset.filter(**filter_lookup)
-        except FieldError:
-            pass
+        print(filter_lookup)
+        queryset = queryset.filter(**filter_lookup)
+    except FieldError:
+        pass
 
     return queryset
 
@@ -2007,14 +2025,50 @@ def advanced_search(request, component_type):
     language_code = filters.get('language_code') or get_language()
     language_object = Language.objects.filter(code=language_code).first() or Language.objects.get(code='en')
 
+    post_count = posts.count()
     posts = annotate_with_translations(posts, language_object)
     posts = paginate(posts, page)
-
     tabs = ["Faction", "Map", "Deck", "Vagabond", "Landmark", "Hireling", "Clockwork", "Tweak"]
     
     # Meta data
     meta_title = f"{component} Search"
-    meta_description = describe_filters(filters=filters)
+    meta_description = f'Results: {post_count}, {describe_filters(filters=filters)}'
+
+    # Determine if piece filters are necessary
+    has_piece_type = {
+        type_choice.label.lower(): Piece.objects.filter(
+            type=type_choice.value,
+            parent__component=component
+        ).exists()
+        for type_choice in Piece.TypeChoices
+    }
+    has_status = {
+        status_choice.label.lower(): Post.objects.filter(
+            component=component,
+            status=status_choice.value
+        ).exists()
+        for status_choice in StatusChoices
+    }
+    if component == "Vagabond":
+        used_item_choices = [
+            {"value": item_choice.value, "label": item_choice.label}
+            for item_choice in Vagabond.AbilityChoices
+            if Vagabond.objects.filter(component=component, ability_item=item_choice.value).exists()
+        ]
+    else:
+        used_item_choices = {}
+    # color_choices = {
+    #     color_choice.label.lower(): Post.objects.filter(
+    #         component=component,
+    #         color_group=color_choice.value
+    #     ).exists()
+    #     for color_choice in ColorChoices
+    # }
+    used_color_choices = [
+        {"value": color_choice.value, "label": color_choice.label}
+        for color_choice in ColorChoices
+        if Post.objects.filter(component=component, color_group=color_choice.value).exists()
+    ]
 
     context = {
         "posts": posts,
@@ -2028,6 +2082,10 @@ def advanced_search(request, component_type):
         "component_type": component,
         "meta_title": meta_title,
         "meta_description": meta_description,
+        "has_piece_type": has_piece_type,
+        "has_status": has_status,
+        "color_choices": used_color_choices,
+
 
         "search": filters.get('search', ""),
         "status": filters.get('status', ""),
@@ -2039,6 +2097,7 @@ def advanced_search(request, component_type):
         "animal": filters.get('animal', ''),
 
         # Faction Specific
+        "faction_style_choices": Faction.StyleChoices.choices,
         "faction_type": filters.get('faction_type', ""),
         "reach_qty": filters.get('reach_qty', ""),
         "reach_op": filters.get('reach_op', ""),
@@ -2058,19 +2117,20 @@ def advanced_search(request, component_type):
         'ruins_qty': filters.get('ruins_qty', ''),
         'ruins_op': filters.get('ruins_op', ''),
         # Deck
-        'card_qty': filters.get('card_qty', ''),
-        'card_op': filters.get('card_op', ''),
+        'card_total_qty': filters.get('card_total_qty', ''),
+        'card_total_op': filters.get('card_total_op', ''),
         # Hireling
         'hireling_type': filters.get('hireling_type', ''),
         # Vagabond
+        'item_choices': used_item_choices,
         'ability': filters.get('ability', ''),
         'ability_description': filters.get('ability_description', ''),
         'ability_item': filters.get('ability_item', ''),
 
-        'coins_qty': filters.get('coins_qty', ''),
-        'coins_op': filters.get('coins_op', ''),
-        'boots_qty': filters.get('boots_qty', ''),
-        'boots_op': filters.get('boots_op', ''),
+        'coin_qty': filters.get('coin_qty', ''),
+        'coin_op': filters.get('coin_op', ''),
+        'boot_qty': filters.get('boot_qty', ''),
+        'boot_op': filters.get('boot_op', ''),
         'bag_qty': filters.get('bag_qty', ''),
         'bag_op': filters.get('bag_op', ''),
         'tea_qty': filters.get('tea_qty', ''),

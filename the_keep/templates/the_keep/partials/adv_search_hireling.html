@@ -1,0 +1,7 @@
+{% load i18n %}
+<label for="hireling_type">{% trans 'Hireling Type' %}: </label>
+<select id="hireling_type" name="hireling_type" value="{{ hireling_type }}">
+    <option value="">{% trans 'All' %}</option>  
+    <option value="P" {% if hireling_type == 'P' %}selected{% endif %}>{% trans 'Promoted' %}</option>
+    <option value="D" {% if hireling_type == 'D' %}selected{% endif %}>{% trans 'Demoted' %}</option>
+</select>

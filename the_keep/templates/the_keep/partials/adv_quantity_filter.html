@@ -2,7 +2,7 @@
     <div class="d-flex align-items-center gap-2">
       <!-- Operator Selector -->
       <div class="mb-2">
-        <label for="{{ prefix }}_qty">{{ label }} Quantity</label>
+        <label for="{{ prefix }}_qty">{{ label }}</label>
         <select name="{{ prefix }}_op" id="{{ prefix }}_op" class="form-select form-select-sm">
           <option value="">------</option>
           <option value="lt" {% if op == 'lt' %}selected{% endif %}>Less Than</option>

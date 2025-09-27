@@ -555,7 +555,7 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         required=False
     )
     building_slots = forms.IntegerField(
-        label=_('Number of Building Slots'),
+        label=_('Number of Building Slots (including Ruins)'),
         required=False
     )
     ruins = forms.IntegerField(

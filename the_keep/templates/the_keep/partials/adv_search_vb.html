@@ -1,0 +1,23 @@
+{% load i18n %}
+<input type="text" name="ability" id="ability" placeholder="Search by Ability..." value="{{ ability }}" class="form-control mb-1">
+{% if item_choices %}
+<label for="ability_item">{% trans 'Ability Item' %}:</label>            
+<select id="ability_item" name="ability_item" class="form-select">
+    <option value="">{% trans 'All' %}</option>
+    {% for item_option in item_choices %}
+        <option value="{{ item_option.value }}" {% if item_option.value == ability_item %}selected{% endif %}>
+            {{ item_option.label }}
+        </option>
+    {% endfor %}
+</select>
+
+{% endif %}
+<h3 class='root-title'>Starting Items</h3>
+
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="coin" label="Coin" op=coin_op qty=coin_qty %}
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="boot" label="Boot" op=boot_op qty=boot_qty %}
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="tea" label="Tea" op=tea_op qty=tea_qty %}
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="bag" label="Bag" op=bag_op qty=bag_qty %}
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="hammer" label="Hammer" op=hammer_op qty=hammer_qty %}
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="sword" label="Sword" op=sword_op qty=sword_qty %}
+{% include "the_keep/partials/adv_quantity_filter.html" with prefix="hammer" label="Hammer" op=hammer_op qty=hammer_qty %}

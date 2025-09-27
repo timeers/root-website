@@ -49,6 +49,22 @@
             {% if component_type == "Faction" or component_type == "Hireling" or component_type == "Vagabond" or component_type == "Clockwork" %}
                 <input type="text" name="animal" id="animal" placeholder="Search by Animal..." value="{{ animal }}" class="form-control mb-1">
             {% endif %}
+
+
+            {% if color_choices %}
+            <label for="color">{% trans 'Color' %}:</label>            
+            <select id="color" name="color" class="form-select">
+                <option value="">{% trans 'All' %}</option>
+                {% for color_option in color_choices %}
+                    <option value="{{ color_option.value }}" {% if color_option.value == color %}selected{% endif %}>
+                        {{ color_option.label }}
+                    </option>
+                {% endfor %}
+            </select>
+            
+            {% endif %}
+
+
             <div>
             <!-- Designer Search Dropdown -->
             <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
@@ -71,11 +87,19 @@
             {% endif %}
 
             <select id="status" name="status" value="{{ status }}">
-                <option value="">{% trans 'Status (All)' %}</option>  
+                <option value="">{% trans 'Status (All)' %}</option>
+                {% if has_status.stable %}  
                 <option value="1" {% if status == '1' %}selected{% endif %}>{% trans 'Stable' %}</option>
+                {% endif %}
+                {% if has_status.testing %}  
                 <option value="2" {% if status == '2' %}selected{% endif %}>{% trans 'Testing' %}</option>
+                {% endif %}
+                {% if has_status.development %}  
                 <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>
+                {% endif %}
+                {% if has_status.inactive %}  
                 <option value="4" {% if status == '4' %}selected{% endif %}>{% trans 'Inactive' %}</option>
+                {% endif %}
             </select>
 
             <div>
@@ -106,15 +130,43 @@
         </div>
         
         {% if component_type == "Faction" %}
-            {% include "the_keep/partials/advanced_search_faction.html" %}
+            {% include "the_keep/partials/adv_search_faction.html" %}
         {% endif %}
 
-        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="warrior" label="Warrior" op=warrior_op qty=warrior_qty %}
-        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building" label="Building" op=building_op qty=building_qty %}
-        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="token" label="Token" op=token_op qty=token_qty %}
-        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="card" label="Card" op=card_op qty=card_qty %}
-        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty %}
+        {% if component_type == "Map" %}
+            {% include "the_keep/partials/adv_search_map.html" %}
+        {% endif %}
 
+        {% if component_type == "Vagabond" %}
+            {% include "the_keep/partials/adv_search_vb.html" %}
+        {% endif %}
+
+        {% if component_type == "Hireling" %}
+            {% include "the_keep/partials/adv_search_hireling.html" %}
+        {% endif %}
+
+        {% if component_type == "Deck" %}
+            {% include "the_keep/partials/adv_search_deck.html" %}
+        {% endif %}
+
+        {% if has_piece_type.warrior or has_piece_type.building or has_piece_type.token or has_piece_type.card or has_piece_type.other %}
+            <h3 class='root-title'>Pieces</h3>
+            {% if has_piece_type.warrior %}
+                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="warrior" label="Warrior" op=warrior_op qty=warrior_qty %}
+            {% endif %}
+            {% if has_piece_type.building %}
+                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building" label="Building" op=building_op qty=building_qty %}
+            {% endif %}
+            {% if has_piece_type.token %}
+                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="token" label="Token" op=token_op qty=token_qty %}
+            {% endif %}
+            {% if has_piece_type.card %}
+                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="card" label="Card" op=card_op qty=card_qty %}
+            {% endif %}
+            {% if has_piece_type.other %}
+                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty %}
+            {% endif %}
+        {% endif %}
           
           <div class="mt-3">
             <button type="submit" class="btn btn-primary">

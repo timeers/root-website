@@ -1,0 +1,23 @@
+{% load i18n %}
+<label for="faction_type">{% trans 'Faction Type' %}: </label>
+<select id="faction_type" name="faction_type" value="{{ faction_type }}">
+    <option value="">{% trans 'All' %}</option>  
+    <option value="M" {% if faction_type == 'M' %}selected{% endif %}>{% trans 'Militant' %}</option>
+    <option value="I" {% if faction_type == 'I' %}selected{% endif %}>{% trans 'Insurgent' %}</option>
+</select>
+
+
+<div>
+    <h3 class='root-title'>Faction Attributes</h3>
+
+    {% include "the_keep/partials/adv_style_filter.html" with field_name="complexity" label="Complexity" choices=faction_style_choices selected=complexity %}
+
+    {% include "the_keep/partials/adv_style_filter.html" with field_name="aggression" label="Aggression" choices=faction_style_choices selected=aggression %}
+
+    {% include "the_keep/partials/adv_style_filter.html" with field_name="card_wealth" label="Card Wealth" choices=faction_style_choices selected=card_wealth %}
+
+    {% include "the_keep/partials/adv_style_filter.html" with field_name="crafting_ability" label="Crafting Ability" choices=faction_style_choices selected=crafting_ability %}
+
+</div>
+
+  {% include "the_keep/partials/adv_quantity_filter.html" with prefix="reach" label="Reach" op=reach_op qty=reach_qty %}
