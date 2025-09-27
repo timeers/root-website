@@ -8,7 +8,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, F, Q, Value, Sum, ProtectedError, Count, IntegerField
+from django.db.models import Count, F, Q, Value, Sum, ProtectedError, Count, IntegerField, FloatField, ExpressionWrapper
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
 from django.conf import settings
@@ -1496,41 +1496,55 @@ def get_view_status(user):
         return user.profile.view_status
     return 4
 
-def get_designers(user, view_status, component):
-    if not user.is_authenticated:
-        return Profile.objects.annotate(
-            posts_count=Count('posts'),
-            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status, posts__component=component))
-        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+from django.db.models import Q, Count
 
-    if user.profile.weird:
-        return Profile.objects.annotate(
-            posts_count=Count('posts'),
-            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status, posts__component=component))
-        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+def get_profiles(user, view_status, component, selected_id, related_name):
+    """
+    To fetch profiles based on the related post type.
+    :user: The current user
+    :view_status: Integer representing max visible post status
+    :component: The component to filter posts on
+    :selected_id: A profile ID to ensure is always included
+    :related_name: The related name for posts (e.g., 'posts', 'artist_posts')
+    """
 
-    return Profile.objects.annotate(
-        official_posts_count=Count('posts', filter=Q(posts__official=True)),
-        valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status, posts__component=component))
-    ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
+    # Build dynamic filter keys
+    posts_field = f"{related_name}"
+    official_filter = Q(**{f"{posts_field}__official": True})
+    valid_filter = Q(**{f"{posts_field}__status__lte": view_status, f"{posts_field}__component": component})
 
-def get_artists(user, view_status, component):
-    if not user.is_authenticated:
-        return Profile.objects.annotate(
-            posts_count=Count('artist_posts'),
-            valid_posts_count=Count('artist_posts', filter=Q(posts__status__lte=view_status, posts__component=component))
-        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+    # Annotate
+    base_queryset = Profile.objects.annotate(
+        posts_count=Count(posts_field),
+        official_posts_count=Count(posts_field, filter=official_filter),
+        valid_posts_count=Count(posts_field, filter=valid_filter)
+    )
 
-    if user.profile.weird:
-        return Profile.objects.annotate(
-            posts_count=Count('artist_posts'),
-            valid_posts_count=Count('artist_posts', filter=Q(posts__status__lte=view_status, posts__component=component))
-        ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+    # Apply filters depending on user
+    if not user.is_authenticated or user.profile.weird:
+        filtered_queryset = base_queryset.filter(
+            posts_count__gt=0,
+            valid_posts_count__gt=0
+        )
+    else:
+        filtered_queryset = base_queryset.filter(
+            official_posts_count__gt=0,
+            valid_posts_count__gt=0
+        )
 
-    return Profile.objects.annotate(
-        official_posts_count=Count('artist_posts', filter=Q(posts__official=True)),
-        valid_posts_count=Count('artist_posts', filter=Q(posts__status__lte=view_status, posts__component=component))
-    ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
+    # Always include selected profile
+    if selected_id:
+        filtered_queryset = filtered_queryset | base_queryset.filter(id=selected_id)
+
+    return filtered_queryset.distinct()
+
+
+def get_designers(user, view_status, component, selected_id):
+    return get_profiles(user, view_status, component, selected_id, related_name='posts')
+
+def get_artists(user, view_status, component, selected_id):
+    return get_profiles(user, view_status, component, selected_id, related_name='artist_posts')
+
 
 def build_post_queryset(user, view_status, component):
 
@@ -1547,7 +1561,6 @@ def build_post_queryset(user, view_status, component):
     }
     Klass = component_mapping.get(component)
 
-
     qs = Klass.objects.prefetch_related('designer').filter(status__lte=view_status, component=component)
 
     if user.is_authenticated and not user.profile.weird:
@@ -1556,6 +1569,11 @@ def build_post_queryset(user, view_status, component):
     return qs
 
 def apply_filters(qs, filters, component):
+
+    if filters.get('official'):
+        official_value = filters['official']
+        if isinstance(official_value, bool):
+            qs = qs.filter(official=official_value)
 
     if filters.get('search'):
         search_term = filters['search']
@@ -1576,16 +1594,13 @@ def apply_filters(qs, filters, component):
     if filters.get('status'):
         qs = qs.filter(status=filters['status'])
 
-    if filters.get('official'):
-        qs = qs.filter(official=filters['official'])
-
     if filters.get('language_code'):
         qs = qs.filter(
             Q(language__code=filters['language_code']) |
             Q(translations__language__code=filters['language_code'])
         )
 
-    if component == "Faction" or component == 'Hireling' or component == 'Vagabond' or component == 'Clockwork':
+    if component in ["Faction", "Hireling", "Vagabond", "Clockwork"]:
         if filters.get('color'):
             qs = qs.filter(color_group=filters['color'])
         if filters.get('animal'):
@@ -1672,6 +1687,72 @@ def apply_filters(qs, filters, component):
     if filters.get('other_qty'):
         qs = filter_by_piece_quantity(queryset=qs, piece_type="O", quantity=filters['other_qty'], comparator=filters['other_op'])
 
+    if filters.get('games_qty'):
+        if component in ["Faction", "Clockwork", "Vagabond"]:
+            qs = qs.annotate(
+                    total_games=Count(
+                        'efforts__game',
+                        filter=Q(
+                            efforts__game__final=True
+                        )
+                    )
+                )     
+        else:
+            qs = qs.annotate(
+                    total_games=Count(
+                        'games',
+                        filter=Q(
+                            games__final=True
+                        )
+                    )
+                )   
+            
+        games_qty = filters.get('games_qty')
+        games_op = filters.get('games_op')
+
+        # Apply exclusion of total_games=0 *unless* it's asking for "0" or "< 1"
+        if not (games_qty == "0" or (games_qty == "1" and games_op == "lt")):
+            qs = qs.exclude(total_games=0)
+
+        qs = filter_by_field_quantity(queryset=qs, field_type="total_games", quantity=games_qty, comparator=games_op)
+
+    # Winrate
+    if component in ["Faction", "Vagabond"]:
+        try:
+            winrate_min = float(filters.get('winrate_min', 0))
+            winrate_max = float(filters.get('winrate_max', 100))
+
+            if winrate_min != 0 or winrate_max != 100:
+                qs = qs.annotate(
+                    total_wins=Count(
+                        'efforts__game',
+                        filter=Q(
+                            efforts__win=True,
+                            efforts__game__test_match=False,
+                            efforts__game__final=True
+                        )
+                    ),
+                    total_games=Count(
+                        'efforts__game',
+                        filter=Q(
+                            efforts__game__test_match=False,
+                            efforts__game__final=True
+                        )
+                    )
+                ).filter(
+                    total_games__gt=0
+                ).annotate(
+                    calculated_winrate=ExpressionWrapper(
+                        100.0 * F('total_wins') / F('total_games'),
+                        output_field=FloatField()
+                    )
+                ).filter(
+                    calculated_winrate__gte=winrate_min,
+                    calculated_winrate__lte=winrate_max
+                )
+        except (TypeError, ValueError):
+            pass
+
 
     return qs
 
@@ -1686,6 +1767,12 @@ def generate_filters(request):
         'official': request.GET.get('official', ''),
         'animal': request.GET.get('animal', ''),
         'color': request.GET.get('color', ''),
+        # Winrate
+        'winrate_min': request.GET.get('winrate_min', ''),
+        'winrate_max': request.GET.get('winrate_max', ''),  
+        # Games played
+        'games_qty': request.GET.get('games_qty', ''),
+        'games_op': request.GET.get('games_op', ''),
         # factions
         'faction_type': request.GET.get('faction_type', ''),
         'reach_qty': request.GET.get('reach_qty', ''),
@@ -1756,7 +1843,8 @@ LABEL_MAP = {
     "status": "Status",
     "animal": "Animal",
     "color": "Color",
-    
+    "games": "Games Played",
+
     # Faction
     "faction_type": "Faction Type",
     "reach": "Reach",
@@ -1827,44 +1915,67 @@ def describe_filters(filters):
     }
 
     for key, value in filters.items():
-        if not value or key in used_keys:
-            continue
-
-        # Quantity/Operator pair
-        if key.endswith('_qty'):
-            prefix = key[:-4]
-            qty = value
-            op_key = f"{prefix}_op"
-            op = filters.get(op_key, 'exact')
-
-            label = LABEL_MAP.get(prefix, prefix.replace('_', ' ').title())
-            symbol = OPERATOR_SYMBOLS.get(op, '=')
-
-            descriptions.append(f"{label} {symbol} {qty}")
-            used_keys.update({key, op_key})
-
-        elif key.endswith('_op') and f"{key[:-3]}_qty" in filters:
-            continue  # Already handled
-
-        # Handle ID lookups
-        elif key in ID_LOOKUPS:
-            label = LABEL_MAP.get(key, key.replace('_', ' ').title())
-            name = get_name_from_id(ID_LOOKUPS[key], value)
-            descriptions.append(f"{label}: {name}")
-            used_keys.add(key)
-        # Handle statuses
-        elif key == "status":
-            label = LABEL_MAP.get("status", "Status")
-            try:
-                status_label = StatusChoices(value).label
-                descriptions.append(f"{label}: {status_label}")
-            except ValueError:
-                descriptions.append(f"{label}: {value}")  # fallback
-
+        
+        if key.startswith('winrate'):
+            if key == 'winrate_min':
+                winrate_min = value
+                winrate_max = filters.get('winrate_max', '100')
+                if not (winrate_min == "0" and winrate_max == "100") and (winrate_min or winrate_max):
+                    if winrate_min == "0":
+                        winrate_description = f"Winrate ≤ {winrate_max}%"
+                    elif winrate_max == '100':
+                        winrate_description = f"Winrate ≥ {winrate_min}%"
+                    elif winrate_max == winrate_min:
+                        winrate_description = f"Winrate = {winrate_max}%"
+                    else:
+                        winrate_description = f"Winrate: {winrate_min}%-{winrate_max}%"
+                    descriptions.append(winrate_description)
+                    used_keys.update({'winrate_max', 'winrate_min'})
         else:
-            label = LABEL_MAP.get(key, key.replace('_', ' ').title())
-            descriptions.append(f"{label}: {value}")
-            used_keys.add(key)
+
+            if not value or key in used_keys:
+                continue
+
+            # Quantity/Operator pair
+            if key.endswith('_qty'):
+                prefix = key[:-4]
+                qty = value
+                op_key = f"{prefix}_op"
+                op = filters.get(op_key, 'exact')
+
+                label = LABEL_MAP.get(prefix, prefix.replace('_', ' ').title())
+                symbol = OPERATOR_SYMBOLS.get(op, '=')
+
+                descriptions.append(f"{label} {symbol} {qty}")
+                used_keys.update({key, op_key})
+
+            elif key.endswith('_op') and f"{key[:-3]}_qty" in filters:
+                continue  # Already handled
+
+            # Handle ID lookups
+            elif key in ID_LOOKUPS:
+                label = LABEL_MAP.get(key, key.replace('_', ' ').title())
+                name = get_name_from_id(ID_LOOKUPS[key], value)
+                descriptions.append(f"{label}: {name}")
+                used_keys.add(key)
+            # Handle statuses
+            elif key == "status":
+                label = LABEL_MAP.get("status", "Status")
+                try:
+                    status_label = StatusChoices(value).label
+                    descriptions.append(f"{label}: {status_label}")
+                except ValueError:
+                    descriptions.append(f"{label}: {value}")  # fallback
+            elif key == "official":
+                if value == "True":
+                    descriptions.append("Official Only")
+                elif value == "False":
+                    descriptions.append("Fan Content Only")
+
+            else:
+                label = LABEL_MAP.get(key, key.replace('_', ' ').title())
+                descriptions.append(f"{label}: {value}")
+                used_keys.add(key)
 
     return ", ".join(descriptions)
 
@@ -2007,8 +2118,11 @@ def advanced_search(request, component_type):
     page = request.GET.get('page', 1)
 
     view_status = get_view_status(request.user)
-    designers = get_designers(request.user, view_status, component)
-    artists = get_artists(request.user, view_status, component)
+
+    selected_designer = filters.get('designer', "")
+    designers = get_designers(request.user, view_status, component, selected_designer)
+    selected_artist = filters.get('artist', "")
+    artists = get_artists(request.user, view_status, component, selected_artist)
     if component != "Post":
         expansions = Expansion.objects.filter(posts__component=component).distinct()
     else:
@@ -2040,11 +2154,11 @@ def advanced_search(request, component_type):
         meta_description = f'Results: {post_count}, {filter_description}'
     else:
         if component == "Clockwork":
-            meta_description = f'Search Root Clockwork Fan Factions using advanced filters'
+            meta_description = f'Search {post_count} Root Clockwork Fan Factions using advanced filters'
         elif component == "Tweak":
-            meta_description = f'Search Root House Rules using advanced filters'
+            meta_description = f'Search {post_count} Root House Rules using advanced filters'
         else:
-            meta_description = f'Search Root Fan {component}s using advanced filters'
+            meta_description = f'Search {post_count} Root Fan {component}s using advanced filters'
 
     # Determine if filters are necessary
     has_piece_type = {
@@ -2054,6 +2168,9 @@ def advanced_search(request, component_type):
         ).exists()
         for type_choice in Piece.TypeChoices
     }
+
+    # Selected status and available statuses
+    selected_status = filters.get('status', "")
     has_status = {
         status_choice.label.lower(): Post.objects.filter(
             component=component,
@@ -2061,6 +2178,16 @@ def advanced_search(request, component_type):
         ).exists()
         for status_choice in StatusChoices
     }
+    # Add the selected status if it's valid
+    if selected_status:
+        try:
+            selected_enum = StatusChoices(selected_status)  # Convert value to enum
+            label_key = selected_enum.label.lower()
+            has_status[label_key] = True
+        except ValueError:
+            pass  # In case selected_status is not a valid enum value
+
+
     if component == "Vagabond":
         used_item_choices = [
             {"value": item_choice.value, "label": item_choice.label}
@@ -2069,11 +2196,28 @@ def advanced_search(request, component_type):
         ]
     else:
         used_item_choices = {}
+
+    # Selected color and available colors
+    selected_color = filters.get('color', '')
+    # Build the list of used color choices
     used_color_choices = [
         {"value": color_choice.value, "label": color_choice.label}
         for color_choice in ColorChoices
         if Post.objects.filter(component=component, color_group=color_choice.value).exists()
     ]
+
+    if component in ["Faction", "Hireling", "Vagabond", "Clockwork"]:
+        # If the selected color is valid but not in the list, add it
+        if selected_color and selected_color not in [c["value"] for c in used_color_choices]:
+            try:
+                # Get the label from ColorChoices enum
+                selected_enum = ColorChoices(selected_color)
+                used_color_choices.append({"value": selected_enum.value, "label": selected_enum.label})
+            except ValueError:
+                pass  # Skip adding if it's not a valid ColorChoice
+    else:
+        selected_color = ""
+
 
     context = {
         "posts": posts,
@@ -2093,13 +2237,22 @@ def advanced_search(request, component_type):
 
 
         "search": filters.get('search', ""),
-        "status": filters.get('status', ""),
-        "selected_designer": filters.get('designer', ""),
-        "selected_artist": filters.get('artist', ""),
+        "status": selected_status,
+        "selected_designer": selected_designer,
+        "selected_artist": selected_artist,
         "selected_expansion": filters.get('expansion', ""),
         "selected_language": filters.get('language_code', ""),
-        "color": filters.get('color', ''),
+        "color": selected_color,
         "animal": filters.get('animal', ''),
+        "official": filters.get('official', ''),
+
+        # Winrate
+        "winrate_min": filters.get('winrate_min', ''),
+        "winrate_max": filters.get('winrate_max', ''),
+
+        # Games Played
+        'games_qty': filters.get('games_qty', ''),
+        'games_op': filters.get('games_op', ''),        
 
         # Faction Specific
         "faction_style_choices": Faction.StyleChoices.choices,

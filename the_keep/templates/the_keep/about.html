@@ -30,15 +30,15 @@
 
 <div class='mb-4 text-center lore-content' style="font-size: 1.1rem;">
     Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
-    You can also find a more detailed FAQ, ask questions, and give feedback on the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj">RDB Feedback Discord</a>.
+    You can also ask questions and give feedback on the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj">RDB Feedback Discord</a>.
 </div>
 
 <div class='mb-4 text-center'>
     <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
     {% if user.is_authenticated %}
         <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
-    {% comment %} {% else %}
-        <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"> {% endcomment %}
+    {% else %}
+        <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
     {% endif %}
 </div>
 
@@ -48,6 +48,9 @@
 <div class='mb-4 text-center'>
     <div class='text-center my-3' style="font-size: 1.2rem; font-weight: 600;">
         Thank you for checking out the {{site_title}}.
+    </div>
+    <div class='mb-4'>
+        The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord.
     </div>
     <div>
         Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
@@ -83,5 +86,7 @@
     allowfullscreen>
 </iframe>
 </div> {% endcomment %}
+<img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/Frog.png'  %}" alt="Join Woodland Warriors">
+
 {% endblock content %}
 
