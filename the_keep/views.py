@@ -1717,7 +1717,7 @@ def apply_filters(qs, filters, component):
         qs = filter_by_field_quantity(queryset=qs, field_type="total_games", quantity=games_qty, comparator=games_op)
 
     # Winrate
-    if component in ["Faction", "Vagabond"]:
+    if component in ["Faction", "Vagabond", "Clockwork"]:
         try:
             winrate_min = float(filters.get('winrate_min', 0))
             winrate_max = float(filters.get('winrate_max', 100))

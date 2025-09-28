@@ -38,10 +38,13 @@ from django.db.models.query import QuerySet
 
 
 # Stable requirements
-# 10 games played
-game_threshold = 10
-# 5 different players
-player_threshold = 5
+def get_game_threshold():
+    from the_gatehouse.models import Website
+    return Website.get_singular_instance().game_threshold
+
+def get_player_threshold():
+    from the_gatehouse.models import Website
+    return Website.get_singular_instance().player_threshold
 
 p = inflect.engine()
 
@@ -817,6 +820,9 @@ class Deck(Post):
 
     def stable_check(self):
        
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
+
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         # This is the "threshold" of all official factions (e.g., total possible)
         faction_threshold = official_factions.count()
@@ -934,6 +940,9 @@ class Landmark(Post):
 
     def stable_check(self):
 
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
+
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
         official_faction_queryset = official_factions.filter(efforts__game__landmarks=self).distinct()
@@ -1044,6 +1053,9 @@ class Tweak(Post):
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
+
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
@@ -1183,6 +1195,9 @@ class Map(Post):
 
 
     def stable_check(self):
+
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
@@ -1349,6 +1364,9 @@ class Vagabond(Post):
         return points / total_plays * 100 if total_plays > 0 else 0
     
     def stable_check(self):
+
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
 
         # Thresholds from all official Faction, Map, Decks
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
@@ -1589,6 +1607,9 @@ class Faction(Post):
 
     def stable_check(self):
 
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
+
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(id=self.id)
         faction_threshold = official_factions.count()
         official_faction_queryset = official_factions.filter(efforts__game__efforts__faction=self).distinct()
@@ -1746,6 +1767,9 @@ class Hireling(Post):
         # super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
+
+        game_threshold = get_game_threshold()
+        player_threshold = get_player_threshold()
 
         official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()

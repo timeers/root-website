@@ -14,7 +14,7 @@
                 {% endfor %}
             {% endif %}
             {% if user.profile.player %}
-                <a href="https://discord.gg/Aspf4tAbJj">Discord</a> |
+                <a href="{{rdb_feedback_invite}}">Discord</a> |
             {% endif %}
             <a href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
         </div>

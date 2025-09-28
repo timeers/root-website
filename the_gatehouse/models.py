@@ -679,7 +679,8 @@ class Website(models.Model):
     player_threshold = models.IntegerField(default=5)
     global_message = models.CharField(max_length=400, null=True, blank=True)
     message_type = models.CharField(max_length=15 , default=MessageChoices.INFO, choices=MessageChoices.choices)
-
+    woodland_warriors_invite = models.CharField(max_length=100, null=True, blank=True)
+    rdb_feedback_invite = models.CharField(max_length=100, null=True, blank=True)
 
     @classmethod
     def get_singular_instance(cls):

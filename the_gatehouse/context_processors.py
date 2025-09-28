@@ -63,6 +63,8 @@ def active_user_data(request):
         site_title = config.site_title
         global_message = config.global_message
         global_message_type = config.message_type
+        woodland_warriors_invite = config.woodland_warriors_invite
+        rdb_feedback_invite = config.rdb_feedback_invite
 
         post_count = 0
         recent_posts = []
@@ -104,6 +106,8 @@ def active_user_data(request):
             'theme': theme,
             'global_message': global_message,
             'global_message_type': global_message_type,
+            'woodland_warriors_invite': woodland_warriors_invite,
+            'rdb_feedback_invite': rdb_feedback_invite,
         }
 
     except Exception:

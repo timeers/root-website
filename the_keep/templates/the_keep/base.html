@@ -10,15 +10,21 @@
             {% endif %}
 
             {% if global_message %}
-                <div class="alert alert-{{ global_message_type }}">
+                <div class="alert alert-{{ global_message_type }} alert-dismissible fade show" role="alert">
                     {{ global_message }}
+                        <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                 </div>
             {% endif %}
 
             {% if messages %}
                 {% for message in messages %}
-                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}">
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
                     {{ message }}
+                    <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
                 </div>
                 {% endfor %}
             {% endif %}

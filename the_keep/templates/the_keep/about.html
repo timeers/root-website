@@ -21,7 +21,8 @@
 
 <div class='mb-4 text-center'>
     Welcome to the {{site_title}}, an unofficial collection of Fan Factions and components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.
-    The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. You can post game results to track your stats and search community resources to help make your own creations.
+    The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. 
+    You can post game results to track your stats and search community resources to help make your own creations. If you play a game with any of the components found here you can record that game to help the creators see their faction's stats.
 </div>
 
 <div class='mb-4 text-center'>
@@ -30,13 +31,13 @@
 
 <div class='mb-4 text-center lore-content' style="font-size: 1.1rem;">
     Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
-    You can also ask questions and give feedback on the <a class='clickable-link' href="https://discord.gg/Aspf4tAbJj">RDB Feedback Discord</a>.
+    You can also ask questions and give feedback on the <a class='clickable-link' href="{{rdb_feedback_invite}}">RDB Feedback Discord</a>.
 </div>
 
 <div class='mb-4 text-center'>
     <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
     {% if user.is_authenticated %}
-        <a href="https://discord.gg/4VTuyQuPf7"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
+        <a href="{{woodland_warriors_invite}}"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
     {% else %}
         <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
     {% endif %}
@@ -50,7 +51,8 @@
         Thank you for checking out the {{site_title}}.
     </div>
     <div class='mb-4'>
-        The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord.
+        The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord. 
+        Woodland Warrior members are also able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
     </div>
     <div>
         Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
