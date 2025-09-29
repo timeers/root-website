@@ -1,8 +1,0 @@
-{% load i18n %}
-<label for="{{ field_name }}">{% trans label %}:</label>
-<select name="{{ field_name }}" id="{{ field_name }}" class="form-select mb-1">
-    <option value="">{% trans 'All' %}</option>
-    {% for key, value in choices %}
-        <option value="{{ key }}" {% if selected == key %}selected{% endif %}>{{ value }}</option>
-    {% endfor %}
-</select>

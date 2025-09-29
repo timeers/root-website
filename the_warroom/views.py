@@ -1218,9 +1218,9 @@ def tournament_players_pagination(request, id):
     players = Profile.objects.filter(Q(efforts__game__round__tournament=tournament)|Q(current_tournaments=tournament))
     
     players = players.annotate(
-        total_efforts=Count('efforts',distinct=True, filter=Q(efforts__game__round__tournament=tournament, efforts__game__final=True)),
-        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round__tournament=tournament, efforts__game__final=True)),
-        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament, efforts__game__final=True))
+        total_efforts=Count('efforts', distinct=True, filter=Q(efforts__game__round__tournament=tournament, efforts__game__final=True)),
+        win_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__round__tournament=tournament, efforts__game__final=True)),
+        coalition_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__tournament=tournament, efforts__game__final=True))
     )
     # Annotate with win_rate after filtering
     players = players.annotate(
@@ -1605,8 +1605,8 @@ def round_players_pagination(request, id):
     # print("Players")
     players = players.annotate(
         total_efforts=Count('efforts', distinct=True, filter=Q(efforts__game__round=round, efforts__game__final=True)),
-        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round, efforts__game__final=True)),
-        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round, efforts__game__final=True))
+        win_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__round=round, efforts__game__final=True)),
+        coalition_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round, efforts__game__final=True))
     )
 
     # Annotate with win_rate after filtering

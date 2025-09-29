@@ -954,21 +954,54 @@ tr.clickable-row:hover {
 }
 
 .bar-background-variable {
-  width: var(--bar-width); /* Width of the bar (can be dynamic or fixed) */
+  width: var(--bar-width); /* Dynamic width of the bar */
   animation: expandWidth 1s ease-out forwards;
 }
 .bar-background-low {
-  width: 28%; /* Width of the bar (can be dynamic or fixed) */
+  width: 28%; /* Width of the bar */
+
 }
 .bar-background-moderate {
-  width: 59%; /* Width of the bar (can be dynamic or fixed) */
+  width: 59%; /* Width of the bar */
+
 }
 .bar-background-high {
-  width: 98%; /* Width of the bar (can be dynamic or fixed) */
+  width: 98%; /* Width of the bar */
+
 }
 .bar-background-none {
-  width: 2%; /* Width of the bar (can be dynamic or fixed) */
+  width: 2%; /* Width of the bar */
+
 }
+
+.bar-background-any {
+  position: relative;
+  width: 100%;
+  border: 2px dashed #666;
+  background-color: transparent;
+  overflow: hidden; /* To contain the pseudo background */
+}
+
+.bar-background-any::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--bar-color),
+    var(--bar-color) 10px,
+    #bbb 10px,
+    #bbb 20px
+  );
+  opacity: 0.35;
+  z-index: 0;
+}
+
+.bar-background-any .bar-text {
+  position: relative;
+  z-index: 1;
+}
+
 
 .bar-text {
   position: absolute; /* Absolutely position the text inside the bar */
@@ -978,6 +1011,7 @@ tr.clickable-row:hover {
   color: #fff; /* Text color */
   font-weight: bold;
   text-transform: uppercase;
+  opacity: 1;
 }
 
 .bar-black-text {
@@ -989,6 +1023,17 @@ tr.clickable-row:hover {
   font-style: italic;
   font-size: 22px;
 }
+
+.bar-click-zone {
+  cursor: pointer;
+  user-select: none;
+}
+
+.bar-click-zone:hover {
+  opacity: 0.85;
+  transition: opacity 0.2s ease-in-out;
+}
+
 
 /* @scroll-timeline scrollTimeline {
   source: scroller;

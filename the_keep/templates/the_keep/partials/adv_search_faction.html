@@ -10,14 +10,131 @@
 <div>
     <h3 class='root-title'>Faction Attributes</h3>
 
-    {% include "the_keep/partials/adv_style_filter.html" with field_name="complexity" label="Complexity" choices=faction_style_choices selected=complexity %}
+    <div class="row">
+        <div class="col-12 col-md-6">
 
-    {% include "the_keep/partials/adv_style_filter.html" with field_name="aggression" label="Aggression" choices=faction_style_choices selected=aggression %}
+            <div class="bar-click-zone" data-field-name="complexity">
+                <div class="bar-container">
+                    <div class="bar-label">Complexity</div>
+                    <div class="bar-background">
+                        <div class="bar-text"></div>
+                    </div>
+                </div>
+              </div>
+              <input type="hidden" name="complexity" id="complexity" value="">    
 
-    {% include "the_keep/partials/adv_style_filter.html" with field_name="card_wealth" label="Card Wealth" choices=faction_style_choices selected=card_wealth %}
+              <div class="bar-click-zone" data-field-name="aggression">
+                <div class="bar-container">
+                    <div class="bar-label">Aggression</div>
+                    <div class="bar-background">
+                        <div class="bar-text"></div>
+                    </div>
+                </div>
+              </div>
+              <input type="hidden" name="aggression" id="aggression" value="">
+              
+        </div>
+        <div class="col-12 col-md-6">
 
-    {% include "the_keep/partials/adv_style_filter.html" with field_name="crafting_ability" label="Crafting Ability" choices=faction_style_choices selected=crafting_ability %}
+            <div class="bar-click-zone" data-field-name="card_wealth">
+                <div class="bar-container">
+                    <div class="bar-label">Card Wealth</div>
+                    <div class="bar-background">
+                        <div class="bar-text"></div>
+                    </div>
+                </div>
+              </div>
+              <input type="hidden" name="card_wealth" id="card_wealth" value="">
+
+              <div class="bar-click-zone" data-field-name="crafting_ability">
+                <div class="bar-container">
+                    <div class="bar-label">Crafting Ability</div>
+                    <div class="bar-background">
+                        <div class="bar-text"></div>
+                    </div>
+                </div>
+              </div>
+              <input type="hidden" name="crafting_ability" id="crafting_ability" value="">
+              
+        </div>
+    </div>
+
 
 </div>
 
   {% include "the_keep/partials/adv_quantity_filter.html" with prefix="reach" label="Reach" op=reach_op qty=reach_qty %}
+
+
+  {% block scripts %}
+  <script>
+    window.initialBarValues = {
+        aggression: "{{ aggression|default:'' }}",
+        complexity: "{{ complexity|default:'' }}",
+        card_wealth: "{{ card_wealth|default:'' }}",
+        crafting_ability: "{{ crafting_ability|default:'' }}"
+      };
+
+
+    const states = [
+    { class: "bar-background-any", label: "Any", blackText: true, value: "" },
+    { class: "bar-background-high", label: "High", blackText: false, value: "H" },
+    { class: "bar-background-moderate", label: "Moderate", blackText: false, value: "M" },
+    { class: "bar-background-low", label: "Low", blackText: false, value: "L" },
+    { class: "bar-background-none", label: "None", blackText: true, value: "N" }
+  ];
+  
+  function getStateByValue(value) {
+    return states.find(s => s.value === value) || states[0]; // default to "Any"
+  }
+  
+  function updateBarState(zone, state) {
+    const bar = zone.querySelector(".bar-background");
+    const textElement = bar.querySelector(".bar-text");
+    const currentClass = Array.from(bar.classList).find(cls =>
+      cls.startsWith("bar-background-")
+    );
+  
+    if (currentClass) bar.classList.remove(currentClass);
+    bar.classList.add(state.class);
+  
+    if (textElement) {
+      textElement.textContent = state.label;
+      textElement.classList.toggle("bar-black-text", state.blackText);
+    }
+  
+    // Update hidden input
+    const fieldName = zone.dataset.fieldName;
+    const hiddenInput = document.getElementById(fieldName);
+    if (hiddenInput) {
+      hiddenInput.value = state.value;
+    }
+  }
+  
+  document.addEventListener("DOMContentLoaded", () => {
+    const initialValues = window.initialBarValues || {};
+  
+    document.querySelectorAll(".bar-click-zone").forEach(zone => {
+      const fieldName = zone.dataset.fieldName;
+      const initialValue = initialValues[fieldName] || "";
+      const initialState = getStateByValue(initialValue);
+  
+      // Set initial state
+      updateBarState(zone, initialState);
+  
+      // Enable click to cycle
+      zone.addEventListener("click", () => {
+        const bar = zone.querySelector(".bar-background");
+        const currentClass = Array.from(bar.classList).find(cls =>
+          cls.startsWith("bar-background-")
+        );
+        const currentIndex = states.findIndex(s => s.class === currentClass);
+        const nextIndex = (currentIndex + 1) % states.length;
+        updateBarState(zone, states[nextIndex]);
+      });
+    });
+  });
+    
+    </script>
+    
+
+  {% endblock scripts %}

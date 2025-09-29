@@ -1728,15 +1728,22 @@ def apply_filters(qs, filters, component):
                         'efforts__game',
                         filter=Q(
                             efforts__win=True,
-                            efforts__game__test_match=False,
+                            # efforts__game__test_match=False,
                             efforts__game__final=True
                         )
                     ),
                     total_games=Count(
                         'efforts__game',
                         filter=Q(
-                            efforts__game__test_match=False,
+                            # efforts__game__test_match=False,
                             efforts__game__final=True
+                        )
+                    ),
+                    coalition_count=Count(
+                        'efforts__game', 
+                        filter=Q(
+                            efforts__win=True, 
+                            efforts__game__coalition_win=True
                         )
                     )
                 ).filter(
@@ -2109,14 +2116,13 @@ COMPONENT_TYPE_MAP = {
 
 def advanced_search(request, component_type):
     component = COMPONENT_TYPE_MAP.get(component_type.lower())
-
+    
     if not component:
         raise Http404("Invalid component type")
 
     filters = generate_filters(request)
 
     page = request.GET.get('page', 1)
-
     view_status = get_view_status(request.user)
 
     selected_designer = filters.get('designer', "")
@@ -2218,8 +2224,14 @@ def advanced_search(request, component_type):
     else:
         selected_color = ""
 
+    theme = get_theme(request)
+    if selected_color:
+        initial_color = selected_color
+    else:
+        initial_color = theme.theme_color
 
     context = {
+        "initial_color": initial_color,
         "posts": posts,
         "designers": designers,
         "artists": artists,

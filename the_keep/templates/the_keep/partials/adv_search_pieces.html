@@ -1,0 +1,66 @@
+{% load static i18n %}
+
+<div class='mt-2 mb-2'>
+
+    <div class="manifest-box">
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <h3 class='root-title manifest-title mx-auto'>{% trans 'Component Manifest' %}</h3>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-evenly">
+                    <div class="p-2 flex-fill{% if not has_piece_type.warrior %} hidden-pieces{% endif %}">
+                        <h5 class='root-title'>{% trans 'Warriors' %}</h5>
+                        <div id="W-pieces">
+                            {% for piece in object.warriors.all %}
+                                {% include 'the_keep/partials/piece_line.html' %}
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="p-2 flex-fill piece-box{% if not has_piece_type.building %} hidden-pieces{% endif %}">
+                        <h5 class='root-title'>{% trans 'Buildings' %}</h5>
+                        <div id="B-pieces">
+                            {% for piece in object.buildings.all %}
+                                {% include 'the_keep/partials/piece_line.html' %}
+                            {% endfor %}
+                        </div>
+
+                    </div>
+
+
+                    <div class="p-2 flex-fill piece-box{% if not has_piece_type.token %} hidden-pieces{% endif %}">
+                        <h5 class='root-title'>{% trans 'Tokens' %}</h5>
+                        <div id="T-pieces">
+                            {% for piece in object.tokens.all %}
+                                {% include 'the_keep/partials/piece_line.html' %}
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="p-2 flex-fill piece-box{% if not ohas_piece_type.card %} hidden-pieces{% endif %}">
+                        <h5 class='root-title'>{% trans 'Cards' %}</h5>
+                        <div id="C-pieces">
+                            {% for piece in object.cards.all %}
+                                {% include 'the_keep/partials/piece_line.html' %}
+                            {% endfor %}
+                        </div>
+                    </div>
+
+
+                <div class="p-2 flex-fill piece-box{% if not has_piece_type.other %} hidden-pieces{% endif %}">
+                    <h5 class='root-title'>{% trans 'Other Pieces' %}</h5>
+                    <div id="O-pieces">
+                        {% for piece in object.otherpieces.all %}
+                            {% include 'the_keep/partials/piece_line.html' %}
+                        {% endfor %}
+                    </div>
+                </div>
+
+
+        </div>
+
+    </div>
+
+
+</div>
