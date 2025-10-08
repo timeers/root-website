@@ -30,7 +30,7 @@ from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter, PlayerGameFilter
 
-from the_keep.models import Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
+from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 
 from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
 from the_gatehouse.views import (player_required, admin_required, 
@@ -38,7 +38,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
-from the_gatehouse.utils import get_uuid, get_theme, build_absolute_uri, get_thematic_images
+from the_gatehouse.utils import get_uuid, get_theme, build_absolute_uri, get_thematic_images, get_int_param
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -123,11 +123,12 @@ class GameListView(ListView):
         # # Select a random image from each location
         # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
 
-        background_image, foreground_images = get_thematic_images(theme=theme, page='games')
+        background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='games')
 
 
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
+        context['theme_artists'] = theme_artists
 
 
 
@@ -1533,33 +1534,6 @@ def round_detail_view(request, tournament_slug, round_slug):
             playable_round = round
             
 
-    # players = round.current_player_queryset()
-    # players = players.annotate(
-    #     total_efforts=Count('efforts', filter=Q(efforts__game__round=round)),
-    #     win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__round=round)),
-    #     coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round))
-    # )
-
-    # # Annotate with win_rate after filtering
-    # players = players.annotate(
-    #     win_rate=Case(
-    #         When(total_efforts=0, then=Value(0)),
-    #         default=ExpressionWrapper(
-    #             (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-    #             output_field=FloatField()
-    #         ),
-    #         output_field=FloatField()
-    #     ),
-    #     tourney_points=Case(
-    #         When(total_efforts=0, then=Value(0)),
-    #         default=ExpressionWrapper(
-    #             Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
-    #             output_field=FloatField()
-    #         ),
-    #         output_field=FloatField()
-    #     )
-    # ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
-
     meta_title = f'{tournament.name} - {round.name}'
     meta_description = tournament.description
 
@@ -1581,6 +1555,105 @@ def round_detail_view(request, tournament_slug, round_slug):
     }
     
     return render(request, 'the_warroom/tournament_overview.html', context)
+
+
+
+def round_component_leaderboard_view(request, tournament_slug, post_slug, round_slug=None):
+
+    threshold = get_int_param(request.GET.get('threshold', ''))
+    limit = get_int_param(request.GET.get('limit', ''))
+    if limit is not None:
+        limit = min(limit, 50)
+
+
+    # Get the tournament from slug
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+    # Fetch the round using its slug, and filter it by the related tournament
+    if round_slug:
+        round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
+    else:
+        round = None
+
+    post = get_object_or_404(Post, slug=post_slug)
+    component_mapping = {
+            "Map": Map,
+            "Deck": Deck,
+            "Landmark": Landmark,
+            "Tweak": Tweak,
+            "Hireling": Hireling,
+            "Vagabond": Vagabond,
+            "Faction": Faction,
+            "Clockwork": Faction,
+        }
+    Klass = component_mapping.get(post.component)
+    object = get_object_or_404(Klass, slug=post_slug)
+
+    # Base filter: filter by round or tournament
+    base_filter = Q()
+    if round:
+        base_filter &= Q(game__round=round)
+    else:
+        base_filter &= Q(game__round__tournament=tournament)
+
+    # Add component-specific filter
+    component = object.component
+    if component == "Map":
+        base_filter &= Q(game__map=object)
+    elif component == "Deck":
+        base_filter &= Q(game__deck=object)
+    elif component == "Vagabond":
+        base_filter &= Q(vagabond=object)
+    elif component == "Faction":
+        base_filter &= Q(faction=object)
+
+    # Always exclude efforts with no player
+    base_filter &= Q(player__isnull=False)
+
+    efforts = Effort.objects.filter(base_filter)
+
+    
+    # threshold = round.game_threshold
+    if not threshold:
+        threshold = 10
+    if not limit:
+        limit = tournament.leaderboard_positions
+
+    top_players = []
+    most_players = []
+    top_players = Profile.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold)
+    most_players = Profile.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
+    if round:
+        meta_title = f'{tournament.name} - {round.name}'
+        if object.component == "Deck":
+            title = f'{object.title} Deck - {tournament.name} ({round.name})'
+        elif object.component == "Map":
+            title = f'{object.title} Map - {tournament.name} ({round.name})'
+        else:
+            title = f'{object.title} - {tournament.name} ({round.name})'
+    else:
+        meta_title = f'{tournament.name}'
+        if object.component == "Deck":
+            title = f'{object.title} Deck - {tournament.name}'
+        elif object.component == "Map":
+            title = f'{object.title} Map - {tournament.name}'
+        else:
+            title = f'{object.title} - {tournament.name}'
+    meta_description = f'Player Leaderboard for {object.title}'
+
+
+    context = {
+        'selected_tournament': tournament,
+        'tournament_round': round,
+        'top_players': top_players,
+        'most_players': most_players,
+        'leaderboard_threshold': threshold,
+        'meta_title': meta_title,
+        'meta_description': meta_description,
+        'title': title,
+        'post_name': object.title,
+    }
+    
+    return render(request, 'the_warroom/tournament_leaderboard.html', context)
 
 
 

@@ -1538,10 +1538,9 @@ class Faction(Post):
     @classmethod
     def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10):
         """
-        Get the top factions based on their win rate (default) or total efforts.
-        If player_id is provided, get the top factions for that faction.
-        Otherwise, get the top factions across all factions.
-        The `limit` parameter controls how many factions to return.
+        Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
+        The limit is how many factions will be displayed.
+        The game theshold is how many games a faction needs to play to qualify.
         """
 
         language = get_language()

@@ -290,8 +290,9 @@ class TranslationCreateForm(forms.ModelForm):
             title = cleaned_data.get('translated_title')
 
             # Check if the same name already exists for another post or translation of another post
-            if Post.objects.exclude(id=post.id).filter(title__iexact=title, component=post.component).exists() or PostTranslation.objects.exclude(Q(id=self.instance.id)|Q(post=post)).filter(translated_title__iexact=title, post__component=post.component).exists():
-                raise ValidationError(f'A {post.component} with the name "{title}" already exists. Please choose a different name.')
+            if title:
+                if Post.objects.exclude(id=post.id).filter(title__iexact=title, component=post.component).exists() or PostTranslation.objects.exclude(Q(id=self.instance.id)|Q(post=post)).filter(translated_title__iexact=title, post__component=post.component).exists():
+                    raise ValidationError(f'A {post.component} with the name "{title}" already exists. Please choose a different name.')
 
 
             url_validator = URLValidator()

@@ -800,8 +800,17 @@ class TournamentCreateForm(forms.ModelForm):
         # Check if this is a new tournament to set the default assets
         set_default_assets = False
         if not instance.pk:
+            # New round - set initial assets
             set_default_assets = True
-            
+        else:
+            # Existing round — check if any related assets are missing
+            if (
+                not instance.factions.exists() or
+                not instance.maps.exists() or
+                not instance.decks.exists() or
+                not instance.vagabonds.exists()
+            ):
+                set_default_assets = True
         if commit:
             instance.save()
 

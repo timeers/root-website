@@ -1,0 +1,32 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block meta %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+<meta property="og:site_name" content="{{site_title}}">
+
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{meta_description}}">
+<meta name="description" content="{{meta_description}}">
+{% endblock meta %}
+
+
+{% block content %}
+<div style="display: flex; align-items: center;">
+    <a href="{% url 'tournaments-home' %}">Series</a>
+    <i class="bi bi-chevron-right"></i>
+    <a href="{{ selected_tournament.get_absolute_url }}">{{ selected_tournament.name }}</a>
+    <i class="bi bi-chevron-right"></i>
+    {% if tournament_round %}
+    <a href="{{ tournament_round.get_absolute_url }}">{{ tournament_round.name }}</a>
+    <i class="bi bi-chevron-right"></i>
+    {% endif %}
+
+    {{ post_name }}
+
+</div>
+
+    <h1 class='root-title'>{{title}}</h1>
+    {% include 'the_gatehouse/partials/player_leaderboard.html' %}
+{% endblock content%}

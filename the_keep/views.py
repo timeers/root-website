@@ -622,6 +622,14 @@ def create_post_translation(request, slug, lang=None):
 
             post_url = post.get_absolute_url()
     
+            fields = []
+            fields.append({
+                    'name': 'Edited by:',
+                    'value': request.user.profile.name
+                })
+            send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category=f'Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
+
+
             # Append the lang query parameter to the URL
             redirect_url = f"{post_url}?lang={translation.language.code}"
 
@@ -1258,7 +1266,7 @@ def list_view(request, slug=None):
     
     theme = get_theme(request)
 
-    background_image, foreground_images = get_thematic_images(theme=theme, page='library')
+    background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='library')
 
     posts, search, search_type, designer, faction_type, reach_value, status, language_code, expansion = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
@@ -1300,6 +1308,7 @@ def list_view(request, slug=None):
         'slug': slug,
         'background_image': background_image,
         'foreground_images': foreground_images,
+        'theme_artists': theme_artists,
         'used_languages': used_languages,
         'language_code': language_code,
         'selected_expansion': expansion,
@@ -2808,9 +2817,10 @@ class PNPAssetListView(ListView):
         # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
         # # Select a random image from each location
         # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-        background_image, foreground_images = get_thematic_images(theme=theme, page='resources')
+        background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='resources')
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
+        context['theme_artists'] = theme_artists
 
         
         # Get the search query from the GET parameters

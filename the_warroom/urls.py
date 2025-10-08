@@ -10,7 +10,7 @@ from .views import (GameListView, GameUpdateView, #GameListViewHX,
                     round_manage_view, tournament_manage_players, tournament_manage_assets,
                     round_manage_players, RoundDeleteView,
                     tournament_players_pagination, round_players_pagination, round_games_pagination,
-                    in_progress_view, TournamentDesignerUpdateView)
+                    in_progress_view, TournamentDesignerUpdateView, round_component_leaderboard_view)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -50,6 +50,11 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/round/<slug:round_slug>/manage-players/', round_manage_players, name='round-players'),
     path('series/<slug:tournament_slug>/round/<slug:round_slug>/update/', round_manage_view, name='round-update'),
     path('series/<slug:tournament_slug>/round/<slug:round_slug>/delete/<int:pk>/', RoundDeleteView.as_view(), name='round-delete'),
+
+
+    path('series/<slug:tournament_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='tournament-leaderboard'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='round-leaderboard'),
+
 
     path('series/', tournaments_home, name='tournaments-home'),
 

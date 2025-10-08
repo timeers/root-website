@@ -31,13 +31,21 @@
             <div>
                 {% if result.component %}
                     {% if result.official %}
-                        {% blocktrans with result_component=result.component %}
-                            Official {{ result_component }}
-                        {% endblocktrans %}
+                        {% if result.component == "Tweak" %}
+                            {% blocktrans %}Official House Rule{% endblocktrans %}
+                        {% else %}
+                            {% blocktrans with result_component=result.component %}
+                                Official {{ result_component }}
+                            {% endblocktrans %}
+                        {% endif %}
                     {% else %}
-                        {% blocktrans with result_component=result.component %}
-                            Fan Made {{ result_component }}
-                        {% endblocktrans %}
+                        {% if result.component == "Tweak" %}
+                            {% blocktrans %}Fan Made House Rule{% endblocktrans %}
+                        {% else %}
+                            {% blocktrans with result_component=result.component %}
+                                Fan Made {{ result_component }}
+                            {% endblocktrans %}
+                        {% endif %}
                     {% endif %}
                 {% endif %}
                 {% if result.designer %}

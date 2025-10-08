@@ -164,7 +164,7 @@ class Round(models.Model):
     
     def get_delete_url(self):
         return reverse('round-delete', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug, 'pk': self.id})
-    
+
     def current_player_queryset(self):
         if self.players.count() == 0:
             qs = self.tournament.players.all()
@@ -225,6 +225,8 @@ class Game(models.Model):
     nickname = models.CharField(max_length=50, null=True, blank=True)
     random_clearing = models.BooleanField(default=True)
     notes = models.TextField(null=True, blank=True)
+    league_id = models.CharField(max_length=300, null=True, blank=True)
+
 
     # Automatic
     date_posted = models.DateTimeField(default=timezone.now)
@@ -258,6 +260,9 @@ class Game(models.Model):
         if self.link:
             if Game.objects.exclude(id=self.id).filter(link=self.link).exists():
                 raise ValidationError(f'The link "{self.link}" must be unique.')
+        if self.league_id:
+            if Game.objects.exclude(id=self.id).filter(league_id=self.league_id).exists():
+                raise ValidationError(f'The league id "{self.league_id}" must be unique.')
     
     def get_absolute_url(self):
         return reverse("game-detail", kwargs={"id": self.id})

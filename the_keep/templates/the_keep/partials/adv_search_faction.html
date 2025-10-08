@@ -98,10 +98,22 @@
     bar.classList.add(state.class);
   
     if (textElement) {
-      textElement.textContent = state.label;
-      textElement.classList.toggle("bar-black-text", state.blackText);
-    }
-  
+        textElement.textContent = state.label;
+      
+        // Dynamically determine if current --bar-color is light
+        const barColor = getComputedStyle(bar).getPropertyValue('--bar-color').trim().toLowerCase();
+        const isLightColor = lightColors.includes(barColor);
+      
+        // Add black text if either the state requires it OR the color is light
+        if (state.blackText || isLightColor) {
+          textElement.classList.add('bar-black-text');
+        } else {
+          textElement.classList.remove('bar-black-text');
+        }
+      }
+      
+
+      
     // Update hidden input
     const fieldName = zone.dataset.fieldName;
     const hiddenInput = document.getElementById(fieldName);

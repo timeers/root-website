@@ -142,7 +142,7 @@ def get_theme(request):
     # if current_holidays.exists():
     #     current_holiday = current_holidays.order_by('-start_date').first()  # Get the holiday that started most recently
     if current_holiday:
-        current_theme = apps.get_model('the_gatehouse', 'Theme').objects.filter(holiday=current_holiday).first()
+        current_theme = apps.get_model('the_gatehouse', 'Theme').objects.filter(holiday=current_holiday, active=True).first()
     else:
         current_theme = None  # No active holiday theme
     
@@ -175,44 +175,21 @@ def get_current_holiday():
 
 
 
-def get_thematic_images(theme, page):
+def get_thematic_images(theme, page=None):
     """
     Returns a background image and a list of randomly chosen foreground images grouped by location,
     all filtered by theme and page.
+    If the theme has a backup theme, 
+    then any locations that don't have an image in the theme will use backup images.
     """    
-    
+    # If there is no page, return a list of the theme's artists and nothing else
+    if page is None:
+        return None, [], list(theme.theme_artists.all())
+
+
     BackgroundImage = apps.get_model('the_gatehouse', 'BackgroundImage')
     ForegroundImage = apps.get_model('the_gatehouse', 'ForegroundImage')
 
-    # # Get a random background image
-    # background_image = BackgroundImage.objects.filter(theme=theme, page=page).order_by('?').first()
-    # if not background_image and theme.backup_theme and theme != theme.backup_theme:
-    #     background_image = BackgroundImage.objects.filter(theme=theme.backup_theme, page=page).order_by('?').first()
-
-    # # Get all matching foreground images
-    # all_foreground_images = ForegroundImage.objects.filter(theme=theme, page=page)
-
-
-
-    # # Sort and group foreground images by location
-    # grouped_by_location = groupby(
-    #     sorted(all_foreground_images, key=attrgetter('location')),
-    #     key=attrgetter('location')
-    # )
-
-    # if theme.backup_theme and theme != theme.backup_theme:
-    #     backup_foreground_images = ForegroundImage.objects.filter(theme=theme.backup_theme, page=page)
-    #     backup_by_location = groupby(
-    #         sorted(backup_foreground_images, key=attrgetter('location')),
-    #         key=attrgetter('location')
-    #     )
-
-    # # Select one random image per location
-    # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-
-
-
-    # return background_image, foreground_images
 
     # 1. Random background image
     background_image = BackgroundImage.objects.filter(theme=theme, page=page).order_by('?').first()
@@ -238,7 +215,19 @@ def get_thematic_images(theme, page):
     # 5. Select one random image per location
     foreground_images = [random.choice(images) for images in location_to_images.values()]
 
-    return background_image, foreground_images
+    artists = {image.foreground_artist for image in foreground_images if image.foreground_artist}
+
+    if background_image and background_image.background_artist:
+        artists.add(background_image.background_artist)
+
+    for artist in theme.theme_artists.all():
+        if artist:
+            artists.add(artist)
+
+    artists = list(artists)
+
+
+    return background_image, foreground_images, artists
 
 
 
@@ -270,3 +259,9 @@ def int_to_alpha(n):
         n, remainder = divmod(n - 1, 26)
         result = chr(97 + remainder) + result  # 97 = 'a'
     return result
+
+def get_int_param(param, default=None):
+    try:
+        return int(param)
+    except (TypeError, ValueError):
+        return default

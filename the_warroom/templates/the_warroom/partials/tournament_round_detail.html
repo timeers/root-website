@@ -37,12 +37,10 @@
         </li>
 
 
-        {% if object.type == "Tournament" %}
         {% if not object.open_assets %}
         <li class="nav-item" role="presentation">
             <a class="nav-link" id="assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false">{{ object.type }} {% trans 'Assets' %}</a>
         </li>
-        {% endif %}
         {% endif %}
     </ul>
 
@@ -350,134 +348,17 @@
             </article>
         </div>
         
-        {% if object.type == "Tournament" %}
+        
         {% if not object.open_assets %}
-        <!-- Tournament Specifications -->
-        <div class="tab-pane fade" id="assets" role="tabpanel" aria-labelledby="assets-tab">
-            <article class="media content-section">
-                <div class="media-body">
-            {% if user.profile.admin %}
-            <div style="display: flex; justify-content: flex-end;">
-            <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_assets_url }}">{% trans 'Manage Assets' %}</a>
-            </div>
+            {% if object.type == "Tournament" %}
+                {% with object as tournament_round %}
+                    {% include 'the_warroom/partials/tournament_assets.html' %}
+                {% endwith %}
+            {% else %}
+                {% with object.tournament as tournament_round %}
+                    {% include 'the_warroom/partials/tournament_assets.html' %}
+                {% endwith %}
             {% endif %}
-                
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseFactions" aria-expanded="false" aria-controls="collapseFactions">
-                <h2>{% trans 'Factions' %} ({{ object.factions.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseFactions">
-                <div class="card card-body">
-                    {% for faction in object.factions.all %}
-                    <a href="{% url 'faction-detail' faction.slug %}">
-                        <div>
-                        <img class="faction-icon" src="{{ faction.small_icon.url }}" alt="Faction Icon">
-                        {{ faction }}
-                        </div>
-                    </a>
-
-                    
-                    {% endfor %}             
-                </div>
-            </div>
-
-
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseDecks" aria-expanded="false" aria-controls="collapseDecks">
-                <h2>{% trans 'Decks' %} ({{ object.decks.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseDecks">
-                <div class="card card-body">
-                    {% for deck in object.decks.all %}
-                    <a href="{% url 'deck-detail' deck.slug %}">
-                        <div>
-                        {% if deck.card_image %}
-                        <img class="faction-icon" src="{{ deck.card_image.url }}" alt="Deck Image">
-                        {% endif %}
-                        {{ deck }}
-                        </div>
-                    </a>
-                    {% endfor %}             
-                </div>
-            </div>
-
-
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseMaps" aria-expanded="false" aria-controls="collapseMaps">
-                <h2>{% trans 'Maps' %} ({{ object.maps.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseMaps">
-                <div class="card card-body">
-                    {% for map in object.maps.all %}
-                    <a href="{% url 'map-detail' map.slug %}">
-                        <div>
-                        {% if map.board_image %}
-                        <img class="faction-icon" src="{{ map.board_image.url }}" alt="Map Image">
-                        {% endif %}
-                        {{ map }}
-                        </div>
-                    </a>
-                    {% endfor %}             
-                </div>
-            </div>
-
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseVagabonds" aria-expanded="false" aria-controls="collapseVagabonds">
-                <h2>{% trans 'Vagabonds' %} ({{ object.vagabonds.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseVagabonds">
-                <div class="card card-body">
-                    {% for vagabond in object.vagabonds.all %}
-                    <div>{{ vagabond.title }}</div>
-                    {% endfor %}             
-                </div>
-            </div>
-
-            {% if object.landmarks.count %}
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseLandmarks" aria-expanded="false" aria-controls="collapseLandmarks">
-                <h2>{% trans 'Landmarks' %} ({{ object.landmarks.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseLandmarks">
-                <div class="card card-body">
-                    {% for landmark in object.landmarks.all %}
-                    <div>{{ landmark.title }}</div>
-                    {% endfor %}             
-                </div>
-            </div>
-            {% endif %}
-
-            {% if object.hirelings.count %}
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseHirelings" aria-expanded="false" aria-controls="collapseHirelings">
-                <h2>{% trans 'Hirelings' %} ({{ object.hirelings.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseHirelings">
-                <div class="card card-body">
-                    {% for hireling in object.hirelings.all %}
-                    <div>{{ hireling.title }}</div>
-                    {% endfor %}             
-                </div>
-            </div>
-            {% endif %}
-            {% if object.tweaks.count %}
-            <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseTweaks" aria-expanded="false" aria-controls="collapseTweaks">
-                <h2>{% trans 'House Rules' %} ({{ object.tweaks.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
-            </div>
-            <div class="collapse" id="collapseTweaks">
-                <div class="card card-body">
-                    {% for tweak in object.tweaks.all %}
-                    <div>{{ tweak.title }}</div>
-                    {% endfor %}             
-                </div>
-            </div>
-            {% endif %}
-                </div>
-            </article>
-
-        </div>
-        {% endif %}
         {% endif %}
 
     </div>

@@ -66,6 +66,7 @@ class Theme(models.Model):
     )
     holiday = models.ForeignKey(Holiday, blank=True, null=True, on_delete=models.SET_NULL)
     public = models.BooleanField(default=False)
+    active = models.BooleanField(default=True)
     backup_theme = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
 
 
@@ -584,12 +585,11 @@ class Profile(models.Model):
     @classmethod
     def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10):
         """
-        Get the top factions based on their win rate (default) or total efforts.
-        If player_id is provided, get the top factions for that faction.
-        Otherwise, get the top factions across all factions.
-        The `limit` parameter controls how many factions to return.
+        Get the players with the highest winrate (or most wins for top_quantity) from the effort_qs
+        The limit is how many players will be displayed.
+        The game theshold is how many games a player needs to play to qualify.
         """
-        # Start with the base queryset for factions
+        # Start with the base queryset for profiles
         queryset = cls.objects.all()
 
         # If a tournament is provided, filter efforts that are related to that tournament
