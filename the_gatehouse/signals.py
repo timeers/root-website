@@ -26,7 +26,7 @@ def manage_profile(sender, instance, created, **kwargs):
         profile, _ = Profile.objects.get_or_create(discord=instance.username, defaults={'user': instance})
         # print(f'Profile created/linked: {profile.discord}')
         # logger.info(f'Profile created/linked: {profile.discord}')
-        send_discord_message(f'Profile created for {profile.discord} ({profile.group})', category='user_updates')
+        # send_discord_message(f'Profile created for {profile.discord} ({profile.group})', category='user_updates')
 
 
     else:
@@ -42,14 +42,13 @@ def manage_profile(sender, instance, created, **kwargs):
 # This is to put users in the correct groups when created or updated
 @receiver(user_logged_in)
 def user_logged_in_handler(request, user, **kwargs):
-
+    new_user = False
     # logger.info(f'{user} logged in')
     send_discord_message(f'{user} logged in')
 
     if not hasattr(user, 'profile'):
         user.save()
-        messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access and record games to track stats.')
-
+        new_user = True
     
     profile = user.profile
     profile_updated = False
@@ -87,6 +86,14 @@ def user_logged_in_handler(request, user, **kwargs):
 
     if profile_updated:
         profile.save()
+
+    if new_user:
+        send_discord_message(f'Profile created for {profile.discord} ({profile.group})', category='user_updates')
+        if profile.group == "O":
+            messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access. Join the Woodland Warriors Discord and log back in to record games.')
+        else:
+            messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access and record games to track stats.')
+
 
     group_name = 'admin'  
     group_exists = user.groups.filter(name=group_name).exists()

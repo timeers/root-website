@@ -3,7 +3,7 @@
 {% block meta %}
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+<meta property="og:image" content="{% if selected_tournament.picture %}{{ selected_tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
 <meta property="og:site_name" content="{{site_title}}">
 
 <meta property="og:title" content="{{meta_title}}">
