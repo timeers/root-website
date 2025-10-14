@@ -143,16 +143,22 @@ class BackgroundImage(models.Model):
 
         
     def save(self, *args, **kwargs):
-        # Check if the image field has changed (only works if the instance is already saved)
         field_name = 'image'
-        old_instance = BackgroundImage.objects.get(pk=self.pk)
-        # List of fields to check and delete old images if necessary
-
-        old_image = getattr(old_instance, field_name)
-        new_image = getattr(self, field_name)
-        if old_image != new_image:
-            delete_old_image(old_image)
-            delete_old_image(getattr(old_instance, 'small_image'))
+        
+        # Check if the instance already exists (i.e., is not a new object)
+        if self.pk:
+            try:
+                old_instance = BackgroundImage.objects.get(pk=self.pk)
+                old_image = getattr(old_instance, field_name)
+                new_image = getattr(self, field_name)
+                
+                # If the image has changed, delete the old one(s)
+                if old_image and old_image != new_image:
+                    delete_old_image(old_image)
+                    delete_old_image(getattr(old_instance, 'small_image'))
+            except BackgroundImage.DoesNotExist:
+                # The object does not exist yet, nothing to delete
+                pass
 
         super().save(*args, **kwargs)
 
@@ -225,18 +231,25 @@ class ForegroundImage(models.Model):
         return alt
         
     def save(self, *args, **kwargs):
-        # Check if the image field has changed (only works if the instance is already saved)
         field_name = 'image'
-        old_instance = ForegroundImage.objects.get(pk=self.pk)
-
-        old_image = getattr(old_instance, field_name)
-        new_image = getattr(self, field_name)
-        if old_image != new_image:
-            delete_old_image(old_image)
-            delete_old_image(getattr(old_instance, 'small_image'))
-
+        
+        # Check if the instance already exists (i.e., is not a new object)
+        if self.pk:
+            try:
+                old_instance = ForegroundImage.objects.get(pk=self.pk)
+                old_image = getattr(old_instance, field_name)
+                new_image = getattr(self, field_name)
+                
+                # If the image has changed, delete the old one(s)
+                if old_image and old_image != new_image:
+                    delete_old_image(old_image)
+                    delete_old_image(getattr(old_instance, 'small_image'))
+            except ForegroundImage.DoesNotExist:
+                # The object does not exist yet, nothing to delete
+                pass
 
         super().save(*args, **kwargs)
+
 
 
 class Profile(models.Model):
