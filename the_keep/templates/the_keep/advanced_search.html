@@ -51,75 +51,103 @@
             {% endif %}
 
 
-            {% if color_choices %}
-            <label for="color">{% trans 'Color' %}:</label>            
-            <select id="color" name="color" class="form-select">
-                <option value="">{% trans 'All' %}</option>
-                {% for color_option in color_choices %}
-                    <option value="{{ color_option.value }}" {% if color_option.value == color %}selected{% endif %}>
-                        {{ color_option.label }}
-                    </option>
-                {% endfor %}
-            </select>
-            
+            {% if color_choices %}    
+            <div class='mb-1'>     
+                <select id="color" name="color" class="form-select">
+                    <option value="">{% trans 'All' %}</option>
+                    {% for color_option in color_choices %}
+                        <option value="{{ color_option.value }}" {% if color_option.value == color %}selected{% endif %}>
+                            {{ color_option.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
             {% endif %}
 
 
             <div>
             <!-- Designer Search Dropdown -->
-            <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
-                <option value="">{% trans 'Select Designer' %}</option>
-                {% for designer in designers %}
-                    <option value="{{ designer.id }}" {% if selected_designer == designer.id|stringformat:"s" %}selected{% endif %}>
-                        {{ designer }}
-                    </option>
-                {% endfor %}
-            </select>
+            <div class='mb-1'>
+                <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
+                    <option value="">{% trans 'Select Designer' %}</option>
+                    {% for designer in designers %}
+                        <option value="{{ designer.id }}" {% if selected_designer == designer.id|stringformat:"s" %}selected{% endif %}>
+                            {{ designer }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
             {% if artists %}
-            <select name="artist" id="artist-select" class="form-select" aria-label="Select Artist">
-                <option value="">{% trans 'Select Artist' %}</option>
-                {% for artist in artists %}
-                    <option value="{{ artist.id }}" {% if selected_artist == artist.id|stringformat:"s" %}selected{% endif %}>
-                        {{ artist }}
-                    </option>
-                {% endfor %}
-            </select>
+            <div class='mb-1'>
+                <select name="artist" id="artist-select" class="form-select" aria-label="Select Artist">
+                    <option value="">{% trans 'Select Artist' %}</option>
+                    {% for artist in artists %}
+                        <option value="{{ artist.id }}" {% if selected_artist == artist.id|stringformat:"s" %}selected{% endif %}>
+                            {{ artist }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
             {% endif %}
-
-            <select id="status" name="status" value="{{ status }}">
-                <option value="">{% trans 'Status (All)' %}</option>
+            <label class='root-title'>Status</label>
+            <div class="button-select-group" data-target="status">
+                <div class="button-option select-option mb-2" data-value="" {% if status == '' %}class="selected"{% endif %}>{% trans 'All' %} -{% if has_status.stable %} <i class="bi bi-check-circle-fill text-success"></i>{% endif %}{% if has_status.testing %} <i class="bi bi-play-circle-fill text-primary"></i>{% endif %}{% if has_status.development %} <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>{% endif %}{% if has_status.inactive %} <i class="bi bi-dash-circle-fill text-secondary"></i>{% endif %}</div>
+                
                 {% if has_status.stable %}  
-                <option value="1" {% if status == '1' %}selected{% endif %}>{% trans 'Stable' %}</option>
+                <div class="button-option select-option mb-2" data-value="1" {% if status == '1' %}class="selected"{% endif %}>
+                    <span class="text-success">{% trans 'Stable' %}</span>
+                    <i class="bi bi-check-circle-fill text-success"></i>
+                </div>
                 {% endif %}
+                
                 {% if has_status.testing %}  
-                <option value="2" {% if status == '2' %}selected{% endif %}>{% trans 'Testing' %}</option>
+                <div class="button-option select-option mb-2" data-value="2" {% if status == '2' %}class="selected"{% endif %}>
+                    <span class="text-primary">{% trans 'Testing' %}</span>
+                    <i class="bi bi-play-circle-fill text-primary"></i>
+                </div>
                 {% endif %}
+                
                 {% if has_status.development %}  
-                <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>
+                <div class="button-option select-option mb-2" data-value="3" {% if status == '3' %}class="selected"{% endif %}>
+                    <span class="text-warning">{% trans 'Development' %}</span>
+                    <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
+                </div>
                 {% endif %}
+                
                 {% if has_status.inactive %}  
-                <option value="4" {% if status == '4' %}selected{% endif %}>{% trans 'Inactive' %}</option>
+                <div class="button-option select-option mb-2" data-value="4" {% if status == '4' %}class="selected"{% endif %}>
+                    <span class="text-secondary">{% trans 'Inactive' %}</span>
+                    <i class="bi bi-dash-circle-fill text-secondary"></i>
+                </div>
                 {% endif %}
-            </select>
+            </div>
+            
+            <input type="hidden" name="status" id="status" value="{{ status }}">
+
+
 
             <div>
-            <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
-                <option value="">{% trans 'Select Language' %}</option>
-                {% for language in used_languages %}
-                    <option value="{{ language.code }}" {% if language.code == selected_language %}selected{% endif %}>
-                        {{ language }}
-                    </option>
-                {% endfor %}
-            </select>
+            <div class='mb-1'>
+                <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
+                    <option value="">{% trans 'Select Language' %}</option>
+                    {% for language in used_languages %}
+                        <option value="{{ language.code }}" {% if language.code == selected_language %}selected{% endif %}>
+                            {{ language }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
             {% if expansions %}
-            <select name="expansion" id="expansion-select" class="form-select" aria-label="Select Expansion">
-                <option value="">{% trans 'Select Expansion' %}</option>
-                {% for expansion in expansions %}
-                    <option value="{{ expansion.id }}" {% if expansion.id|stringformat:"s" == selected_expansion %}selected{% endif %}>
-                        {{ expansion }}
-                    </option>
-                {% endfor %}
-            </select>
+                <div class='mb-1'>
+                    <select name="expansion" id="expansion-select" class="form-select" aria-label="Select Expansion">
+                        <option value="">{% trans 'Select Expansion' %}</option>
+                        {% for expansion in expansions %}
+                            <option value="{{ expansion.id }}" {% if expansion.id|stringformat:"s" == selected_expansion %}selected{% endif %}>
+                                {{ expansion }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
             {% endif %}
         </div>
 
@@ -166,25 +194,7 @@
         {% include "the_keep/partials/adv_quantity_filter.html" with prefix="games" label="Games Played" op=games_op qty=games_qty %}
 
         {% if has_piece_type.warrior or has_piece_type.building or has_piece_type.token or has_piece_type.card or has_piece_type.other %}
-            <h3 class='root-title'>Pieces</h3>
-            {% if has_piece_type.warrior %}
-                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="warrior" label="Warrior" op=warrior_op qty=warrior_qty %}
-            {% endif %}
-            {% if has_piece_type.building %}
-                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building" label="Building" op=building_op qty=building_qty %}
-            {% endif %}
-            {% if has_piece_type.token %}
-                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="token" label="Token" op=token_op qty=token_qty %}
-            {% endif %}
-            {% if has_piece_type.card %}
-                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="card" label="Card" op=card_op qty=card_qty %}
-            {% endif %}
-            {% if has_piece_type.other %}
-                {% include "the_keep/partials/adv_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty %}
-            {% endif %}
-
-            {% comment %} {% include "the_keep/partials/adv_search_pieces.html" %} {% endcomment %}
-
+            {% include "the_keep/partials/adv_search_pieces.html" %}
         {% endif %}
           
           <div class="mt-3">
@@ -357,7 +367,85 @@
       });
       
 
-
-</script>
+    // Function for updating button select groups (militatnt/insurgent, status etc.)
+    document.addEventListener('DOMContentLoaded', function () {
+        const groups = document.querySelectorAll('.button-select-group');
     
+        groups.forEach(group => {
+            const targetInputId = group.getAttribute('data-target');
+            const hiddenInput = document.getElementById(targetInputId);
+            const currentValue = hiddenInput.value;
+            const options = group.querySelectorAll('.select-option');
+    
+            // Pre-select based on current value
+            options.forEach(option => {
+                if (option.dataset.value === currentValue) {
+                    option.classList.add('selected');
+                }
+    
+                option.addEventListener('click', function () {
+                    // Clear existing selection
+                    options.forEach(opt => opt.classList.remove('selected'));
+    
+                    // Mark this one as selected
+                    this.classList.add('selected');
+    
+                    // Update hidden input
+                    hiddenInput.value = this.dataset.value;
+                });
+            });
+        });
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const designerSelect = document.getElementById('designer-select');
+        if (designerSelect) {
+        $('#designer-select').select2({
+            placeholder: 'Select Designer',
+            allowClear: true,
+            width: '100%'
+        });
+        }
+
+        const artistSelect = document.getElementById('artist-select');
+        if (artistSelect) {
+        $('#artist-select').select2({
+            placeholder: 'Select Artist',
+            allowClear: true,
+            width: '100%'
+        });
+        }
+
+        const expansionSelect = document.getElementById('expansion-select');
+        if (expansionSelect) {
+        $('#expansion-select').select2({
+            placeholder: 'Select Expansion',
+            allowClear: true,
+            width: '100%'
+        });
+        }
+
+        const languageSelect = document.getElementById('language-select');
+        if (languageSelect) {
+        $('#language-select').select2({
+            placeholder: 'Select Language',
+            allowClear: true,
+            width: '100%'
+        });
+        }
+
+        const colorSelect = document.getElementById('color');
+        if (colorSelect) {
+        $('#color').select2({
+            placeholder: 'Select Color',
+            allowClear: true,
+            width: '100%'
+        });
+        }
+
+
+    });
+    </script>
+    
+
 {% endblock scripts %}

@@ -1,7 +1,7 @@
-{% load i18n %}
+{% load i18n static %}
 <input type="text" name="ability" id="ability" placeholder="Search by Ability..." value="{{ ability }}" class="form-control mb-1">
 {% if item_choices %}
-<label for="ability_item">{% trans 'Ability Item' %}:</label>            
+{% comment %} <label for="ability_item">{% trans 'Ability Item' %}:</label>            
 <select id="ability_item" name="ability_item" class="form-select">
     <option value="">{% trans 'All' %}</option>
     {% for item_option in item_choices %}
@@ -9,15 +9,50 @@
             {{ item_option.label }}
         </option>
     {% endfor %}
-</select>
+</select> {% endcomment %}
+
+<label>{% trans 'Ability Item' %}:</label>
+<div class="button-select-group" data-target="ability_item">
+    <div class="button-option select-option root-title" data-value="">
+        {% trans 'All' %}
+    </div>
+    {% for item_option in item_choices %}
+        
+            {% if item_option.value == "None" %}
+            <div class="button-option select-option root-title" data-value="{{ item_option.value }}">
+                {{ item_option.label }}
+            </div>
+            {% else %}
+            <div class="select-option root-title" data-value="{{ item_option.value }}">
+                <img class="item-option" src="{% static 'items/' %}{{ item_option.label|lower }}_flip.png" alt="{{ item_option.label }}">
+            </div>
+            {% endif %}
+        
+    {% endfor %}
+</div>
+<input type="hidden" name="ability_item" id="ability_item" value="{{ ability_item }}">
+
 
 {% endif %}
-<h3 class='root-title'>Starting Items</h3>
+<div class="card mt-2">
+  <div class="card-header">
+    <h3 class="mb-0 root-title">
+      <a data-bs-toggle="collapse" href="#startingItemsCollapse" role="button" aria-expanded="false" aria-controls="startingItemsCollapse">
+        Starting Items
+      </a>
+    </h3>
+  </div>
 
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="coin" label="Coin" op=coin_op qty=coin_qty %}
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="boot" label="Boot" op=boot_op qty=boot_qty %}
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="tea" label="Tea" op=tea_op qty=tea_qty %}
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="bag" label="Bag" op=bag_op qty=bag_qty %}
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="hammer" label="Hammer" op=hammer_op qty=hammer_qty %}
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="sword" label="Sword" op=sword_op qty=sword_qty %}
-{% include "the_keep/partials/adv_quantity_filter.html" with prefix="hammer" label="Hammer" op=hammer_op qty=hammer_qty %}
+  <div class="collapse {% if torch_qty or coin_qty or boot_qty or tea_qty or bag_qty or hammer_qty or sword_qty or crossbow_qty %}show{% endif %}" id="startingItemsCollapse">
+    <div class="card-body d-flex flex-wrap gap-5">
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="torch" label="Torch" op=torch_op qty=torch_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="coin" label="Coin" op=coin_op qty=coin_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="boot" label="Boot" op=boot_op qty=boot_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="tea" label="Tea" op=tea_op qty=tea_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="bag" label="Bag" op=bag_op qty=bag_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="hammer" label="Hammer" op=hammer_op qty=hammer_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="sword" label="Sword" op=sword_op qty=sword_qty item_filter=True %}
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="crossbow" label="Crossbow" op=crossbow_op qty=crossbow_qty item_filter=True %}
+    </div>
+  </div>
+</div>

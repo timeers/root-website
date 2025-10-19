@@ -957,7 +957,8 @@ def discord_feedback(request):
             # Add in subject
             if feedback_subject:
                 fields.append({
-                    'name': 'Subject', 'value': feedback_subject
+                    'name': 'Subject', 
+                    'value': feedback_subject
                     })
                 
             # Call the function to send the message to Discord

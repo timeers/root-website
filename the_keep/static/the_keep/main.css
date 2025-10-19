@@ -1027,6 +1027,7 @@ tr.clickable-row:hover {
 .bar-click-zone {
   cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;  /* Safari diable select */
 }
 
 .bar-click-zone:hover {
@@ -1821,4 +1822,32 @@ tr.clickable-row:hover {
 @keyframes accordionFadeIn {
   from { opacity: 0; transform: translateY(-5px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Advanced search buttons */
+.select-option {
+  display: inline-block;
+  cursor: pointer;
+  user-select: none;
+}
+
+.select-option.selected {
+  box-shadow: 0 0 0 2px var(--button-color);
+  transform: scale(1.05);
+}
+
+.button-option {
+  display: inline-block;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f4f4f4;
+  cursor: pointer;
+  margin-right: 5px;
+  user-select: none;
+}
+
+.item-option {
+  height: 40px;
+  width: 40px;
 }

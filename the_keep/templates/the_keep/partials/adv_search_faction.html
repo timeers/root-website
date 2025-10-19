@@ -1,14 +1,21 @@
 {% load i18n %}
-<label for="faction_type">{% trans 'Faction Type' %}: </label>
+{% comment %} <label for="faction_type">{% trans 'Faction Type' %}: </label>
 <select id="faction_type" name="faction_type" value="{{ faction_type }}">
     <option value="">{% trans 'All' %}</option>  
     <option value="M" {% if faction_type == 'M' %}selected{% endif %}>{% trans 'Militant' %}</option>
     <option value="I" {% if faction_type == 'I' %}selected{% endif %}>{% trans 'Insurgent' %}</option>
-</select>
+</select> {% endcomment %}
+<label class='root-title'>{% trans 'Faction Type' %}</label>
+<div class="button-select-group mb-2" data-target="faction_type">
+    <div class="button-option select-option root-title" data-value="">{% trans 'Any' %}</div>
+    <div class="button-option select-option root-title" data-value="M">{% trans 'Militant' %}</div>
+    <div class="button-option select-option root-title" data-value="I">{% trans 'Insurgent' %}</div>
+</div>
+<input type="hidden" name="faction_type" id="faction_type" value="{{ faction_type }}">
 
 
 <div>
-    <h3 class='root-title'>Faction Attributes</h3>
+    <label class='root-title'>Faction Attributes</label>
 
     <div class="row">
         <div class="col-12 col-md-6">

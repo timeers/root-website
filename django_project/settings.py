@@ -67,7 +67,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount.providers.discord',
     'rest_framework',
     'django_recaptcha',
-
+    'django_celery_beat',
 ]
 
 MIDDLEWARE = [
@@ -285,6 +285,17 @@ INTERNAL_IPS = [
 ]
 
 ADMINS = [('Admin', EMAIL_HOST_USER)]
+
+
+# Celery
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
 
 # LOGGING = {
 #     'version': 1,

@@ -1,8 +1,17 @@
-<div class="mb-3">
-    <div class="d-flex align-items-center gap-2">
+{% load static %}
+<div class="mb-3 text-center">
+  
       <!-- Operator Selector -->
+      {% if not component_filter %}
       <div class="mb-2">
-        <label for="{{ prefix }}_qty">{{ label }}</label>
+        {% if item_filter %}
+          <img class="item-option" src="{% static 'items/' %}{{ prefix|lower }}.png" alt="{{ prefix }}">
+        {% else %}
+          <label for="{{ prefix }}_qty">{{ label }}</label>
+        {% endif %}
+      </div>
+      {% endif %}
+      <div>
         <select name="{{ prefix }}_op" id="{{ prefix }}_op" class="form-select form-select-sm">
           <option value="">------</option>
           <option value="lt" {% if op == 'lt' %}selected{% endif %}>Less Than</option>
@@ -11,9 +20,9 @@
         </select>
       </div>
       
-  
+      <div>
       <!-- Quantity Input -->
-      <input type="number" class="form-control w-auto" name="{{ prefix }}_qty" id="{{ prefix }}_qty" value="{{ qty|default_if_none:'' }}" min="0">
-    </div>
-  </div>
+        <input type="number" class="form-control-sm" name="{{ prefix }}_qty" id="{{ prefix }}_qty" value="{{ qty|default_if_none:'' }}" min="0">
+      </div>
+</div>
   
