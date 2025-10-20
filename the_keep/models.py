@@ -213,6 +213,7 @@ class Expansion(models.Model):
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     open_roster = models.BooleanField(default=False)
+    date_modified = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['title']
@@ -337,6 +338,7 @@ class Post(models.Model):
     sorting = models.IntegerField(default=10)
     component_snippet = models.CharField(max_length=100, null=True, blank=True)
     date_updated = models.DateTimeField(default=timezone.now)
+    date_modified = models.DateTimeField(auto_now=True)
 
     small_picture = models.ImageField(upload_to='small_images', null=True, blank=True)
     small_board_image = models.ImageField(upload_to='small_images', null=True, blank=True)
@@ -710,6 +712,7 @@ class Post(models.Model):
 
 class PostTranslation(models.Model):
     post = models.ForeignKey(Post, related_name='translations', on_delete=models.CASCADE)
+    date_modified = models.DateTimeField(auto_now=True)
     language = models.ForeignKey(Language, on_delete=models.CASCADE)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='translations')
 
@@ -777,6 +780,7 @@ class PostBookmark(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
     public = models.BooleanField(default=False)
     date_posted = models.DateTimeField(default=timezone.now)
+    date_modified = models.DateTimeField(auto_now=True)
     def __str__(self):
         return f"{self.player.name}: {self.post.title} - {self.post.designer.name}"
 
@@ -2037,6 +2041,7 @@ class PNPAsset(models.Model):
         OTHER = 'Other', _('Other')
 
     date_updated = models.DateTimeField(default=timezone.now)
+    date_modified = models.DateTimeField(auto_now=True)
     title = models.CharField(max_length=50)
     link = models.URLField(max_length=300)
     file_type = models.CharField(choices=FileChoices, max_length=10, default="XCF")
@@ -2517,6 +2522,7 @@ class FAQ(models.Model):
     question = models.TextField()
     answer = models.TextField()
     date_posted = models.DateTimeField(default=timezone.now)
+    date_modified = models.DateTimeField(auto_now=True)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, null=True, blank=True)
     website = models.BooleanField(default=False)
     reference_laws = models.ManyToManyField(
@@ -2590,56 +2596,4 @@ def get_or_create_today_featured():
         return Klass.objects.get(slug=obj.slug)
     except ObjectDoesNotExist:
         raise ValueError(f"No {Klass.__name__} found with slug '{obj.slug}'")
-
-
-def component_pre_save(sender, instance, *args, **kwargs):
-    # print('pre_save')
-    if instance.slug is None:
-        slugify_post_title(instance, save=False)
-
-def expansion_pre_save(sender, instance, *args, **kwargs):
-    # print('pre_save')
-    if instance.slug is None:
-        slugify_expansion_title(instance, save=False)
-
-def law_group_pre_save(sender, instance, *args, **kwargs):
-    # print('pre_save')
-    if instance.slug is None:
-        slugify_law_group_title(instance, save=False)
-
-pre_save.connect(component_pre_save, sender=Map)
-pre_save.connect(component_pre_save, sender=Deck)
-pre_save.connect(component_pre_save, sender=Faction)
-pre_save.connect(component_pre_save, sender=Vagabond)
-pre_save.connect(component_pre_save, sender=Hireling)
-pre_save.connect(component_pre_save, sender=Landmark)
-pre_save.connect(component_pre_save, sender=Tweak)
-pre_save.connect(expansion_pre_save, sender=Expansion)
-pre_save.connect(law_group_pre_save, sender=LawGroup)
-
-
-def component_post_save(sender, instance, created, *args, **kwargs):
-    # print('post_save')
-    if created:
-        slugify_post_title(instance, save=True)
-
-def expansion_post_save(sender, instance, created, *args, **kwargs):
-    # print('post_save')
-    if created:
-        slugify_expansion_title(instance, save=True)
-
-def law_group_post_save(sender, instance, created, *args, **kwargs):
-    # print('post_save')
-    if created:
-        slugify_law_group_title(instance, save=True)
-
-post_save.connect(component_post_save, sender=Map)
-post_save.connect(component_post_save, sender=Deck)
-post_save.connect(component_post_save, sender=Faction)
-post_save.connect(component_post_save, sender=Vagabond)
-post_save.connect(component_post_save, sender=Hireling)
-post_save.connect(component_post_save, sender=Landmark)
-post_save.connect(component_post_save, sender=Tweak)
-post_save.connect(expansion_post_save, sender=Expansion)
-post_save.connect(law_group_post_save, sender=LawGroup)
 

@@ -38,6 +38,7 @@ class Holiday(models.Model):
     end_date = models.DateField(default=timezone.now)
     start_day_of_year = models.PositiveSmallIntegerField(default=1)
     end_day_of_year = models.PositiveSmallIntegerField(default=1)
+    date_modified = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
         # Set the day of the year fields based on the datetime fields
@@ -68,7 +69,7 @@ class Theme(models.Model):
     public = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
     backup_theme = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
-
+    date_modified = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
@@ -100,7 +101,8 @@ class BackgroundImage(models.Model):
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
     small_image = models.ImageField(upload_to='background_images', null=True, blank=True)
-    
+    date_modified = models.DateTimeField(auto_now=True)
+
     def __str__(self):
         return self.name
     
@@ -186,6 +188,7 @@ class ForegroundImage(models.Model):
     slide = models.TextField(default='0vw')
     speed = models.TextField(default='50vh')
     small_image = models.ImageField(upload_to='foreground_images', null=True, blank=True)
+    date_modified = models.DateTimeField(auto_now=True)
 
     def style(self):
         return f'--offset-percent: { self.slide }; --slide-speed: { self.speed }; --z-depth: { self.depth }; --start-position: { self.start_position };'
@@ -295,6 +298,7 @@ class Profile(models.Model):
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
     credit_link = models.CharField(max_length=400, null=True, blank=True)
+    date_modified = models.DateTimeField(auto_now=True)
 
     @property
     def name(self):
@@ -659,23 +663,6 @@ class PlayerBookmark(models.Model):
         return f"{self.player.name} > {self.friend.name}"
 
 
-def component_pre_save(sender, instance, *args, **kwargs):
-    # print('pre_save')
-    if instance.slug is None:
-        slugify_instance_discord(instance, save=False)
-
-pre_save.connect(component_pre_save, sender=Profile)
-
-
-
-def component_post_save(sender, instance, created, *args, **kwargs):
-    # print('post_save')
-    if created:
-        slugify_instance_discord(instance, save=True)
-
-post_save.connect(component_post_save, sender=Profile)
-
-
 def get_first_theme():
     # This will return the first Theme object, or None if no Theme objects exist
     return Theme.objects.first()
@@ -689,6 +676,7 @@ class Website(models.Model):
     message_type = models.CharField(max_length=15 , default=MessageChoices.INFO, choices=MessageChoices.choices)
     woodland_warriors_invite = models.CharField(max_length=100, null=True, blank=True)
     rdb_feedback_invite = models.CharField(max_length=100, null=True, blank=True)
+    date_modified = models.DateTimeField(auto_now=True)
 
     @classmethod
     def get_singular_instance(cls):

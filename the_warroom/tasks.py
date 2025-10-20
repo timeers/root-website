@@ -1,7 +1,7 @@
 import requests
 import time
 from celery import shared_task
-from dateutil import parser
+from dateutil import parser, relativedelta
 from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
@@ -66,14 +66,16 @@ MAP_MAP = {
 
 # Imports all games from the last 8 days
 @shared_task
-def import_league_games(limit=100, tournament_name="M", days_back=2):
+def import_league_games(limit=100, tournament_name="M", days_back=1, date_from=None, date_to=None):
     """
     Import games from the Root League API.
     
     Args:
         limit: Number of games to fetch per request
         tournament_name: String included in the tournament's name
-        days_back: Filter by date modified
+        days_back: Number of days back to import (default 1, ignored if date_from is provided)
+        date_from: Optional - specific start date (datetime or ISO string)
+        date_to: Optional - specific end date (datetime or ISO string)
     """
     base_url = "https://rootleague.pliskin.dev/api/match/"
     
@@ -88,8 +90,24 @@ def import_league_games(limit=100, tournament_name="M", days_back=2):
     offset = 0
     has_more = True
 
-    # Calculate cutoff date
-    cutoff_date = timezone.now() - timedelta(days=days_back)
+    # Determine date range
+    if date_from:
+        # If date_from is a string, parse it
+        if isinstance(date_from, str):
+            start_date = parser.parse(date_from)
+        else:
+            start_date = date_from
+    else:
+        # Use days_back as default
+        start_date = timezone.now() - timedelta(days=days_back)
+    
+    # Parse date_to if provided
+    end_date = None
+    if date_to:
+        if isinstance(date_to, str):
+            end_date = parser.parse(date_to)
+        else:
+            end_date = date_to
     
     while has_more:
         # Fetch data from API
@@ -97,8 +115,12 @@ def import_league_games(limit=100, tournament_name="M", days_back=2):
             'tournament_name': tournament_name,
             'limit': limit,
             'offset': offset,
-            'date_modified__gte': cutoff_date.isoformat()
+            'date_closed__gte': start_date.isoformat()
         }
+        
+        # Only add date_closed__lte if end_date is provided
+        if end_date:
+            params['date_closed__lte'] = end_date.isoformat()
         
         try:
             response = requests.get(base_url, params=params, timeout=30)
@@ -138,7 +160,7 @@ def import_league_games(limit=100, tournament_name="M", days_back=2):
                 print(f"Successfully imported game {league_id}")
                 
             except Exception as e:
-                print(f"Error importing game {match_data.get('id')}: {e}")
+                print(f"Error importing game {str(match_data.get('id'))}: {e}")
                 error_count += 1
                 error_list.append(league_id)
                 continue
@@ -172,7 +194,7 @@ def import_league_games(limit=100, tournament_name="M", days_back=2):
         })
     
     if imported_count > 0 or error_count > 0:
-        # Call import summary message to Discord
+        # Send import summary message to Discord
         send_rich_discord_message(
             message,
             author_name='RDB Admin',
@@ -185,35 +207,63 @@ def import_league_games(limit=100, tournament_name="M", days_back=2):
     return summary
 
 
-# Checks all the games modified in the last 7 days and updates them
+# Checks all the games modified in the last 2 days and updates them
 @shared_task
-def update_league_games(days_back=7, limit=100):
+def update_league_games(limit=100, days_back=2, days_cutoff=1, date_from=None, date_to=None):
     """
     Check for games that were modified after initial submission and update them.
     
     Args:
-        days_back: How many days back to check for modifications (default 7)
         limit: Number of games to fetch per request
+        days_back: Number of days back to update (default 2, ignored if date_from is provided)
+        days_cutoff: How many days from now to stop checking (default 1 = yesterday)
+                     Example: days_back=2, days_cutoff=1 checks games from 2-1 days ago
+        date_from: Optional - specific start date (datetime or ISO string)
+        date_to: Optional - specific end date (datetime or ISO string)
     """
     
     base_url = "https://rootleague.pliskin.dev/api/match/"
     updated_count = 0
     error_count = 0
+    skipped_count = 0
     updated_list = []
     error_list = []
     
     offset = 0
     has_more = True
     
-    # Calculate cutoff date
-    cutoff_date = timezone.now() - timedelta(days=days_back)
+    # Determine date range
+    if date_from:
+        # If date_from is a string, parse it
+        if isinstance(date_from, str):
+            start_date = parser.parse(date_from)
+        else:
+            start_date = date_from
+    else:
+        # Use days_back as default
+        start_date = timezone.now() - timedelta(days=days_back)
+    
+    # Parse date_to if provided
+    end_date = None
+    if date_to:
+        if isinstance(date_to, str):
+            end_date = parser.parse(date_to)
+        else:
+            end_date = date_to
+    else:
+        end_date = timezone.now() - timedelta(days=days_cutoff)
 
     while has_more:
+        # Fetch data from API
         params = {
             'limit': limit,
             'offset': offset,
-            'date_modified__gte': cutoff_date.isoformat()
+            'date_modified__gte': start_date.isoformat()
         }
+        
+        # Only add date_modified__lte if end_date is provided
+        if end_date:
+            params['date_modified__lte'] = end_date.isoformat()
         
         try:
             response = requests.get(base_url, params=params, timeout=30)
@@ -232,7 +282,6 @@ def update_league_games(days_back=7, limit=100):
         
         for match_data in results:
             try:
-                from dateutil import parser
                 
                 # Parse dates
                 date_closed = parser.parse(match_data.get('date_closed'))
@@ -241,8 +290,9 @@ def update_league_games(days_back=7, limit=100):
                 # Check if modified at least 5 seconds after closing (to account for API timing)
                 time_diff = (date_modified - date_closed).total_seconds()
                 
-                # Skip if not actually modified (less than 10 seconds difference)
-                if time_diff < 10:
+                # Skip if not actually modified (less than 60 seconds difference)
+                if time_diff < 60:
+                    skipped_count += 1
                     continue
                 
                 league_id = str(match_data['id'])
@@ -272,11 +322,11 @@ def update_league_games(days_back=7, limit=100):
                 print(f"Successfully updated game {league_id}")
                 
             except Exception as e:
-                print(f"Error updating game {match_data.get('id')}: {e}")
+                print(f"Error updating game {str(match_data.get('id'))}: {e}")
                 import traceback
                 traceback.print_exc()
                 error_count += 1
-                error_list.append(match_data.get('id'))
+                error_list.append(str(match_data.get('id')))
                 continue
         
         # Check if there are more results
@@ -286,7 +336,7 @@ def update_league_games(days_back=7, limit=100):
             time.sleep(0.5)  # 500ms delay between API requests
         offset += limit
     
-    summary = f"Update check complete: {updated_count} updated, {error_count} errors"
+    summary = f"Update check complete: {updated_count} updated, {skipped_count} skipped, {error_count} errors"
     
     # Create update message
     fields = []
@@ -301,7 +351,7 @@ def update_league_games(days_back=7, limit=100):
             'value': format_bulleted_list(error_list),
         })
     
-    # Call update summary message to Discord
+    # Send update summary message to Discord
     if updated_count > 0 or error_count > 0:
         send_rich_discord_message(
             summary,
@@ -330,13 +380,21 @@ def create_game_from_api(match_data):
     game_round = None
     if round_name:
 
+        # Start day of League
         first_of_month = date_registered.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # Add 3 months
+        three_months_later = first_of_month + relativedelta.relativedelta(months=3)
+        # Subtract one day to get the last day of the second month
+        end_of_target_month = three_months_later - timedelta(days=1)
+
         game_round, created = Round.objects.get_or_create(
             name=round_name,
             tournament=tournament,
             defaults={
-                'round_number': tournament.rounds.count() + 1,  # Next round number
-                'start_date': first_of_month
+                'round_number': tournament.rounds.count() + 1,
+                'start_date': first_of_month,
+                'end_date': end_of_target_month,
+                'game_threshold': 25,
             }
         )
 
@@ -422,14 +480,22 @@ def update_game_from_api(game, match_data):
     round_name = match_data.get('tournament', '')
     game_round = None
     if round_name:
+
+        # Start day of League
         first_of_month = date_registered.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # Add 3 months
+        three_months_later = first_of_month + relativedelta.relativedelta(months=3)
+        # Subtract one day to get the last day of the second month
+        end_of_target_month = three_months_later - timedelta(days=1)
+
         game_round, created = Round.objects.get_or_create(
             name=round_name,
             tournament=tournament,
             defaults={
                 'round_number': tournament.rounds.count() + 1,
                 'start_date': first_of_month,
-                'game_threshold': 0
+                'end_date': end_of_target_month,
+                'game_threshold': 25,
             }
         )
     
@@ -517,13 +583,19 @@ def create_efforts_from_api(game, participants):
         # 1. Exact match on dwd field
         player = Profile.objects.filter(dwd__iexact=full_player_string).first()
         
-        # 2. Match dwd without the +number
+        # 2. Match dwd without the +number and update
         if not player:
             player = Profile.objects.filter(dwd__iexact=player_without_number).first()
-        
-        # 3. Match discord without the +number
+            if player:
+                player.dwd = full_player_string
+                player.save()
+    
+        # 3. Match discord without the +number and update
         if not player:
             player = Profile.objects.filter(discord__iexact=player_without_number).first()
+            if player:
+                player.dwd = full_player_string
+                player.save()
         
         # 4. Create new profile if no match found
         if not player:
@@ -655,7 +727,7 @@ def test_import_league_games_single_page(limit=100, tournament_name="M04", days_
             print(f"Successfully imported game {league_id}")
             
         except Exception as e:
-            print(f"Error importing game {match_data.get('id')}: {e}")
+            print(f"Error importing game {str(match_data.get('id'))}: {e}")
             import traceback
             traceback.print_exc()
             error_count += 1

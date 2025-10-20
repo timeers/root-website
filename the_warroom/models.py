@@ -230,6 +230,7 @@ class Game(models.Model):
 
     # Automatic
     date_posted = models.DateTimeField(default=timezone.now)
+    date_modified = models.DateTimeField(auto_now=True)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
 
     test_match = models.BooleanField(default=False)
@@ -316,6 +317,7 @@ class Effort(models.Model):
     faction_status = models.CharField(max_length=50, null=True, blank=True) #This should not be null.
     # notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
+    date_modified = models.DateTimeField(auto_now=True)
     player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
 
 
@@ -367,7 +369,7 @@ class Effort(models.Model):
 
 # This is a collection of Turns that makes up the detailed point breakdown of a game. It should be linked to an effort and is marked as final when the total score matches with the effort's score.
 class ScoreCard(models.Model):
-    effort = models.OneToOneField(Effort, related_name='scorecard', on_delete=models.CASCADE, null=True, blank=True)
+    effort = models.OneToOneField(Effort, related_name='scorecard', on_delete=models.SET_NULL, null=True, blank=True)
     faction = models.ForeignKey(Faction, related_name='scorecards', on_delete=models.CASCADE)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(blank=True)
@@ -467,26 +469,4 @@ class TurnScore(models.Model):
   
 
 
-def tournament_pre_save(sender, instance, *args, **kwargs):
-    if instance.slug is None:
-        slugify_tournament_name(instance, save=False)
 
-def round_pre_save(sender, instance, *args, **kwargs):
-    if instance.slug is None:
-        slugify_round_name(instance, save=False)
-
-
-pre_save.connect(tournament_pre_save, sender=Tournament)
-pre_save.connect(round_pre_save, sender=Round)
-
-
-def tournament_post_save(sender, instance, created, *args, **kwargs):
-    if created:
-        slugify_tournament_name(instance, save=True)
-
-def round_post_save(sender, instance, created, *args, **kwargs):
-    if created:
-        slugify_round_name(instance, save=True)
-
-post_save.connect(tournament_post_save, sender=Tournament)
-post_save.connect(round_post_save, sender=Round)
