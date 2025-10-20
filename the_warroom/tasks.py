@@ -439,7 +439,9 @@ def create_game_from_api(match_data):
     # If it contains a URL or Discord link, set to None
     if 'https://' in lower_nickname or 'discord.com' in lower_nickname or 'import game 20' in lower_nickname:
         nickname = None
-
+    else:
+        # Limit to first 50 characters if not None
+        nickname = nickname[:50]
     notes = f"Imported from rootleague.pliskin.dev on {timezone.now().strftime('%m/%d/%y')}"
 
     # Create the game
@@ -535,7 +537,10 @@ def update_game_from_api(game, match_data):
     # If it contains a URL or Discord link, set to None
     if 'https://' in lower_nickname or 'discord.com' in lower_nickname or 'import game 20' in lower_nickname:
         nickname = None
-
+    else:
+        # Limit to first 50 characters if not None
+        nickname = nickname[:50]
+        
     random_clearing = bool(match_data.get('random_suits'))
 
     # Update all fields
