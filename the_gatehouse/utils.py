@@ -265,3 +265,6 @@ def get_int_param(param, default=None):
         return int(param)
     except (TypeError, ValueError):
         return default
+    
+def format_bulleted_list(items):
+    return "\n".join(f"• {item}" for item in items[:20])

@@ -267,11 +267,6 @@ class Profile(models.Model):
         INACTIVE = '4', 'Inactive'
         ABANDONED = '5', 'Abandoned'
 
-    # class Theme(models.TextChoices):
-    #     LIGHT = 'light', 'Light Theme'
-    #     DARK = 'dark', 'Dark Theme'
-    #     TINFOIL = 'tinfoil', 'Tinfoil Theme'
-
     component = 'Profile'
 
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
@@ -279,7 +274,7 @@ class Profile(models.Model):
     theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
-    discord = models.CharField(max_length=100, unique=True, blank=True, null=True) #remove null and blank once allauth is added
+    discord = models.CharField(max_length=100, unique=True, blank=True, null=True)
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
     tester = models.BooleanField(default=False)
@@ -703,3 +698,15 @@ class Website(models.Model):
     
     def __str__(self):
         return "Website Configuration"
+    
+class DailyUserVisit(models.Model):
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE)
+    date = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        unique_together = ('profile', 'date')
+        verbose_name = 'Daily User Visit'
+        verbose_name_plural = 'Daily User Visits'
+
+    def __str__(self):
+        return f"{self.profile.discord} - {self.date}"

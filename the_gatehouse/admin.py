@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import Profile, PlayerBookmark, Theme, BackgroundImage, ForegroundImage, Website, Language, Holiday
+from .models import Profile, PlayerBookmark, Theme, BackgroundImage, ForegroundImage, Website, Language, Holiday, DailyUserVisit
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -37,6 +37,10 @@ class BackgroundImageAdmin(admin.ModelAdmin):
 class ForegroundImageAdmin(admin.ModelAdmin):
     list_display = ['name', 'page', 'theme__name', 'location', 'image']
     search_fields = ('name', 'page', 'theme__name')
+
+class DailyUserVisitAdmin(admin.ModelAdmin):
+    list_display = ['date', 'profile__discord']
+    search_fields = ('date', 'profile__discord')
 
 
 class CsvImportForm(forms.Form):
@@ -253,3 +257,4 @@ admin.site.register(ForegroundImage, ForegroundImageAdmin)
 admin.site.register(Website, WebsiteAdmin)
 admin.site.register(Language, LanguangeAdmin)
 admin.site.register(Holiday, HolidayAdmin)
+admin.site.register(DailyUserVisit, DailyUserVisitAdmin)

@@ -144,7 +144,7 @@ class Round(models.Model):
     round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
     start_date = models.DateTimeField()
-    game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
+    game_threshold = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
     players = models.ManyToManyField(Profile, blank=True, related_name='rounds')
     description = models.TextField(null=True, blank=True)

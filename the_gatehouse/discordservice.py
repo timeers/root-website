@@ -180,7 +180,7 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
     # Check if DEBUG is False in the config (uncomment this if you want to use it)
     if config["DEBUG_VALUE"] == "True":
         return  # Do nothing if DEBUG is True
-    print(category, title)
+    
     # Set the webhook URL based on the category
     if category == 'feedback':
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']

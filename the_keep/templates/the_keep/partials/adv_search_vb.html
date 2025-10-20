@@ -43,7 +43,7 @@
     </h3>
   </div>
 
-  <div class="collapse {% if torch_qty or coin_qty or boot_qty or tea_qty or bag_qty or hammer_qty or sword_qty or crossbow_qty %}show{% endif %}" id="startingItemsCollapse">
+  <div class="collapse {% if torch_op or coin_op or boot_op or tea_op or bag_op or hammer_op or sword_op or crossbow_op %}show{% endif %}" id="startingItemsCollapse">
     <div class="card-body d-flex flex-wrap gap-5">
       {% include "the_keep/partials/adv_quantity_filter.html" with prefix="torch" label="Torch" op=torch_op qty=torch_qty item_filter=True %}
       {% include "the_keep/partials/adv_quantity_filter.html" with prefix="coin" label="Coin" op=coin_op qty=coin_qty item_filter=True %}

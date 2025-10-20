@@ -2,19 +2,21 @@ from celery import shared_task
 from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
 from django.utils import timezone
-from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
+from .discordservice import send_discord_message, send_rich_discord_message
+from .utils import format_bulleted_list
+from .models import DailyUserVisit
 
 @shared_task
 def test_task():
-    print("This is a test task!")
+    send_discord_message("This is a scheduled test.", category="feedback")
 
-def update_status_fk_model(obj_queryset, related_model, related_field, six_months_ago, development_count, development_list, inactive_count, inactive_list):
+def update_status_fk_model(obj_queryset, related_model, related_field, inactive_period, development_count, development_list, inactive_count, inactive_list):
     for obj in obj_queryset:
         has_recent_related = related_model.objects.filter(
             **{related_field: obj},
-            date_posted__gte=six_months_ago
+            date_posted__gte=inactive_period
         ).exists()
-        is_old = obj.date_updated < six_months_ago
+        is_old = obj.date_updated < inactive_period
 
         if obj.status == StatusChoices.TESTING:
             if not has_recent_related:
@@ -40,10 +42,10 @@ def update_status_fk_model(obj_queryset, related_model, related_field, six_month
     return development_count, development_list, inactive_count, inactive_list
 
 
-def update_status_m2m_model(obj_queryset, related_name, six_months_ago, development_count, development_list, inactive_count, inactive_list):
+def update_status_m2m_model(obj_queryset, related_name, inactive_period, development_count, development_list, inactive_count, inactive_list):
     for obj in obj_queryset:
-        has_recent_games = getattr(obj, related_name).filter(date_posted__gte=six_months_ago).exists()
-        is_old = obj.date_updated < six_months_ago
+        has_recent_games = getattr(obj, related_name).filter(date_posted__gte=inactive_period).exists()
+        is_old = obj.date_updated < inactive_period
 
         if obj.status == StatusChoices.TESTING:
             if not has_recent_games:
@@ -66,13 +68,12 @@ def update_status_m2m_model(obj_queryset, related_name, six_months_ago, developm
 
     return development_count, development_list, inactive_count, inactive_list
 
-def format_bulleted_list(items):
-    return "\n".join(f"• {item}" for item in items[:20])
+
 
 @shared_task
 def update_post_status():
     from dateutil.relativedelta import relativedelta
-    six_months_ago = timezone.now() - relativedelta(months=6)
+    inactive_period = timezone.now() - relativedelta(months=6)
 
     development_count = 0
     development_list = []
@@ -84,7 +85,7 @@ def update_post_status():
         Faction.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         Effort,
         'faction',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -95,7 +96,7 @@ def update_post_status():
         Vagabond.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         Effort,
         'vagabond',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -106,7 +107,7 @@ def update_post_status():
         Deck.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         Game,
         'deck',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -117,7 +118,7 @@ def update_post_status():
         Map.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         Game,
         'map',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -129,7 +130,7 @@ def update_post_status():
     development_count, development_list, inactive_count, inactive_list = update_status_m2m_model(
         Landmark.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         'games',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -139,7 +140,7 @@ def update_post_status():
     development_count, development_list, inactive_count, inactive_list = update_status_m2m_model(
         Tweak.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         'games',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -149,7 +150,7 @@ def update_post_status():
     development_count, development_list, inactive_count, inactive_list = update_status_m2m_model(
         Hireling.objects.filter(status__in=[StatusChoices.TESTING, StatusChoices.DEVELOPMENT]),
         'games',
-        six_months_ago,
+        inactive_period,
         development_count,
         development_list,
         inactive_count,
@@ -185,5 +186,32 @@ def update_post_status():
         author_name='RDB Admin',
         category='report',
         title='Inactive Cleanup',
+        fields=fields
+    )
+
+@shared_task
+def daily_users():
+    today_users = DailyUserVisit.objects.filter(date=timezone.localdate())
+    print(today_users)
+
+    # Count them
+    user_count = today_users.count()
+
+    # List their names
+    usernames = today_users.values_list('profile__discord', flat=True)
+
+    message = f'{user_count} Authenticated Users'
+    fields = []
+    if user_count:
+        fields.append({
+            'name': 'Users', 
+            'value': format_bulleted_list(usernames)
+            })
+    print(user_count)
+    send_rich_discord_message(
+        message,
+        author_name='RDB Admin',
+        category='user-activity',
+        title='Daily User Summary',
         fields=fields
     )

@@ -1,5 +1,6 @@
-# middleware.py
+from django.utils.timezone import localdate
 from django.utils.translation import get_language_from_request, activate
+from .models import DailyUserVisit
 
 class SetLanguageMiddleware:
     def __init__(self, get_response):
@@ -30,4 +31,21 @@ class SetLanguageMiddleware:
         request.session['language'] = language
 
         response = self.get_response(request)
+        return response
+
+class DailyUserVisitMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+
+        if request.user.is_authenticated:
+            today = str(localdate())
+            cache_key = f"daily_visit:{request.user.id}:{today}"
+
+            if not request.session.get(cache_key):
+                DailyUserVisit.objects.get_or_create(profile=request.user.profile, date=today)
+                request.session[cache_key] = True
+
         return response
