@@ -86,9 +86,11 @@
         </div>
         {% endif %}
     {% endif %}
-        <small>
-            {% trans 'Recorded by' %} <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
-        </small>
+        {% if object.recorder %}
+            <small>
+                {% trans 'Recorded by' %} <a href="{% url 'player-detail' object.recorder.slug %}">{{ object.recorder.name }}</a>
+            </small>
+        {% endif %}
         </div>
     </article>
 </div>  

@@ -158,6 +158,8 @@ def send_discord_message(message, category=None):
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
     elif category == 'user_updates':
         webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
+    elif category == 'automation':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
     else:
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
 
@@ -178,8 +180,8 @@ def send_discord_message(message, category=None):
 
 def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
     # Check if DEBUG is False in the config (uncomment this if you want to use it)
-    if config["DEBUG_VALUE"] == "True":
-        return  # Do nothing if DEBUG is True
+    # if config["DEBUG_VALUE"] == "True":
+    #     return  # Do nothing if DEBUG is True
     
     # Set the webhook URL based on the category
     if category == 'feedback':
@@ -226,6 +228,27 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
         embed_title = "Post Edited"
         embed_color = 0x00FF00  # Green color for new
+
+    # Automations
+    elif category == 'rdl-import':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
+        embed_title = "RDL Import"
+        embed_color = 0xc7ef8e # Green
+    elif category == 'rdl-update':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
+        embed_title = "RDL Update"
+        embed_color = 0xcbfbfd # Blue
+    elif category == 'user-summary':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
+        embed_title = "Daily User Summary"
+        embed_color = 0xc29ce4 # Purple
+    elif category == 'inactive-cleanup':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
+        embed_title = "Inactive Cleanup"
+        embed_color = 0xfd9651 # Orange
+    # Red = f95965
+
+    # Other
     else:
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
         embed_title = "Activity"

@@ -87,7 +87,7 @@
             {% for result in games %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
-                    {{ result.nickname }} ({{ result.platform }}) {% trans 'Recorded by' %} {{ result.recorder.name }}
+                    {{ result.nickname }} ({{ result.platform }}){% if result.recorder %} {% trans 'Recorded by' %} {{ result.recorder.name }}{% endif %}
                 </div>
             </a>
             {% endfor %}

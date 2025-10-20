@@ -1,14 +1,19 @@
 import requests
 import time
+import re
 from celery import shared_task
 from dateutil import parser, relativedelta
 from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 from the_warroom.models import Game, Effort, PlatformChoices, Tournament, Round
-from the_keep.models import Faction, Vagabond, Deck, Map, Profile, StatusChoices
+from the_keep.models import Faction, Vagabond, Deck, Map, Landmark, Hireling, Profile, StatusChoices
 from the_gatehouse.utils import format_bulleted_list
 from the_gatehouse.discordservice import send_rich_discord_message
+
+from better_profanity import profanity
+
+profanity.load_censor_words()
 
 # Import League Games from Pliskin.dev REST API
 
@@ -64,9 +69,88 @@ MAP_MAP = {
     'marsh': 'Marsh',
 }
 
-# Imports all games from the last 8 days
+LANDMARK_MAP = {
+    'lm_lc': 'Lost City',
+    'lm_bm': 'Black Market',
+    'lm_et': 'Elder Treetop',
+    'lm_ferry': 'The Ferry',
+    'lm_tower': 'The Tower',
+    'lm_lf': 'Legendary Forge',
+}
+
+HIRELING_MAP = {
+    # Promoted
+    # Base
+    'h_cats_p': 'Forest Patrol',
+    'h_birds_p': 'Last Dynasty',
+    'h_alliance_p': 'Spring Uprising',
+    'h_vb_p': 'The Exile',
+    # Riverfolk
+    'h_lizards_p': 'Warm Sun Prophets',
+    'h_otters_p': 'Riverfolk Flotilla',
+    # Underground
+    'h_crows_p': 'Corvid Spies',
+    'h_moles_p': 'Sunward Expedition',
+    # Marauders
+    'h_badgers_p': 'Vault Keepers',
+    'h_rats_p': 'Flame Bearers',
+    # Homelands
+    'h_frogs_p': 'River Roamers',
+    'h_bats_p': 'Sunny Advocates',
+
+    # Demoted
+    # Base
+    'h_cats_d': 'Feline Physicians',
+    'h_birds_d': 'Bluebird Nobles',
+    'h_alliance_d': 'Rabbit Scouts',
+    'h_vb_d': 'The Brigand',
+    # Riverfolk
+    'h_lizards_d': 'Lizard Envoys',
+    'h_otters_d': 'Otter Divers',
+    # Underground
+    'h_crows_d': 'Raven Sentries',
+    'h_moles_d': 'Mole Artisans',
+    # Marauders
+    'h_badgers_d': 'Badger Bodyguards',
+    'h_rats_d': 'Rat Smugglers',
+    # Homelands
+    'h_frogs_d': 'Frog Tinkers',
+    'h_bats_d': 'Bat Messengers',
+
+    # Misc Hirelings
+    'h_band_p': 'Popular Band',
+    'h_band_d': 'Street Band',
+    'h_bandits_p': 'Highway Bandits',
+    'h_bandits_d': 'Bandit Gangs',
+    'h_protector_p': 'Furious Protector',
+    'h_protector_d': 'Stoic Protector',
+    'h_farmers_p': 'Prosperous Farmers',
+    'h_farmers_d': 'Struggling Farmers',
+    'h_farmer_p': 'Prosperous Farmers',
+    'h_farmer_d': 'Struggling Farmers',
+}
+
+
+
+def clean_nickname(raw_title):
+    nickname = (raw_title or '').strip()
+    lower_nickname = nickname.lower()
+
+    # Block completely if link or Imported game
+    blocked_substrings = ['https://', 'discord.com', 'import game 20']
+    if any(substring in lower_nickname for substring in blocked_substrings):
+        return None
+
+    # If nickname contains profanity, censor it
+    if profanity.contains_profanity(nickname):
+        nickname = profanity.censor(nickname)
+
+    return nickname[:50]  # Truncate to 50 characters
+
+
+# Imports all games from the last 1 day
 @shared_task
-def import_league_games(limit=100, tournament_name="M", days_back=1, date_from=None, date_to=None):
+def import_league_games(limit=100, tournament_name="", days_back=1, date_from=None, date_to=None):
     """
     Import games from the Root League API.
     
@@ -198,7 +282,7 @@ def import_league_games(limit=100, tournament_name="M", days_back=1, date_from=N
         send_rich_discord_message(
             message,
             author_name='RDB Admin',
-            category='report',
+            category='rdl-import',
             title='RDL Import',
             fields=fields
         )
@@ -356,7 +440,7 @@ def update_league_games(limit=100, days_back=2, days_cutoff=1, date_from=None, d
         send_rich_discord_message(
             summary,
             author_name='RDB Admin',
-            category='report',
+            category='rdl-update',
             title='RDL Update Check',
             fields=fields
         )
@@ -432,16 +516,8 @@ def create_game_from_api(match_data):
     
     random_clearing = bool(match_data.get('random_suits'))
 
-    raw_nickname = match_data.get('title', '')
-    nickname = raw_nickname.strip()
-    # Normalize to lowercase to catch all cases
-    lower_nickname = nickname.lower()
-    # If it contains a URL or Discord link, set to None
-    if 'https://' in lower_nickname or 'discord.com' in lower_nickname or 'import game 20' in lower_nickname:
-        nickname = None
-    else:
-        # Limit to first 50 characters if not None
-        nickname = nickname[:50]
+    nickname = clean_nickname(match_data.get('title', ''))
+
     notes = f"Imported from rootleague.pliskin.dev on {timezone.now().strftime('%m/%d/%y')}"
 
     # Create the game
@@ -464,6 +540,28 @@ def create_game_from_api(match_data):
         notes=notes,
     )
     
+    # Add hirelings
+    hireling_fields = ['hirelings_a', 'hirelings_b', 'hirelings_c']
+    for field in hireling_fields:
+        key = match_data.get(field)
+        if key:
+            title = HIRELING_MAP.get(key)
+            if title:
+                hireling = Hireling.objects.filter(title__iexact=title).first()
+                if hireling:
+                    game.hirelings.add(hireling)
+
+    # Add landmarks
+    landmark_fields = ['landmark_a', 'landmark_b']
+    for field in landmark_fields:
+        key = match_data.get(field)
+        if key:
+            title = LANDMARK_MAP.get(key)
+            if title:
+                landmark = Landmark.objects.filter(title__iexact=title).first()
+                if landmark:
+                    game.landmarks.add(landmark)
+
     return game
 
 
@@ -530,17 +628,8 @@ def update_game_from_api(game, match_data):
     game_type = Game.TypeChoices.ASYNC if match_data.get('turn_timing') == 'async' else Game.TypeChoices.LIVE
     
 
-    raw_nickname = match_data.get('title', '')
-    nickname = raw_nickname.strip()
-    # Normalize to lowercase to catch all cases
-    lower_nickname = nickname.lower()
-    # If it contains a URL or Discord link, set to None
-    if 'https://' in lower_nickname or 'discord.com' in lower_nickname or 'import game 20' in lower_nickname:
-        nickname = None
-    else:
-        # Limit to first 50 characters if not None
-        nickname = nickname[:50]
-        
+    nickname = clean_nickname(match_data.get('title', ''))
+
     random_clearing = bool(match_data.get('random_suits'))
 
     # Update all fields
@@ -556,6 +645,34 @@ def update_game_from_api(game, match_data):
     game.random_clearing = random_clearing
     game.date_posted = date_registered
     
+    # Clear old hirelings
+    game.hirelings.clear()
+    game.landmarks.clear()
+
+    # Add new hirelings
+    hireling_fields = ['hirelings_a', 'hirelings_b', 'hirelings_c']
+    for field in hireling_fields:
+        key = match_data.get(field)
+        if key:
+            title = HIRELING_MAP.get(key)
+            if title:
+                hireling = Hireling.objects.filter(title__iexact=title).first()
+                if hireling:
+                    game.hirelings.add(hireling)
+
+    # Add landmarks
+    landmark_fields = ['landmark_a', 'landmark_b']
+    for field in landmark_fields:
+        key = match_data.get(field)
+        if key:
+            title = LANDMARK_MAP.get(key)
+            if title:
+                landmark = Landmark.objects.filter(title__iexact=title).first()
+                if landmark:
+                    game.landmarks.add(landmark)
+
+
+
     game.save()
     
     return game
@@ -760,7 +877,7 @@ def test_import_league_games_single_page(limit=100, tournament_name="M04", days_
         send_rich_discord_message(
             message,
             author_name='RDB Admin',
-            category='report',
+            category='rdl-import',
             title='RDL Test Import',
             fields=fields
         )

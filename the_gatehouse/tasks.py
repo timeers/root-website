@@ -184,7 +184,7 @@ def update_post_status():
     send_rich_discord_message(
         message,
         author_name='RDB Admin',
-        category='report',
+        category='inactive-cleanup',
         title='Inactive Cleanup',
         fields=fields
     )
@@ -211,7 +211,7 @@ def daily_users():
     send_rich_discord_message(
         message,
         author_name='RDB Admin',
-        category='user-activity',
+        category='user-summary',
         title='Daily User Summary',
         fields=fields
     )
