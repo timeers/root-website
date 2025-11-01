@@ -1,17 +1,21 @@
+import re
+import csv
+
+from io import StringIO
+from datetime import datetime
+
 from django.contrib import admin, messages
 from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
-from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
+from django.http import HttpResponseRedirect 
+from django.core.exceptions import ObjectDoesNotExist
+
 from the_keep.models import Deck, Map, Faction, Vagabond, Tweak, Landmark, Hireling
 from the_gatehouse.models import Profile
-from django.http import HttpResponseRedirect 
+
+from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
 from .forms import GameImportForm, EffortImportForm
-from django.core.exceptions import ObjectDoesNotExist
-import re
-import csv
-from io import StringIO
-from datetime import datetime
 
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField()

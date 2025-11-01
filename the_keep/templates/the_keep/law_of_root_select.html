@@ -1,0 +1,89 @@
+{% extends "the_keep/base.html" %}
+{% load i18n crispy_forms_tags %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0 root-title">Update Laws of Root</h2>
+  
+    <a href="{% url 'refresh-law-of-root' %}" class="btn btn-outline-secondary text-start">
+      <div>
+        <i class="bi bi-arrow-clockwise"></i> Check for Updates
+      </div>
+      {% if last_law_check %}
+        <small class="d-block" style="font-size: 0.6rem; line-height: 1;">
+          Last sync: {{ last_law_check|date:"F j, Y" }}
+        </small>
+      {% endif %}
+    </a>
+
+  </div>
+  <hr>
+  
+
+{% for language, data in rules_by_language.items %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">{{ language }}</h5>
+
+      <p>
+        Active Law: 
+        {% if data.active %}
+          <strong>{{ data.active }}</strong>
+        {% else %}
+          <em>No active Law</em>
+        {% endif %}
+      </p>
+
+      {% if data.new %}
+      <form method="post" action="{% url 'activate-rule' %}">
+        {% csrf_token %}
+        <input type="hidden" name="language" value="{{ language }}">
+        
+        <div class="input-group mb-2">
+          <select name="rule_id" class="form-select rule-select" required>
+            <option value="">-- Select a new law file --</option>
+            {% for rule in data.new %}
+              <option value="{{ rule.id }}">{{ rule }}</option>
+            {% endfor %}
+          </select>
+          <a href="#" class="btn btn-secondary preview-btn ml-1 disabled" target="_blank" aria-disabled="true">View</a>
+          <button type="submit" class="btn btn-primary ml-1">Update</button>
+          <!-- Archive Rule -->
+          <button type="submit"
+              formaction="{% url 'archive-rule' %}"
+              class="btn btn-warning ml-1">
+          Ignore
+          </button>
+        </div>
+      </form>
+      {% else %}
+      <div class='mb-2'>
+      Law is up to date
+      </div>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+{% endblock content %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('.rule-select').forEach(select => {
+        const previewBtn = select.parentElement.querySelector('.preview-btn');
+        
+        select.addEventListener('change', function() {
+            const ruleId = this.value;
+            if (ruleId) {
+                previewBtn.href = "{% url 'law-preview' 0 %}".replace('0', ruleId);
+                previewBtn.classList.remove('disabled');
+                previewBtn.removeAttribute('aria-disabled');
+            } else {
+                previewBtn.href = "#";
+                previewBtn.classList.add('disabled');
+                previewBtn.setAttribute('aria-disabled', 'true');
+            }
+        });
+    });
+    
+</script>
+{% endblock scripts %}

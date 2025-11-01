@@ -168,73 +168,68 @@
             {% include 'the_keep/partials/status.html' %}
             </a> {% endcomment %}
 
-            <div class="d-flex justify-content-between align-items-top">
-                <div class="d-flex">
-        {% if object.status == '1' %}
-            <a class="btn btn-outline-success btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-            {% trans 'Stable' %}
-            <i class="bi bi-check-circle-fill"></i>
-        {% elif object.status == '2' %}
-            <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-            {% trans 'Testing' %}
-            <i class="bi bi-play-circle-fill"></i>
-        {% elif object.status == '3' %}
-            <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-            {% trans 'Development' %}
-            <i class="bi bi-wrench-adjustable-circle-fill"></i>
-        {% elif object.status == '4' %}
-            <a class="btn btn-outline-secondary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-            {% trans 'Inactive' %}
-            <i class="bi bi-dash-circle-fill"></i>
-        {% else %}
-            <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
-            {% trans 'Abandoned' %}
-            <i class="bi bi-x-circle-fill"></i>
-        {% endif %}
-        </a>
+            <div class="d-flex flex-wrap justify-content-between align-items-start">
+                <!-- Left: Button group -->
+                <div class="d-flex flex-wrap gap-1">
+                    {% if object.status == '1' %}
+                        <a class="btn btn-outline-success btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Stable' %}
+                            <i class="bi bi-check-circle-fill"></i>
+                        </a>
+                    {% elif object.status == '2' %}
+                        <a class="btn btn-outline-primary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Testing' %}
+                            <i class="bi bi-play-circle-fill"></i>
+                        </a>
+                    {% elif object.status == '3' %}
+                        <a class="btn btn-outline-warning btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Development' %}
+                            <i class="bi bi-wrench-adjustable-circle-fill"></i>
+                        </a>
+                    {% elif object.status == '4' %}
+                        <a class="btn btn-outline-secondary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Inactive' %}
+                            <i class="bi bi-dash-circle-fill"></i>
+                        </a>
+                    {% else %}
+                        <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Abandoned' %}
+                            <i class="bi bi-x-circle-fill"></i>
+                        </a>
+                    {% endif %}
+                    
 
-    {%if color_group %}
-    <!-- For color button -->
-    <a class='ml-1 mt-1 mb-1 btn btn-sm btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
-        {{ color_label }}
-    </a>
-    {% endif %}
+                    {%if color_group %}
+                    <!-- For color button -->
+                    <a class='ml-1 mt-1 mb-1 btn btn-sm btn-outline{% if color_group == 'White' or color_group == 'Yellow' %}-inverted{% endif %}' style='--button-color: {{ object_color }};' href="{% url 'color-group' color_group %}">
+                        {{ color_label }}
+                    </a>
+                    {% endif %}
 
-    {% if object_animal %}
-        <a class='ml-1 btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
-        {{ object_animal }}
-        </a>
-    {% endif %}
-    </div>
+                    {% if object_animal %}
+                        <a class='ml-1 btn btn-outline-dark btn-sm mt-1 mb-1' href='{% url 'animal-match' object.slug %}'>
+                        {{ object_animal }}
+                        </a>
+                    {% endif %}
+                </div>
+            
+        
+                {% if available_translations or user.profile.admin or object.designer == user.profile %}
+                <div class="ml-auto mt-1">
+                    <a class='subtle-link' href="{% url 'post-translations' object.slug %}">
+                        <small>
+                            {{ language }}
+                            {% if object_translation.designer and object_translation.designer != object.designer %}
+                            
+                                {% trans ' Translation by' %} {{ object_translation.designer.name }}
+                            
+                            {% endif %}
+                        </small>
+                        <i class="bi bi-translate">
 
-
-    {% if available_translations or user.profile.admin or object.designer == user.profile %}
-        <div class='d-flex'>
-        <a class='subtle-link' href="{% url 'post-translations' object.slug %}">
-            <small>
-                {{ language }}
-                {% if object_translation.designer and object_translation.designer != object.designer %}
-                
-                    {% trans ' Translation by' %} {{ object_translation.designer.name }}
-                
+                        </i></a>
+                    </div>
                 {% endif %}
-            </small>
-            <i class="bi bi-translate">
+            </div>
 
-            </i></a>
-        </div>
-    {% endif %}
-    </div>
-        {% comment %} {% if language_queryset %}
-        <div class="dropdown">
-            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="bi bi-translate"></i>
-            </button>
-            <ul class="dropdown-menu" aria-labelledby="languageDropdown">
-                {% for language in language_queryset %}
-                <li><a class="dropdown-item" href="?lang={{language.code}}">{{language.name}}</a></li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %} {% endcomment %}
 </article>

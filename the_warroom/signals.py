@@ -1,7 +1,7 @@
 from django.db.models.signals import pre_delete, pre_save, post_save
 from django.dispatch import receiver
 from .models import Effort, ScoreCard, Tournament, Round
-from .utils import slugify_tournament_name, slugify_round_name
+from .services.slugify_titles import slugify_tournament_name, slugify_round_name
 
 @receiver(pre_delete, sender=Effort)
 def handle_effort_deletion(sender, instance, **kwargs):

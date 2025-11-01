@@ -15,10 +15,12 @@ from the_tavern.views import game_comment_delete
 
 urlpatterns = [
     path('record/game/', manage_game, name='record-game'),
+    path("rootleague/match/<int:league_id>/", game_detail_view, name='rdl-game-detail'),
     path("game/<int:id>/delete/", game_delete_view, name='game-delete'),
     path("game/<int:id>/edit/", manage_game, name='game-update'),
     path("game/<int:pk>/update/", GameUpdateView.as_view(), name='game-update-info'),
     path("game/<int:id>/", game_detail_view, name='game-detail'),
+    
 
     path('battlefield/active/', in_progress_view, name='in-progress'),
     path('battlefield/', GameListView.as_view(), name='games-home'),

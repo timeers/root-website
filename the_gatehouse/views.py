@@ -1,34 +1,32 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib import messages
-from django.http import JsonResponse, Http404, HttpResponseBadRequest
-from django.db import connection
+from functools import wraps
+
+from django.apps import apps
+from django.core.paginator import Paginator
+from django.core.exceptions import PermissionDenied
 from django.core.cache import cache
+from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import connection
+from django.db.models import Count, Q
+from django.http import JsonResponse, Http404, HttpResponseBadRequest
+from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import activate, get_language
-
-from django.views.generic import ListView
-from django.core.paginator import Paginator
-from django.core.exceptions import PermissionDenied
-from django.conf import settings
-from functools import wraps
 from django.urls import reverse
-from django.db.models import Count, Q
-
-from .forms import (UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, 
-                    MessageForm)
-from .models import Profile, Language
-from .discordservice import send_rich_discord_message, send_discord_message
-from .utils import build_absolute_uri
+from django.views.generic import ListView
 
 from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort, Game
-
 from the_keep.models import Faction, Post
 
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm
+from .models import Profile, Language
+from .services.discordservice import send_rich_discord_message, send_discord_message
+from .utils import build_absolute_uri
 
-from django.http import HttpResponseServerError
+
 
 def trigger_error(request):
     return render(request, '500.html')
@@ -419,7 +417,6 @@ def user_bookmarks(request):
 
 @login_required
 def post_bookmarks(request, slug):
-    from django.apps import apps
     Post = apps.get_model('the_keep', 'Post')
     components = Post.objects.filter(postbookmark__player=request.user.profile)
     
@@ -448,7 +445,7 @@ def post_bookmarks(request, slug):
 
 @login_required
 def game_bookmarks(request, slug):
-    from django.apps import apps
+    
     Game = apps.get_model('the_warroom', 'Game')
     games = Game.objects.filter(gamebookmark__player=request.user.profile)
     

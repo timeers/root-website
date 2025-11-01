@@ -24,6 +24,7 @@ media/cards/
 media/background_images/
 media/foreground_images/
 media/small_images/
+media/rules/
 
 # Django stuff:
 *.log

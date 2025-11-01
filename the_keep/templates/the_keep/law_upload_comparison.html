@@ -3,6 +3,13 @@
 {% block content %}
 
 <h2>Comparison Results</h2>
+
+<div class="markdown-body">
+  {{ report|safe }}
+</div>
+
+
+{{mismatches}}
 <ul>
   {% for mismatch in mismatches %}
     <li>{{ mismatch }}</li>

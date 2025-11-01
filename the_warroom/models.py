@@ -1,15 +1,13 @@
-from django.contrib.auth.models import User
-from django.db import models, transaction
-from django.db.models import Q, Sum, F
-from django.db.models.signals import pre_save, post_save
+from django.db import models
+from django.db.models import Q, Sum
+
 from django.utils import timezone 
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.exceptions import ValidationError
+
 from the_gatehouse.models import Profile
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
-from django.core.exceptions import ValidationError
-from django.contrib.admin.views.decorators import staff_member_required
-from .utils import slugify_tournament_name, slugify_round_name
 from the_keep.utils import delete_old_image
 
 class PlatformChoices(models.TextChoices):
@@ -221,7 +219,7 @@ class Game(models.Model):
     hirelings = models.ManyToManyField(Hireling, blank=True, related_name='games')
     undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
-    link = models.CharField(max_length=300, null=True, blank=True)
+    link = models.URLField(max_length=1000, null=True, blank=True)
     nickname = models.CharField(max_length=50, null=True, blank=True)
     random_clearing = models.BooleanField(default=True)
     notes = models.TextField(null=True, blank=True)

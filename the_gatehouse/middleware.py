@@ -1,5 +1,5 @@
 from django.utils.timezone import localdate
-from django.utils.translation import get_language_from_request, activate
+from django.utils.translation import activate
 from .models import DailyUserVisit
 
 class SetLanguageMiddleware:

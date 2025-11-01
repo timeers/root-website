@@ -1,14 +1,22 @@
 from celery import shared_task
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
+
 from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
-from django.utils import timezone
-from .discordservice import send_discord_message, send_rich_discord_message
+
+from .services.discordservice import send_discord_message, send_rich_discord_message
+from .services.context_service import get_daily_user_summary
 from .utils import format_bulleted_list
-from .models import DailyUserVisit
+
+
 
 @shared_task
-def test_task():
-    send_discord_message("This is a scheduled test.", category="feedback")
+def test_task(message=None):
+    if message:
+        send_discord_message(message, category="feedback")
+    else:
+        send_discord_message("This is a scheduled test.", category="feedback")
 
 def update_status_fk_model(obj_queryset, related_model, related_field, inactive_period, development_count, development_list, inactive_count, inactive_list):
     for obj in obj_queryset:
@@ -72,7 +80,7 @@ def update_status_m2m_model(obj_queryset, related_name, inactive_period, develop
 
 @shared_task
 def update_post_status():
-    from dateutil.relativedelta import relativedelta
+    
     inactive_period = timezone.now() - relativedelta(months=6)
 
     development_count = 0
@@ -189,29 +197,16 @@ def update_post_status():
         fields=fields
     )
 
+
 @shared_task
 def daily_users():
-    today_users = DailyUserVisit.objects.filter(date=timezone.localdate())
-    print(today_users)
+    summary = get_daily_user_summary()
 
-    # Count them
-    user_count = today_users.count()
-
-    # List their names
-    usernames = today_users.values_list('profile__discord', flat=True)
-
-    message = f'{user_count} Authenticated Users'
-    fields = []
-    if user_count:
-        fields.append({
-            'name': 'Users', 
-            'value': format_bulleted_list(usernames)
-            })
-    print(user_count)
     send_rich_discord_message(
-        message,
+        summary['message'],
         author_name='RDB Admin',
         category='user-summary',
         title='Daily User Summary',
-        fields=fields
+        fields=summary['fields']
     )
+

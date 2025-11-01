@@ -4,27 +4,24 @@
         <div>2025 The {{site_title}}</div>
         <div>
             <a href="{% url 'keep-about' %}">{% trans 'About' %}</a> |
-            {% if theme_artists %}
-                {% for artist in theme_artists %}
-                    {% if artist.credit_link %}
-                        <a href='{{ artist.credit_link }}'>{% trans 'Original Art by' %} {{ artist.name }}</a> |
-                    {% else %}
-                        <a href='{{ artist.get_absolute_url }}'>{% trans 'Original Art by' %} {{ artist.name }}</a> |
-                    {% endif %}
-                {% endfor %}
-            {% elif theme %}
-                {% for artist in theme.theme_artists.all %}
-                    {% if artist.credit_link %}
-                        <a href='{{ artist.credit_link }}'>{% trans 'Original Art by' %} {{ artist.name }}</a> |
-                    {% else %}
-                        <a href='{{ artist.get_absolute_url }}'>{% trans 'Original Art by' %} {{ artist.name }}</a> |
-                    {% endif %}
-                {% endfor %}
-            {% endif %}
+
             {% if user.profile.player %}
                 <a href="{{rdb_feedback_invite}}">Discord</a> |
             {% endif %}
             <a href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
+        </div>
+        <div>
+        {% if theme_artists %}
+            {% trans 'Original Art by' %}
+            {% for artist in theme_artists %}
+                {% if artist.credit_link %}
+                    <a href='{{ artist.credit_link }}'>{{ artist.name }}</a>
+                {% else %}
+                    <a href='{{ artist.get_absolute_url }}'>{{ artist.name }}</a>
+                {% endif %}
+            {% endfor %}
+            
+        {% endif %}
         </div>
     </div>
 </footer>

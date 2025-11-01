@@ -7,11 +7,11 @@ from django.urls import reverse
 from django.db.models.signals import pre_save, post_save
 from django.db import models
 from PIL import Image
-from .utils import slugify_instance_discord
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
 from django.db.models.functions import Cast
 from django.apps import apps
 from django.utils import timezone 
+from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
 from the_keep.utils import validate_hex_color, delete_old_image
 
@@ -26,11 +26,36 @@ class Language(models.Model):
     code = models.CharField(max_length=10, unique=True)  # 'en', 'fr', etc.
     name = models.CharField(max_length=50)
     
+    LOCALE_MAP = {
+        "en": "en-US",  # English (United States)
+        "fr": "fr-FR",  # French (France)
+        "es": "es-ES",  # Spanish (Spain)
+        "nl": "nl-NL",  # Dutch (Netherlands)
+        "pl": "pl-PL",  # Polish (Poland)
+        "ru": "ru-RU",  # Russian (Russia)
+        "de": "de-DE",  # German (Germany)
+
+        # Future possible languages
+        "pt": "pt-BR",  # Portuguese (Brazil)
+        "it": "it-IT",  # Italian (Italy)
+        "ja": "ja-JP",  # Japanese (Japan)
+        "zh-hans": "zh-CN",    # Chinese Simplified (China)
+        "zh-hant": "zh-TW",    # Chinese Traditional (Taiwan)
+        "ko": "ko-KR",  # Korean (South Korea)
+        "tr": "tr-TR",  # Turkish (Turkey)
+    }
+
     class Meta:
         ordering = ['id']
 
     def __str__(self):
         return self.name
+    
+    @property
+    def locale(self):
+        # Return mapped locale or fallback to just the code itself
+        return self.LOCALE_MAP.get(self.code, self.code)
+
 
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
@@ -48,7 +73,9 @@ class Holiday(models.Model):
 
     def __str__(self):
         return self.name
-
+    
+    class Meta:
+        ordering = ['start_date', 'name', 'id']
 
 class Theme(models.Model):
     name = models.CharField(max_length=100)
@@ -74,6 +101,50 @@ class Theme(models.Model):
     def __str__(self):
         return self.name
 
+
+    def get_artists(self, visited=None):
+        """
+        Collect all artists associated with this theme, its backgrounds,
+        foregrounds, and directly assigned theme_artists.
+        Recursively includes artists from any backup_theme, 
+        avoiding infinite loops via a visited set.
+        """
+        if visited is None:
+            visited = set()
+
+        # Prevent circular reference recursion
+        if self.id in visited:
+            return []
+
+        visited.add(self.id)
+        artists = set()
+
+        # Background artists
+        for image in self.backgrounds.all():
+            if image.artist:
+                artists.add(image.artist)
+
+        # Foreground artists
+        for image in self.foregrounds.all():
+            if image.artist:
+                artists.add(image.artist)
+
+        # Theme-specific artists
+        for artist in self.theme_artists.all():
+            artists.add(artist)
+
+        # Recursively include artists from backup theme (if any)
+        if self.backup_theme:
+            artists.update(self.backup_theme.get_artists(visited=visited))
+
+        return list(artists)
+
+
+
+
+    class Meta:
+        ordering = ['name', 'id']
+
 class PageChoices(models.TextChoices):
     LIBRARY = 'library','Library'
     GAMES = 'games', 'Games'
@@ -89,9 +160,9 @@ class PageChoices(models.TextChoices):
 class BackgroundImage(models.Model):
     name = models.CharField(max_length=100)    
     # artist = models.CharField(max_length=100, blank=True, null=True)
-    background_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
+    artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(upload_to='background_images')
-    theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
+    theme = models.ForeignKey(Theme, on_delete=models.CASCADE, related_name='backgrounds')
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     background_color = models.CharField(
         max_length=7,
@@ -106,39 +177,12 @@ class BackgroundImage(models.Model):
     def __str__(self):
         return self.name
     
-    # def process_and_save_small_image(self, image_field_name):
-    #     """
-    #     Process the image field, resize it, and save it to the `small_image` field.
-    #     This method can be used by any subclass of Post to reuse the image processing logic.
-    #     """
-    #     # Get the image from the specified field
-    #     image = getattr(self, image_field_name)
-
-    #     if image:
-    #         # Open the image from the ImageFieldFile
-    #         img = Image.open(image)
-    #             # Convert the image to RGB if it's in a mode like 'P' (palette-based)
-    #         # if img.mode != 'RGB':
-    #         #     img = img.convert('RGB')
-    #         # Create a copy of the image
-    #         small_image_copy = img.copy()
-
-    #         # Optionally, save the image to a new BytesIO buffer
-    #         img_io = BytesIO()
-    #         small_image_copy.save(img_io, format='WEBP', quality=80)  # Save as a WebP, or another format as needed
-    #         img_io.seek(0)
-    #         # Now you can assign the img_io to your model field or save it to a new ImageField
-    #         # Generate a unique filename using UUID
-    #         unique_filename = f"{uuid.uuid4().hex}.webp"
-
-    #         # Save to small_image field with unique filename
-    #         self.small_image.save(unique_filename, img_io, save=False)
 
 
 
     def alt(self):
-        if self.background_artist:
-            alt = f'{ self.name } by {self.background_artist.name}'
+        if self.artist:
+            alt = f'{ self.name } by {self.artist.name}'
         else:
             alt = f'{ self.name }'
         return alt
@@ -177,11 +221,11 @@ class ForegroundImage(models.Model):
         THIRD = 102, 'Third Title'
     name = models.CharField(max_length=100)
     # artist = models.CharField(max_length=100, blank=True, null=True)
-    foreground_artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
+    artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.IntegerField(default=LocationChoices.CENTER, choices=LocationChoices.choices)
     image = models.ImageField(upload_to='foreground_images')
     
-    theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
+    theme = models.ForeignKey(Theme, on_delete=models.CASCADE, related_name='foregrounds')
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     depth = models.IntegerField(default=-1)
     start_position = models.TextField(default='0vw')
@@ -196,39 +240,10 @@ class ForegroundImage(models.Model):
     def __str__(self):
         return self.name
 
-    # def process_and_save_small_image(self, image_field_name):
-    #     """
-    #     Process the image field, resize it, and save it to the `small_image` field.
-    #     This method can be used by any subclass of Post to reuse the image processing logic.
-    #     """
-    #     # Get the image from the specified field
-    #     image = getattr(self, image_field_name)
-    #     print('processing')
-    #     if image:
-    #         print('found image')
-    #         # Open the image from the ImageFieldFile
-    #         img = Image.open(image)
-    #             # Convert the image to RGB if it's in a mode like 'P' (palette-based)
-    #         # if img.mode != 'RGB':
-    #         #     img = img.convert('RGB')
-    #         # Create a copy of the image
-    #         small_image_copy = img.copy()
-            
-    #         # Optionally, save the image to a new BytesIO buffer
-    #         img_io = BytesIO()
-    #         small_image_copy.save(img_io, format='WEBP', quality=80)  # Save as a WebP, or another format as needed
-    #         img_io.seek(0)
-    #         # Now you can assign the img_io to your model field or save it to a new ImageField
-    #         # Generate a unique filename using UUID
-    #         unique_filename = f"{uuid.uuid4().hex}.webp"
-
-    #         # Save to small_image field with unique filename
-    #         self.small_image.save(unique_filename, img_io, save=False)
-
 
     def alt(self):
-        if self.foreground_artist:
-            alt = f'{ self.name } by {self.foreground_artist.name}'
+        if self.artist:
+            alt = f'{ self.name } by {self.artist.name}'
         else:
             alt = f'{ self.name }'
         return alt
@@ -509,7 +524,7 @@ class Profile(models.Model):
         return None  # Handle case where there are no efforts
 
     def most_successful_faction(self):
-        # from yourapp.models import Faction  # Lazy import to avoid circular imports
+        # Lazy import to avoid circular imports
         from the_keep.models import Faction
 
         # Aggregate wins by faction
@@ -677,6 +692,7 @@ class Website(models.Model):
     woodland_warriors_invite = models.CharField(max_length=100, null=True, blank=True)
     rdb_feedback_invite = models.CharField(max_length=100, null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
+    last_law_check = models.DateTimeField(null=True, blank=True)
 
     @classmethod
     def get_singular_instance(cls):
@@ -698,3 +714,141 @@ class DailyUserVisit(models.Model):
 
     def __str__(self):
         return f"{self.profile.discord} - {self.date}"
+    
+
+
+# # Surveys
+# class Survey(models.Model):
+#     title = models.CharField(max_length=200)
+#     description = models.TextField(blank=True)
+#     is_active = models.BooleanField(default=True)
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     start_date = models.DateTimeField(null=True, blank=True)
+#     end_date = models.DateTimeField(null=True, blank=True)
+#     is_public = models.BooleanField(default=True)
+
+
+# class LikertScale(models.Model):
+#     min_value = models.IntegerField(default=1)
+#     max_value = models.IntegerField(default=5)
+#     labels = models.JSONField(default=dict)
+
+# # Each Survey is made up of one or more questions
+# # The Type determines what kind of question it is
+# class Question(models.Model):
+#     class QuestionType(models.TextChoices):
+#         MULTIPLE_CHOICE = 'MC', 'Multiple Choice'
+#         MULTIPLE_SELECTION = 'MS', 'Multiple Selection'
+#         OPEN_ENDED = 'OE', 'Open Ended'
+#         RANKING = 'RK', 'Ranking'
+#         RATING = 'RT', 'Rating'
+#         LIKERT = 'LK', 'Likert Scale'
+#         BOOLEAN = 'YN', 'Yes/No'
+#         DATE = 'DT', 'Date/Time'
+
+#     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
+#     text = models.TextField()
+#     likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL)
+#     question_type = models.CharField(max_length=2, choices=QuestionType.choices)
+#     order = models.PositiveIntegerField(default=0)
+#     required = models.BooleanField(default=True)
+#     help_text = models.CharField(max_length=300, blank=True)
+
+
+# # For multiple choice questions they will have multiple choices
+# class Choice(models.Model):
+#     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choices')
+#     text = models.CharField(max_length=200)
+#     order = models.PositiveIntegerField(default=0)
+
+# # A user's response to a survey is stored here
+# class SurveyResponse(models.Model):
+#     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='responses')
+#     user = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
+#     submitted_at = models.DateTimeField(auto_now_add=True)
+#     class Meta:
+#         # Prevent duplicate submissions
+#         unique_together = ('survey', 'user')
+
+#     def __str__(self):
+#         return f"{self.user} → {self.survey.title}"
+
+
+# # An anser to a question that is linked to a user's response
+# class Answer(models.Model):
+#     response = models.ForeignKey(SurveyResponse, on_delete=models.CASCADE, related_name='answers')
+#     question = models.ForeignKey(Question, on_delete=models.CASCADE)
+
+#     # For open-ended
+#     text_answer = models.TextField(blank=True, null=True)
+
+#     # For multiple choice
+#     selected_choice = models.ForeignKey(Choice, on_delete=models.SET_NULL, null=True, blank=True)
+#     selected_choices = models.ManyToManyField(Choice, blank=True)
+
+#     # For date questions
+#     date_answer = models.DateTimeField(blank=True, null=True)
+
+#     def clean(self):
+#         qtype = self.question.question_type
+
+#         # MULTIPLE CHOICE
+#         if qtype == Question.QuestionType.MULTIPLE_CHOICE:
+#             if not self.selected_choice:
+#                 raise ValidationError("Multiple choice question requires a selected choice.")
+#             if self.selected_choices.exists():
+#                 raise ValidationError("Only one choice allowed for multiple choice questions.")
+
+#         # MULTIPLE SELECTION
+#         elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
+#             if not self.pk:
+#                 # Need to save instance first to access selected_choices M2M
+#                 super().save()
+#             if self.selected_choices.count() == 0:
+#                 raise ValidationError("You must select at least one option for multiple selection questions.")
+#             if self.selected_choice:
+#                 raise ValidationError("Use 'selected_choices' only for multiple selection.")
+
+#         # OPEN ENDED
+#         elif qtype == Question.QuestionType.OPEN_ENDED:
+#             if not self.text_answer:
+#                 raise ValidationError("Open-ended question requires a text answer.")
+#             if self.selected_choice or self.selected_choices.exists():
+#                 raise ValidationError("Open-ended questions should not have choices selected.")
+
+#         # BOOLEAN (YES/NO)
+#         elif qtype == Question.QuestionType.BOOLEAN:
+#             if not self.selected_choice:
+#                 raise ValidationError("Yes/No question requires a choice.")
+#             valid = self.question.choices.filter(pk=self.selected_choice.pk).exists()
+#             if not valid:
+#                 raise ValidationError("Selected choice is not valid for this question.")
+
+#         # RANKING, LIKERT, RATING
+#         elif qtype in [Question.QuestionType.RANKING, Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
+#             # Enforce that answers are in `RankedAnswer`, not here
+#             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
+#                 raise ValidationError("Use the associated ranking models to store ranking/likert/rating answers.")
+
+#         # DATE
+#         elif qtype == Question.QuestionType.DATE:
+#             if not self.date_answer:
+#                 raise ValidationError("A valid date/time must be provided.")
+#             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
+#                 raise ValidationError("Only a date/time answer is allowed.")
+
+
+#         # Fallback
+#         else:
+#             raise ValidationError("Unsupported question type.")
+
+#     def __str__(self):
+#         return f"Answer to '{self.question.text}'"
+
+
+# class RankedAnswer(models.Model):
+#     answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_items')
+#     choice = models.ForeignKey(Choice, on_delete=models.CASCADE)
+#     rank = models.PositiveIntegerField()
+#     class Meta:
+#         unique_together = ('answer', 'rank')

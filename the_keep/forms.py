@@ -1,17 +1,21 @@
 import json
+
 from django import forms
-from .models import (
-    Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
-    Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation,
-    LawGroup, Law, FAQ
-)
-from the_gatehouse.models import Profile, Language
-from the_keep.utils import generate_abbreviation_choices
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext as _
+
+from the_gatehouse.models import Profile, Language
+from the_keep.utils import generate_abbreviation_choices
+
+from .models import (
+    Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
+    Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation,
+    LawGroup, Law, FAQ
+)
+
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)

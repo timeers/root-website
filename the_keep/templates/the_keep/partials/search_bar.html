@@ -5,13 +5,13 @@
             hx-get="{% url 'search' %}"
             hx-target="#search-results"
             hx-swap="outerHTML"
-            hx-trigger="submit, input delay:0.3s, change">
+            hx-trigger="submit, input delay:0.3s from:#search, change from:select">
             {% comment %} <input type="text" name="search" placeholder="Search name or animal..." value="{{ search }}"> {% endcomment %}
             <input type="text" name="search" id="search" placeholder={% trans "Search by Name or Animal..." %} value="{{ search }}" class="form-control mb-1">
 
                 <!-- Designer Search Dropdown -->
-
-                    <select name="designer" id="designer-select" class="form-select" aria-label="Select Designer">
+                    <div class='mb-1'>
+                    <select name="designer" id="designer-select" class="form-control" aria-label="Select Designer">
                         <option value="">{% trans 'Select Designer' %}</option>
                         {% for designer in designers %}
                             <option value="{{ designer.id }}" {% if designer.id == search_type %}selected{% endif %}>
@@ -19,10 +19,10 @@
                             </option>
                         {% endfor %}
                     </select>
+                    </div>
 
 
-
-                    <select id="search_type" class="form-select" name="search_type" value="{{ search_type }}" onchange="toggleFactionFields()">
+                    <select id="search_type" name="search_type" value="{{ search_type }}" onchange="toggleFactionFields()" class="form-control form-control-sm mb-1">
                         <option value="">{% trans 'All Components' %}</option>  
                         <option value="faction" {% if search_type == 'faction' %}selected{% endif %}>{% trans 'Faction' %}</option>
                         <option value="vagabond" {% if search_type == 'vagabond' %}selected{% endif %}>{% trans 'Vagabond' %}</option>
@@ -36,15 +36,15 @@
             
 
 
-            <div>
-            <label for="faction_type">{% trans 'Faction Type' %}: </label>
+
+            {% comment %} <label for="faction_type">{% trans 'Faction Type' %}: </label>
             <select id="faction_type" name="faction_type" value="{{ faction_type }}">
                 <option value="">{% trans 'All' %}</option>  
                 <option value="M" {% if faction_type == 'M' %}selected{% endif %}>{% trans 'Militant' %}</option>
                 <option value="I" {% if faction_type == 'I' %}selected{% endif %}>{% trans 'Insurgent' %}</option>
-            </select>
+            </select> {% endcomment %}
 
-            <label for="reach_value">{% trans 'Reach' %}: </label>
+            {% comment %} <label for="reach_value">{% trans 'Reach' %}: </label>
             <select id="reach_value" name="reach_value" value="{{ reach_value }}">
                 <option value="">{% trans 'All' %}</option>
                 <option value=10 {% if reach_value == 10 %}selected{% endif %}>10</option>
@@ -57,9 +57,9 @@
                 <option value=3 {% if reach_value == 3 %}selected{% endif %}>3</option>
                 <option value=2 {% if reach_value == 2 %}selected{% endif %}>2</option>
                 <option value=1 {% if reach_value == 1 %}selected{% endif %}>1</option>
-            </select>
+            </select> {% endcomment %}
 
-            <select id="status" name="status" value="{{ status }}">
+            <select id="status" name="status" value="{{ status }}" class="form-control form-control-sm mb-1">
                 <option value="">{% trans 'Status (All)' %}</option>  
                 <option value="Official" {% if status == 'Official' %}selected{% endif %}>{% trans 'Official' %}</option>
                 <option value="1" {% if status == '1' %}selected{% endif %}>{% trans 'Stable' %}</option>
@@ -67,8 +67,8 @@
                 <option value="3" {% if status == '3' %}selected{% endif %}>{% trans 'Development' %}</option>
                 <option value="4" {% if status == '4' %}selected{% endif %}>{% trans 'Inactive' %}</option>
             </select>
-            <div>
-            <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
+            <div class='mb-1'>
+            <select name="language_code" id="language-select" class="form-control form-control-sm mb-1" aria-label="Select Language">
                 <option value="">{% trans 'Select Language' %}</option>
                 {% for language in used_languages %}
                     <option value="{{ language.code }}" {% if language.code == language_code %}selected{% endif %}>
@@ -77,20 +77,34 @@
                 {% endfor %}
             </select>
 
-            <select name="expansion" id="expansion-select" class="form-select" aria-label="Select Expansion">
+            {% comment %} <select name="expansion" id="expansion-select" aria-label="Select Expansion" class="form-control form-control-sm mb-1">
                 <option value="">{% trans 'Select Expansion' %}</option>
                 {% for expansion in expansions %}
                     <option value="{{ expansion.id }}" {% if expansion.id == selected_expansion %}selected{% endif %}>
                         {{ expansion }}
                     </option>
                 {% endfor %}
-            </select>
-        </div>
+            </select> {% endcomment %}
+
+
+            <!-- Buttons Row -->
+            <div class="d-flex gap-2 mb-2">
+                <button type="button" id="clear-filters" class="btn btn-sm btn-secondary mr-1">
+                    <i class="bi bi-x-circle"></i> {% trans 'Clear' %}
+                </button>
+                <a id='advanced-search-btn' href="#" class="btn btn-sm btn-primary">
+                    <i class="bi bi-sliders"></i> {% trans 'Advanced Search' %}
+                </a>
+            </div>
+
             {% if user.is_authenticated and not user.profile.weird %}
                 <div>
                     <small>*Displaying Official Content Only</small>
                 </div>
             {% endif %}
+
+
+
         </div>
 
         </form>

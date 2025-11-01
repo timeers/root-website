@@ -62,7 +62,7 @@ class GameFilter(django_filters.FilterSet):
             self.filters['map'].queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, official=True)
             self.filters['faction'].queryset = Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
             self.filters['vagabond'].queryset = Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
-            self.filters['player'].queryset = Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0)
+            self.filters['player'].queryset = Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
 
 
 
@@ -72,55 +72,30 @@ class GameFilter(django_filters.FilterSet):
 
 
     def filter_queryset(self, queryset):
-        # Get the selected factions
-        queryset = queryset.prefetch_related('efforts')
         selected_factions = self.data.getlist('faction')
         selected_players = self.data.getlist('player')
         selected_vagabonds = self.data.getlist('vagabond')
-        # official_only = self.form.cleaned_data.get('official')
-        # print(official_only)
-        # print(selected_factions)
-        # print(selected_players)
-        # print(selected_vagabonds)
-
-        # filter_conditions = Q()
-
-        # if selected_factions:
-        #     filter_conditions &= Q(efforts__faction__in=selected_factions)
-
-        # if selected_vagabonds:
-        #     filter_conditions &= Q(efforts__vagabond__in=selected_vagabonds)
-
-        # if selected_players:
-        #     filter_conditions &= Q(efforts__player__in=selected_players)
-
-        # # Apply the combined filter conditions
-        # queryset = queryset.filter(filter_conditions).distinct()
-
 
         if selected_factions:
-            # Build the filter condition for all selected factions
-            for faction in selected_factions:
-                if faction:
-                    queryset = queryset.filter(
-                        Q(efforts__faction=faction)  # Filter by any selected faction
-                    )
+            queryset = queryset.filter(efforts__faction__in=selected_factions)
+            queryset = queryset.annotate(
+                matched_factions=Count('efforts__faction', filter=Q(efforts__faction__in=selected_factions), distinct=True)
+            ).filter(matched_factions=len(selected_factions))
 
         if selected_vagabonds:
-            # Build the filter condition for all selected vagabonds
-            for vagabond in selected_vagabonds:
-                queryset = queryset.filter(
-                    Q(efforts__vagabond=vagabond)  # Filter by any selected vagabond
-                )
+            queryset = queryset.filter(efforts__vagabond__in=selected_vagabonds)
+            queryset = queryset.annotate(
+                matched_vagabonds=Count('efforts__vagabond', filter=Q(efforts__vagabond__in=selected_vagabonds), distinct=True)
+            ).filter(matched_vagabonds=len(selected_vagabonds))
 
         if selected_players:
-            # Build the filter condition for all selected players
-            for player in selected_players:
-                queryset = queryset.filter(
-                    Q(efforts__player=player)  # Filter by any selected player
-                )
-        
-        return super().filter_queryset(queryset)
+            queryset = queryset.filter(efforts__player__in=selected_players)
+            queryset = queryset.annotate(
+                matched_players=Count('efforts__player', filter=Q(efforts__player__in=selected_players), distinct=True)
+            ).filter(matched_players=len(selected_players))
+
+        return super().filter_queryset(queryset.distinct())
+
     
 
 class PlayerGameFilter(django_filters.FilterSet):
@@ -200,23 +175,33 @@ class PlayerGameFilter(django_filters.FilterSet):
                 queryset = queryset.filter(efforts__player=player)
 
         if selected_factions:
-            # Build the filter condition for all selected factions
-            for faction in selected_factions:
-                queryset = queryset.filter(
-                    Q(efforts__faction=faction)  # Filter by any selected faction
+            queryset = queryset.filter(efforts__faction__in=selected_factions)
+            queryset = queryset.annotate(
+                matched_factions=Count(
+                    'efforts__faction',
+                    filter=Q(efforts__faction__in=selected_factions),
+                    distinct=True
                 )
+            ).filter(matched_factions=len(selected_factions))
 
         if selected_vagabonds:
-            # Build the filter condition for all selected vagabonds
-            for vagabond in selected_vagabonds:
-                queryset = queryset.filter(
-                    Q(efforts__vagabond=vagabond)  # Filter by any selected vagabond
+            queryset = queryset.filter(efforts__vagabond__in=selected_vagabonds)
+            queryset = queryset.annotate(
+                matched_vagabonds=Count(
+                    'efforts__vagabond',
+                    filter=Q(efforts__vagabond__in=selected_vagabonds),
+                    distinct=True
                 )
+            ).filter(matched_vagabonds=len(selected_vagabonds))
 
         if selected_players:
-            # Build the filter condition for all selected players
-            for player in selected_players:
-                queryset = queryset.filter(
-                    Q(efforts__player=player)  # Filter by any selected player
+            queryset = queryset.filter(efforts__player__in=selected_players)
+            queryset = queryset.annotate(
+                matched_players=Count(
+                    'efforts__player',
+                    filter=Q(efforts__player__in=selected_players),
+                    distinct=True
                 )
-        return super().filter_queryset(queryset)
+            ).filter(matched_players=len(selected_players))
+
+        return super().filter_queryset(queryset.distinct())

@@ -1,17 +1,21 @@
+import csv
+
+from io import StringIO
+from datetime import datetime
+
 from django.contrib import admin, messages
 from django.urls import path, reverse
 from django.shortcuts import render
 from django.http import HttpResponseRedirect 
-import csv
-from io import StringIO
-from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law)
-from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
-                   PieceImportForm, LandmarkImportForm, HirelingImportForm)
+from django.utils import timezone
+
 from the_gatehouse.models import Profile
 from the_warroom.admin import CsvImportForm
-from datetime import datetime
-from django.utils import timezone
+
+from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
+                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law, RulesFile)
+from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
+                   PieceImportForm, LandmarkImportForm, HirelingImportForm)
 
 class PieceInline(admin.StackedInline):
     model = Piece
@@ -29,9 +33,13 @@ class LawGroupAdmin(admin.ModelAdmin):
     list_display = ('abbreviation', 'title', 'type', 'public')
     search_fields = ('post__title', 'title', 'abbreviation')
 
+class RulesFileAdmin(admin.ModelAdmin):
+    list_display = ('language', 'post', 'version', 'status', 'commit_date', 'fetched_at')
+    search_fields = ('version', 'status')
+
 class LawAdmin(admin.ModelAdmin):
-    list_display = ('law_code', 'title', 'group__post', 'language', 'law_index')
-    search_fields = ('group__post__title', 'title', 'law_code')
+    list_display = ('law_code', 'title', 'group__post', 'language', 'law_index', 'prime_law')
+    search_fields = ('group__post__title', 'title', 'law_code', 'group__title')
 
 class TranslationAdmin(admin.ModelAdmin):
     list_display = ('translated_title', 'language', 'post__title', 'post__language')
@@ -1136,3 +1144,4 @@ admin.site.register(PostTranslation, TranslationAdmin)
 admin.site.register(FAQ, FAQAdmin)
 admin.site.register(LawGroup, LawGroupAdmin)
 admin.site.register(Law, LawAdmin)
+admin.site.register(RulesFile, RulesFileAdmin)

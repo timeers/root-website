@@ -1,40 +1,18 @@
-import random
-from django.utils.text import slugify
-from django.apps import apps
 
-def slugify_tournament_name(instance, save=False, new_slug=None):
-    if new_slug is not None:
-        slug = new_slug
-    else:
-        slug = slugify(instance.name)
+from better_profanity import profanity
+profanity.load_censor_words()
 
-    Tournament = apps.get_model('the_warroom', 'Tournament')
-    qs = Tournament.objects.filter(slug=slug).exclude(id=instance.id)
-    if qs.exists():
-        # auto generate new slug
-        rand_int = random.randint(1_000, 9_999)
-        slug = f"{slug}-{rand_int}"
-        return slugify_tournament_name(instance, save=save, new_slug=slug)
-    instance.slug = slug
-    if save:
-        instance.save()
-    return instance
+def clean_nickname(raw_title):
+    nickname = (raw_title or '').strip()
+    lower_nickname = nickname.lower()
 
+    # Block completely if link or Imported game
+    blocked_substrings = ['https://', 'discord.com', 'import game 20']
+    if any(substring in lower_nickname for substring in blocked_substrings):
+        return None
 
-def slugify_round_name(instance, save=False, new_slug=None):
-    if new_slug is not None:
-        slug = new_slug
-    else:
-        slug = slugify(instance.name)
+    # If nickname contains profanity, censor it
+    if profanity.contains_profanity(nickname):
+        nickname = profanity.censor(nickname)
 
-    Round = apps.get_model('the_warroom', 'Round')
-    qs = Round.objects.filter(slug=slug, tournament=instance.tournament).exclude(id=instance.id)
-    if qs.exists():
-        # auto generate new slug
-        rand_int = random.randint(1_000, 9_999)
-        slug = f"{slug}-{rand_int}"
-        return slugify_round_name(instance, save=save, new_slug=slug)
-    instance.slug = slug
-    if save:
-        instance.save()
-    return instance
+    return nickname[:50]  # Truncate to 50 characters

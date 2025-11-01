@@ -5,7 +5,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% static 'images/archive-icon.png' %}">
-<meta property="og:site_name" content="{{site_title}}">
+<meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{meta_title}}">
 <meta property="og:description" content="{{meta_description}}">
 <meta name="description" content="{{meta_description}}">
@@ -14,34 +14,34 @@
 {% block content %}
 <h1 class='root-title'>Advanced Search</h1>
 
- <ul class="nav nav-tabs mb-3">
-    {% for tab in tabs %}
-        <li class="nav-item">
-          {% if component_type == tab %}
-            <a class="nav-link {% if component_type == tab %}active{% endif %}">
-                {% if tab == "Tweak" %}
-                    House Rule
-                {% else %}
-                {{ tab }}
-                {% endif %}
-            </a>
-          {% else %}
-            <a class="nav-link {% if component_type == tab %}active{% endif %}"
-                href="{% url 'advanced-search' component_type=tab|lower %}?search={{search}}&status={{status}}&designer={{selected_designer}}&artist={{selected_artist}}&language_code={{selected_language}}&expansion={{selected_expansion}}&animal={{animal}}&color={{color|urlencode}}">
-                {% if tab == "Tweak" %}
-                    House Rule
-                {% else %}
-                {{ tab }}
-                {% endif %}
-            </a>
-          {% endif %}
-        </li>
-    {% endfor %}
-  </ul>
-  
-
-<article class="media content-section mt-2">
+<article class="media content-section">
     <div class="media-body">
+
+        <div class="d-flex flex-wrap justify-content-center" role="group" aria-label="Component type filter">
+            {% for tab in tabs %}
+                {% if component_type == tab %}
+                    <button type="button" class="btn btn-sm btn-secondary m-1">
+                        {% if tab == "Tweak" %}
+                            House Rule
+                        {% else %}
+                            {{ tab }}
+                        {% endif %}
+                    </button>
+                {% else %}
+                    <a class="btn btn-sm btn-outline-secondary m-1"
+                    href="{% url 'advanced-search' component_type=tab|lower %}?search={{search}}&status={{status}}&designer={{selected_designer}}&artist={{selected_artist}}&language_code={{selected_language}}&expansion={{selected_expansion}}&animal={{animal}}&color={{color|urlencode}}">
+                        {% if tab == "Tweak" %}
+                            House Rule
+                        {% else %}
+                            {{ tab }}
+                        {% endif %}
+                    </a>
+                {% endif %}
+            {% endfor %}
+        </div>
+        <hr>
+
+
         <form id='advanced-search-form' class="mb-2" method="get" action="">
 
             {% comment %} <input type="text" name="search" placeholder="Search name or animal..." value="{{ search }}"> {% endcomment %}
@@ -53,8 +53,8 @@
 
             {% if color_choices %}    
             <div class='mb-1'>     
-                <select id="color" name="color" class="form-select">
-                    <option value="">{% trans 'All' %}</option>
+                <select id="color" name="color" class="form-control">
+                    <option value="">{% trans 'All Colors' %}</option>
                     {% for color_option in color_choices %}
                         <option value="{{ color_option.value }}" {% if color_option.value == color %}selected{% endif %}>
                             {{ color_option.label }}
@@ -198,10 +198,12 @@
         {% endif %}
           
           <div class="mt-3">
-            <button type="button" id="clear-filters" class="btn btn-secondary">Clear</button>
+            <button type="button" id="clear-filters" class="btn btn-sm btn-secondary">
+                <i class="bi bi-x-circle"></i> {% trans 'Clear' %}
+            </button>
 
-            <button type="submit" class="btn btn-primary">
-                {% trans "Search" %}
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="bi bi-search"></i> {% trans 'Search' %}
             </button>
             {% if user.is_authenticated and not user.profile.weird %}
                 <div>
@@ -340,14 +342,53 @@
     });
     
     
+
+    function clearButtonSelectField(fieldName) {
+        // Clear the hidden input
+        const input = document.getElementById(fieldName);
+        if (input) {
+          input.value = "";
+        }
+      
+        // Find the button/select group
+        const group = document.querySelector(`.button-select-group[data-target='${fieldName}']`);
+        if (group) {
+          group.querySelectorAll(".button-option, .select-option").forEach(option => {
+            option.classList.remove("selected");
+          });
+      
+          // Re-select the "All" option (data-value="")
+          const allOption = group.querySelector('[data-value=""]');
+          if (allOption) {
+            allOption.classList.add("selected");
+          }
+        }
+      }
+      
+      
+
+    
     document.getElementById("clear-filters").addEventListener("click", function () {
+        const form = document.querySelector("form");
+
         // Clear all text/select inputs
-        document.querySelectorAll("form input, form select").forEach(input => {
+        form.querySelectorAll("input, select").forEach(input => {
           if (input.type !== "hidden") {
             input.value = "";
           }
         });
-      
+
+        // Clear all Select2 fields
+        if (window.jQuery && jQuery().select2) {
+            jQuery(form)
+            .find("select.select2-hidden-accessible") // all active Select2 elements
+            .each(function () {
+                jQuery(this).val(null).trigger("change"); // clear and refresh UI
+            });
+        }
+
+        ["status", "faction_type", "hireling_type", "ability_item"].forEach(clearButtonSelectField);
+
         // Reset all bar click zones to "Any"
         document.querySelectorAll(".bar-click-zone").forEach(zone => {
           updateBarState(zone, states[0]); // "Any" is first in your states array
@@ -364,6 +405,7 @@
             connect.style.backgroundColor = initialColor;
           }
         }
+        //form.submit();
       });
       
 
@@ -434,14 +476,14 @@
         });
         }
 
-        const colorSelect = document.getElementById('color');
+        {% comment %} const colorSelect = document.getElementById('color');
         if (colorSelect) {
         $('#color').select2({
             placeholder: 'Select Color',
             allowClear: true,
             width: '100%'
         });
-        }
+        } {% endcomment %}
 
 
     });

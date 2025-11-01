@@ -8,86 +8,95 @@
 <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
 {% comment %} <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" /> {% endcomment %}
-<meta property="og:site_name" content="{{site_title}}">
-<meta property="og:title" content="About - The {{site_title}}">
-<meta property="og:description" content="The {{site_title}} is an unofficial collection of Fan Factions and components for Root, the board game by Leder Games. A place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. Post game results to track your stats and search community resources to help make your own Fan Faction.">
-<meta name="description" content="The {{site_title}} is an unofficial collection of Fan Factions and components for Root, the board game by Leder Games. A place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. Post game results to track your stats and search community resources to help make your own Fan Faction.">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="About - The Root Database">
+<meta property="og:description" content="The Root Database is an unofficial collection of Fan Factions and components for Root, the board game by Leder Games. A place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. Post game results to track your stats and search community resources to help make your own Fan Faction.">
+<meta name="description" content="The Root Database is an unofficial collection of Fan Factions and components for Root, the board game by Leder Games. A place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. Post game results to track your stats and search community resources to help make your own Fan Faction.">
 {% endblock meta%}
 
 
 {% block content %}
+<div class='text-center'>
+    <h1 class='root-title'>{% trans 'About' %}</h1>
 
-<h1 class='root-title text-center'>{% trans 'About' %}</h1>
+    <div class='mb-4'>
+        Welcome to the {{site_title}}, an unofficial collection of fan factions and components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.
+        The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. 
+        You can post game results to track your stats and search community resources to help make your own creations. If you play a game with any of the components found here you can record that game to help the creators see their faction's stats.
+    </div>
 
-<div class='mb-4 text-center'>
-    Welcome to the {{site_title}}, an unofficial collection of Fan Factions and components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.
-    The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. 
-    You can post game results to track your stats and search community resources to help make your own creations. If you play a game with any of the components found here you can record that game to help the creators see their faction's stats.
-</div>
+    <div class='mb-4'>
+        If you have any questions about how the site works, check out the <a class='clickable-link' href="{% url "faq" %}">FAQ</a>.
+    </div>
 
-<div class='mb-4 text-center'>
-    If you have any questions about how the site works, check out the <a class='clickable-link' href="{% url "faq" %}">FAQ</a>.
-</div>
+    <div class='mb-4 lore-content' style="font-size: 1.1rem;">
+        Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
+        You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_feedback_invite}}">Root Database Discord</a>.
+    </div>
 
-<div class='mb-4 text-center lore-content' style="font-size: 1.1rem;">
-    Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
-    You can also ask questions and give feedback on the <a class='clickable-link' href="{{rdb_feedback_invite}}">RDB Feedback Discord</a>.
-</div>
-
-<div class='mb-4 text-center'>
-    <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
-    {% if user.is_authenticated %}
-        <a href="{{woodland_warriors_invite}}"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
-    {% else %}
-        <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
-    {% endif %}
-</div>
-
-
+    <div class='mb-4'>
+        <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
+        {% if user.is_authenticated %}
+            <a href="{{woodland_warriors_invite}}"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
+        {% else %}
+            <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
+        {% endif %}
+    </div>
 
 
-<div class='mb-4 text-center'>
-    <div class='text-center my-3' style="font-size: 1.2rem; font-weight: 600;">
-        Thank you for checking out the {{site_title}}.
+    <div class='mb-4'>
+        <div style="font-weight: 600;">
+            Root Digital League
+        </div>
+        Root Digital League is organized by the Woodland Warriors Discord community. 
+        League games are played through the Direwolf Digital app and are structured to be an informal and fun way to play against real players.
+        These games are recorded on the <a class='clickable-link' href='https://rootleague.pliskin.dev'>Root Digital League</a> website and then imported to the {{site_title}} through the Match Viewset List API provided by Pliskin.
     </div>
     <div class='mb-4'>
-        The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord. 
-        Woodland Warrior members are also able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
+        <div style="font-weight: 600;">
+            Leder Rules Library
+        </div>
+        The official and up to date rules for Root can be found at the <a class='clickable-link' href='https://rules.ledergames.com/?product=root'>Leder Rules Library</a>. 
+        The {{site_title}} updates its Law of Root to match the publicly available rules provided by the <a class='clickable-link' href='https://github.com/LederCards/rules/tree/master'>Leder Cards repository</a> on Github{% if law_date %} and was last updated on {{law_date|date:"F j, Y"}}.{% else %}.{% endif %}
     </div>
-    <div>
-        Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
-    </div>
-    <div>
-        A huge thanks to <a class='clickable-link' href="{% url 'player-detail' 'tinthefoil' %}">Tin (the Foil)</a> for providing the fantastic art for the site. You can check out Tin's wonderful work <a class='clickable-link' href='https://linktr.ee/tinthefoil'>here<a>.
-    </div>
-</div>
 
-<div class='mb-1 text-center'>
-    All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Leder Games.
-</div>
-<div class='mb-4 text-center'>
-    The content on this website is inspired by the board game Root, published by Leder Games. This content is only intended for personal enjoyment.
-    The content provided here is not for commercial use and it is shared in the spirit of celebrating Root and its creative community.
-</div>
 
-{% comment %} <div class='mb-2 text-center'>
-    <div class='text-center' style="font-size: 1.1rem; font-weight: 600;">
+    <div class='mb-4'>
+        <div class='my-3' style="font-size: 1.2rem; font-weight: 600;">
+            Thank you for checking out the {{site_title}}
+        </div>
+        <div class='mb-4'>
+            The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord. 
+            Woodland Warrior members are also able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
+        </div>
+        <div>
+            Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
+        </div>
+        <div>
+            A huge thanks to <a class='clickable-link' href="{% url 'player-detail' 'tinthefoil' %}">Tin (the Foil)</a> for providing the fantastic art for the site. You can check out Tin's wonderful work <a class='clickable-link' href='https://linktr.ee/tinthefoil'>here<a>.
+        </div>
+    </div>
+
+    <div class='mb-1'>
+        All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Leder Games.
+    </div>
+    <div class='mb-4'>
+        The content on this website is inspired by the board game Root, published by Leder Games. This content is only intended for personal enjoyment.
+        The content provided here is not for commercial use and it is shared in the spirit of celebrating Root and its creative community.
+    </div>
+
+
+
+</div>
+{% comment %} <div class='mb-2>
+    <div style="font-size: 1.1rem; font-weight: 600;">
         Support
     </div>
     This site only costs a few dollars a month to keep running but if you'd like to chip in
     <script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="mrmirz" data-color="{{ theme.theme_color }}" data-emoji="☕"  data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="{{ theme.background_color }}" data-coffee-color="#FFDD00" ></script>
 </div> {% endcomment %}
 
-{% comment %} <div class="video-container mb-1">
-<iframe width="560" height="315" 
-    src="https://www.youtube-nocookie.com/embed/avvqQqPX7a4?si=n0K7iba7NC16sM6T" 
-    title="YouTube video player" 
-    frameborder="0" 
-    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-    referrerpolicy="strict-origin-when-cross-origin" 
-    allowfullscreen>
-</iframe>
-</div> {% endcomment %}
+
 <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/Frog.png'  %}" alt="Join Woodland Warriors">
 
 {% endblock content %}

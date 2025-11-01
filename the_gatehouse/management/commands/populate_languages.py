@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from the_gatehouse.models import Language  # Import your Language model
+from the_gatehouse.models import Language
 from django.conf.locale import LANG_INFO 
 
 class Command(BaseCommand):

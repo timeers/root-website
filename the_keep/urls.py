@@ -42,6 +42,11 @@ urlpatterns = [
 
     # Laws
     path('law-of-root/', views.law_table_of_contents),
+    path('law-of-root/update/', views.official_laws_selection, name='select-law-of-root'),
+    path('law-of-root/refresh/', views.refresh_laws, name='refresh-law-of-root'),
+    path('law-of-root/preview/<int:rule_id>/', views.law_preview, name='law-preview'),
+    path("activate-rule/", views.activate_rule, name="activate-rule"),
+    path("archive-rule/", views.archive_rule, name="archive-rule"),
     path('law-of-root/<str:lang_code>/', views.law_table_of_contents, name='law-of-root'),
     path('law-of-root/<str:lang_code>/update/', views.update_official_laws, name='update-law-of-root'),
     path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
@@ -54,7 +59,9 @@ urlpatterns = [
     path('law/<slug:group_slug>/<str:lang_code>/compare/', views.upload_and_compare_yaml_view, name='compare-law-group'),
 
     path('export-laws/<slug:group_slug>/<str:lang_code>/', views.export_laws_yaml_view, name='export-laws-yaml'),
-    
+    path('download-laws/<int:rule_id>/', views.download_rule, name='download-rule'),
+
+
     # AJAX Law Views
     path('ajax/law/add/', views.add_law_ajax, name='add-law-ajax'),
     path('ajax/law/move/<int:law_id>/<str:direction>/', views.move_law_ajax, name='move-law-ajax'),

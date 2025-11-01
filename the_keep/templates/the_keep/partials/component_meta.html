@@ -2,7 +2,7 @@
     {% load i18n %}
     <meta property="og:type" content="website">
     <meta property="og:url" content="{{ absolute_uri }}?lang={{ language_code }}">
-    <meta property="og:site_name" content="{{site_title}}">
+    <meta property="og:site_name" content="Root Database">
     <meta property="og:title" content="{{ object_title }}">
     {% if object.component == 'Clockwork' %}
         <meta property="og:image" content="{% if object.board_image %}{{object_board_image_url}}{% else %}{{ object.picture.url }}{% endif %}">

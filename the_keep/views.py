@@ -1,11 +1,16 @@
 import random
 import yaml
 import re
-# import logging
+import markdown
+import difflib
+import os
+
+from collections import defaultdict
+
 from django.utils import timezone 
 from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest
+from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest, FileResponse
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, Q, Value, Sum, ProtectedError, Count, IntegerField, FloatField, ExpressionWrapper
@@ -27,12 +32,14 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
-from the_gatehouse.models import Profile, Language
+from the_gatehouse.models import Profile, Language, Website
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, tester_required,
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
-from the_gatehouse.discordservice import send_discord_message, send_rich_discord_message
-from the_gatehouse.utils import get_uuid, build_absolute_uri, get_theme, get_thematic_images, int_to_alpha, int_to_roman
+from the_gatehouse.services.discordservice import send_discord_message, send_rich_discord_message
+from the_gatehouse.utils import get_uuid, build_absolute_uri, int_to_alpha, int_to_roman
+from the_gatehouse.services.context_service import get_theme, get_thematic_images
+from .tasks import sync_rules_task
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -40,7 +47,8 @@ from .models import (
     Hireling, Landmark,
     Piece, Tweak,
     PNPAsset, ColorChoices, PostTranslation,
-    FAQ, LawGroup, Law, duplicate_laws_for_language, StatusChoices
+    FAQ, LawGroup, Law, duplicate_laws_for_language, RulesFile,
+    StatusChoices,
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -50,11 +58,12 @@ from .forms import (MapCreateForm,
                     StatusConfirmForm, TweakCreateForm,
                     PNPAssetCreateForm, TranslationCreateForm,
                     AddLawForm, EditLawForm, EditLawDescriptionForm,
-                    FAQForm, CopyLawGroupForm, LanguageSelectionForm, EditLawGroupForm
+                    FAQForm, CopyLawGroupForm, LanguageSelectionForm, EditLawGroupForm,
+                    YAMLUploadForm
 )
-from .utils import (get_translated_title, clean_meta_description, 
-                    serialize_group, NoPrimeLawError, update_laws_by_structure, create_laws_from_yaml
-                    )
+from .utils import clean_meta_description, generate_comparison_markdown
+from .services.law_update import (compare_structure_strict, update_laws_by_structure, get_translated_title, 
+                                          serialize_group, update_laws_from_yaml, NoPrimeLawError, load_uploaded_yaml)
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
@@ -76,28 +85,6 @@ def quoted_presenter(dumper, data):
 QuotedDumper.add_representer(DoubleQuoted, quoted_presenter)
 QuotedDumper.add_representer(str, quoted_presenter)
 
-
-# logger = logging.getLogger(__name__)
-
-# activity_logger = logging.getLogger("user_activity")
-
-
-# class ExpansionDetailView(DetailView):
-#     model = Expansion
-
-#     def get_context_data(self, **kwargs):
-#         context = super().get_context_data(**kwargs)
-        
-#         links_count = self.object.count_links(self.request.user)
-#         # Add links_count to context
-#         context['links_count'] = links_count
-
-#         if self.object.open_roster and (self.object.end_date > timezone.now() or not self.object.end_date):
-#             context['open_expansion'] = True
-#         else:
-#             context['open_expansion'] = False
-        
-#         return context
 
 
 def expansion_detail_view(request, slug):
@@ -529,7 +516,18 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 
 def about(request, *args, **kwargs):
-    return render(request, 'the_keep/about.html', {'title': 'About'})
+    latest_law = RulesFile.objects.filter(post__isnull=True, status=RulesFile.Status.ACTIVE, language__code='en').first()
+    if latest_law:
+        law_date = latest_law.commit_date
+    else:
+        law_date = None
+
+    context = {
+        'title': 'About',
+        'law_date': law_date
+    }
+
+    return render(request, 'the_keep/about.html', context)
 
 
 def home(request, *args, **kwargs):
@@ -1196,19 +1194,22 @@ def component_games(request, slug):
     total_efforts = 0
     # On first load get faction and VB Stats
     page_number = request.GET.get('page')  # Get the page number from the request
+    print(page_number)
     if not page_number:
+        
         if object.component == "Faction":
-            game_values = filtered_games.aggregate(
-                        total_efforts=Count('efforts', filter=Q(efforts__faction=object)),
-                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__faction=object)),
-                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__faction=object))
-                    )
-        if object.component == "Vagabond":
-            game_values = filtered_games.aggregate(
-                        total_efforts=Count('efforts', filter=Q(efforts__vagabond=object)),
-                        win_count=Count('efforts', filter=Q(efforts__win=True, efforts__vagabond=object)),
-                        coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__vagabond=object))
-                    )
+            efforts = Effort.objects.filter(game__in=filtered_games, faction=object)
+        elif object.component == "Vagabond":
+            efforts = Effort.objects.filter(game__in=filtered_games, vagabond=object)
+        else:
+            efforts = Effort.objects.filter(game__in=filtered_games)
+
+        game_values = efforts.aggregate(
+            total_efforts=Count('id'),
+            win_count=Count('id', filter=Q(win=True)),
+            coalition_count=Count('id', filter=Q(win=True, game__coalition_win=True))
+        )
+
         if object.component == "Faction" or object.component == "Vagabond":
             # Access the aggregated values from the dictionary returned by .aggregate()
             total_efforts = game_values['total_efforts']
@@ -1308,7 +1309,7 @@ def list_view(request, slug=None):
         'slug': slug,
         'background_image': background_image,
         'foreground_images': foreground_images,
-        'theme_artists': theme_artists,
+        # 'theme_artists': theme_artists,
         'used_languages': used_languages,
         'language_code': language_code,
         'selected_expansion': expansion,
@@ -2123,7 +2124,7 @@ COMPONENT_TYPE_MAP = {
     "post": "Post",  # special case if you're handling raw posts
 }
 
-def advanced_search(request, component_type):
+def advanced_search(request, component_type='faction'):
     component = COMPONENT_TYPE_MAP.get(component_type.lower())
     
     if not component:
@@ -2820,7 +2821,7 @@ class PNPAssetListView(ListView):
         background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='resources')
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
-        context['theme_artists'] = theme_artists
+        # context['theme_artists'] = theme_artists
 
         
         # Get the search query from the GET parameters
@@ -3636,21 +3637,29 @@ def law_table_of_contents(request, lang_code='en'):
     #     laws = laws.filter(group__post__official=False)
 
     if filter_type == 'official':
-        laws = laws.filter(Q(group__type='Official') | Q(group__type='Bot'))
+        laws = laws.filter(Q(group__type='Official') | Q(group__type='Bot') | Q(group__type='Appendix'))
     elif filter_type == 'fan':
         laws = laws.filter(group__type='Fan')
 
     search_q = Q(title__icontains=query) | Q(description__icontains=query)
 
     if query:
-        official_laws = laws.filter(search_q, group__type="Official").distinct()
+        official_laws = laws.filter(Q(search_q) & (Q(group__type="Official") | Q(group__type="Appendix"))).distinct()
         bot_laws = laws.filter(search_q, group__type="Bot").distinct()
         fan_laws = laws.filter(search_q, group__type="Fan").distinct()
     else:
-        official_laws = laws.filter(prime_law=True, group__type="Official")
+        official_laws = laws.filter(
+            Q(prime_law=True) & (Q(group__type="Official") | Q(group__type="Appendix"))
+        )
         bot_laws = laws.filter(prime_law=True, group__type="Bot")
         fan_laws = laws.filter(prime_law=True, group__type="Fan")
     
+
+    date_updated = None
+    if official_laws:
+        rule_file = RulesFile.objects.filter(language=language, post__isnull=True, status=RulesFile.Status.ACTIVE).first()
+        if rule_file:
+            date_updated = rule_file.commit_date
 
     context = {
         # 'laws': laws,
@@ -3660,7 +3669,8 @@ def law_table_of_contents(request, lang_code='en'):
         'lang_code': language.code,
         'available_languages': available_languages,
         'selected_language': language,
-        'query': query
+        'query': query,
+        'date_updated': date_updated,
     }
 
     if request.htmx:
@@ -3743,9 +3753,12 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         top_level_laws = list(raw_top_level)
         assign_full_urls(top_level_laws, request)
     
-    # if not top_level_laws:
-    #     edit_mode = False
-        # edit_authorized = False
+    date_updated = None
+    if group.post == None:
+        rule_file = RulesFile.objects.filter(language=language, post__isnull=True, status=RulesFile.Status.ACTIVE).first()
+        if rule_file:
+            date_updated = rule_file.commit_date
+        
 
     previous_group = group.get_previous_by_position(language=language)
     next_group = group.get_next_by_position(language=language)
@@ -3767,6 +3780,7 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         'top_level_laws': top_level_laws,
         'group': group,
         'edit_mode': edit_mode,
+        'date_updated': date_updated,
     }
 
 def law_group_view(request, slug, lang_code):
@@ -3839,7 +3853,7 @@ def export_laws_yaml_view(request, group_slug, lang_code):
             raise Http404("No prime law found.")
 
         try:
-            output = serialize_group(prime_law)
+            output = serialize_group(prime_law, include_id=False)
         except NoPrimeLawError:
             raise Http404("No prime law found.")
 
@@ -3866,10 +3880,22 @@ def export_laws_yaml_view(request, group_slug, lang_code):
     except Language.DoesNotExist:
         raise Http404("Language not found.")
 
+def download_rule(request, rule_id):
+    rule = get_object_or_404(RulesFile, pk=rule_id)
+    
+    try:
+        file_path = rule.file.path
+        if os.path.exists(file_path):
+            response = FileResponse(open(file_path, 'rb'))
+            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+            response['Content-Type'] = 'application/x-yaml'
+            return response
+        else:
+            raise Http404("File not found")
+    except Exception as e:
+        raise Http404("File not found")
 
 
-from .forms import YAMLUploadForm
-from .utils import serialize_group, compare_structure_strict 
 
 @admin_required
 def upload_and_compare_yaml_view(request, group_slug, lang_code):
@@ -3893,11 +3919,8 @@ def upload_and_compare_yaml_view(request, group_slug, lang_code):
 
                 if not mismatches:
                     update_laws_by_structure(generated_yaml, uploaded_yaml, lang_code)
-                    prime_law = Law.objects.filter(group__slug=group_slug, language__code=lang_code, prime_law=True).first()
                     messages.success(request, f'Law for {prime_law.group} successfully updated!')
                     return redirect(prime_law.get_absolute_url())
-                 
-
 
                 return render(request, 'the_keep/law_upload_comparison.html', {
                     'form': form,
@@ -3912,103 +3935,154 @@ def upload_and_compare_yaml_view(request, group_slug, lang_code):
 
     return render(request, 'the_keep/law_upload_form.html', {'form': form})
 
+
 @admin_required
 def update_official_laws(request, lang_code):
+    language = Language.objects.get(code=lang_code)
     if request.method == 'POST':
         form = YAMLUploadForm(request.POST, request.FILES)
         if form.is_valid():
             uploaded_file = request.FILES['file']
             try:
-                uploaded_yaml = yaml.safe_load(uploaded_file)
-                language = Language.objects.get(code=lang_code)
+                uploaded_yaml = load_uploaded_yaml(uploaded_file)
+                created, updated, mismatched, errors, all_mismatches = update_laws_from_yaml(uploaded_yaml, language, messages=request)
 
-                # Accept list of groups and convert to dict keyed by name
-                if isinstance(uploaded_yaml, list):
-                    uploaded_yaml = {entry['name']: entry for entry in uploaded_yaml}
-                elif not isinstance(uploaded_yaml, dict):
-                    return HttpResponse("YAML must be a list or dictionary of law groups.", status=400)
-
-
-                matched_yaml = {}
-                unmatched_yaml = {}
-
-                for group_title, group_data in uploaded_yaml.items():
-                    # Match by post title
-                    post = Post.objects.filter(title=group_title).first()
-                    if post:
-                        matched_yaml[group_title] = {'data': group_data, 'post': post}
-                    else:
-                        unmatched_yaml[group_title] = {'data': group_data, 'post': None}
-
-                # Filter LawGroups
-                lawgroups_with_post = LawGroup.objects.filter(type='Official', post__isnull=False)
-                lawgroups_without_post = LawGroup.objects.filter(type='Official', post__isnull=True)
-
-                # First group: post is not None
-                for group_title, content in matched_yaml.items():
-                    post = content['post']
-                    group_data = content['data']
-
-                    group = lawgroups_with_post.filter(post=post).first()
-                    if not group:
-                        # Create LawGroup if it doesn't exist
-                        group = LawGroup.objects.create(
-                            post=post,
-                            type="Official"
-                        )
-                        messages.info(request, f"Created Law for '{group_title}'.")
-
-
-                    prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
-                    if not prime_law:
-                        # Create law structure from YAML if no prime law exists
-                        # create_laws_from_yaml(group, language, group_data)
-                        create_laws_from_yaml(group, language, [group_data])
-                        messages.success(request, f"Created new law structure for group '{group_title}'.")
-                        continue
-
-                    generated_yaml = serialize_group(prime_law)
-                    mismatches = compare_structure_strict(generated_yaml, [group_data])
-
-                    if not mismatches:
-                        update_laws_by_structure(generated_yaml, [group_data], lang_code)
-                        messages.success(request, f"Law for {group.title} successfully updated!")
-                    else:
-                        messages.warning(request, f"Structure mismatch in group '{group_title}': {mismatches}")
-
-                # Second group: post is None
-                for group_title, content in unmatched_yaml.items():
-                    group_data = content['data']
-                    group = lawgroups_without_post.filter(title=group_title).first()
-                    if not group:
-                        continue
-
-                    prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
-                    if not prime_law:
-                        # create_laws_from_yaml(group, language, group_data)
-                        create_laws_from_yaml(group, language, [group_data])
-
-                        messages.success(request, f"Created new law structure for group '{group_title}'.")
-                        continue
-
-                    generated_yaml = serialize_group(prime_law)
-                    mismatches = compare_structure_strict(generated_yaml, [group_data])
-
-                    if not mismatches:
-                        update_laws_by_structure(generated_yaml, [group_data], lang_code)
-                        messages.success(request, f"Law for {group.title} successfully updated!")
-                    else:
-                        messages.warning(request, f"Structure mismatch in group '{group_title}': {mismatches}")
+                if mismatched or errors:
+                    parts = []
+                    if errors:
+                        parts.append(f"Errors in {', '.join(errors)}")
+                    if mismatched:
+                        parts.append(f"Mismatches in {', '.join(mismatched)}")
+                    messages.error(request, ". ".join(parts) + ". Update aborted.")
+                    comparison_report = generate_comparison_markdown(all_mismatches)
+                    html_report = markdown.markdown(comparison_report, extensions=['fenced_code', 'tables'])
+                    context = {
+                        'report': html_report,
+                        'mismatched': mismatched,
+                        'mismatches': all_mismatches,
+                        'errors': errors,
+                    }
+                    return render(request, 'the_keep/law_upload_comparison.html', context)
+                else:
+                    parts = []
+                    if created:
+                        parts.append(f"Created Laws for {', '.join(created)}")
+                    if updated:
+                        parts.append(f"Updated Laws for {', '.join(updated)}")
+                    if parts:
+                        messages.success(request, ". ".join(parts) + ".")
 
                 return redirect('law-of-root', lang_code=lang_code)
 
             except Exception as e:
                 return HttpResponse(f"Error processing YAML: {str(e)}", status=500)
-
     else:
         form = YAMLUploadForm()
-
     return render(request, 'the_keep/law_upload_form.html', {'form': form})
+
+@admin_required
+def official_laws_selection(request):
+    new_rules = RulesFile.objects.filter(status=RulesFile.Status.NEW)
+    current_rules = RulesFile.objects.filter(status=RulesFile.Status.ACTIVE)
+
+    # Build a dict for the active and new rules
+    rules_by_language = defaultdict(lambda: {'active': None, 'new': []})
+
+    # Add active rules
+    for rule in current_rules:
+        rules_by_language[rule.language.name]['active'] = rule
+
+    # Add new rules
+    for rule in new_rules:
+        rules_by_language[rule.language.name]['new'].append(rule)
+
+    last_law_check = Website.get_singular_instance().last_law_check
+
+    context = {
+        'rules_by_language': dict(rules_by_language),
+        'last_law_check': last_law_check,
+    }
+    return render(request, 'the_keep/law_of_root_select.html', context)
+
+@admin_required
+def activate_rule(request):
+    if request.method == "POST":
+        rule_id = request.POST.get("rule_id")
+
+        rule = get_object_or_404(RulesFile, id=rule_id)
+
+        uploaded_yaml = load_uploaded_yaml(rule.file)
+        created, updated, mismatched, errors, all_mismatches = update_laws_from_yaml(uploaded_yaml, rule.language, messages=request)
+
+        if mismatched or errors:
+            parts = []
+            if errors:
+                parts.append(f"Errors in {', '.join(errors)}")
+            if mismatched:
+                parts.append(f"Mismatches in {', '.join(mismatched)}")
+            messages.error(request, ". ".join(parts) + ". Update aborted.")
+            comparison_report = generate_comparison_markdown(all_mismatches)
+            html_report = markdown.markdown(comparison_report, extensions=['fenced_code', 'tables'])
+            context = {
+                'report': html_report,
+                'mismatched': mismatched,
+                'mismatches': all_mismatches,
+                'errors': errors,
+            }
+            return render(request, 'the_keep/law_upload_comparison.html', context)
+        else:
+            parts = []
+            if created:
+                parts.append(f"Created Laws for {', '.join(created)}")
+            if updated:
+                parts.append(f"Updated Laws for {', '.join(updated)}")
+            if parts:
+                messages.success(request, ". ".join(parts) + ".")
+            rule.activate()
+
+    return redirect('select-law-of-root')
+
+
+@admin_required
+def archive_rule(request):
+    if request.method == "POST":
+        rule_id = request.POST.get("rule_id")
+
+        rule = get_object_or_404(RulesFile, id=rule_id)
+
+        rule.ignore()
+        if rule.status == RulesFile.Status.ARCHIVE:
+            messages.success(request, f"Ignored rule {rule} moved to Archive")
+        else:
+            messages.warning(request, f"Failed to Archive rule {rule}")
+
+    return redirect('select-law-of-root')
+
+
+@admin_required
+def refresh_laws(request):
+
+    message = sync_rules_task()
+    messages.success(request, message)
+    return redirect('select-law-of-root')
+
+
+def law_preview(request, rule_id):
+    rule = get_object_or_404(RulesFile, pk=rule_id)
+    
+    # Read the YAML file content
+    try:
+        with open(rule.file.path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+    except FileNotFoundError:
+        file_content = "File not found."
+
+    context = {
+        'rule': rule,
+        'file_content': file_content,
+    }
+
+    return render(request, 'the_keep/law_preview.html', context)
 
 
 # FAQs FAQ Views

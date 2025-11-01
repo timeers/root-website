@@ -6,7 +6,7 @@ from .views import (user_settings, player_page_view,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error)
-from the_warroom.views import PlayerGameListView
+from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
     # path("home/", list_view),
@@ -19,7 +19,8 @@ urlpatterns = [
     path('profile/<slug:slug>/creations/', list_view, name='player-creations'),
     path('profile/<slug:slug>/component-list/', designer_component_view, name='designer-components'),
     path('profile/<slug:slug>/artwork/', artist_component_view, name='artist-components'),
-    path('profile/<slug:slug>/games/', PlayerGameListView.as_view(), name='player-games'),
+    # path('profile/<slug:slug>/games/', PlayerGameListView.as_view(), name='player-games'),
+    path('profile/<slug:slug>/games/', player_game_list_view, name='player-games'),
     path('profile/<slug:slug>/post-bookmarks/', post_bookmarks, name='post-bookmarks'),
     path('profile/<slug:slug>/game-bookmarks/', game_bookmarks, name='game-bookmarks'),
     path('settings/', user_settings, name='user-settings'),

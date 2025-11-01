@@ -1,19 +1,21 @@
 import requests
 import time
-import re
+
 from celery import shared_task
 from dateutil import parser, relativedelta
 from datetime import timedelta
+
 from django.db import transaction
 from django.utils import timezone
-from the_warroom.models import Game, Effort, PlatformChoices, Tournament, Round
+
 from the_keep.models import Faction, Vagabond, Deck, Map, Landmark, Hireling, Profile, StatusChoices
 from the_gatehouse.utils import format_bulleted_list
-from the_gatehouse.discordservice import send_rich_discord_message
+from the_gatehouse.services.discordservice import send_rich_discord_message, send_discord_message
 
-from better_profanity import profanity
+from .models import Game, Effort, PlatformChoices, Tournament, Round
+from .utils import clean_nickname
 
-profanity.load_censor_words()
+
 
 # Import League Games from Pliskin.dev REST API
 
@@ -131,26 +133,9 @@ HIRELING_MAP = {
 }
 
 
-
-def clean_nickname(raw_title):
-    nickname = (raw_title or '').strip()
-    lower_nickname = nickname.lower()
-
-    # Block completely if link or Imported game
-    blocked_substrings = ['https://', 'discord.com', 'import game 20']
-    if any(substring in lower_nickname for substring in blocked_substrings):
-        return None
-
-    # If nickname contains profanity, censor it
-    if profanity.contains_profanity(nickname):
-        nickname = profanity.censor(nickname)
-
-    return nickname[:50]  # Truncate to 50 characters
-
-
 # Imports all games from the last 1 day
 @shared_task
-def import_league_games(limit=100, tournament_name="", days_back=1, date_from=None, date_to=None):
+def import_league_games(limit=25, tournament_name="", days_back=1, date_from=None, date_to=None):
     """
     Import games from the Root League API.
     
@@ -272,11 +257,22 @@ def import_league_games(limit=100, tournament_name="", days_back=1, date_from=No
     #         'value': format_bulleted_list(skipped_list),
     #     })
     if error_list:
-        fields.append({
-            'name': 'Error',
-            'value': format_bulleted_list(error_list),
-        })
-    
+        if error_list:
+            error_field = {
+                'name': 'Errors',
+                'value': format_bulleted_list(error_list),
+            }
+            fields.append(error_field)
+
+            # Send error message
+            send_rich_discord_message(
+                message,
+                author_name='RDB Admin',
+                category='report',
+                title='Import Errors',
+                fields=[error_field]
+            )
+
     if imported_count > 0 or error_count > 0:
         # Send import summary message to Discord
         send_rich_discord_message(
@@ -286,14 +282,15 @@ def import_league_games(limit=100, tournament_name="", days_back=1, date_from=No
             title='RDL Import',
             fields=fields
         )
-
+    if imported_count == limit:
+        send_discord_message(f"Import limit of {limit} hit", category='report')
 
     return summary
 
 
 # Checks all the games modified in the last 2 days and updates them
 @shared_task
-def update_league_games(limit=100, days_back=2, days_cutoff=1, date_from=None, date_to=None):
+def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, date_to=None):
     """
     Check for games that were modified after initial submission and update them.
     
@@ -419,32 +416,44 @@ def update_league_games(limit=100, days_back=2, days_cutoff=1, date_from=None, d
         if has_more:
             time.sleep(0.5)  # 500ms delay between API requests
         offset += limit
-    
-    summary = f"Update check complete: {updated_count} updated, {skipped_count} skipped, {error_count} errors"
-    
-    # Create update message
-    fields = []
-    if updated_list:
-        fields.append({
-            'name': 'Updated',
-            'value': format_bulleted_list(updated_list),
-        })
-    if error_list:
-        fields.append({
-            'name': 'Error',
-            'value': format_bulleted_list(error_list),
-        })
-    
-    # Send update summary message to Discord
-    if updated_count > 0 or error_count > 0:
-        send_rich_discord_message(
-            summary,
-            author_name='RDB Admin',
-            category='rdl-update',
-            title='RDL Update Check',
-            fields=fields
-        )
-    
+
+        summary = f"Update check complete: {updated_count} updated, {skipped_count} skipped, {error_count} errors"
+
+        # Build fields for summary message
+        fields = []
+
+        if updated_list:
+            fields.append({
+                'name': 'Updated',
+                'value': format_bulleted_list(updated_list),
+            })
+
+        if error_list:
+            error_field = {
+                'name': 'Errors',
+                'value': format_bulleted_list(error_list),
+            }
+            fields.append(error_field)
+
+            # Send error message
+            send_rich_discord_message(
+                summary,
+                author_name='RDB Admin',
+                category='report',
+                title='Update Errors',
+                fields=[error_field]
+            )
+
+        # Send main update summary (only if anything happened)
+        if updated_count > 0 or error_count > 0:
+            send_rich_discord_message(
+                summary,
+                author_name='RDB Admin',
+                category='rdl-update',
+                title='RDL Update Check',
+                fields=fields
+            )
+
     print(summary)
     return summary
 
@@ -714,7 +723,7 @@ def create_efforts_from_api(game, participants):
     
         # 3. Match discord without the +number and update
         if not player:
-            player = Profile.objects.filter(discord__iexact=player_without_number).first()
+            player = Profile.objects.filter(discord__iexact=player_without_number, dwd__isnull=True).first()
             if player:
                 player.dwd = full_player_string
                 player.save()
@@ -786,101 +795,3 @@ def create_efforts_from_api(game, participants):
             game=game,
             faction_status=status,
         )
-
-
-@shared_task
-def test_import_league_games_single_page(limit=100, tournament_name="M04", days_back=2):
-    """
-    Test import - only processes the FIRST page of results.
-    
-    Args:
-        limit: Number of games to fetch
-        tournament_name: String included in the tournament's name
-        days_back: Filter by date modified
-    """
-    base_url = "https://rootleague.pliskin.dev/api/match/"
-    imported_count = 0
-    skipped_count = 0
-    error_count = 0
-    imported_list = []
-    skipped_list = []
-    error_list = []
-    
-    # Calculate cutoff date
-    cutoff_date = timezone.now() - timedelta(days=days_back)
-    
-    # Fetch ONLY the first page
-    params = {
-        'tournament_name': tournament_name,
-        'limit': limit,
-        'offset': 0,  # Always start at 0
-        'date_modified__gte': cutoff_date.isoformat()
-    }
-    
-    try:
-        response = requests.get(base_url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as e:
-        return f"Error fetching API data: {e}"
-    
-    results = data.get('results', [])
-    
-    for match_data in results:
-        try:
-            # Check if game already exists by league_id
-            league_id = str(match_data['id'])
-            if Game.objects.filter(league_id=league_id).exists():
-                print(f"Game {league_id} already exists, skipping")
-                skipped_count += 1
-                skipped_list.append(league_id)
-                continue
-            
-            # Atomic transaction - if anything fails, nothing gets saved
-            with transaction.atomic():
-                # Create the Game
-                game = create_game_from_api(match_data)
-                
-                # Create the Efforts (participants)
-                create_efforts_from_api(game, match_data['participants'])
-            
-            imported_count += 1
-            imported_list.append(league_id)
-            print(f"Successfully imported game {league_id}")
-            
-        except Exception as e:
-            print(f"Error importing game {str(match_data.get('id'))}: {e}")
-            import traceback
-            traceback.print_exc()
-            error_count += 1
-            error_list.append(league_id)
-            continue
-    
-    summary = f"Test import complete (first page only): {imported_count} imported, {skipped_count} skipped, {error_count} errors"
-    message = f"Test import complete: {imported_count} imported and {error_count} errors"
-    
-    # Create import message
-    fields = []
-    if imported_list:
-        fields.append({
-            'name': 'Imported',
-            'value': format_bulleted_list(imported_list),
-        })
-    if error_list:
-        fields.append({
-            'name': 'Error',
-            'value': format_bulleted_list(error_list),
-        })
-    
-    if imported_count > 0 or error_count > 0:
-        # Call import summary message to Discord
-        send_rich_discord_message(
-            message,
-            author_name='RDB Admin',
-            category='rdl-import',
-            title='RDL Test Import',
-            fields=fields
-        )
-    
-    print(summary)
-    return summary

@@ -13,7 +13,7 @@ click-plugins==1.1.1.2
 click-repl==0.3.0
 crispy-bootstrap4==2024.10
 cron_descriptor==2.0.6
-Django==5.1.9
+Django==5.1.13
 django-allauth==65.2.0
 django-appconf==1.0.6
 django-celery-beat==2.8.1
@@ -26,6 +26,7 @@ django-select2==8.4.1
 django-storages==1.14.4
 django-timezone-field==7.1
 djangorestframework==3.15.2
+emoji==2.15.0
 gunicorn==23.0.0
 idna==3.10
 inflect==7.5.0
@@ -51,6 +52,7 @@ sqlparse==0.5.1
 typeguard==4.4.2
 typing_extensions==4.12.2
 tzdata==2025.2
+Unidecode==1.4.0
 urllib3==2.2.3
 vine==5.1.0
 wcwidth==0.2.14

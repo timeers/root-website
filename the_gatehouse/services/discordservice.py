@@ -1,19 +1,12 @@
-import os
-# import logging
-# import uuid
 import requests
 import json
-from django.utils import timezone 
-
-# from django.conf import settings
-from django.contrib.auth.decorators import login_required
-# from django.shortcuts import render
-from django.core.exceptions import PermissionDenied
-
+import emoji
 
 from allauth.socialaccount.models import SocialAccount
 
-# logger = logging.getLogger(__name__)
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -25,6 +18,10 @@ def get_discord_display_name(user):
         social_account = SocialAccount.objects.get(user=user, provider='discord')
         # Extract the display name from the extra data
         display_name = social_account.extra_data.get('global_name', '')
+
+        # Remove all emojis
+        display_name = emoji.replace_emoji(display_name, '').strip()
+
         return display_name
     except SocialAccount.DoesNotExist:
         return None
@@ -104,86 +101,13 @@ def woodland_warriors_required():
 
 
 
-# class DiscordWebhookHandler(logging.Handler):
-#     def __init__(self, webhook_url, username="RDB Logger", avatar_url=None):
-#         super().__init__()
-#         self.webhook_url = webhook_url
-#         self.username = username
-#         self.avatar_url = avatar_url  # Optional avatar URL (can be an image URL)
- 
-#     def emit(self, record):
-#         # Format the log message
-#         log_message = self.format(record)
-       
-#         # Define the embed structure
-#         embed = {
-#             "title": "Error Notification",
-#             "description": log_message,  # Include the formatted log message in the embed
-#             "color": 16711680  # Color code for red (for errors)
-#         }
- 
-#         # Build the payload
-#         payload = {
-#             "username": self.username,  # Custom username for the webhook message
-#             "avatar_url": self.avatar_url,  # Custom avatar URL (optional)
-#             "embeds": [embed]  # Embed content for richer display
-#         }
- 
-#         # Define the headers for the request
-#         headers = {
-#             "Content-Type": "application/json"
-#         }
- 
-#         # Send the request to the Discord webhook URL
-#         try:
-#             response = requests.post(self.webhook_url, data=json.dumps(payload), headers=headers)
-#             response.raise_for_status()  # Raise an error if the request failed
-#         except requests.exceptions.RequestException as e:
-#             print(f"Error sending log to Discord: {e}")
-#             # logger.error(f"Error sending log to Discord: {e}")
 
+def apply_discord_category(category):
 
-
-def send_discord_message(message, category=None):
-    # Check if DEBUG is False in the config
-    if config["DEBUG_VALUE"] == "True":
-        return  # Do nothing if DEBUG is True
-
-    # Set the webhook URL based on the category
-    if category == 'feedback':
-        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
-    elif category == 'report':
-        webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
-    elif category == 'request':
-        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
-    elif category == 'user_updates':
-        webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
-    elif category == 'automation':
-        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
-    else:
-        webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
-
-    
-    # Define the payload (message) to be sent
-    payload = {
-        'content': message,  # Message to be sent
-    }
-
-    # Send POST request to Discord webhook URL
-    response = requests.post(webhook_url, json=payload)
-    
-    if response.status_code != 204:
-        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
-
-
-
-
-def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
-    # Check if DEBUG is False in the config (uncomment this if you want to use it)
-    # if config["DEBUG_VALUE"] == "True":
-    #     return  # Do nothing if DEBUG is True
-    
-    # Set the webhook URL based on the category
+    webhook_url = ''
+    embed_title = ''
+    embed_color = ''
+        # Set the webhook URL based on the category
     if category == 'feedback':
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Feedback Received"
@@ -218,7 +142,6 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         embed_color = 0xFF0000  # Red color for report
     elif category == 'FAQ Law':
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
-        embed_title = title
         embed_color = 800080  # Red color for report
     elif category == 'Post Created':
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
@@ -228,8 +151,12 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
         embed_title = "Post Edited"
         embed_color = 0x00FF00  # Green color for new
-
+        
     # Automations
+    elif category == 'automation':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
+        embed_title = "Automation"
+        embed_color = 0x808080  # Grey color for unknown category
     elif category == 'rdl-import':
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
         embed_title = "RDL Import"
@@ -253,6 +180,35 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
         webhook_url = config['DISCORD_USER_EVENTS_WEBHOOK_URL']
         embed_title = "Activity"
         embed_color = 0x808080  # Grey color for unknown category
+
+    return webhook_url, embed_title, embed_color
+
+
+def send_discord_message(message, category=None):
+    # Check if DEBUG is False in the config
+    if config["DEBUG_VALUE"] == "True":
+        return  # Do nothing if DEBUG is True
+
+    webhook_url, _, _ = apply_discord_category(category=category)
+    
+    # Define the payload (message) to be sent
+    payload = {
+        'content': message,  # Message to be sent
+    }
+
+    # Send POST request to Discord webhook URL
+    response = requests.post(webhook_url, json=payload)
+    
+    if response.status_code != 204:
+        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
+
+
+def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
+    # Check if DEBUG is False in the config (uncomment this if you want to use it)
+    if config["DEBUG_VALUE"] == "True":
+        return  # Do nothing if DEBUG is True
+    
+    webhook_url, embed_title, embed_color = apply_discord_category(category=category)
 
     # Base embed structure
     embed = {

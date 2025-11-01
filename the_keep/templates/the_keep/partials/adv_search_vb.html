@@ -19,11 +19,11 @@
     {% for item_option in item_choices %}
         
             {% if item_option.value == "None" %}
-            <div class="button-option select-option root-title" data-value="{{ item_option.value }}">
+            <div class="button-option select-option root-title mb-1" data-value="{{ item_option.value }}">
                 {{ item_option.label }}
             </div>
             {% else %}
-            <div class="select-option root-title" data-value="{{ item_option.value }}">
+            <div class="select-option root-title mr-1 mb-1" data-value="{{ item_option.value }}">
                 <img class="item-option" src="{% static 'items/' %}{{ item_option.label|lower }}_flip.png" alt="{{ item_option.label }}">
             </div>
             {% endif %}

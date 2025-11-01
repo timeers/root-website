@@ -2,39 +2,38 @@ import os
 import uuid
 import re
 import inflect
+import random
 
 from decimal import Decimal
 from urllib.parse import urlencode
+from datetime import date
+from PIL import Image
+from io import BytesIO
+from dataclasses import dataclass, field
+from typing import Optional
+
+from django.apps import apps
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models.signals import pre_save, post_save
 from django.db.models import (
     Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, OuterRef, Subquery
     )
 from django.db.models.functions import Cast, Coalesce
-
+from django.db.models.query import QuerySet 
 from django.utils import timezone 
 from django.utils.translation import get_language
 from django.urls import reverse
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
-
-from datetime import date
-from PIL import Image
-from io import BytesIO
-from django.apps import apps
-from .utils import slugify_post_title, slugify_expansion_title, slugify_law_group_title, DEFAULT_TITLES_TRANSLATIONS
-from the_gatehouse.models import Profile, Language
-from .utils import validate_hex_color, delete_old_image, hex_to_rgb, strip_formatting
-import random
-from django.conf import settings
-from the_gatehouse.discordservice import send_rich_discord_message
 from django.utils.translation import gettext_lazy as _
+
+from the_gatehouse.models import Profile, Language
+from the_gatehouse.services.discordservice import send_rich_discord_message
 from the_gatehouse.utils import int_to_alpha, int_to_roman
 
-from dataclasses import dataclass, field
-from typing import Optional
-from django.db.models.query import QuerySet 
+from .utils import validate_hex_color, delete_old_image, hex_to_rgb, strip_formatting, DEFAULT_TITLES_TRANSLATIONS
 
 
 # Stable requirements
@@ -2512,6 +2511,69 @@ def duplicate_laws_for_language(source_group: LawGroup, source_language, target_
     top_laws = Law.objects.filter(group=source_group, parent=None, language=target_language).order_by('position')
     if top_laws.exists():
         top_laws.first().rebuild_law_codes(source_group, parent=None, deleted_position=0)
+
+
+
+
+class RulesFile(models.Model):
+    class Status(models.TextChoices):
+        NEW = "new", "New"
+        ACTIVE = "active", "Active"
+        ARCHIVE = "archive", "Archive"
+    language = models.ForeignKey(Language, on_delete=models.CASCADE)
+    version = models.CharField(max_length=20)
+    file = models.FileField(upload_to="rules/")
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.NEW,
+        db_index=True,
+    )
+    
+
+    # For Rules relating to one Post. Null if uploaded from Github
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)  
+    owner = models.ForeignKey(Profile, on_delete=models.CASCADE, null=True, blank=True)
+
+    
+    # For Github uploads
+    sha = models.CharField(max_length=64, db_index=True)
+    fetched_at = models.DateTimeField(default=timezone.now)
+    commit_date = models.DateTimeField(default=timezone.now)
+
+
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["version", "commit_date"]),
+        ]
+        ordering = ['post__title' ,"status", 'language__code', "-commit_date"]
+
+    def __str__(self):
+        formatted_date = self.commit_date.strftime("%B %d, %Y") if self.commit_date else "Unknown date"
+        return f"v{self.version} ({formatted_date})"
+    
+    def activate(self):
+        """
+        Marks this RulesFile as active and sets any other RulesFiles to old.
+        """
+        # Mark previous active rules as old
+        RulesFile.objects.filter(
+            status=RulesFile.Status.ACTIVE, language=self.language, post=self.post
+        ).exclude(pk=self.pk).update(status=RulesFile.Status.ARCHIVE)
+
+        RulesFile.objects.filter(
+            status=RulesFile.Status.NEW, language=self.language, post=self.post
+        ).exclude(pk=self.pk).update(status=RulesFile.Status.ARCHIVE)
+
+        # Set this one as active
+        self.status = RulesFile.Status.ACTIVE
+        self.save(update_fields=["status"])
+    
+    def ignore(self):
+        if self.status != RulesFile.Status.ACTIVE:
+            self.status = RulesFile.Status.ARCHIVE
+            self.save(update_fields=['status'])
 
 
 

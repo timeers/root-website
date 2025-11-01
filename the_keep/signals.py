@@ -1,12 +1,12 @@
 # the_keep/signals.py
 
-from django.db.models.signals import pre_save, post_save
+from django.db.models.signals import pre_save, post_save, post_delete
 from django.dispatch import receiver
 from .models import (
     Map, Deck, Faction, Vagabond, Hireling, Landmark, Tweak,
-    Expansion, LawGroup
+    Expansion, LawGroup, RulesFile
 )
-from .utils import (
+from .services.slugify_titles import (
     slugify_post_title,
     slugify_expansion_title,
     slugify_law_group_title
@@ -57,3 +57,25 @@ def expansion_post_save(sender, instance, created, **kwargs):
 def law_group_post_save(sender, instance, created, **kwargs):
     if created:
         slugify_law_group_title(instance, save=True)
+
+
+
+# Delete Yaml file on delete or update
+@receiver(pre_save, sender=RulesFile)
+def delete_old_file_on_change(sender, instance, **kwargs):
+    if not instance.pk:
+        return  # New object, no old file to delete
+    try:
+        old_file = sender.objects.get(pk=instance.pk).file
+    except sender.DoesNotExist:
+        return
+
+    new_file = instance.file
+    if old_file and old_file != new_file:
+        old_file.delete(save=False)
+
+
+@receiver(post_delete, sender=RulesFile)
+def delete_rulesfile_file(sender, instance, **kwargs):
+    if instance.file:
+        instance.file.delete(save=False)

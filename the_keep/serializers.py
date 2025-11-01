@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Post, Map, Deck, Landmark, Tweak, Hireling, Vagabond, Faction
+
+from .models import Map, Deck, Landmark, Tweak, Hireling, Vagabond, Faction
 
 
 

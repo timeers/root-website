@@ -1,3 +1,8 @@
+import os
+import uuid
+from io import BytesIO
+from PIL import Image
+
 from django.db.models.signals import post_save, pre_save
 from django.shortcuts import redirect
 from django.dispatch import receiver
@@ -6,18 +11,13 @@ from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
 from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
-from .models import Profile 
-from .discordservice import get_discord_display_name, check_user_guilds, send_discord_message
+
+from .models import Profile, ForegroundImage, BackgroundImage
+from .services.discordservice import get_discord_display_name, check_user_guilds, send_discord_message
 from .utils import slugify_instance_discord
+
 from the_keep.utils import resize_image_to_webp, delete_old_image
 from the_keep.models import Post, Piece, PostTranslation, Map, Deck, Vagabond, Landmark, Hireling, Tweak
-from the_gatehouse.models import ForegroundImage, BackgroundImage
-
-import os
-import uuid
-from io import BytesIO
-from PIL import Image
-
 
 
 @receiver(pre_save, sender=Profile)

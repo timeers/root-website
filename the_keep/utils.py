@@ -1,21 +1,133 @@
-import random
-from django.utils.text import slugify, Truncator
-from django.utils.html import strip_tags
-from django.apps import apps
-from django.core.exceptions import ValidationError
-from django.conf import settings
-from django.db import transaction
 import re
-from PIL import Image
+import unicodedata
 import os
 import math
 import uuid
 import string
 
+from collections import defaultdict
+from PIL import Image
 from itertools import combinations
 
-class NoPrimeLawError(Exception):
-    pass
+from django.utils.text import Truncator
+from django.utils.html import strip_tags
+from django.core.exceptions import ValidationError
+from django.conf import settings
+
+DEFAULT_TITLES_TRANSLATIONS = {
+    'Overview': {
+        'en': 'Overview',
+        'ru': 'Краткое описание',
+        'es': 'Resumen',
+        'nl': 'Overzicht',
+        'pl': 'Omówienie',
+        'fr': 'Aperçu',
+    },
+    'Faction Rules and Abilities': {
+        'en': 'Faction Rules and Abilities',
+        'ru': 'Правила и способности фракции',
+        'es': 'Reglas y Habilidades de Facción',
+        'nl': 'Factieregels en Vaardigheden',
+        'pl': 'Zasady Frakcji i jej Zdolności',
+        'fr': 'Règles et Capacités de Faction',
+    },
+    'Faction Setup': {
+        'en': 'Faction Setup',
+        'ru': 'Подготовка к игре',
+        'es': 'Preparación Individual',
+        'nl': 'Factie Voorbereiding',
+        'pl': 'Przygotowanie Frakcji',
+        'fr': 'Mise en place de Faction',
+    },
+    'Birdsong': {
+        'en': 'Birdsong',
+        'ru': 'Утро',
+        'es': 'Alba',
+        'nl': 'Vogelzang',
+        'pl': 'Świt',
+        'fr': 'Aurore',
+    },
+    'Daylight': {
+        'en': 'Daylight',
+        'ru': 'День',
+        'es': 'Día',
+        'nl': 'Daglicht',
+        'pl': 'Dzień',
+        'fr': 'Jour',
+    },
+    'Evening': {
+        'en': 'Evening',
+        'ru': 'Вечер',
+        'es': 'Noche',
+        'nl': 'Avond',
+        'pl': 'Wieczór',
+        'fr': 'Crépuscule',
+    },
+    'Crafting': {
+        'en': 'Crafting',
+        'ru': 'Ремесло',
+        'es': 'Fabricar',
+        'nl': 'Vervaardigen',
+        'pl': 'Przekuwanie',
+        'fr': 'Artisanat',
+    },
+    'Setup Modifications': {
+        'en': 'Setup Modifications',
+        'ru': 'Изменения конфигурации',
+        'es': 'Cambios en la preparación',
+        'nl': 'Configuratiewijzigingen',
+        'pl': 'Zmiany konfiguracji',
+        'fr': 'Modifications de configuration',
+    },
+    'Starting Items': {
+        'en': 'Starting Items',
+        'ru': 'Начальные предметы',
+        'es': 'Objetos iniciales',
+        'nl': 'Startvoorwerpen',
+        'pl': 'Przedmioty Startowe',
+        'fr': 'Éléments de départ',
+    },
+    'Draw and Discard': {
+        'en': 'Draw and Discard',
+        'ru': 'Добор и сброс карт',
+        'es': 'Robar y descartar',
+        'nl': 'Trek en Leg Af',
+        'pl': 'Dobranie i Odrzucenie Kart',
+        'fr': 'Piocher et défausser',
+    },
+    'Build': {
+        'en': 'Build',
+        'ru': 'Строительство',
+        'es': 'Construir',
+        'nl': 'Bouw.',
+        'pl': 'Budowa',
+        'fr': 'Construire',
+    },
+    'Recruit': {
+        'en': 'Recruit',
+        'ru': 'Вербовка',
+        'es': 'Reclutar',
+        'nl': 'Rekruteer',
+        'pl': 'Werbunek',
+        'fr': 'Recruter',
+    },
+    'Move': {
+        'en': 'Move',
+        'ru': 'Перемещение',
+        'es': 'Mover',
+        'nl': 'Verplaats',
+        'pl': 'Ruch',
+        'fr': 'Déplacer',
+    },
+    'Battle': {
+        'en': 'Battle',
+        'ru': 'Сражение',
+        'es': 'Batallar',
+        'nl': 'Vecht',
+        'pl': 'Walka',
+        'fr': 'Batailler',
+    },
+}
 
 FACTION_SLUGS = {
     'bunny': 'woodland-alliance',
@@ -62,67 +174,6 @@ def resize_image(image_field, max_size):
         
     except Exception as e:
         print(f"Error resizing image: {e}")
-
-
-# def resize_image_to_webp(image_field, max_size, instance=None, field_name=None):
-#     """Resize and convert the image to WebP format if needed."""
-          
-#     print(image_field)
-#     try:
-#         if not image_field or not os.path.exists(image_field.path):
-#             print("Image field is empty or file does not exist.")
-#             return
-
-#         original_path = image_field.path
-#         file_ext = os.path.splitext(original_path)[1].lower()
-
-#         # Open image
-#         img = Image.open(original_path)
-
-#         # Skip if already WebP and smaller than or equal to max size
-#         if file_ext == '.webp' and img.width <= max_size and img.height <= max_size:
-#             print("Image is already WebP and within max size — skipping.")
-#             return
-
-#         # Resize if too large
-#         if img.width > max_size or img.height > max_size:
-#             if img.width > img.height:
-#                 ratio = max_size / img.width
-#                 new_size = (max_size, int(img.height * ratio))
-#             else:
-#                 ratio = max_size / img.height
-#                 new_size = (int(img.width * ratio), max_size)
-
-#             img = img.resize(new_size, Image.LANCZOS)
-#             print(f"Image resized to: {new_size}")
-#         else:
-#             print("Image is already within size limits — skipping resize.")
-
-#         # Check if the image has an alpha channel
-#         if img.mode in ("RGBA", "LA"):
-#             img = img.convert("RGBA")  # Keep transparency
-#         else:
-#             img = img.convert("RGB")  # No transparency needed
-
-#         # Save new WebP version
-#         base, _ = os.path.splitext(original_path)
-#         # Save as WebP
-#         new_path = base + ".webp"
-#         img.save(new_path, 'WEBP', quality=80)
-
-#         # Remove the original file
-#         if file_ext != '.webp':
-#             delete_old_image(image_field)
-#             # os.remove(original_path)
-
-#         # 🧠 Update the field with the new path (if instance and field name provided)
-#         if instance and field_name:
-#             relative_path = os.path.relpath(new_path, settings.MEDIA_ROOT)
-#             getattr(instance, field_name).name = relative_path
-#             instance.save(update_fields=[field_name])
-
-#     except Exception as e:
-#         print(f"Error resizing image: {e}")
 
 
 def resize_image_to_webp(image_field, max_size=None):
@@ -213,69 +264,6 @@ def validate_hex_color(value):
         raise ValidationError(f"{value} is not a valid hex color code.")
 
 
-def slugify_post_title(instance, save=False, new_slug=None):
-    RESERVED_SLUGS = {'edit', 'lang', 'add'}
-    if new_slug is not None:
-        slug = new_slug
-    else:
-        slug = slugify(instance.title)
-    
-    # Check if the slug is reserved
-    if slug in RESERVED_SLUGS:
-        slug = f"{slug}-{random.randint(1000, 9999)}"
-
-    Post = apps.get_model('the_keep', 'Post')
-    qs = Post.objects.filter(slug=slug).exclude(id=instance.id)
-    if qs.exists():
-        # auto generate new slug
-        rand_int = random.randint(1_000, 9_999)
-        slug = f"{slug}-{rand_int}"
-        return slugify_post_title(instance, save=save, new_slug=slug)
-    instance.slug = slug
-    if save:
-        instance.save()
-    return instance
-
-
-
-def slugify_expansion_title(instance, save=False, new_slug=None):
-    if new_slug is not None:
-        slug = new_slug
-    else:
-        slug = slugify(instance.title)
-
-    Expansion = apps.get_model('the_keep', 'Expansion')
-    qs = Expansion.objects.filter(slug=slug).exclude(id=instance.id)
-    if qs.exists():
-        # auto generate new slug
-        rand_int = random.randint(1_000, 9_999)
-        slug = f"{slug}-{rand_int}"
-        return slugify_expansion_title(instance, save=save, new_slug=slug)
-    instance.slug = slug
-    if save:
-        instance.save()
-    return instance
-
-
-def slugify_law_group_title(instance, save=False, new_slug=None):
-    if new_slug is not None:
-        slug = new_slug
-    elif instance.post:
-        slug = instance.post.slug
-    else:
-        slug = slugify(instance.title)
-
-    LawGroup = apps.get_model('the_keep', 'LawGroup')
-    qs = LawGroup.objects.filter(slug=slug).exclude(id=instance.id)
-    if qs.exists():
-        # auto generate new slug
-        rand_int = random.randint(1_000, 9_999)
-        slug = f"{slug}-{rand_int}"
-        return slugify_law_group_title(instance, save=save, new_slug=slug)
-    instance.slug = slug
-    if save:
-        instance.save()
-    return instance
 
  
 def color_distance(rgb1, rgb2):
@@ -408,129 +396,6 @@ def rgb_to_color_name(rgb):
 
 
 
-DEFAULT_TITLES_TRANSLATIONS = {
-    'Overview': {
-        'en': 'Overview',
-        'ru': 'Краткое описание',
-        'es': 'Resumen',
-        'nl': 'Overzicht',
-        'pl': 'Omówienie',
-        'fr': 'Aperçu',
-    },
-    'Faction Rules and Abilities': {
-        'en': 'Faction Rules and Abilities',
-        'ru': 'Правила и способности фракции',
-        'es': 'Reglas y Habilidades de Facción',
-        'nl': 'Factieregels en Vaardigheden',
-        'pl': 'Zasady Frakcji i jej Zdolności',
-        'fr': 'Règles et Capacités de Faction',
-    },
-    'Faction Setup': {
-        'en': 'Faction Setup',
-        'ru': 'Подготовка к игре',
-        'es': 'Preparación Individual',
-        'nl': 'Factie Voorbereiding',
-        'pl': 'Przygotowanie Frakcji',
-        'fr': 'Mise en place de Faction',
-    },
-    'Birdsong': {
-        'en': 'Birdsong',
-        'ru': 'Утро',
-        'es': 'Alba',
-        'nl': 'Vogelzang',
-        'pl': 'Świt',
-        'fr': 'Aurore',
-    },
-    'Daylight': {
-        'en': 'Daylight',
-        'ru': 'День',
-        'es': 'Día',
-        'nl': 'Daglicht',
-        'pl': 'Dzień',
-        'fr': 'Jour',
-    },
-    'Evening': {
-        'en': 'Evening',
-        'ru': 'Вечер',
-        'es': 'Noche',
-        'nl': 'Avond',
-        'pl': 'Wieczór',
-        'fr': 'Crépuscule',
-    },
-    'Crafting': {
-        'en': 'Crafting',
-        'ru': 'Ремесло',
-        'es': 'Fabricar',
-        'nl': 'Vervaardigen',
-        'pl': 'Przekuwanie',
-        'fr': 'Artisanat',
-    },
-    'Setup Modifications': {
-        'en': 'Setup Modifications',
-        'ru': 'Изменения конфигурации',
-        'es': 'Cambios en la preparación',
-        'nl': 'Configuratiewijzigingen',
-        'pl': 'Zmiany konfiguracji',
-        'fr': 'Modifications de configuration',
-    },
-    'Starting Items': {
-        'en': 'Starting Items',
-        'ru': 'Начальные предметы',
-        'es': 'Objetos iniciales',
-        'nl': 'Startvoorwerpen',
-        'pl': 'Przedmioty Startowe',
-        'fr': 'Éléments de départ',
-    },
-    'Draw and Discard': {
-        'en': 'Draw and Discard',
-        'ru': 'Добор и сброс карт',
-        'es': 'Robar y descartar',
-        'nl': 'Trek en Leg Af',
-        'pl': 'Dobranie i Odrzucenie Kart',
-        'fr': 'Piocher et défausser',
-    },
-    'Build': {
-        'en': 'Build',
-        'ru': 'Строительство',
-        'es': 'Construir',
-        'nl': 'Bouw.',
-        'pl': 'Budowa',
-        'fr': 'Construire',
-    },
-    'Recruit': {
-        'en': 'Recruit',
-        'ru': 'Вербовка',
-        'es': 'Reclutar',
-        'nl': 'Rekruteer',
-        'pl': 'Werbunek',
-        'fr': 'Recruter',
-    },
-    'Move': {
-        'en': 'Move',
-        'ru': 'Перемещение',
-        'es': 'Mover',
-        'nl': 'Verplaats',
-        'pl': 'Ruch',
-        'fr': 'Déplacer',
-    },
-    'Battle': {
-        'en': 'Battle',
-        'ru': 'Сражение',
-        'es': 'Batallar',
-        'nl': 'Vecht',
-        'pl': 'Walka',
-        'fr': 'Batailler',
-    },
-
-
-}
-def get_translated_title(key, target_lang_code):
-    translations = DEFAULT_TITLES_TRANSLATIONS.get(key)
-    if translations:
-        return translations.get(target_lang_code, key)  # fallback to English key
-    return key
-
-
 
 
 
@@ -585,9 +450,15 @@ def strip_formatting(text):
     if not text:
         return ''
     
+    # Remove "({{ ... }})" blocks
+    text = re.sub(r'\s*\(\s*\{\{.*?\}\}\s*\)', '', text)
+
     # Remove {{...}} blocks (like {{ keyword.image }})
-    text = re.sub(r'\{\{.*?\}\}', '', text)
+    text = re.sub(r'\s*\{\{.*?\}\}', '', text)
     
+    # Remove \ from markdown
+    text = re.sub(r'\\([()_*[\]{}#.!\\])', r'\1', text)
+
     # Remove ** for small caps and _ for italics
     text = text.replace('**', '').replace('_', '')
     
@@ -595,83 +466,8 @@ def strip_formatting(text):
     return text.strip()
 
 
-def serialize_group(prime_law):
-    Law = apps.get_model('the_keep', 'Law')
-    laws = Law.objects.filter(group=prime_law.group, language=prime_law.language).select_related('parent').prefetch_related('children')
-    if prime_law.group.post:
-        law_color = prime_law.group.post.color
-    else:
-        law_color = '#000000'
-    if not prime_law:
-        raise NoPrimeLawError("No prime law found.")
-
-    # Only add pretext if description exists
-    if prime_law.description:
-        text = replace_placeholders(prime_law.description.strip())
-        references = ''
-        if prime_law.reference_laws:
-            for reference in prime_law.reference_laws.all():
-                if reference.group.type == "Official":
-                    references += f"(`rule:{reference.get_law_index()}`)"
-                else:
-                    references += f"({reference})"
-        output = [{
-            'name': prime_law.title.strip(),
-            'color': law_color,
-            'pretext': text + references,
-            'id': prime_law.id,
-            'children': []
-        }]
-    else:
-        output = [{
-            'name': prime_law.title.strip(),
-            'color': law_color,
-            'id': prime_law.id,
-            'children': []
-        }]
-
-    top_level_laws = laws.filter(parent__isnull=True, prime_law=False).order_by('position')
-    for law in top_level_laws:
-        output[0]['children'].append(serialize_law(law))
-    return output
-
-
-
-def serialize_law(law):
-    entry = {
-        'name': replace_placeholders(law.title.strip())
-    }
-
-    if law.plain_title and law.plain_title.strip() != law.title.strip():
-        entry['plainName'] = replace_placeholders(law.plain_title.strip())
-
-    if law.description:
-        text = replace_placeholders(law.description.strip())
-
-        references = ''
-        if law.reference_laws:
-            for reference in law.reference_laws.all():
-                if reference.group.type == "Official":
-                    references += f"(`rule:{reference.get_law_index()}`)"
-                else:
-                    references += f"({reference})"
-        if law.level == 0:
-            entry['pretext'] = text + references
-        else:
-            entry['text'] = text + references
-
-    entry['id'] = law.id
-
-    children = law.children.all().order_by('position')
-    if children.exists():
-        if law.level == 0:
-            entry['children'] = [serialize_law(child) for child in children]
-        else:
-            entry['subchildren'] = [serialize_law(child) for child in children]
-
-    return entry
 # mapying from RDB to seyria
-INLINE_MAP = {
+INLINE_ICON_MAP = {
     'torch': '`item:torch`',
     'tea': '`item:tea`',
     'sword': '`item:sword`',
@@ -707,284 +503,127 @@ INLINE_MAP = {
 def replace_placeholders(text):
     def replacer(match):
         key = match.group(1).strip()
-        return INLINE_MAP.get(key, match.group(0))  # fallback to original if not found
+        return INLINE_ICON_MAP.get(key, match.group(0))  # fallback to original if not found
 
     return re.sub(r'\{\{\s*(\w+)\s*\}\}', replacer, text or '')
+
+
 
 def normalize_name(name):
     if not name:
         return ''
-    return name.strip().rstrip(string.punctuation).lower()
-
-# WIP for comparing an uploaded yaml law file with the current law
-def compare_structure_strict(generated, uploaded, path="'Law'"):
-    mismatches = []
-
-    if type(generated) != type(uploaded):
-        mismatches.append(f"Type mismatch at {path}: {type(generated).__name__} vs {type(uploaded).__name__}")
-        return mismatches
-
-    if isinstance(generated, list):
-        if len(generated) != len(uploaded):
-            mismatches.append(f"Length mismatch at {path}: {len(generated)} vs {len(uploaded)}")
-
-        gen_names = [normalize_name(item.get('name')) for item in generated]
-        up_names = [normalize_name(item.get('name')) for item in uploaded]
+    name = unicodedata.normalize('NFKD', name)
+    name = name.strip().strip(string.punctuation).lower()
+    name = re.sub(r'\s+', ' ', name)
+    return name
 
 
-        for name in up_names:
-            if name not in gen_names:
-                mismatches.append(f"Unexpected item '{name}' found in uploaded at {path}")
 
-        for i, (gen_item, up_item) in enumerate(zip(generated, uploaded)):
-            expected_name = gen_item.get('name')
-            actual_name = up_item.get('name')
-            # new_path = f"{path}[{i}] ('{expected_name}')"
-            new_path = f"{path} > '{expected_name}'"
 
-            if expected_name != actual_name:
-                if actual_name in gen_names:
-                    correct_index = gen_names.index(actual_name)
-                    mismatches.append(
-                        f"Order mismatch at {new_path}: expected '{expected_name}', got '{actual_name}' "
-                        f"(found at index {correct_index})"
-                    )
+
+def generate_comparison_markdown(results):
+    """
+    Takes a dict of comparison results and returns a Markdown-formatted string
+    instead of writing it to a file.
+    """
+    def categorize(msg):
+        if "Missing expected" in msg:
+            return "Missing Laws"
+        elif "Unexpected" in msg:
+            return "Unexpected Laws"
+        elif "Out of order" in msg:
+            return "Order"
+        elif "Name mismatch" in msg:
+            return "Name Changes"
+        elif "Length mismatch" in msg:
+            return "Length Mismatch"
+        else:
+            return "Other"
+
+    def extract_path(msg):
+        match = re.search(r"at ('.*?')", msg)
+        return match.group(1) if match else "Unknown Path"
+
+
+    def build_tree(msgs):
+        """Builds a nested tree structure from paths in Missing/Unexpected items"""
+        tree = lambda: defaultdict(tree)
+        root = tree()
+        for msg in msgs:
+            match = re.search(r"'(.+?)'.+?at 'Law' > (.+)", msg)
+            if not match:
+                continue
+            item_name = match.group(1)
+            path = match.group(2).split(" > ")
+            node = root
+            for level in path:
+                node = node[level]
+            if "_items" in node:
+                node["_items"].append(item_name)
+            else:
+                node["_items"] = [item_name]
+        return root
+
+    def render_tree(node, indent=0):
+        """Recursively renders the nested tree as Markdown"""
+        md = []
+        for key, child in node.items():
+            if key == "_items":
+                for item in child:
+                    md.append("  " * indent + f"- {item}")
+            else:
+                # Use headings only for top-level nodes
+                if indent == 0:
+                    md.append(f"### {key}")
                 else:
-                    mismatches.append(
-                        f"Name mismatch at {new_path}: expected '{expected_name}', got '{actual_name}'"
-                    )
-
-            mismatches += compare_structure_strict(gen_item, up_item, new_path)
-
-    elif isinstance(generated, dict):
-        for key in ('children', 'subchildren'):
-            gen_child = generated.get(key, [])
-            up_child = uploaded.get(key, [])
-            if gen_child or up_child:
-                child_path = f"{path}"
-                mismatches += compare_structure_strict(gen_child, up_child, child_path)
-
-    return mismatches
+                    md.append("  " * indent + f"- **{key}**")
+                md.extend(render_tree(child, indent + 1))
+        return md
 
 
+    markdown_lines = ["# ⚖️ Law Comparison Report\n"]
 
+    # Overall summary counts
+    total_counts = defaultdict(int)
 
+    for law_name, issues in results.items():
+        markdown_lines.append(f"## 🧩 {law_name}\n")
+        markdown_lines.append(f"**Total Issues:** {len(issues)}\n")
 
-def update_laws_by_structure(generated_data, uploaded_data, lang_code):
-    Law = apps.get_model('the_keep', 'Law')
-    @transaction.atomic
-    def recursive_update(generated, uploaded):
-        for gen_item, up_item in zip(generated, uploaded):
-            law_id = gen_item.get("id")
-            if law_id is None:
-                continue  # Skip if no ID found
-            try:
-                law = Law.objects.get(id=law_id)
-            except Law.DoesNotExist:
-                continue  # Optionally log or collect for reporting
+        # Group by category
+        categorized = defaultdict(list)
+        for issue in issues:
+            category = categorize(issue)
+            categorized[category].append(issue)
+            total_counts[category] += 1
 
-            # Use uploaded text or pretext to update description
-            new_desc = up_item.get("text") or up_item.get("pretext")
-            new_title, _ = replace_special_references(up_item.get("name"), lang_code)
-            reference_laws = None
-            law.title = new_title
-            if new_desc:
-                description, reference_laws = replace_special_references(new_desc.strip(), lang_code)
-                law.description = description
-            law.save()
-            if reference_laws:
-                law.reference_laws.set(reference_laws)  # This replaces all existing references
+        # Render each category section
+        for category, msgs in categorized.items():
+            markdown_lines.append(f"### {category} ({len(msgs)})\n")
+
+            if category in ("Missing Laws", "Unexpected Laws"):
+                # Build a tree for hierarchical display
+                tree = build_tree(msgs)
+                markdown_lines.append("**Details:**")
+                markdown_lines.extend(render_tree(tree))
             else:
-                law.reference_laws.clear()  # If no references found, clear the field
+                # Flat list for other categories
+                for msg in msgs:
+                    markdown_lines.append(f"- {msg}")
 
-            # Recurse through children/subchildren
-            for key in ("children", "subchildren"):
-                if key in gen_item or key in up_item:
-                    gen_children = gen_item.get(key, [])
-                    up_children = up_item.get(key, [])
-                    recursive_update(gen_children, up_children)
+            markdown_lines.append("")  # blank line for spacing
 
-    # Run the update inside an atomic block
-    recursive_update(generated_data, uploaded_data)
+        markdown_lines.append("\n---\n")
 
-# maping from seyria to rdb {{ }} format
-REFERENCE_MAP = {
-    'whenhired': 'hired',
-    'ability': 'ability',
-    'daylight': 'daylight',
-    'birdsong': 'birdsong',
-    'marquise': 'cat',
-    'eyrie': 'bird',
-    'woodland': 'bunny',
-    'vagabond': 'vb',
-    'cult': 'lizard',
-    'riverfolk': 'otter',
-    'duchy': 'mole',
-    'corvid': 'crow',
-    'warlord': 'rat',
-    'keepers': 'badger',
-    'diaspora': 'frog',
-    'council': 'bat',
-    'knaves': 'skunk',
+    # Add summary section at the top
+    summary_lines = ["## 📊 Summary\n"]
+    total_all = sum(total_counts.values())
+    summary_lines.append(f"**Total Issues Across All Laws:** {total_all}\n")
+    for cat, count in total_counts.items():
+        summary_lines.append(f"- **{cat}:** {count}")
+    summary_lines.append("\n---\n")
 
-}
+    # Insert summary after the title
+    markdown_lines[1:1] = summary_lines
 
-def replace_special_references(text, lang_code):
-    reference_laws = set()
-    Law = apps.get_model('the_keep', 'Law')
-    LawGroup = apps.get_model('the_keep', 'LawGroup')
-
-    def find_law_by_rule_index(rule_index_str, lang_code, second_pass=False):
-
-        try:
-            group_idx_str, law_idx_str = rule_index_str.split('.', 1)
-            group_idx = int(group_idx_str)
-
-            if law_idx_str == "0":
-                law_idx_str = ""
-
-        except ValueError:
-            return None
-
-        all_groups = list(LawGroup.objects.all())
-        if group_idx - 1 >= len(all_groups) or group_idx <= 0:
-            return None
-
-        group = all_groups[group_idx - 1]
-        law = Law.objects.filter(group=group, law_index=law_idx_str, language__code=lang_code).first()
-
-        # if not second_pass:
-        #     # Get the last LawGroup that is Official and has a post
-        #     last_official_group = (
-        #         LawGroup.objects
-        #         .filter(type='Official', post__isnull=False)
-        #         .last()
-        #     )
-
-        #     if last_official_group:
-        #         # Get index in full list (1-based)
-        #         try:
-        #             last_index = all_groups.index(last_official_group) + 1
-        #             if last_index < group_idx:
-
-        #                 print(f'{group_idx} larger than last post group')
-        #             print(f"Last official LawGroup with post is at index {last_index}")
-        #         except ValueError:
-        #             print("Last qualified LawGroup not found in full list.")
-        #     else:
-        #         print("No Official LawGroup with post found.")
-
-        return law
-
-    # def rule_replacer(match):
-    #     rule_content = match.group(1)
-    #     law = find_law_by_rule_index(rule_content, lang_code)
-    #     if law:
-    #         reference_laws.add(law)
-    #         return ""  # Remove the (`rule:x`) reference entirely
-    #     else:
-    #         return f"({rule_content})"  # Replace with a fallback if no law found
-
-    def rule_replacer(match):
-        full_match = match.group(0)
-        rule_content = match.group(1)
-
-        print(f"Rule replacer {match}")
-
-        law = find_law_by_rule_index(rule_content, lang_code)
-        if law:
-            reference_laws.add(law)
-
-            # Check if there's a space before the match — remove it later
-            if full_match.startswith(" (") or full_match.startswith(" (`rule:"):
-                return ""  # Remove the whole match and let re.sub() handle space collapse
-            return ""
-        else:
-            return f"({rule_content})"
-
-    def backtick_replacer(match):
-        content = match.group(1)
-
-        # Handle rule: still if present and not already matched in previous pass
-        if content.startswith("rule:"):
-            print(f"Backtick replacer {content}")
-            rule_content = content[5:]
-            law = find_law_by_rule_index(rule_content, lang_code)
-            if law:
-                rule_content=law.law_code
-                reference_laws.add(law)
-                return f"{rule_content}"  # Remove `rule:x`
-            else:
-                return f"{rule_content}"
-
-        # map faction references
-        if content.startswith("faction:"):
-            parts = content.split(":")
-            if len(parts) >= 2:
-                key = parts[1]
-                if key in REFERENCE_MAP:
-                    return f"{{{{{REFERENCE_MAP[key]}}}}}"
-
-        # map hireling references
-        elif content.startswith("hireling:"):
-            parts = content.split(":")
-            if len(parts) == 2:
-                key = parts[1]
-                if key in REFERENCE_MAP:
-                    return f"{{{{{REFERENCE_MAP[key]}}}}}"
-
-        # Replace `item:x` with {{x}}
-        elif content.startswith("item:"):
-            parts = content.split(":")
-            if len(parts) == 2:
-                key = parts[1]
-                return f"{{{{{key}}}}}"
-
-        return match.group(0)  # leave unchanged
-
-    # First handle (`rule:x`) with optional leading space
-    # text = re.sub(r'\(`rule:([^\)]+)`\)', rule_replacer, text)
-    # text = re.sub(r'\s?\(`rule:([^\)]+)`\)', rule_replacer, text)
-
-    # Then handle remaining `...` references
-    text = re.sub(r'`([^`]+)`', backtick_replacer, text)
-
-    return text, list(reference_laws)
-
-def create_laws_from_yaml(group, language, yaml_data):
-    Law = apps.get_model('the_keep', 'Law')
-    lang_code = language.code
-
-    def create_law(entry, lang_code, parent=None, position=0, is_prime=False):
-        # Prefer 'pretext' if present, otherwise use 'text'
-        raw_description = entry.get('pretext') or entry.get('text', '')
-        if raw_description:
-            description, reference_laws = replace_special_references(raw_description, lang_code=lang_code)
-        else:
-            description, reference_laws = '', []        
-        raw_title = entry['name']
-        title, _ = replace_special_references(raw_title, lang_code=lang_code)
-        if parent and parent.prime_law:
-            parent=None
-
-        law = Law.objects.create(
-            title=title,
-            group=group,
-            language=language,
-            parent=parent,
-            position=position,
-            prime_law=is_prime,
-            description=description
-        )
-        if reference_laws:
-            law.reference_laws.set(reference_laws)  # This replaces all existing references
-        else:
-            law.reference_laws.clear()
-        # Handle both 'children' and 'subchildren'
-        for key in ('children', 'subchildren'):
-            for i, child in enumerate(entry.get(key, [])):
-                create_law(child, lang_code, parent=law, position=i)
-
-    for i, entry in enumerate(yaml_data):
-        is_prime = i == 0  # Treat first item as prime law
-        create_law(entry, lang_code, parent=None, position=i, is_prime=is_prime)
+    return "\n".join(markdown_lines)

@@ -1,5 +1,6 @@
 import re
 import bleach
+import markdown
 from django.utils.safestring import mark_safe
 from django.templatetags.static import static
 from django import template
@@ -56,60 +57,80 @@ INLINE_IMAGES = {
     'skunk': static('items/law/skunk.png'),
 }
 
-# This makes [[]] into SMALLCAPS () into italics and {{}} into images with optional links to faction laws
+# Only allowing table related tags and the three I need so that users don't go crazy
+ALLOWED_TAGS = [
+    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'em', 'strong', 'p'
+]
+
+ALLOWED_ATTRIBUTES = {
+    # No special attributes needed for basic table rendering
+}
+
+# # This makes [[]] into SMALLCAPS () into italics and {{}} into images with links to faction laws
 @register.filter
 def format_law_text(value, lang_code='en'):
-    # Step 1: Clean input by stripping all HTML
-    clean_value = bleach.clean(str(value), tags=[], strip=True)
+    if not value:
+        return ""
 
-    # Step 2: Replace {{ keyword.image }} with image tag
+    # Step 1: Convert markdown to HTML (supporting tables)
+    markdown_html = markdown.markdown(str(value), extensions=['tables'])
+
+    # Step 2: Sanitize the markdown HTML
+    clean_html = bleach.clean(markdown_html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES)
+
+    # Step 3: Replace {{ keyword }} with <img> tags and optional faction links
     def image_replacer(match):
         keyword = match.group(1)
         img_url = INLINE_IMAGES.get(keyword)
-
         if not img_url:
             return match.group(0)
 
         img_tag = f'<img src="{img_url}" alt="{keyword}" class="inline-icon">'
-
-        # If this image corresponds to a faction, wrap in a link
         if keyword in FACTION_SLUGS:
             slug = FACTION_SLUGS[keyword]
             url = reverse('law-view', kwargs={'slug': slug, 'lang_code': lang_code})
             return f'<a href="{url}">{img_tag}</a>'
-
         return img_tag
 
-    clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
+    clean_html = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_html)
 
-    # Step 3: Wrap _text_ in <em> for italics
+    # Step 4: Replace _text_ with <em>
     def italics_replacer(match):
         return f"<em>{match.group(1)}</em>"
+    clean_html = re.sub(r"_(.*?)_", italics_replacer, clean_html)
 
-    clean_value = re.sub(r"_(.*?)_", italics_replacer, clean_value)
+    # Step 5: Replace <strong> with <span class='smallcaps'>
+    def strong_to_smallcaps(match):
+        text = match.group(1).upper()
+        return f"<span class='smallcaps'>{text}</span>"
+    clean_html = re.sub(r"<strong>(.*?)</strong>", strong_to_smallcaps, clean_html, flags=re.IGNORECASE)
 
-
-    # Step 4: Wrap **text** in span with class 'smallcaps'
+    # Step 6: Replace **TEXT** with <span class='smallcaps'> as a backup
     def smallcaps_replacer(match):
         text = match.group(1).upper()
         return f"<span class='smallcaps'>{text}</span>"
+    clean_html = re.sub(r"\*\*([^\*]+)\*\*", smallcaps_replacer, clean_html)
 
-    final_value = re.sub(r"\*\*([^\*]+)\*\*", smallcaps_replacer, clean_value)
+    # Step 7: Remove all <p> and </p> tags
+    clean_html = re.sub(r'</?p>', '', clean_html, flags=re.IGNORECASE)
 
-
-    # Step 5: Replace newlines with <br> for visual line breaks
-    final_value = final_value.replace('\n', '<br>')
-
-    return mark_safe(final_value)
+    return mark_safe(clean_html)
 
 
-# This makes [[]] into SMALLCAPS () into italics and {{}} into images with optional links to faction laws
+
+# This makes [[]] into SMALLCAPS () into italics and {{}} into images without links to faction laws
 @register.filter
 def format_law_text_no_link(value):
-    # Step 1: Clean input by stripping all HTML
-    clean_value = bleach.clean(str(value), tags=[], strip=True)
+    if not value:
+        return ""
 
-    # Step 2: Replace {{ keyword.image }} with image tag
+    # Step 1: Convert markdown to HTML (supporting tables)
+    markdown_html = markdown.markdown(str(value), extensions=['tables'])
+
+    # Step 2: Sanitize the markdown HTML (allowing necessary tags and attributes)
+    clean_html = bleach.clean(markdown_html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES)
+
+    # Step 3: Replace {{ keyword }} with <img> tags (no links here)
     def image_replacer(match):
         keyword = match.group(1)
         img_url = INLINE_IMAGES.get(keyword)
@@ -117,39 +138,38 @@ def format_law_text_no_link(value):
         if not img_url:
             return match.group(0)
 
-        img_tag = f'<img src="{img_url}" alt="{keyword}" class="inline-icon">'
+        return f'<img src="{img_url}" alt="{keyword}" class="inline-icon">'
 
-        return img_tag
+    clean_html = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_html)
 
-    clean_value = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, clean_value)
-
-    # Step 3: Wrap _text_ in <em> for italics
+    # Step 4: Replace _text_ with <em>
     def italics_replacer(match):
         return f"<em>{match.group(1)}</em>"
+    clean_html = re.sub(r"_(.*?)_", italics_replacer, clean_html)
 
-    clean_value = re.sub(r"_(.*?)_", italics_replacer, clean_value)
+    # Step 5: Replace <strong>TEXT</strong> with smallcaps span
+    def strong_to_smallcaps(match):
+        text = match.group(1).upper()
+        return f"<span class='smallcaps'>{text}</span>"
+    clean_html = re.sub(r"<strong>(.*?)</strong>", strong_to_smallcaps, clean_html, flags=re.IGNORECASE)
 
-
-    # Step 4: Wrap **text** in span with class 'smallcaps'
+    # Step 6: Replace **TEXT** with smallcaps span (in case markdown didn't convert)
     def smallcaps_replacer(match):
         text = match.group(1).upper()
         return f"<span class='smallcaps'>{text}</span>"
+    clean_html = re.sub(r"\*\*([^\*]+)\*\*", smallcaps_replacer, clean_html)
 
-    final_value = re.sub(r"\*\*([^\*]+)\*\*", smallcaps_replacer, clean_value)
+    # Step 7: Remove <p> tags
+    clean_html = re.sub(r'</?p>', '', clean_html, flags=re.IGNORECASE)
+
+    return mark_safe(clean_html)
 
 
-    # Step 5: Replace newlines with <br> for visual line breaks
-    final_value = final_value.replace('\n', '<br>')
-
-    return mark_safe(final_value)
 
 # Converts law text to text only for meta descriptions.
 @register.filter
 def format_law_text_only(value):
-    import bleach
-    import re
-    from django.utils.safestring import mark_safe
-
+    
     # Step 1: Strip all HTML
     clean_value = bleach.clean(str(value), tags=[], strip=True)
 

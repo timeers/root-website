@@ -8,34 +8,46 @@ let isInitialLoad = true;
 
 
     $(document).ready(function() {
-            // Initialize Select2 on the designer select box
-            $('#designer-select').select2({
-                placeholder: "{% trans 'Select Designer' %}",  // Optional: display this as the placeholder
-                allowClear: true,  // Enable the "clear" button (X)
-                width: '200px'
-            });
-            {% comment %} $('#language-select').select2({
-                placeholder: "{% trans 'Select Language' %}",  // Optional: display this as the placeholder
-                allowClear: true,  // Enable the "clear" button (X)
-                width: '200px'
-            }); {% endcomment %}
+        // Initialize Select2 on the designer select box
+        $('#designer-select').select2({
+            placeholder: "{% trans 'Select Designer' %}",  // Optional: display this as the placeholder
+            allowClear: true,  // Enable the "clear" button (X)
+            width: '100%',
+            theme: 'bootstrap-5'
+        });
 
-            // Prevent the change event from triggering on initial page load
+        // Prevent the change event from triggering on initial page load
+    
+        // If there's a selected designer, set the value
+        const selectedDesigner = "{{ designer }}";  // Get the selected designer from context
+
+        if (selectedDesigner) {
+            // Set the selected value in select2
+            $('#designer-select').val(selectedDesigner);
+        }
+        $('#designer-select').trigger('change')
+        
+
+        // Clear filters button
+        $('#clear-filters').on('click', function() {
+            // Clear text input
+            $('#search').val('');
             
 
-            // If there's a selected designer, set the value
-            const selectedDesigner = "{{ designer }}";  // Get the selected designer from context
+            
+            // Clear regular select dropdowns
+            $('#language-select').val('');
+            {% comment %} $('#expansion-select').val(''); {% endcomment %}
+            $('#status').val('');
+            $('#search_type').val('');
 
-            if (selectedDesigner) {
-                // Set the selected value in select2
-                $('#designer-select').val(selectedDesigner);
-            }
-            $('#designer-select').trigger('change')
-
+            // Clear Select2 dropdown (designer only)
+            $('#designer-select').val(null).trigger('change');
 
         });
 
 
+    });
 
 
         // Bind select2 change event to trigger htmx request manually
@@ -49,6 +61,48 @@ let isInitialLoad = true;
             $(this).closest('form').trigger('submit');
         });
 
+
+
+        $('#advanced-search-btn').on('click', function(e) {
+            e.preventDefault();
+            
+            // Get the selected component type (default to 'faction' if empty)
+            const componentType = $('#search_type').val() || 'faction';
+            
+            // Build the base URL
+            const baseUrl = "{% url 'advanced-search' component_type='PLACEHOLDER' %}".replace('PLACEHOLDER', componentType);
+            
+            // Get all form values
+            const params = new URLSearchParams();
+            
+            if ($('#search').val()) {
+                params.append('search', $('#search').val());
+            }
+            if ($('#designer-select').val()) {
+                params.append('designer', $('#designer-select').val());
+            }
+            // Handle status - special case for "Official"
+            const statusValue = $('#status').val();
+            if (statusValue === 'Official') {
+                // params.append('official', 'true');
+            } else if (statusValue) {
+                params.append('status', statusValue);
+            }
+            if ($('#language-select').val()) {
+                params.append('language_code', $('#language-select').val());
+            }
+            {% comment %} if ($('#expansion-select').val()) {
+                params.append('expansion', $('#expansion-select').val());
+            } {% endcomment %}
+            
+            // Construct final URL with query parameters
+            const finalUrl = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+            
+            // Navigate to the URL
+            window.location.href = finalUrl;
+        });
+
+{% comment %} 
 // Function to toggle faction_type and reach_value fields based on search_type
 function toggleFactionFields() {
     // Check if the search_type element exists
@@ -76,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function() {
     toggleFactionFields();
 });
 
-
+ {% endcomment %}
 
 
 
