@@ -5,11 +5,12 @@
     <option value="P" {% if hireling_type == 'P' %}selected{% endif %}>{% trans 'Promoted' %}</option>
     <option value="D" {% if hireling_type == 'D' %}selected{% endif %}>{% trans 'Demoted' %}</option>
 </select> {% endcomment %}
-
-<label class='root-title'>{% trans 'Hireling Type' %}</label>
-<div class="button-select-group mb-2" data-target="hireling_type">
-    <div class="button-option select-option root-title" data-value="">{% trans 'Any' %}</div>
-    <div class="button-option select-option root-title" data-value="P">{% trans 'Promoted' %}</div>
-    <div class="button-option select-option root-title" data-value="D">{% trans 'Demoted' %}</div>
+<div class='d-flex flex-column align-items-center text-center manifest-box mb-1'>
+    <label class='root-title manifest-title h3'>{% trans 'Hireling Type' %}</label>
+    <div class="button-select-group mb-2" data-target="hireling_type">
+        <div class="button-option select-option root-title" data-value="">{% trans 'Any' %}</div>
+        <div class="button-option select-option root-title" data-value="P">{% trans 'Promoted' %}</div>
+        <div class="button-option select-option root-title" data-value="D">{% trans 'Demoted' %}</div>
+    </div>
+    <input type="hidden" name="hireling_type" id="hireling_type" value="{{ hireling_type }}">
 </div>
-<input type="hidden" name="hireling_type" id="hireling_type" value="{{ hireling_type }}">

@@ -1,4 +1,5 @@
 from functools import wraps
+from datetime import timedelta
 
 from django.apps import apps
 from django.core.paginator import Paginator
@@ -11,6 +12,7 @@ from django.db import connection
 from django.db.models import Count, Q
 from django.http import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import activate, get_language
@@ -19,11 +21,12 @@ from django.views.generic import ListView
 
 from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort, Game
-from the_keep.models import Faction, Post
+from the_keep.models import Faction, Post, RulesFile
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm
-from .models import Profile, Language
-from .services.discordservice import send_rich_discord_message, send_discord_message
+from .models import Profile, Language, Website
+from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar
+from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri
 
 
@@ -1168,3 +1171,136 @@ def set_language_custom(request):
     # Redirect back (use ?next= in your form or JS to set this)
     next_url = request.POST.get('next') or request.META.get('HTTP_REFERER', '/')
     return redirect(next_url)
+
+
+@admin_required
+def admin_dashboard(request):
+
+    new_rules = RulesFile.objects.filter(status=RulesFile.Status.NEW).count()
+    last_law_check = Website.get_singular_instance().last_law_check
+    formatted_date = last_law_check.strftime("%B %d, %Y, %-I:%M%p")
+    daily_user_summary = get_daily_user_summary()
+    admin_users = Profile.objects.filter(group="A", user__isnull=False).count()
+    designer_users = Profile.objects.filter(group="D", user__isnull=False).count()
+    editor_users = Profile.objects.filter(group="E", user__isnull=False).count()
+    registered_users = Profile.objects.filter(group="P", user__isnull=False).count()
+    unregistered_users = Profile.objects.filter(group="O", user__isnull=False).count()
+
+    law_url = reverse('select-law-of-root')
+    admin_url = reverse('admin:index')
+    
+
+        # Example Widget
+        # {
+        #     "title": "Player Stats",
+        #     "subtitle": "Performance summary",
+        #     "image": "/static/images/ambush.jpg",
+        #     "fields": [
+        #         {"title": "Games Played", "content": 42},
+        #     ],
+        #     "buttons": [
+        #         {
+        #             "icon": '<i class="bi bi-chevron-right"></i>',
+        #             "label": "Games Played", 
+        #             "link": 'x', 
+        #             "custom": True,
+        #             "button_color": 'black', 
+        #             "text_color": "white", 
+        #             "hover_color": 'blue', 
+        #             "text_hover_color": "grey"
+        #          },
+        #         {
+        #             "icon": '<i class="bi bi-chevron-right"></i>',
+        #             "label": "Games Played", 
+        #             "link": 'x', 
+        #             "class": 'primary', 
+        #             "size": "sm", 
+        #          },
+        #     ],
+        # },
+
+    widgets = [
+        {
+            "title": "Law of Root",
+            "subtitle": "Sync Status with Leder Card Library",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Last Updated", "content": formatted_date},
+                {"title": "Available Updates", "content": new_rules},
+            ],
+            "buttons": [
+                {
+                    "label": "Manage Updates", 
+                    "link": law_url, 
+                    "class": 'primary',
+
+                 },
+            ],
+        },
+        {
+            "title": "User Stats",
+            "subtitle": "Root Database Users",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Admin", "content": admin_users},
+                {"title": "Designers", "content": designer_users},
+                {"title": "Editors", "content": editor_users},
+                {"title": "Registered", "content": registered_users},
+                {"title": "Unregistered", "content": unregistered_users},
+            ]
+        },
+        {
+            "title": f"Daily Users – {daily_user_summary['date'].strftime('%b %d, %Y')}",
+            "subtitle": daily_user_summary["message"],
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": f["name"], "content": f["value"]} for f in daily_user_summary["fields"]
+            ]
+        },
+
+        {
+            "title": "Admin Site",
+            "subtitle": "View the Django Admin Site",
+            "image": "/static/images/ambush.jpg",
+            "buttons": [
+                {
+                    "label": "Go To Admin", 
+                    "link": admin_url, 
+                    "class": 'primary',
+                    "size": 'lg',
+
+                 },
+            ],
+        },
+
+    ]
+
+
+    context = {
+        'widgets': widgets,
+    }
+
+    return render(request, 'the_gatehouse/admin_dashboard.html', context) 
+
+@login_required
+def sync_discord_avatar(request):
+    profile = request.user.profile
+
+    cooldown = timedelta(seconds=60)
+
+    if profile.last_avatar_sync and timezone.now() - profile.last_avatar_sync < cooldown:
+        messages.warning(request, "Please wait before syncing again.")
+        return redirect(request.META.get('HTTP_REFERER', '/'))
+
+
+    result = update_discord_avatar(request.user, force=True)
+
+    profile.last_avatar_sync = timezone.now()
+    profile.save()
+
+    if result:
+        messages.success(request, "Your Discord avatar has been synced successfully!")
+    else:
+        messages.warning(request, "Could not sync avatar. Make sure your Discord account is connected.")
+
+    return redirect(request.META.get('HTTP_REFERER', '/'))

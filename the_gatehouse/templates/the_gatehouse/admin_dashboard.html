@@ -1,0 +1,15 @@
+{% extends 'the_keep/base.html' %}
+{% block title %} - Admin{% endblock %}
+{% block content %}
+
+<h1 class='root-title'>Admin Dashboard</h1>
+
+<div class="dashboard-grid">
+    {% for widget in widgets %}
+      {% include "the_gatehouse/partials/dashboard_widget.html" with widget=widget %}
+    {% endfor %}
+  </div>
+  
+  
+
+{% endblock content%}

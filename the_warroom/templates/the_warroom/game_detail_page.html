@@ -115,14 +115,24 @@
         {% endif %}
         {% if user.profile.player %}
             {% if game.link %}
-            <div>
                 <a class='btn btn-primary mt-1' rel="ugc" href="{{ game.link }}">
                     <i class="bi bi-link"></i>
                     {% trans 'Link to Game Thread' %}
                 </a>
-            </div>
             {% endif %}
+
+    
         {% endif %}
+        {% if game.league_id %}
+            <a class='btn custom-btn mt-1 d-inline-flex align-items-center'
+                style='--button-color: #45291e; --hover-color: #331c13; --text-color: #c2bcba; --text-hover-color: #dfd8d5;'
+                href="https://rootleague.pliskin.dev/match/{{ game.league_id }}/"
+                title="{% trans 'View this game on Root Digital League' %}">
+                     <img src="{% static 'items/law/cat.png' %}" alt="League Icon" style="width:16px; height:16px; margin-right:6px;">
+                {% trans 'Digital League Entry' %}
+            </a>
+        {% endif %}
+
 
         {% if game.recorder %}
         <small>

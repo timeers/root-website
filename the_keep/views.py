@@ -615,17 +615,25 @@ def create_post_translation(request, slug, lang=None):
             translation = form.save(commit=False)
             translation.post = post  # Make sure post is set
 
+            is_new = translation.pk is None
             # Save the translation
             translation.save()
 
             post_url = post.get_absolute_url()
     
             fields = []
-            fields.append({
-                    'name': 'Edited by:',
-                    'value': request.user.profile.name
-                })
-            send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category=f'Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
+            if is_new:
+                fields.append({
+                        'name': 'Posted by:',
+                        'value': request.user.profile.name
+                    })
+                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category=f'Post Created', title=f'New {translation.post.component} Translation', fields=fields)
+            else:
+                fields.append({
+                        'name': 'Edited by:',
+                        'value': request.user.profile.name
+                    })
+                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category=f'Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
 
 
             # Append the lang query parameter to the URL
@@ -1267,7 +1275,7 @@ def list_view(request, slug=None):
     
     theme = get_theme(request)
 
-    background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='library')
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='library')
 
     posts, search, search_type, designer, faction_type, reach_value, status, language_code, expansion = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
@@ -1309,6 +1317,7 @@ def list_view(request, slug=None):
         'slug': slug,
         'background_image': background_image,
         'foreground_images': foreground_images,
+        'background_pattern': background_pattern,
         # 'theme_artists': theme_artists,
         'used_languages': used_languages,
         'language_code': language_code,
@@ -2818,9 +2827,10 @@ class PNPAssetListView(ListView):
         # grouped_by_location = groupby(sorted(all_foreground_images, key=lambda x: x.location), key=lambda x: x.location)
         # # Select a random image from each location
         # foreground_images = [random.choice(list(group)) for _, group in grouped_by_location]
-        background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='resources')
+        background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='resources')
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
+        context['background_pattern'] = background_pattern
         # context['theme_artists'] = theme_artists
 
         
@@ -3656,10 +3666,12 @@ def law_table_of_contents(request, lang_code='en'):
     
 
     date_updated = None
+    law_link = None
     if official_laws:
         rule_file = RulesFile.objects.filter(language=language, post__isnull=True, status=RulesFile.Status.ACTIVE).first()
         if rule_file:
             date_updated = rule_file.commit_date
+            law_link = f'https://rules.ledergames.com/?product=root&locale={language.locale}&printing={rule_file.version}'
 
     context = {
         # 'laws': laws,
@@ -3671,6 +3683,7 @@ def law_table_of_contents(request, lang_code='en'):
         'selected_language': language,
         'query': query,
         'date_updated': date_updated,
+        'law_link': law_link,
     }
 
     if request.htmx:

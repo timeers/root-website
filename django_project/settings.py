@@ -81,6 +81,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'the_gatehouse.middleware.SetLanguageMiddleware',
     'the_gatehouse.middleware.DailyUserVisitMiddleware',
+    'the_gatehouse.middleware.RequestTimingMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 

@@ -3,7 +3,9 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import Profile, PlayerBookmark, Theme, BackgroundImage, ForegroundImage, Website, Language, Holiday, DailyUserVisit
+from .models import (Profile, PlayerBookmark, 
+                     Theme, BackgroundImage, ForegroundImage, 
+                     Website, Language, Holiday, DailyUserVisit, DiscordGuild)
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -16,6 +18,10 @@ class BackgroundInline(admin.StackedInline):
 class ForegroundInline(admin.StackedInline):
     model = ForegroundImage
     extra = 0
+
+class DiscordGuildAdmin(admin.ModelAdmin):
+    list_display = ['name', 'guild_id']
+    search_fields = ['name']
 
 class WebsiteAdmin(admin.ModelAdmin):
     list_display = ['site_title', 'default_theme', 'player_threshold', 'game_threshold']
@@ -105,43 +111,63 @@ class ProfileAdmin(admin.ModelAdmin):
     # This should makes it so that if the full merge is not successful it will undo the changes.
     @transaction.atomic
     def merge_user_with_players(self, request, user, players):
+
+        no_dwd_username = user.dwd is None
+
+
         for player in players:
             efforts = player.efforts.all()
+            # Transfer all efforts to the User
             if efforts.exists():
                 for effort in efforts:
                     effort.player = user
                     effort.save()
                 self.message_user(request, f"Player {player}'s games merged with {user}.")
             designer_posts = player.posts.all()
+            # Transfer all posts to the User
             if designer_posts.exists():
                 for post in designer_posts:
                     post.designer = user
                     post.save()
                 self.message_user(request, f"Designer {player}'s components merged with {user}.")
             artist_posts = player.artist_posts.all()
+            # Transfer all Art Credits to the User
             if artist_posts.exists():
                 for art in artist_posts:
                     art.artist = user
                     art.save()
                 self.message_user(request, f"Artist {player}'s art credit merged with {user}.")
             games_recorded = player.games_recorded.all()
+            # Transfer all recorded games to the User
             if games_recorded:
                 for game in games_recorded:
                     game.recorder = user
                     game.save()
                 self.message_user(request, f"Player {player}'s recorded games merged with {user}.")
             assets = player.assets.all()
+            # Transfer all PNP assets to the User
             if assets:
                 for asset in assets:
                     asset.shared_by = user
                     asset.save()
                 self.message_user(request, f"{player}'s shared assets merged with {user}.")
             translations = player.translations.all()
+            # Transfer all Translations to the User
             if translations:
                 for translation in translations:
                     translation.designer = user
                     translation.save()
                 self.message_user(request, f"{player}'s translations merged with {user}.")
+            # Add the player's DWD username to the User
+            if no_dwd_username and player.dwd:
+                dwd_name = player.dwd
+                player.dwd = None
+                player.save()
+                user.dwd = dwd_name
+                user.save()
+                no_dwd_username = False
+                self.message_user(request, f"{player}'s DWD Username ({dwd_name}) added to {user}.")
+            
             # Delete the player
             player.delete()
 
@@ -258,3 +284,4 @@ admin.site.register(Website, WebsiteAdmin)
 admin.site.register(Language, LanguangeAdmin)
 admin.site.register(Holiday, HolidayAdmin)
 admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
+admin.site.register(DiscordGuild, DiscordGuildAdmin)

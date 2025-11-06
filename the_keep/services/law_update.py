@@ -239,7 +239,7 @@ def replace_special_references(text, lang_code):
         except ValueError:
             return None
 
-        all_groups = list(LawGroup.objects.all())
+        all_groups = list(LawGroup.objects.filter(laws__language__code=lang_code).distinct())
         if group_idx - 1 >= len(all_groups) or group_idx <= 0:
             return None
 

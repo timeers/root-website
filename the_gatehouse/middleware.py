@@ -1,6 +1,11 @@
+import time
+import logging
+
 from django.utils.timezone import localdate
 from django.utils.translation import activate
 from .models import DailyUserVisit
+
+logger = logging.getLogger(__name__)
 
 class SetLanguageMiddleware:
     def __init__(self, get_response):
@@ -48,4 +53,20 @@ class DailyUserVisitMiddleware:
                 DailyUserVisit.objects.get_or_create(profile=request.user.profile, date=today)
                 request.session[cache_key] = True
 
+        return response
+    
+
+
+class RequestTimingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start = time.time()
+        response = self.get_response(request)
+        duration = time.time() - start
+
+        if duration > 5:  # Only log if slower than 5 seconds
+            print(f"⚠️ Slow request: {request.path} took {duration:.2f}s")
+            logger.warning(f"⚠️ Slow request: {request.path} took {duration:.2f}s")
         return response

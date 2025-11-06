@@ -70,9 +70,9 @@ urlpatterns = [
     path('ajax/law/delete/', views.delete_law_ajax, name='delete-law-ajax'),
 
     # FAQs
-    path('faq/', views.faq_search, name='faq'),
-    path('faq/<str:lang_code>/', views.faq_search, name='lang-faq'),
-    path('faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
+    path('website/faq/', views.faq_search, name='faq'),
+    path('website/faq/<str:lang_code>/', views.faq_search, name='lang-faq'),
+    path('website/faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
     path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
     path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='faq-view'),
     path('edit/faq/<int:pk>/', views.FAQUpdateView.as_view(), name='faq-edit'),

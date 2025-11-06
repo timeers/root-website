@@ -21,8 +21,16 @@
   <div class="d-flex justify-content-between align-items-center">
       <h1 class='root-title mx-auto'>{% trans 'The Laws of Root' %}</h1>
 
+      {% if user.profile.admin %}
+      <div>
+          <a class="btn btn-secondary btn-sm mx-1" href="{% url 'select-law-of-root' %}"><i class="bi bi-arrow-repeat"></i> {% trans 'Updates' %}</a>
+      </div>
+      {% endif %}
+
       {% if available_languages or edit_authorized %}
                       
+
+
             <div class="dropdown d-inline">
               <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                 <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>

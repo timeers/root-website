@@ -1,0 +1,52 @@
+<div class="dashboard-widget card shadow-sm mb-3">
+    {% if widget.image %}
+      <img src="{{ widget.image }}" class="card-img-top widget-img" alt="{{ widget.title }}">
+    {% endif %}
+    
+    <div class="card-body text-center">
+      {% if widget.title %}
+        <h4 class="card-title mb-1">{{ widget.title }}</h4>
+      {% endif %}
+      {% if widget.subtitle %}
+        <p class="text-muted small mb-2">{{ widget.subtitle }}</p>
+      {% endif %}
+      
+      {% if widget.fields %}
+        <div class="widget-fields text-start">
+          {% for field in widget.fields %}
+            <div class="mb-1">
+              <strong>{{ field.title }}:</strong> {{ field.content|linebreaksbr }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if widget.buttons %}
+        <div class="widget-button-container">
+            {% for button in widget.buttons %}
+
+            {% if not button.custom %}
+              <a class="btn{% if button.size %}-{{ button.size }}{% endif %} btn-{{ button.class }} mt-1 d-inline-flex align-items-center"
+                  href="{{ button.link }}">
+                      {% if button.icon %}
+                        {{ button.icon|safe }}
+                      {% endif %}
+                  {{ button.label }}
+              </a>
+            {% else %}
+              <a class="custom-btn{% if button.size %}-{{ button.size }}{% endif %} mt-1 d-inline-flex align-items-center"
+                  style="--button-color: {{ button.button_color }}; --text-color: {{ button.text_color }};{% if button.hover_color %} --hover-color: {{ button.hover_color }};{% endif %}{% if button.text_hover_color %} --text-hover-color: {{ button.text_hover_color }};{% endif %}"
+                  href="{{ button.link }}">
+                      {% if button.icon %}
+                        {{ button.icon|safe }}
+                      {% endif %}
+                  {{ button.label }}
+              </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+  

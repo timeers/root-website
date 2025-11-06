@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
-from the_gatehouse.models import Profile
+from the_gatehouse.models import Profile, DiscordGuild
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
 from the_keep.utils import delete_old_image
 
@@ -36,9 +36,21 @@ class Tournament(models.Model):
         NONE = "None"
         ONE = "One"
         ALL = "All"
+    class ClassificationTypes(models.TextChoices):
+        LEAGUE = "Leaugue"
+        TOURNAMENT = "Tournament"
+        GROUP = "Game Group"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
-    picture = models.ImageField(upload_to='boards', null=True, blank=True)
+
+    classification = models.CharField(
+        max_length=50,
+        choices=ClassificationTypes.choices,
+        default=ClassificationTypes.TOURNAMENT
+    )
+    guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments')
+
+    picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
     players = models.ManyToManyField(Profile, blank=True, related_name='current_tournaments')
     eliminated_players = models.ManyToManyField(Profile, blank=True, related_name='past_tournaments')

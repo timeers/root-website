@@ -200,7 +200,7 @@ class Expansion(models.Model):
     description = models.TextField(null=True, blank=True)
     lore = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
-    picture = models.ImageField(upload_to='boards', null=True, blank=True)
+    picture = models.ImageField(upload_to='expansions', null=True, blank=True)
     bgg_link = models.CharField(max_length=400, null=True, blank=True)
     tts_link = models.CharField(max_length=400, null=True, blank=True)
     ww_link = models.CharField(max_length=400, null=True, blank=True)
@@ -1909,7 +1909,7 @@ class Piece(models.Model):
     suited = models.BooleanField(default=False)
     parent = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='pieces')
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
-    small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
+    small_icon = models.ImageField(upload_to='pieces', null=True, blank=True)
 
     def __str__(self):
         lang = get_language()
@@ -2522,7 +2522,7 @@ class RulesFile(models.Model):
         ARCHIVE = "archive", "Archive"
     language = models.ForeignKey(Language, on_delete=models.CASCADE)
     version = models.CharField(max_length=20)
-    file = models.FileField(upload_to="rules/")
+    file = models.FileField(upload_to="rules")
     status = models.CharField(
         max_length=10,
         choices=Status.choices,
@@ -2551,7 +2551,7 @@ class RulesFile(models.Model):
 
     def __str__(self):
         formatted_date = self.commit_date.strftime("%B %d, %Y") if self.commit_date else "Unknown date"
-        return f"v{self.version} ({formatted_date})"
+        return f"{self.version} ({formatted_date})"
     
     def activate(self):
         """
@@ -2595,7 +2595,7 @@ class FAQ(models.Model):
     )
 
     class Meta:
-        ordering = ['date_posted']
+        ordering = ['-post__official', 'post__title', 'date_posted']
 
     def __str__(self):
         return f'{self.question}'

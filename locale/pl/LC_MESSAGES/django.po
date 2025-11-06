@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2025-10-28 21:21-0700\n"
-"PO-Revision-Date: 2025-04-21 12:54-0700\n"
+"PO-Revision-Date: 2025-11-02 21:58-0800\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: pl\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 "
 "|| n%100>14) ? 1 : 2);\n"
-"X-Generator: Poedit 3.6\n"
+"X-Generator: Poedit 3.8\n"
 
 #: django_project/settings.py:199
 msgid "English"
@@ -1191,19 +1191,15 @@ msgid "In Progress"
 msgstr "W toku"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:68
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        View %(play_count)s Game\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                        Find %(artist_name)s's Artwork Here\n"
 "                        "
 msgstr ""
 "\n"
-"Wyświetl grę %(play_count)s\n"
-"     "
+"Znajdź tutaj prace artysty %(artist_name)s\n"
+" "
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:96
 msgid "Posts"
@@ -1341,10 +1337,8 @@ msgstr ""
 "na Discordzie, gdy administrator ją zobaczy."
 
 #: the_gatehouse/views.py:810
-#, fuzzy
-#| msgid "Thank you for your feedback!"
 msgid "Thank you for your report"
-msgstr "Dziękujemy za opinię!"
+msgstr "Dziękuję za raport"
 
 #: the_gatehouse/views.py:815
 #, python-brace-format
@@ -1698,10 +1692,8 @@ msgid "Bot"
 msgstr "Shoe"
 
 #: the_keep/models.py:2064
-#, fuzzy
-#| msgid "and"
 msgid "Fan"
-msgstr "i"
+msgstr "Miłośnik"
 
 #: the_keep/models.py:2065
 msgid "Appendix"
@@ -1997,10 +1989,8 @@ msgid "FAQ"
 msgstr ""
 
 #: the_keep/templates/the_keep/faq_confirm_delete.html:9
-#, fuzzy
-#| msgid "Delete"
 msgid "Delete FAQ?"
-msgstr "Usuwać"
+msgstr "Usunąć często zadawane pytania?"
 
 #: the_keep/templates/the_keep/home.html:35
 #: the_keep/templates/the_keep/list.html:10
@@ -2124,18 +2114,14 @@ msgid ""
 msgstr ""
 
 #: the_keep/templates/the_keep/law_of_root.html:430
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "          No Laws Recorded for %(post_title)s\n"
 "        "
 msgstr ""
 "\n"
-"Kontynuuj do %(provider)s\n"
+"Nie zarejestrowano żadnych praw dla %(post_title)s\n"
 " "
 
 #: the_keep/templates/the_keep/law_of_root.html:438
@@ -2149,19 +2135,15 @@ msgid "No Laws Recorded"
 msgstr "Nie nagrano żadnych gier"
 
 #: the_keep/templates/the_keep/law_of_root.html:446
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                    %(play_threshold)s Games Recorded\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "            No %(selected_language)s Laws Recorded\n"
 "          "
 msgstr ""
 "\n"
-"%(play_threshold)s Nagrane gry\n"
-"  "
+"Brak zarejestrowanych praw %(selected_language)s\n"
+" "
 
 #: the_keep/templates/the_keep/law_table.html:10
 #: the_keep/templates/the_keep/law_table.html:22
@@ -2314,20 +2296,16 @@ msgstr ""
 " "
 
 #: the_keep/templates/the_keep/partials/component_header.html:225
-#, fuzzy
-#| msgid "Translation by"
 msgid " Translation by"
-msgstr "Tłumaczenie wg"
+msgstr " Tłumaczenie wg"
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:14
 msgid "View Law of Root"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:24
-#, fuzzy
-#| msgid "View"
 msgid "View FAQ"
-msgstr "Pogląd"
+msgstr "Zobacz często zadawane pytania"
 
 #: the_keep/templates/the_keep/partials/component_title.html:5
 msgid "Clearing Map"
@@ -2343,18 +2321,14 @@ msgid "Card Deck"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_title.html:34
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "            with %(forests)s Forests\n"
 "            "
 msgstr ""
 "\n"
-"Kontynuuj do %(provider)s\n"
+"z %(forests)s Lasy\n"
 " "
 
 #: the_keep/templates/the_keep/partials/external_links.html:8
@@ -2575,33 +2549,25 @@ msgid "Table of Contents"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/law_table.html:32
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        %(object_animal)s House Rule\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "                No %(selected_language)s laws available.\n"
 "            "
 msgstr ""
 "\n"
-"Zasada domu %(object_animal)s\n"
+"Brak dostępnych praw %(selected_language)s.\n"
 " "
 
 #: the_keep/templates/the_keep/partials/law_table.html:38
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "                No laws matching \"%(query)s\".\n"
 "            "
 msgstr ""
 "\n"
-"Kontynuuj do %(provider)s\n"
+"Brak praw pasujących do \"%(query)s”.\n"
 " "
 
 #: the_keep/templates/the_keep/partials/piece_add.html:15
@@ -2658,18 +2624,14 @@ msgid "Official House Rule"
 msgstr "Zasada Izby"
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:37
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                                Official %(component)s\n"
-#| "                            "
+#, python-format
 msgid ""
 "\n"
 "                                Official %(result_component)s\n"
 "                            "
 msgstr ""
 "\n"
-"Oficjalny %(component)s\n"
+"Oficjalny %(result_component)s\n"
 " "
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:43
@@ -2968,14 +2930,7 @@ msgstr ""
 "  "
 
 #: the_keep/templates/the_keep/status_check.html:46
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            This %(object_component)s is still in the design stage, "
-#| "potentially undergoing major changes before being considered stable.<br>\n"
-#| "            Once a game has been recorded the designer can choose the "
-#| "\"Testing\" status.\n"
-#| "        "
+#, python-format
 msgid ""
 "\n"
 "            This %(object_component)s is still in the design stage, "
@@ -2985,8 +2940,7 @@ msgstr ""
 "\n"
 "Ten %(object_component)s jest wciąż na etapie projektowania i potencjalnie "
 "może ulec dużym zmianom, zanim zostanie uznany za stabilny.<br>\n"
-"Po nagraniu gry projektant może wybrać status „Testowanie”.\n"
-"  "
+" "
 
 #: the_keep/templates/the_keep/status_check.html:50
 msgid ""
@@ -2999,13 +2953,7 @@ msgid "Once they are ready, the designer can select the \"Testing\" status."
 msgstr ""
 
 #: the_keep/templates/the_keep/status_check.html:57
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            This %(object_component)s is being tested. It has reached a "
-#| "playable state but changes and fine tuning may be necessary before it is "
-#| "stable.<br>\n"
-#| "        "
+#, python-format
 msgid ""
 "\n"
 "                This %(object_component)s is being tested. It has met all "
@@ -3015,18 +2963,14 @@ msgid ""
 "            "
 msgstr ""
 "\n"
-"Ten %(object_component)s jest testowany. Osiągnął stan nadający się do gry, "
-"ale zmiany i dostrajanie mogą być konieczne, zanim stanie się stabilny.<br>\n"
-"  "
+"Ten %(object_component)s jest testowany. Spełnił wszystkie wymagane "
+"parametry, ale przed osiągnięciem stabilności mogą być konieczne zmiany i "
+"dopracowanie. Po zakończeniu fazy testowej projektant może wybrać status "
+"„Stabilny”.<br>\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:61
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            This %(object_component)s is being tested. It has reached a "
-#| "playable state but changes and fine tuning may be necessary before it is "
-#| "stable.<br>\n"
-#| "        "
+#, python-format
 msgid ""
 "\n"
 "                This %(object_component)s is being tested. It has reached a "
@@ -3035,9 +2979,10 @@ msgid ""
 "            "
 msgstr ""
 "\n"
-"Ten %(object_component)s jest testowany. Osiągnął stan nadający się do gry, "
-"ale zmiany i dostrajanie mogą być konieczne, zanim stanie się stabilny.<br>\n"
-"  "
+"Ten %(object_component)s jest testowany. Osiągnął stan umożliwiający grę, "
+"ale zanim stanie się stabilny, konieczne mogą być zmiany i dopracowanie."
+"<br>\n"
+" "
 
 #: the_keep/templates/the_keep/status_check.html:66
 #, python-format
@@ -3221,15 +3166,7 @@ msgstr ""
 "     "
 
 #: the_keep/templates/the_keep/status_check.html:294
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Meeting these requirements does not necessarily mean that a "
-#| "%(object_component)s is considered Stable. For example, a "
-#| "%(object_component)s might undergo major changes halfway through "
-#| "playtesting, and as a result, more than 10 games may be necessary before "
-#| "the designer is ready to mark the %(object_component)s as 'Stable.'\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "            Meeting these requirements does not necessarily mean that a "
@@ -3240,12 +3177,11 @@ msgid ""
 "            "
 msgstr ""
 "\n"
-"Spełnienie tych wymagań nie oznacza koniecznie, że %(object_component)s jest "
-"uważany za stabilny. Na przykład %(object_component)s może przejść duże "
-"zmiany w połowie testów gry, w wyniku czego może być potrzebnych ponad 10 "
-"gier, zanim projektant będzie gotowy oznaczyć %(object_component)s jako "
-"„stabilny”.\n"
-"     "
+"Spełnienie tych wymagań niekoniecznie oznacza, że ​​%(object_component)s jest "
+"uważany za stabilny. Na przykład, %(object_component)s może ulec istotnym "
+"zmianom w trakcie testów, w wyniku czego projektant może potrzebować ponad "
+"10 gier, zanim będzie gotowy oznaczyć %(object_component)s jako „stabilny”.\n"
+" "
 
 #: the_keep/views.py:809
 #, fuzzy
@@ -3275,10 +3211,9 @@ msgid "View %(count)d Games (%(tests)d Playtests)"
 msgstr ""
 
 #: the_keep/views.py:825
-#, fuzzy, python-format
-#| msgid "View Game"
+#, python-format
 msgid "View %(count)d Games"
-msgstr "Zobacz grę"
+msgstr "Wyświetl %(count)d gier"
 
 #: the_keep/views.py:1028 the_keep/views.py:1117
 msgid "{} Components"
@@ -3534,7 +3469,7 @@ msgstr "Dodaj gracza"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:99
 msgid "Misc."
-msgstr "Różne"
+msgstr "Różne."
 
 #: the_warroom/templates/the_warroom/partials/forms.html:130
 msgid "Save Progress"

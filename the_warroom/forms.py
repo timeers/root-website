@@ -125,24 +125,18 @@ class GameCreateForm(forms.ModelForm):
             self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
 
         if user:
+            user_guilds = user.profile.guilds.all()
             if user.profile.admin:
                 # Select all active tournament roundds (Admin can record games for any tournament)
                 active_rounds = Round.objects.filter(
                     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now())
             else:
-                # Select rounds in ongoing tournaments where the user is a player
-                # active_rounds = Round.objects.filter(
-                #     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now(),
-                #     tournament__players=user.profile
-                #     )
-                # active_rounds = active_rounds.filter(
-                #     Q(players__isnull=False) & Q(players__in=[user.profile]) | Q(players__isnull=True)
-                #     )
                 
                 active_rounds = Round.objects.filter(
                     Q(
                         Q(tournament__players=user.profile) |  # user is a tournament player
-                        Q(tournament__designer=user.profile)    # or user is the tournament designer
+                        Q(tournament__designer=user.profile) |   # or user is the tournament designer
+                        Q(tournament__guild__in=user_guilds) # or the user is in the tournament's guild
                     ),
                     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
                     start_date__lt=timezone.now()
@@ -160,16 +154,6 @@ class GameCreateForm(forms.ModelForm):
                 self.fields['round'].queryset = Round.objects.filter(pk=round.pk)
                 self.fields['round'].empty_label = None
                 # self.fields['round'].initial = round
-
-        # This needs to be adapted to work. But if admin can record any tournament game it might not be a problem.
-        # Except for concluded tournaments....
-        # If a specific round is provided, add it to the queryset
-        # if round:
-        #     # Ensure round is a single object, otherwise handle accordingly
-        #     if isinstance(round, Round):
-        #         self.fields['round'].queryset |= Round.objects.filter(id=round.id)
-                # if round.designer != user.profile:
-                #     self.fields['round'].disabled = True  # Disable the field
 
 
     def clean(self):

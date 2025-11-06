@@ -6,7 +6,12 @@ from allauth.socialaccount.models import SocialAccount
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.files.base import ContentFile
 
+from the_gatehouse.models import DiscordGuild
+
+
+DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -25,7 +30,44 @@ def get_discord_display_name(user):
         return display_name
     except SocialAccount.DoesNotExist:
         return None
+    
 
+def update_discord_avatar(user, force=False):
+    try:
+        social_account = SocialAccount.objects.get(user=user, provider='discord')
+    except SocialAccount.DoesNotExist:
+        return None
+
+    profile = getattr(user, "profile", None)
+    if not profile:
+        return None
+
+    # Skip if user already uploaded a custom profile picture
+    if not force and profile.image and profile.image.name != DEFAULT_PROFILE_IMAGE:
+        return None
+
+    data = social_account.extra_data
+    discord_id = data.get("id")
+    avatar_hash = data.get("avatar")
+    discriminator = data.get("discriminator")
+
+    if not discord_id:
+        return None
+
+    # If they have a custom avatar
+    if avatar_hash:
+        ext = "gif" if avatar_hash.startswith("a_") else "png"
+        avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.{ext}?size=1024"
+    else:
+        return None
+
+    # Download and save to Profile.image
+    response = requests.get(avatar_url)
+    if response.status_code == 200:
+        filename = f"discord_{user.id}.png"
+        profile.image.save(filename, ContentFile(response.content), save=True)
+        return profile.image.url
+    return None
 
 
 def get_user_guilds(user):
@@ -55,6 +97,20 @@ def get_user_guilds(user):
         print("An error occurred:", str(e))
         return None
 
+def update_user_guilds(user, guilds):
+    # guilds = get_user_guilds(user)
+    if not guilds:
+        return
+
+    # Get existing guild IDs from the Discord API
+    current_guild_ids = [g['id'] for g in guilds]
+
+    # Clear and re-add only matching guilds that exist in DB
+    user.profile.guilds.clear()
+    existing_guilds = DiscordGuild.objects.filter(guild_id__in=current_guild_ids)
+    user.profile.guilds.add(*existing_guilds)
+
+
 
 def is_user_in_guild(user, guild_id):
     guilds = get_user_guilds(user)
@@ -72,6 +128,8 @@ def check_user_guilds(user):
     in_ww = False
     in_wr = False
     in_fr = False
+
+    update_user_guilds(user, guilds)
 
     if guilds:
         for guild in guilds:

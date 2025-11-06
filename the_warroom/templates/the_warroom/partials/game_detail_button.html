@@ -45,7 +45,9 @@
             </small>
         </div>
     
-        {% if game.landmarks.count > 0 or game.hirelings.count > 0 or game.tweaks.count > 0 %}
+        {% comment %} {% if game.landmarks.count > 0 or game.hirelings.count > 0 or game.tweaks.count > 0 %} {% endcomment %}
+        {% if game.landmarks.all|length > 0 or game.hirelings.all|length > 0 or game.tweaks.all|length > 0 %}
+
             <div class="article-metadata">
                 <small class="text-muted">
                     {% if game.landmarks.count > 0 %}

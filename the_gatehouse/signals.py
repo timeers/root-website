@@ -13,7 +13,7 @@ from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
 from .models import Profile, ForegroundImage, BackgroundImage
-from .services.discordservice import get_discord_display_name, check_user_guilds, send_discord_message
+from .services.discordservice import get_discord_display_name, check_user_guilds, send_discord_message, update_discord_avatar
 from .utils import slugify_instance_discord
 
 from the_keep.utils import resize_image_to_webp, delete_old_image
@@ -68,6 +68,7 @@ def user_logged_in_handler(request, user, **kwargs):
     in_ww, in_wr, in_fr = check_user_guilds(user)
     display_name = get_discord_display_name(user)
 
+    update_discord_avatar(user)
 
     if display_name and profile.display_name != display_name:
         profile.display_name = display_name
@@ -167,6 +168,7 @@ IMAGE_FIELDS_CONFIG = {
         'fields': {
             'small_image': 768,
             'image': 4096,
+            'pattern': 4096,
         }
     },
     'ForegroundImage': {

@@ -1,16 +1,32 @@
 {% load i18n %}
+<div class="manifest-box mb-1 text-center">
+  <!-- Title at the top -->
+  <label class="root-title manifest-title h3 mb-3">{% trans 'Faction Type' %}</label>
 
-<label class='root-title'>{% trans 'Faction Type' %}</label>
-<div class="button-select-group mb-2" data-target="faction_type">
-    <div class="button-option select-option root-title" data-value="">{% trans 'Any' %}</div>
-    <div class="button-option select-option root-title" data-value="M">{% trans 'Militant' %}</div>
-    <div class="button-option select-option root-title" data-value="I">{% trans 'Insurgent' %}</div>
+  <!-- Row containing Faction Type and Reach -->
+  <div class="d-flex flex-wrap justify-content-around align-items-center w-100 px-3">
+
+    <!-- Faction Type -->
+    <div class="mx-4 text-center">
+      <div class="button-select-group mb-3" data-target="faction_type">
+        <div class="button-option select-option root-title" data-value="">{% trans 'Any' %}</div>
+        <div class="button-option select-option root-title" data-value="M">{% trans 'Militant' %}</div>
+        <div class="button-option select-option root-title" data-value="I">{% trans 'Insurgent' %}</div>
+      </div>
+      <input type="hidden" name="faction_type" id="faction_type" value="{{ faction_type }}">
+    </div>
+
+    <!-- Reach -->
+    <div class="mx-4 text-center">
+      {% include "the_keep/partials/adv_quantity_filter.html" with prefix="reach" label="Reach" op=reach_op qty=reach_qty %}
+    </div>
+  </div>
 </div>
-<input type="hidden" name="faction_type" id="faction_type" value="{{ faction_type }}">
+
 
 
 <div>
-    <label class='root-title'>Faction Attributes</label>
+    <label class='root-title h3'>Faction Attributes</label>
 
     <div class="row">
         <div class="col-12 col-md-6">
@@ -64,7 +80,6 @@
 
 </div>
 
-  {% include "the_keep/partials/adv_quantity_filter.html" with prefix="reach" label="Reach" op=reach_op qty=reach_qty %}
 
 
   {% block scripts %}

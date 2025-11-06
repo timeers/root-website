@@ -8,44 +8,47 @@
                 <h3 class='root-title manifest-title mx-auto'>{% trans 'Components' %}</h3>
         </div>
 
-        <div class="d-flex flex-wrap justify-content-evenly">
-                    <div class="p-2 flex-fill{% if not has_piece_type.warrior %} hidden-pieces{% endif %}">
+        <div class="d-flex flex-wrap justify-content-center w-100">
+                {% if has_piece_type.warrior %}
+                    <div class="p-2 flex-fill piece-box text-center">
                         <h5 class='root-title'>{% trans 'Warriors' %}</h5>
                         <div id="W-pieces">
                             {% include "the_keep/partials/adv_quantity_filter.html" with prefix="warrior" label="Warrior" op=warrior_op qty=warrior_qty component_filter=True %}
                         </div>
                     </div>
-
-                    <div class="p-2 flex-fill piece-box{% if not has_piece_type.building %} hidden-pieces{% endif %}">
+                {% endif %}
+                {% if has_piece_type.building %}
+                    <div class="p-2 flex-fill piece-box text-center">
                         <h5 class='root-title'>{% trans 'Buildings' %}</h5>
                         <div id="B-pieces">
                             {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building" label="Building" op=building_op qty=building_qty component_filter=True %}
                         </div>
-
                     </div>
-
-
-                    <div class="p-2 flex-fill piece-box{% if not has_piece_type.token %} hidden-pieces{% endif %}">
+                {% endif %}
+                {% if has_piece_type.token %}
+                    <div class="p-2 flex-fill piece-box text-center">
                         <h5 class='root-title'>{% trans 'Tokens' %}</h5>
                         <div id="T-pieces">
                             {% include "the_keep/partials/adv_quantity_filter.html" with prefix="token" label="Token" op=token_op qty=token_qty component_filter=True %}
                         </div>
                     </div>
-
-                    <div class="p-2 flex-fill piece-box{% if not ohas_piece_type.card %} hidden-pieces{% endif %}">
+                {% endif %}
+                {% if has_piece_type.card %}    
+                    <div class="p-2 flex-fill piece-box text-center">
                         <h5 class='root-title'>{% trans 'Cards' %}</h5>
                         <div id="C-pieces">
                             {% include "the_keep/partials/adv_quantity_filter.html" with prefix="card" label="Card" op=card_op qty=card_qty component_filter=True %}
                         </div>
                     </div>
-
-
-                <div class="p-2 flex-fill piece-box{% if not has_piece_type.other %} hidden-pieces{% endif %}">
-                    <h5 class='root-title'>{% trans 'Other Pieces' %}</h5>
-                    <div id="O-pieces">
-                        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty component_filter=True %}
+                {% endif %}
+                {% if has_piece_type.other %}
+                    <div class="p-2 flex-fill piece-box text-center">
+                        <h5 class='root-title'>{% trans 'Other Pieces' %}</h5>
+                        <div id="O-pieces">
+                            {% include "the_keep/partials/adv_quantity_filter.html" with prefix="other" label="Other" op=other_op qty=other_qty component_filter=True %}
+                        </div>
                     </div>
-                </div>
+                {% endif %}
 
 
         </div>

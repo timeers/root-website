@@ -57,6 +57,13 @@ class Language(models.Model):
         return self.LOCALE_MAP.get(self.code, self.code)
 
 
+class DiscordGuild(models.Model):
+    guild_id = models.CharField(max_length=32, unique=True)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
     start_date = models.DateField(default=timezone.now)
@@ -162,6 +169,7 @@ class BackgroundImage(models.Model):
     # artist = models.CharField(max_length=100, blank=True, null=True)
     artist = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(upload_to='background_images')
+    pattern = models.ImageField(upload_to='background_patterns', null=True, blank=True)
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE, related_name='backgrounds')
     page = models.CharField(max_length=15 , default=PageChoices.LIBRARY, choices=PageChoices.choices)
     background_color = models.CharField(
@@ -171,7 +179,7 @@ class BackgroundImage(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
-    small_image = models.ImageField(upload_to='background_images', null=True, blank=True)
+    small_image = models.ImageField(upload_to='background_images/small', null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -189,11 +197,12 @@ class BackgroundImage(models.Model):
 
         
     def save(self, *args, **kwargs):
-        field_name = 'image'
+        
         
         # Check if the instance already exists (i.e., is not a new object)
         if self.pk:
             try:
+                field_name = 'image'
                 old_instance = BackgroundImage.objects.get(pk=self.pk)
                 old_image = getattr(old_instance, field_name)
                 new_image = getattr(self, field_name)
@@ -202,6 +211,19 @@ class BackgroundImage(models.Model):
                 if old_image and old_image != new_image:
                     delete_old_image(old_image)
                     delete_old_image(getattr(old_instance, 'small_image'))
+            except BackgroundImage.DoesNotExist:
+                # The object does not exist yet, nothing to delete
+                pass
+            try:
+                field_name = 'pattern'
+                old_instance = BackgroundImage.objects.get(pk=self.pk)
+                old_image = getattr(old_instance, field_name)
+                new_image = getattr(self, field_name)
+                
+                # If the image has changed, delete the old one(s)
+                if old_image and old_image != new_image:
+                    delete_old_image(old_image)
+
             except BackgroundImage.DoesNotExist:
                 # The object does not exist yet, nothing to delete
                 pass
@@ -231,7 +253,7 @@ class ForegroundImage(models.Model):
     start_position = models.TextField(default='0vw')
     slide = models.TextField(default='0vw')
     speed = models.TextField(default='50vh')
-    small_image = models.ImageField(upload_to='foreground_images', null=True, blank=True)
+    small_image = models.ImageField(upload_to='foreground_images/small', null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
 
     def style(self):
@@ -291,6 +313,8 @@ class Profile(models.Model):
     # theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices, null=True, blank=True)
     theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
+    last_avatar_sync = models.DateTimeField(null=True, blank=True)
+
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True)
     league = models.BooleanField(default=False)
@@ -314,6 +338,7 @@ class Profile(models.Model):
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
     credit_link = models.CharField(max_length=400, null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
+    guilds = models.ManyToManyField(DiscordGuild, related_name="members")
 
     @property
     def name(self):
@@ -340,6 +365,23 @@ class Profile(models.Model):
         # Check for blank display names
         if not self.display_name: 
             self.display_name = self.discord # set to discord if blank
+
+
+        field_name = 'image'
+        
+        # Check if the instance already exists (i.e., is not a new object)
+        if self.pk:
+            try:
+                old_instance = Profile.objects.get(pk=self.pk)
+                old_image = getattr(old_instance, field_name)
+                new_image = getattr(self, field_name)
+                
+                # If the image has changed, delete the old one(s)
+                if old_image and old_image != new_image:
+                    delete_old_image(old_image)
+            except Profile.DoesNotExist:
+                # The object does not exist yet, nothing to delete
+                pass
 
         super().save(*args, **kwargs)
         self._resize_image()

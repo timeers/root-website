@@ -165,7 +165,7 @@ def get_latest_commit_date(file_path, token=None):
 def extract_version_number(folder_name):
     # Assumes folder names start with 'p' followed by an integer
     try:
-        return int(folder_name.lstrip('p'))
+        return int(folder_name.lstrip('p')), folder_name
     except ValueError:
         return -1 
 
@@ -177,9 +177,10 @@ def find_newest_folder_by_name(folders):
         if folder.get("type") != "dir":
             continue
 
-        version_num = extract_version_number(folder["name"])
+        version_num, folder_name = extract_version_number(folder["name"])
         if version_num > highest_version:
             highest_version = version_num
+            highest_folder_name = folder_name
             newest_folder = folder
 
-    return newest_folder, highest_version
+    return newest_folder, highest_folder_name

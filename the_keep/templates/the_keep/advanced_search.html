@@ -89,67 +89,73 @@
                 </select>
             </div>
             {% endif %}
-            <label class='root-title'>Status</label>
-            <div class="button-select-group" data-target="status">
-                <div class="button-option select-option mb-2" data-value="" {% if status == '' %}class="selected"{% endif %}>{% trans 'All' %} -{% if has_status.stable %} <i class="bi bi-check-circle-fill text-success"></i>{% endif %}{% if has_status.testing %} <i class="bi bi-play-circle-fill text-primary"></i>{% endif %}{% if has_status.development %} <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>{% endif %}{% if has_status.inactive %} <i class="bi bi-dash-circle-fill text-secondary"></i>{% endif %}</div>
-                
-                {% if has_status.stable %}  
-                <div class="button-option select-option mb-2" data-value="1" {% if status == '1' %}class="selected"{% endif %}>
-                    <span class="text-success">{% trans 'Stable' %}</span>
-                    <i class="bi bi-check-circle-fill text-success"></i>
-                </div>
-                {% endif %}
-                
-                {% if has_status.testing %}  
-                <div class="button-option select-option mb-2" data-value="2" {% if status == '2' %}class="selected"{% endif %}>
-                    <span class="text-primary">{% trans 'Testing' %}</span>
-                    <i class="bi bi-play-circle-fill text-primary"></i>
-                </div>
-                {% endif %}
-                
-                {% if has_status.development %}  
-                <div class="button-option select-option mb-2" data-value="3" {% if status == '3' %}class="selected"{% endif %}>
-                    <span class="text-warning">{% trans 'Development' %}</span>
-                    <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
-                </div>
-                {% endif %}
-                
-                {% if has_status.inactive %}  
-                <div class="button-option select-option mb-2" data-value="4" {% if status == '4' %}class="selected"{% endif %}>
-                    <span class="text-secondary">{% trans 'Inactive' %}</span>
-                    <i class="bi bi-dash-circle-fill text-secondary"></i>
-                </div>
-                {% endif %}
-            </div>
-            
-            <input type="hidden" name="status" id="status" value="{{ status }}">
-
-
 
             <div>
-            <div class='mb-1'>
-                <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
-                    <option value="">{% trans 'Select Language' %}</option>
-                    {% for language in used_languages %}
-                        <option value="{{ language.code }}" {% if language.code == selected_language %}selected{% endif %}>
-                            {{ language }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-            {% if expansions %}
                 <div class='mb-1'>
-                    <select name="expansion" id="expansion-select" class="form-select" aria-label="Select Expansion">
-                        <option value="">{% trans 'Select Expansion' %}</option>
-                        {% for expansion in expansions %}
-                            <option value="{{ expansion.id }}" {% if expansion.id|stringformat:"s" == selected_expansion %}selected{% endif %}>
-                                {{ expansion }}
+                    <select name="language_code" id="language-select" class="form-select" aria-label="Select Language">
+                        <option value="">{% trans 'Select Language' %}</option>
+                        {% for language in used_languages %}
+                            <option value="{{ language.code }}" {% if language.code == selected_language %}selected{% endif %}>
+                                {{ language }}
                             </option>
                         {% endfor %}
                     </select>
                 </div>
-            {% endif %}
-        </div>
+                {% if expansions %}
+                    <div class='mb-1'>
+                        <select name="expansion" id="expansion-select" class="form-select" aria-label="Select Expansion">
+                            <option value="">{% trans 'Select Expansion' %}</option>
+                            {% for expansion in expansions %}
+                                <option value="{{ expansion.id }}" {% if expansion.id|stringformat:"s" == selected_expansion %}selected{% endif %}>
+                                    {{ expansion }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endif %}
+            </div>
+
+
+            <div class='d-flex flex-column align-items-center text-center manifest-box mb-1'>
+                <div class=''>
+                    <label class='root-title h3 manifest-title'>Status</label>
+                </div>
+                <div class="button-select-group d-flex flex-wrap justify-content-center" data-target="status">
+                    <div class="button-option select-option mb-3 mx-2" data-value="" {% if status == '' %}class="selected"{% endif %}>{% trans 'All' %} -{% if has_status.stable %} <i class="bi bi-check-circle-fill text-success"></i>{% endif %}{% if has_status.testing %} <i class="bi bi-play-circle-fill text-primary"></i>{% endif %}{% if has_status.development %} <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>{% endif %}{% if has_status.inactive %} <i class="bi bi-dash-circle-fill text-secondary"></i>{% endif %}</div>
+                    
+                    {% if has_status.stable %}  
+                    <div class="button-option select-option mb-3 mx-2" data-value="1" {% if status == '1' %}class="selected"{% endif %}>
+                        <span class="text-success">{% trans 'Stable' %}</span>
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                    </div>
+                    {% endif %}
+                    
+                    {% if has_status.testing %}  
+                    <div class="button-option select-option mb-3 mx-2" data-value="2" {% if status == '2' %}class="selected"{% endif %}>
+                        <span class="text-primary">{% trans 'Testing' %}</span>
+                        <i class="bi bi-play-circle-fill text-primary"></i>
+                    </div>
+                    {% endif %}
+                    
+                    {% if has_status.development %}  
+                    <div class="button-option select-option mb-3 mx-2" data-value="3" {% if status == '3' %}class="selected"{% endif %}>
+                        <span class="text-warning">{% trans 'Development' %}</span>
+                        <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
+                    </div>
+                    {% endif %}
+                    
+                    {% if has_status.inactive %}  
+                    <div class="button-option select-option mb-3 mx-2" data-value="4" {% if status == '4' %}class="selected"{% endif %}>
+                        <span class="text-secondary">{% trans 'Inactive' %}</span>
+                        <i class="bi bi-dash-circle-fill text-secondary"></i>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <input type="hidden" name="status" id="status" value="{{ status }}">
+            </div>
+
+
 
         </div>
 
@@ -190,13 +196,16 @@
           
         {% endif %}
 
-        <!-- Games played -->
-        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="games" label="Games Played" op=games_op qty=games_qty %}
 
         {% if has_piece_type.warrior or has_piece_type.building or has_piece_type.token or has_piece_type.card or has_piece_type.other %}
             {% include "the_keep/partials/adv_search_pieces.html" %}
         {% endif %}
           
+        <!-- Games played -->
+        <div class='text-center'>
+        <label class='root-title h3 manifest-title'>Games Played</label>
+        {% include "the_keep/partials/adv_quantity_filter.html" with prefix="games" label="Games Played" op=games_op qty=games_qty component_filter=True%}
+        </div>
           <div class="mt-3">
             <button type="button" id="clear-filters" class="btn btn-sm btn-secondary">
                 <i class="bi bi-x-circle"></i> {% trans 'Clear' %}

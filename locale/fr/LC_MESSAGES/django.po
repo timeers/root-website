@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2025-10-28 21:21-0700\n"
-"PO-Revision-Date: 2025-06-14 21:34-0700\n"
+"PO-Revision-Date: 2025-11-02 22:02-0800\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: fr\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
-"X-Generator: Poedit 3.6\n"
+"X-Generator: Poedit 3.8\n"
 
 #: django_project/settings.py:199
 msgid "English"
@@ -1997,11 +1997,10 @@ msgid "Discover more ways to play Root."
 msgstr "Découvrez d'autres façons de jouer à Root."
 
 #: the_keep/templates/the_keep/home.html:40
-#, fuzzy
-#| msgid "Find factions, maps, and more. Made by the Root community."
 msgid "Find fan factions, maps, and more. Made by the Root community."
 msgstr ""
-"Trouvez des factions, des cartes et plus encore. Créé par la communauté Root."
+"Découvrez des factions créées par les fans, des cartes et bien plus encore. "
+"Réalisé par la communauté Root."
 
 #: the_keep/templates/the_keep/home.html:47
 #: the_keep/templates/the_keep/home.html:71
@@ -2224,10 +2223,8 @@ msgid "Other Pieces"
 msgstr "Autres Pièces"
 
 #: the_keep/templates/the_keep/partials/adv_search_vb.html:15
-#, fuzzy
-#| msgid "Ability"
 msgid "Ability Item"
-msgstr "Capacité"
+msgstr "Objet de capacité"
 
 #: the_keep/templates/the_keep/partials/advanced_search_results.html:32
 #: the_keep/templates/the_keep/partials/search_results.html:31
@@ -2302,16 +2299,12 @@ msgid " Translation by"
 msgstr " Traduction par"
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:14
-#, fuzzy
-#| msgid "The Law of Root"
 msgid "View Law of Root"
-msgstr "La Loi de Root"
+msgstr "Voir la Loi de Root"
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:24
-#, fuzzy
-#| msgid "View"
 msgid "View FAQ"
-msgstr "Voir"
+msgstr "Voir la FAQ"
 
 #: the_keep/templates/the_keep/partials/component_title.html:5
 msgid "Clearing Map"
@@ -2327,18 +2320,14 @@ msgid "Card Deck"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_title.html:34
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "            with %(forests)s Forests\n"
 "            "
 msgstr ""
 "\n"
-"Continuer vers %(provider)s\n"
+"avec %(forests)s Forêts\n"
 " "
 
 #: the_keep/templates/the_keep/partials/external_links.html:8
@@ -2636,19 +2625,15 @@ msgid "Official House Rule"
 msgstr "Règle de la Maison"
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:37
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                                Official %(component)s\n"
-#| "                            "
+#, python-format
 msgid ""
 "\n"
 "                                Official %(result_component)s\n"
 "                            "
 msgstr ""
 "\n"
-"                        %(component)s Officiel\n"
-"                        "
+"%(result_component)s officiels\n"
+" "
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:43
 #, fuzzy
@@ -3478,7 +3463,7 @@ msgstr "Ajouter un joueur"
 
 #: the_warroom/templates/the_warroom/partials/forms.html:99
 msgid "Misc."
-msgstr "Divers"
+msgstr "Divers."
 
 #: the_warroom/templates/the_warroom/partials/forms.html:130
 msgid "Save Progress"

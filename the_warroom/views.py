@@ -1,3 +1,5 @@
+import time
+
 from itertools import groupby
 from django.shortcuts import render
 from django.views.generic import ListView, UpdateView, CreateView, DeleteView
@@ -112,11 +114,12 @@ class GameListView(ListView):
         else:
             profile = None
 
-        background_image, foreground_images, theme_artists = get_thematic_images(theme=theme, page='games')
+        background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='games')
 
 
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
+        context['background_pattern'] = background_pattern
         # context['theme_artists'] = theme_artists
 
 
@@ -240,12 +243,15 @@ def player_game_list_view(request, slug=None):
         'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
     }
 
+    
     if player:
         context['player'] = player
 
     template_name = 'the_warroom/partials/game_list_home.html' if getattr(request, 'htmx', False) else 'the_warroom/player_games.html'
 
-    return render(request, template_name, context)
+    response = render(request, template_name, context)
+
+    return response
 
 
 # @player_required_class_based_view  

@@ -5,12 +5,15 @@ from .views import (user_settings, player_page_view,
                     player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback,
-                    game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error)
+                    game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error, 
+                    admin_dashboard, sync_discord_avatar)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
     # path("home/", list_view),
     path('status/', status_check, name='status_check'),
+
+    path('admin/', admin_dashboard, name='admin-dashboard'),
 
     path('profile/', player_page_view, name='profile'),
     path('profile/<slug:slug>/', player_page_view, name='player-detail'),
@@ -24,6 +27,7 @@ urlpatterns = [
     path('profile/<slug:slug>/post-bookmarks/', post_bookmarks, name='post-bookmarks'),
     path('profile/<slug:slug>/game-bookmarks/', game_bookmarks, name='game-bookmarks'),
     path('settings/', user_settings, name='user-settings'),
+    path('settings/sync-avatar/', sync_discord_avatar, name='sync-avatar'),
 
     # Admin
     path('profile/<slug:slug>/manage/', manage_user, name='manage-user'),

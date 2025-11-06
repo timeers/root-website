@@ -1,10 +1,32 @@
-<h4 class='root-title'>Map Attributes</h4>
-<div class="d-flex flex-wrap gap-5">
-  {% include "the_keep/partials/adv_quantity_filter.html" with prefix="clearings" label="Clearings" op=clearings_op qty=clearings_qty %}
+{% load i18n %}
+<div class='mt-2 mb-2'>
 
-  {% include "the_keep/partials/adv_quantity_filter.html" with prefix="forests" label="Forests" op=forests_op qty=forests_qty %}
+  <div class="manifest-box">
+      <div class="d-flex flex-wrap justify-content-between align-items-center">
+              <h3 class='root-title manifest-title mx-auto'>{% trans 'Map Attributes' %}</h3>
+      </div>
 
-  {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building_slots" label="Building Slots" op=building_slots_op qty=building_slots_qty %}
+      <div class="d-flex flex-wrap justify-content-center w-100">
 
-  {% include "the_keep/partials/adv_quantity_filter.html" with prefix="river_clearings" label="River Clearings" op=river_clearings_op qty=river_clearings_qty %}
-</div>
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="clearings" label="Clearings" op=clearings_op qty=clearings_qty %}
+            </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="forests" label="Forests" op=forests_op qty=forests_qty %}
+            </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="building_slots" label="Building Slots" op=building_slots_op qty=building_slots_qty %}
+            </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="river_clearings" label="River Clearings" op=river_clearings_op qty=river_clearings_qty %}
+            </div>
+        </div>
+      </div>
+  </div>

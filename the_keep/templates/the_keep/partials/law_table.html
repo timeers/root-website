@@ -44,9 +44,11 @@
 {% endif %}
 
 {% if date_updated %}
-<div class='mb-3 d-flex justify-content-center'>
+<div class='mb-3 d-flex justify-content-center subtle-link'>
+    <a href={{law_link}}>
   <small>
     Law of Root updated on {{date_updated|date:"F j, Y"}}
   </small>
+</a>
 </div>
 {% endif %}

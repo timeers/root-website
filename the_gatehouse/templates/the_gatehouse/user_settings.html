@@ -23,10 +23,23 @@
                 
             </div>
         </div>
+
+    <fieldset class="form-group">
+        <legend class="border-bottom mb-4 mt-2">Profile Info</legend>
+
+        <div>Customize Avatar</div>
+        <form action="{% url 'sync-avatar' %}" method="post" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="bi bi-discord"></i> Sync with Discord
+            </button>
+          </form>
+
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            <fieldset class="form-group">
-                <legend class="border-bottom mb-4 mt-2">Profile Info</legend>
+
+
+
                 {% if user.profile.player %}
                     {{ p_form | crispy }}
                 {% else %}
@@ -44,7 +57,7 @@
 
                 {% endif %}
                 
-            </fieldset>
+            
             {% if not user.profile.banned and not user.profile.outcast %}
             <div class="form-group">
                 <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
@@ -52,5 +65,7 @@
         
             {% endif %}
         </form>
+        </fieldset>
+
     </div>
 {% endblock content %}

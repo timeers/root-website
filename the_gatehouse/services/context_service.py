@@ -104,8 +104,11 @@ def get_thematic_images(theme, page=None):
 
     artists = list(artists)
 
+    if background_image:
+        pattern = background_image.pattern
 
-    return background_image, foreground_images, artists
+
+    return background_image, foreground_images, artists, pattern
 
 
 

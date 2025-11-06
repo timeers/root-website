@@ -3,11 +3,14 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <a class="btn btn-secondary btn-sm mx-1" href="{% url 'law-of-root' lang_code='en' %}"><i class="bi bi-chevron-left"></i> {% trans 'Back to Law' %}</a>
+    </div>
     <h2 class="mb-0 root-title">Update Laws of Root</h2>
   
     <a href="{% url 'refresh-law-of-root' %}" class="btn btn-outline-secondary text-start">
       <div>
-        <i class="bi bi-arrow-clockwise"></i> Check for Updates
+        <i class="bi bi-arrow-repeat"></i> Check for Updates
       </div>
       {% if last_law_check %}
         <small class="d-block" style="font-size: 0.6rem; line-height: 1;">

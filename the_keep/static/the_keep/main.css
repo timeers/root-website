@@ -140,17 +140,21 @@ footer a:hover {
   }
 
   .piece-box {
-    position: relative; /* Make sure each .piece-box is the reference point for the pseudo-element */
-}
-  .piece-box::before {
+    flex: 1 1 150px;
+    position: relative; /* needed for pseudo-element positioning */
+  }
+  
+  /* Add a vertical line to the left of all boxes except the first */
+  .piece-box + .piece-box::before {
     content: '';
     position: absolute;
-    left: -1px; /* Align it to the left side */
-    top: 25px; /* Start 10% from the top to center it */
-    bottom: 5px; /* Stop 10% from the bottom to make the height 80% of the element */
-    width: 1px;
-    background-color: black; /* The color of the vertical line */
-}
+    left: -1px; /* move line 5px to the left of the box */
+    top: 10%;          /* optional: adjust vertical start */
+    bottom: 10%;       /* optional: adjust vertical end */
+    width: 1px;        /* line thickness */
+    background-color: black;
+  }
+  
 
 
 
@@ -1295,44 +1299,70 @@ tr.clickable-row:hover {
 #spinner.hx-request .movement-image {
   transform: translateY(0) translateX(0);
 }
-
-
-/* Base button styling */
-.custom-btn {
-  display: inline-block;
-  padding: 0.25rem 0.5rem; /* Bootstrap's padding for small buttons */
-  font-size: 0.875rem; /* Font size for small button */
-  font-weight: 400; /* Font weight for button text */
-  text-align: center;
-  text-decoration: none; /* Remove underline for links */
-  border: 1px solid transparent; /* Border for the button */
-  border-radius: 0.25rem; /* Rounded corners, like Bootstrap */
-  cursor: pointer; /* Pointer cursor on hover */
-  transition: all 0.15s ease-in-out; /* Smooth transition for hover effects */
-  background-color: var(--button-color); /* Default green background (Bootstrap success color) */
-  color: white; /* Text color */
-}
-
-/* Hover effect */
-.custom-btn:hover {
-  background-color: white; /* Blue background on hover */
-  color: var(--button-color); /* White text color on hover */
-  border-color: var(--button-color); /* Darker blue border on hover */
-  text-decoration: none; /* Ensure there's no underline on hover */
-}
-
-/* Focus effect */
-.custom-btn:focus {
-  outline: none; /* Remove outline when focused */
-  box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1); /* Green shadow on focus */
-}
-
-/* Active (clicking) state */
-.custom-btn:active {
-  background-color: var(--button-color); /* Darker green when clicked */
-  border-color: var(--button-color); /* Darker border when clicked */
-}
-
+/* =========================
+   Base Custom Button
+   ========================= */
+   .custom-btn,
+   .custom-btn-sm,
+   .custom-btn-lg {
+     display: inline-flex; 
+     align-items: center;
+     justify-content: center;
+     font-weight: 400;
+     text-align: center;
+     text-decoration: none;
+     border: 1px solid transparent;
+     cursor: pointer;
+     transition: all 0.15s ease-in-out;
+     background-color: var(--button-color, #0d6efd);
+     color: var(--text-color, white);
+   }
+   
+   /* Hover, focus, active shared across all sizes */
+   .custom-btn:hover,
+   .custom-btn-sm:hover,
+   .custom-btn-lg:hover {
+     background-color: var(--hover-color, var(--button-color, #0d6efd));
+     color: var(--text-hover-color, var(--text-color, white));
+     text-decoration: none;
+   }
+   
+   .custom-btn:focus,
+   .custom-btn-sm:focus,
+   .custom-btn-lg:focus {
+     outline: none;
+     box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+   }
+   
+   .custom-btn:active,
+   .custom-btn-sm:active,
+   .custom-btn-lg:active {
+     background-color: var(--hover-color, var(--button-color, #0d6efd));
+     color: var(--text-hover-color, var(--text-color, white));
+     border-color: var(--button-color, #0d6efd);
+   }
+   
+   /* =========================
+      Size Modifiers
+      ========================= */
+   .custom-btn {
+     padding: 0.375rem 0.75rem; /* default */
+     font-size: 1rem;
+     border-radius: 0.25rem;
+   }
+   
+   .custom-btn-sm {
+     padding: 0.25rem 0.5rem;
+     font-size: 0.875rem;
+     border-radius: 0.2rem;
+   }
+   
+   .custom-btn-lg {
+     padding: 0.5rem 1rem;
+     font-size: 1.25rem;
+     border-radius: 0.3rem;
+   }
+   
 
 
 /* Custom small outline button styling */
@@ -1997,4 +2027,30 @@ tr.clickable-row:hover {
   border: 0;
   border-top: 1px solid #eaecef;
   margin: 2em 0;
+}
+
+/* Dashboard Widgets */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+}
+
+
+.dashboard-widget {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  min-height: 250px;
+}
+
+.dashboard-widget:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15);
+}
+
+.widget-img {
+  height: 120px;
+  object-fit: cover;
 }

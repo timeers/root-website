@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2025-10-28 21:21-0700\n"
-"PO-Revision-Date: 2025-04-21 12:51-0700\n"
+"PO-Revision-Date: 2025-11-02 21:53-0800\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: ru\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
 "n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2);\n"
-"X-Generator: Poedit 3.6\n"
+"X-Generator: Poedit 3.8\n"
 
 #: django_project/settings.py:199
 msgid "English"
@@ -1161,10 +1161,8 @@ msgid "Leaderboard Threshold of"
 msgstr "Пороговое значение таблицы лидеров —"
 
 #: the_gatehouse/templates/the_gatehouse/partials/player_leaderboard.html:61
-#, fuzzy
-#| msgid "Leaderboard"
 msgid "No Leaderboard"
-msgstr "Таблица лидеров"
+msgstr "Нет таблицы лидеров"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:12
 #: the_keep/templates/the_keep/status_check.html:114
@@ -1193,18 +1191,14 @@ msgid "In Progress"
 msgstr "В ходе выполнения"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:68
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        View %(play_count)s Game\n"
-#| "                        "
+#, python-format
 msgid ""
 "\n"
 "                        Find %(artist_name)s's Artwork Here\n"
 "                        "
 msgstr ""
 "\n"
-"Посмотреть %(play_count)s игру\n"
+"Найдите работу %(artist_name)s здесь\n"
 " "
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:96
@@ -1230,10 +1224,8 @@ msgid "Average Game by Faction"
 msgstr "Средняя игра по фракции"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:182
-#, fuzzy
-#| msgid "Resources"
 msgid "All Resources"
-msgstr "Ресурсы"
+msgstr "Все ресурсы"
 
 #: the_gatehouse/templates/the_gatehouse/profile_detail.html:184
 #: the_keep/templates/the_keep/asset_form.html:6
@@ -1343,10 +1335,8 @@ msgstr ""
 "администратор увидит ваш запрос."
 
 #: the_gatehouse/views.py:810
-#, fuzzy
-#| msgid "Thank you for your feedback!"
 msgid "Thank you for your report"
-msgstr "Спасибо за ваш отзыв!"
+msgstr "Спасибо за ваш отчет"
 
 #: the_gatehouse/views.py:815
 #, python-brace-format
@@ -1695,16 +1685,12 @@ msgid "Official"
 msgstr "Официальный"
 
 #: the_keep/models.py:2063
-#, fuzzy
-#| msgid "Boot"
 msgid "Bot"
-msgstr "Сапоги"
+msgstr "Бот"
 
 #: the_keep/models.py:2064
-#, fuzzy
-#| msgid "Tan"
 msgid "Fan"
-msgstr "Тан"
+msgstr "Поклонник"
 
 #: the_keep/models.py:2065
 msgid "Appendix"
@@ -1754,10 +1740,8 @@ msgid "My Scorecards"
 msgstr "Мои оценочные листы"
 
 #: the_keep/templates/includes/header.html:93
-#, fuzzy
-#| msgid "Posts"
 msgid "My Posts"
-msgstr "Сообщения"
+msgstr "Мои сообщения"
 
 #: the_keep/templates/includes/header.html:97
 #: the_keep/templates/the_keep/asset_list.html:35
@@ -1802,24 +1786,18 @@ msgid "Select Designer"
 msgstr "Выберите дизайнера"
 
 #: the_keep/templates/the_keep/advanced_search.html:84
-#, fuzzy
-#| msgid "Select an option"
 msgid "Select Artist"
-msgstr "Выберите вариант"
+msgstr "Выберите исполнителя"
 
 #: the_keep/templates/the_keep/advanced_search.html:133
 #: the_keep/templates/the_keep/partials/search_bar.html:73
-#, fuzzy
-#| msgid "Select Category"
 msgid "Select Language"
-msgstr "Выберите категорию"
+msgstr "Выберите язык"
 
 #: the_keep/templates/the_keep/advanced_search.html:144
 #: the_keep/templates/the_keep/partials/search_bar.html:82
-#, fuzzy
-#| msgid "Select an option"
 msgid "Select Expansion"
-msgstr "Выберите вариант"
+msgstr "Выберите расширение"
 
 #: the_keep/templates/the_keep/advanced_search.html:205
 msgid "Search"
@@ -1878,10 +1856,8 @@ msgid "Find assets and resources for creating Root fan content."
 msgstr ""
 
 #: the_keep/templates/the_keep/asset_list.html:28
-#, fuzzy
-#| msgid "Resources"
 msgid "My Resources"
-msgstr "Ресурсы"
+msgstr "Мои ресурсы"
 
 #: the_keep/templates/the_keep/asset_list.html:90
 msgid "All Files"
@@ -2001,10 +1977,8 @@ msgid "FAQ"
 msgstr ""
 
 #: the_keep/templates/the_keep/faq_confirm_delete.html:9
-#, fuzzy
-#| msgid "Delete Game"
 msgid "Delete FAQ?"
-msgstr "Удалить игру"
+msgstr "Удалить FAQ?"
 
 #: the_keep/templates/the_keep/home.html:35
 #: the_keep/templates/the_keep/list.html:10
@@ -2016,10 +1990,8 @@ msgid "Discover more ways to play Root."
 msgstr "Откройте для себя больше способов играть в Root."
 
 #: the_keep/templates/the_keep/home.html:40
-#, fuzzy
-#| msgid "Find factions, maps, and more. Made by the Root community."
 msgid "Find fan factions, maps, and more. Made by the Root community."
-msgstr "Найдите фракции, карты и многое другое. Создано сообществом Root."
+msgstr "Найдите фан-фракции, карты и многое другое. Создано сообществом Root."
 
 #: the_keep/templates/the_keep/home.html:47
 #: the_keep/templates/the_keep/home.html:71
@@ -2050,10 +2022,8 @@ msgid "Submit your fan content."
 msgstr "Отправьте свой фан-контент."
 
 #: the_keep/templates/the_keep/law_group_delete.html:6
-#, fuzzy
-#| msgid "Delete Game"
 msgid "Delete Laws"
-msgstr "Удалить игру"
+msgstr "Удалить законы"
 
 #: the_keep/templates/the_keep/law_group_delete.html:8
 #, python-format
@@ -2066,18 +2036,14 @@ msgid ""
 msgstr ""
 
 #: the_keep/templates/the_keep/law_group_delete.html:15
-#, fuzzy
-#| msgid "Delete Game"
 msgid "Delete All"
-msgstr "Удалить игру"
+msgstr "Удалить все"
 
 #: the_keep/templates/the_keep/law_group_edit.html:6
 #: the_keep/templates/the_keep/law_of_root.html:155
 #: the_keep/templates/the_keep/partials/component_header.html:36
-#, fuzzy
-#| msgid "Edit Game"
 msgid "Edit Law"
-msgstr "Редактировать игру"
+msgstr "Редактировать закон"
 
 #: the_keep/templates/the_keep/law_group_edit.html:8
 #, python-format
@@ -2129,45 +2095,33 @@ msgid ""
 msgstr ""
 
 #: the_keep/templates/the_keep/law_of_root.html:430
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "          No Laws Recorded for %(post_title)s\n"
 "        "
 msgstr ""
 "\n"
-"Продолжить к %(provider)s\n"
+"Законы не зарегистрированы для %(post_title)s\n"
 " "
 
 #: the_keep/templates/the_keep/law_of_root.html:438
-#, fuzzy
-#| msgid "Add Factions"
 msgid "Add Laws"
-msgstr "Добавить фракции"
+msgstr "Добавить законы"
 
 #: the_keep/templates/the_keep/law_of_root.html:444
-#, fuzzy
-#| msgid "No Games Recorded"
 msgid "No Laws Recorded"
-msgstr "Игры не записаны"
+msgstr "Законы не зарегистрированы"
 
 #: the_keep/templates/the_keep/law_of_root.html:446
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                    %(play_threshold)s Games Recorded\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "            No %(selected_language)s Laws Recorded\n"
 "          "
 msgstr ""
 "\n"
-"%(play_threshold)s игр записано\n"
+"Нет записанных законов на языке %(selected_language)s\n"
 " "
 
 #: the_keep/templates/the_keep/law_table.html:10
@@ -2237,7 +2191,7 @@ msgstr "Токены"
 #: the_keep/templates/the_keep/partials/pieces.html:90
 #: the_keep/templates/the_keep/partials/pieces.html:99
 msgid "Cards"
-msgstr "карточкы"
+msgstr "Карты"
 
 #: the_keep/templates/the_keep/partials/adv_search_pieces.html:44
 #: the_keep/templates/the_keep/partials/pieces.html:130
@@ -2321,10 +2275,8 @@ msgstr ""
 " "
 
 #: the_keep/templates/the_keep/partials/component_header.html:225
-#, fuzzy
-#| msgid "Translation by"
 msgid " Translation by"
-msgstr "Перевод выполнен"
+msgstr " Перевод выполнен"
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:14
 msgid "View Law of Root"
@@ -2350,18 +2302,14 @@ msgid "Card Deck"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/component_title.html:34
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "            with %(forests)s Forests\n"
 "            "
 msgstr ""
 "\n"
-"Продолжить к %(provider)s\n"
+"с %(forests)s лесами\n"
 " "
 
 #: the_keep/templates/the_keep/partials/external_links.html:8
@@ -2582,33 +2530,24 @@ msgid "Table of Contents"
 msgstr ""
 
 #: the_keep/templates/the_keep/partials/law_table.html:32
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                        %(object_animal)s House Rule\n"
-#| "                    "
+#, python-format
 msgid ""
 "\n"
 "                No %(selected_language)s laws available.\n"
 "            "
 msgstr ""
 "\n"
-" Правила дома %(object_animal)s\n"
-"                    "
+"Нет доступных законов на языке %(selected_language)s.\n"
+" "
 
 #: the_keep/templates/the_keep/partials/law_table.html:38
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "                No laws matching \"%(query)s\".\n"
 "            "
 msgstr ""
-"\n"
-"Продолжить к %(provider)s\n"
+" Нет законов, соответствующих \"%(query)s”.\n"
 " "
 
 #: the_keep/templates/the_keep/partials/piece_add.html:15
@@ -2665,18 +2604,14 @@ msgid "Official House Rule"
 msgstr "Правила дома"
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:37
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                                Official %(component)s\n"
-#| "                            "
+#, python-format
 msgid ""
 "\n"
 "                                Official %(result_component)s\n"
 "                            "
 msgstr ""
 "\n"
-"Официальный %(component)s\n"
+"Официальный %(result_component)s\n"
 " "
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:43
@@ -2976,14 +2911,7 @@ msgstr ""
 " "
 
 #: the_keep/templates/the_keep/status_check.html:46
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            This %(object_component)s is still in the design stage, "
-#| "potentially undergoing major changes before being considered stable.<br>\n"
-#| "            Once a game has been recorded the designer can choose the "
-#| "\"Testing\" status.\n"
-#| "        "
+#, python-format
 msgid ""
 "\n"
 "            This %(object_component)s is still in the design stage, "
@@ -2991,10 +2919,9 @@ msgid ""
 "        "
 msgstr ""
 "\n"
-"Этот %(object_component)s все еще находится на стадии проектирования и, "
+"Этот %(object_component)s все еще находится на стадии разработки и, "
 "возможно, претерпит серьезные изменения, прежде чем будет признан стабильным."
 "<br>\n"
-"После записи игры дизайнер может выбрать статус «Тестирование».\n"
 " "
 
 #: the_keep/templates/the_keep/status_check.html:50
@@ -3008,13 +2935,7 @@ msgid "Once they are ready, the designer can select the \"Testing\" status."
 msgstr ""
 
 #: the_keep/templates/the_keep/status_check.html:57
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            This %(object_component)s is being tested. It has reached a "
-#| "playable state but changes and fine tuning may be necessary before it is "
-#| "stable.<br>\n"
-#| "        "
+#, python-format
 msgid ""
 "\n"
 "                This %(object_component)s is being tested. It has met all "
@@ -3024,19 +2945,14 @@ msgid ""
 "            "
 msgstr ""
 "\n"
-"Этот %(object_component)s тестируется. Он достиг играбельного состояния, но "
-"могут потребоваться изменения и тонкая настройка, прежде чем он станет "
-"стабильным.<br>\n"
+"Этот %(object_component)s проходит тестирование. Он соответствует всем "
+"необходимым метрикам, но для достижения стабильной работы могут "
+"потребоваться изменения и доработка. После этого разработчик может выбрать "
+"статус «Стабильный».<br>\n"
 " "
 
 #: the_keep/templates/the_keep/status_check.html:61
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            This %(object_component)s is being tested. It has reached a "
-#| "playable state but changes and fine tuning may be necessary before it is "
-#| "stable.<br>\n"
-#| "        "
+#, python-format
 msgid ""
 "\n"
 "                This %(object_component)s is being tested. It has reached a "
@@ -3045,9 +2961,9 @@ msgid ""
 "            "
 msgstr ""
 "\n"
-"Этот %(object_component)s тестируется. Он достиг играбельного состояния, но "
-"могут потребоваться изменения и тонкая настройка, прежде чем он станет "
-"стабильным.<br>\n"
+"Этот %(object_component)s проходит тестирование. Он уже достиг играбельного "
+"состояния, но для достижения стабильной работы могут потребоваться изменения "
+"и доработка.<br>\n"
 " "
 
 #: the_keep/templates/the_keep/status_check.html:66
@@ -3232,15 +3148,7 @@ msgstr ""
 " "
 
 #: the_keep/templates/the_keep/status_check.html:294
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Meeting these requirements does not necessarily mean that a "
-#| "%(object_component)s is considered Stable. For example, a "
-#| "%(object_component)s might undergo major changes halfway through "
-#| "playtesting, and as a result, more than 10 games may be necessary before "
-#| "the designer is ready to mark the %(object_component)s as 'Stable.'\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "            Meeting these requirements does not necessarily mean that a "
@@ -3253,10 +3161,10 @@ msgstr ""
 "\n"
 "Соответствие этим требованиям не обязательно означает, что "
 "%(object_component)s считается стабильным. Например, %(object_component)s "
-"может претерпеть серьезные изменения на полпути в ходе тестирования, и в "
-"результате может потребоваться более 10 игр, прежде чем дизайнер будет готов "
-"пометить %(object_component)s как «стабильный».\n"
-" "
+"может претерпеть серьёзные изменения в середине тестирования, и в результате "
+"может потребоваться более 10 игр, прежде чем разработчик будет готов "
+"отметить %(object_component)s как «стабильный».\n"
+"  "
 
 #: the_keep/views.py:809
 #, fuzzy
@@ -3286,10 +3194,9 @@ msgid "View %(count)d Games (%(tests)d Playtests)"
 msgstr ""
 
 #: the_keep/views.py:825
-#, fuzzy, python-format
-#| msgid "View Game"
+#, python-format
 msgid "View %(count)d Games"
-msgstr "Посмотреть игру"
+msgstr "Посмотреть %(count)d игр"
 
 #: the_keep/views.py:1028 the_keep/views.py:1117
 msgid "{} Components"

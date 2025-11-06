@@ -7,7 +7,7 @@
         {% if item_filter %}
           <img class="item-option" src="{% static 'items/' %}{{ prefix|lower }}.png" alt="{{ prefix }}">
         {% else %}
-          <label for="{{ prefix }}_qty">{{ label }}</label>
+          <label class='h5 root-title' for="{{ prefix }}_qty">{{ label }}</label>
         {% endif %}
       </div>
       {% endif %}

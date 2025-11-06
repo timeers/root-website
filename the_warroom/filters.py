@@ -9,25 +9,25 @@ class GameFilter(django_filters.FilterSet):
 
     map = django_filters.ModelChoiceFilter(
         # queryset=Map.objects.all(),  # Set the queryset for the filter
-        queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0),
+        queryset=Map.objects.none(),
         empty_label='All',
     )
     deck = django_filters.ModelChoiceFilter(
-        queryset=Deck.objects.annotate(games_count=Count('games')).filter(games_count__gt=0),  # Set the queryset for the filter
+        queryset=Deck.objects.none(),  # Set the queryset for the filter
         empty_label='All',
     )
     faction = django_filters.ModelMultipleChoiceFilter(
-        queryset=Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Faction.objects.none(),  # Set the queryset for the filter
         field_name='efforts__faction',
         label = 'Factions',
     )
     vagabond = django_filters.ModelMultipleChoiceFilter(
-        queryset=Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Vagabond.objects.none(),  # Set the queryset for the filter
         field_name='efforts__vagabond',
         label = 'Vagabonds',
     )
     player = django_filters.ModelMultipleChoiceFilter(
-        queryset=Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Profile.objects.none(),  # Set the queryset for the filter
         field_name='efforts__player',
         label = 'Players',
     )
@@ -53,22 +53,23 @@ class GameFilter(django_filters.FilterSet):
         # print(f'Official Only: {official_only}')
         # Filter for only Official content if fan content is deselected
         if official_only:
-            # self.filters['deck'].queryset = Deck.objects.filter(official=True)
-            # self.filters['map'].queryset = Map.objects.filter(official=True)
-            # self.filters['faction'].queryset = Faction.objects.filter(official=True)
-            # self.filters['vagabond'].queryset = Vagabond.objects.filter(official=True)
+            decks_qs = Deck.objects.filter(games__isnull=False, official=True).distinct()
+            maps_qs = Map.objects.filter(games__isnull=False, official=True).distinct()
+            factions_qs = Faction.objects.filter(efforts__isnull=False, official=True).distinct()
+            vagabonds_qs = Vagabond.objects.filter(efforts__isnull=False, official=True).distinct()
+            players_qs = Profile.objects.filter(efforts__isnull=False, official=True).distinct()
+        else:
+            decks_qs = Deck.objects.filter(games__isnull=False).distinct()
+            maps_qs = Map.objects.filter(games__isnull=False).distinct()
+            factions_qs = Faction.objects.filter(efforts__isnull=False).distinct()
+            vagabonds_qs = Vagabond.objects.filter(efforts__isnull=False).distinct()
+            players_qs = Profile.objects.filter(efforts__isnull=False).distinct()
 
-            self.filters['deck'].queryset = Deck.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, official=True)
-            self.filters['map'].queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, official=True)
-            self.filters['faction'].queryset = Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
-            self.filters['vagabond'].queryset = Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
-            self.filters['player'].queryset = Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, official=True)
-
-
-
-            # self.filters['landmarks'].queryset = Landmark.objects.filter(official=True)
-            # self.filters['hirelings'].queryset = Hireling.objects.filter(official=True)
-
+        self.filters['faction'].queryset = factions_qs
+        self.filters['vagabond'].queryset = vagabonds_qs
+        self.filters['deck'].queryset = decks_qs
+        self.filters['map'].queryset = maps_qs
+        self.filters['player'].queryset = players_qs
 
 
     def filter_queryset(self, queryset):
@@ -102,30 +103,30 @@ class PlayerGameFilter(django_filters.FilterSet):
 
     map = django_filters.ModelChoiceFilter(
         # queryset=Map.objects.all(),  # Set the queryset for the filter
-        queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0),
+        queryset=Map.objects.none(),
         empty_label='All',
     )
     deck = django_filters.ModelChoiceFilter(
-        queryset=Deck.objects.annotate(games_count=Count('games')).filter(games_count__gt=0),  # Set the queryset for the filter
+        queryset=Deck.objects.none(),  # Set the queryset for the filter
         empty_label='All',
     )
     faction = django_filters.ModelChoiceFilter(
-        queryset=Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Faction.objects.none(),  # Set the queryset for the filter
         field_name='efforts__faction',
         label = 'Faction',
     )
     factions = django_filters.ModelMultipleChoiceFilter(
-        queryset=Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Faction.objects.none(),  # Set the queryset for the filter
         field_name='efforts__faction',
         label = 'Factions',
     )
     vagabonds = django_filters.ModelMultipleChoiceFilter(
-        queryset=Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Vagabond.objects.none(),  # Set the queryset for the filter
         field_name='efforts__vagabond',
         label = 'Vagabonds',
     )
     players = django_filters.ModelMultipleChoiceFilter(
-        queryset=Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0),  # Set the queryset for the filter
+        queryset=Profile.objects.none(),  # Set the queryset for the filter
         field_name='efforts__player',
         label = 'Players',
     )
@@ -146,12 +147,41 @@ class PlayerGameFilter(django_filters.FilterSet):
         super().__init__(*args, **kwargs)
         self._player = player
 
-        self.filters['faction'].queryset = Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, efforts__player=player)
-        self.filters['deck'].queryset = Deck.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, games__efforts__player=player)
-        self.filters['map'].queryset=Map.objects.annotate(games_count=Count('games')).filter(games_count__gt=0, games__efforts__player=player)
-        self.filters['factions'].queryset = Faction.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, efforts__game__efforts__player=player)
-        self.filters['vagabonds'].queryset = Vagabond.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, efforts__game__efforts__player=player)
-        self.filters['players'].queryset = Profile.objects.annotate(efforts_count=Count('efforts')).filter(efforts_count__gt=0, efforts__game__efforts__player=player)
+        if player:
+            # Build querysets once
+            faction_qs = Faction.objects.filter(
+                efforts__player=player
+            ).distinct().order_by('title')
+
+            factions_qs = Faction.objects.filter(
+                efforts__game__efforts__player=player
+            ).distinct().order_by('title')
+
+            vagabonds_qs = Vagabond.objects.filter(
+                efforts__game__efforts__player=player
+            ).distinct().order_by('title')
+
+            decks_qs = Deck.objects.filter(
+                games__efforts__player=player
+            ).distinct().order_by('title')
+
+            maps_qs = Map.objects.filter(
+                games__efforts__player=player
+            ).distinct().order_by('title')
+
+            players_qs = Profile.objects.filter(
+                efforts__game__efforts__player=player
+            ).distinct().order_by('discord')
+
+            # Assign them to the filters
+            self.filters['faction'].queryset = faction_qs
+            self.filters['factions'].queryset = factions_qs
+            self.filters['vagabonds'].queryset = vagabonds_qs
+            self.filters['deck'].queryset = decks_qs
+            self.filters['map'].queryset = maps_qs
+            self.filters['players'].queryset = players_qs
+
+
 
     def filter_queryset(self, queryset):
         # Get the selected factions

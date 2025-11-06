@@ -1,8 +1,8 @@
 
 {% load static i18n %}
-<div class="p-2 flex-fill">
+<div class="p-2 flex-fill text-center piece-box">
     <h5 class='root-title'>{% trans 'Starting Items' %}</h5>
-    <div id="V-pieces">
+    <div id="V-pieces" class="d-flex flex-column align-items-center">
         {% if object.starting_torch or object.starting_tea or object.starting_bag or object.starting_boots or object.starting_coins or object.starting_hammer or object.starting_sword or object.starting_crossbow %}
             {% if object.starting_torch %}
                 <div class="d-flex justify-content-between align-items-center">

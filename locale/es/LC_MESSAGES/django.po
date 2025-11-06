@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2025-10-28 21:21-0700\n"
-"PO-Revision-Date: 2025-06-14 21:28-0700\n"
+"PO-Revision-Date: 2025-11-02 22:00-0800\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: es\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
-"X-Generator: Poedit 3.6\n"
+"X-Generator: Poedit 3.8\n"
 
 #: django_project/settings.py:199
 msgid "English"
@@ -1810,10 +1810,8 @@ msgid "Select Expansion"
 msgstr "Seleccionar Expansión"
 
 #: the_keep/templates/the_keep/advanced_search.html:205
-#, fuzzy
-#| msgid "March"
 msgid "Search"
-msgstr "Marzo"
+msgstr "Buscar"
 
 #: the_keep/templates/the_keep/asset_confirm_delete.html:13
 #: the_keep/templates/the_keep/expansion_confirm_delete.html:17
@@ -2002,10 +2000,9 @@ msgid "Discover more ways to play Root."
 msgstr "Descubre más formas de jugar Root."
 
 #: the_keep/templates/the_keep/home.html:40
-#, fuzzy
-#| msgid "Find factions, maps, and more. Made by the Root community."
 msgid "Find fan factions, maps, and more. Made by the Root community."
-msgstr "Encuentra facciones, mapas y más. Creado por la comunidad Root."
+msgstr ""
+"Encuentra facciones de fans, mapas y mucho más. Creado por la comunidad Root."
 
 #: the_keep/templates/the_keep/home.html:47
 #: the_keep/templates/the_keep/home.html:71
@@ -2214,10 +2211,8 @@ msgid "Other Pieces"
 msgstr "Otras Piezas"
 
 #: the_keep/templates/the_keep/partials/adv_search_vb.html:15
-#, fuzzy
-#| msgid "Ability"
 msgid "Ability Item"
-msgstr "Habilidad"
+msgstr "Objeto de habilidad"
 
 #: the_keep/templates/the_keep/partials/advanced_search_results.html:32
 #: the_keep/templates/the_keep/partials/search_results.html:31
@@ -2292,16 +2287,12 @@ msgid " Translation by"
 msgstr " Traducción por"
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:14
-#, fuzzy
-#| msgid "The Law of Root"
 msgid "View Law of Root"
-msgstr "La Ley de Root"
+msgstr "Ver Ley de Root"
 
 #: the_keep/templates/the_keep/partials/component_law_faq.html:24
-#, fuzzy
-#| msgid "View"
 msgid "View FAQ"
-msgstr "Ver"
+msgstr "Ver preguntas frecuentes"
 
 #: the_keep/templates/the_keep/partials/component_title.html:5
 msgid "Clearing Map"
@@ -2317,18 +2308,14 @@ msgid "Card Deck"
 msgstr "Cartas por Baraja"
 
 #: the_keep/templates/the_keep/partials/component_title.html:34
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "            Continue to %(provider)s\n"
-#| "            "
+#, python-format
 msgid ""
 "\n"
 "            with %(forests)s Forests\n"
 "            "
 msgstr ""
 "\n"
-"Continuar a %(provider)s\n"
+"con %(forests)s Bosques\n"
 " "
 
 #: the_keep/templates/the_keep/partials/external_links.html:8
@@ -2626,19 +2613,15 @@ msgid "Official House Rule"
 msgstr "Regla de la Casa"
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:37
-#, fuzzy, python-format
-#| msgid ""
-#| "\n"
-#| "                                Official %(component)s\n"
-#| "                            "
+#, python-format
 msgid ""
 "\n"
 "                                Official %(result_component)s\n"
 "                            "
 msgstr ""
 "\n"
-"                            %(component)s Oficial\n"
-"                        "
+"%(result_component)s oficial\n"
+" "
 
 #: the_keep/templates/the_keep/partials/post_snippet_medium.html:43
 #, fuzzy
