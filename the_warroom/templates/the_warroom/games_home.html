@@ -95,22 +95,25 @@
             hx-target="#games-container"
             hx-swap="outerHTML"
             id="gamefilterform">
-        <div class="mb-1">
-            {% trans 'Map' %}:
-            {{ form.map }}
-        </div>    
-        <div class="mb-1">
-        {% trans 'Deck' %}:
-        {{ form.deck }}
+
+        <div class="row mb-1">
+            <div class="col-md-6">
+                {{ form.map }}
+            </div>
+            <div class="col-md-6">
+                {{ form.deck }}
+            </div>
         </div>
         <div class="mb-1">
-        {% trans 'Factions' %}:
+        {% comment %} {% trans 'Factions' %}: {% endcomment %}
         {{ form.faction }}
-        {% trans 'Vagabonds' %}:
+        </div>
+        <div class="mb-1">
+        {% comment %} {% trans 'Vagabonds' %}: {% endcomment %}
         {{ form.vagabond }}
         </div>
         <div class="mb-1">
-        {% trans 'Players' %}:
+        {% comment %} {% trans 'Players' %}: {% endcomment %}
         {{ form.player }}
         </div>
 
@@ -141,16 +144,25 @@
 
 {% block scripts %}
     <script>
-        const selectIds = ['#id_faction', '#id_player', '#id_vagabond', '#id_map', '#id_deck'];
+        const selectPlaceholders = {
+            '#id_faction': "{% trans 'Select Factions' %}",
+            '#id_player': "{% trans 'Select Players' %}",
+            '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+            '#id_map': "{% trans 'Select a Map' %}",
+            '#id_deck': "{% trans 'Select a Deck' %}"
+        };
 
-        // Apply select2 to all select elements in the list
-        selectIds.forEach(id => {
+
+        Object.keys(selectPlaceholders).forEach(id => {
             $(id).select2({
-                placeholder: "{% trans 'Select an option' %}",
-                allowClear: true
+                placeholder: selectPlaceholders[id],
+                allowClear: true,
+                width: '100%'
             });
         });
-
+        $('#id_official').select2({
+            width: '100%'
+        });
 
 
         // Get the collapse element and button

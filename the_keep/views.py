@@ -1515,7 +1515,6 @@ def get_view_status(user):
         return user.profile.view_status
     return 4
 
-from django.db.models import Q, Count
 
 def get_profiles(user, view_status, component, selected_id, related_name):
     """
@@ -2197,12 +2196,13 @@ def advanced_search(request, component_type='faction'):
     # Selected status and available statuses
     selected_status = filters.get('status', "")
     has_status = {
-        status_choice.label.lower(): Post.objects.filter(
+        status_choice.name.lower(): Post.objects.filter(
             component=component,
             status=status_choice.value
         ).exists()
         for status_choice in StatusChoices
     }
+    print(f'statuses: {has_status}')
     # Add the selected status if it's valid
     if selected_status:
         try:

@@ -13,18 +13,19 @@ the_tavern/__pycache__/
 the_warroom/migrations/
 the_warroom/__pycache__/
 
+media/background_images/
+media/background_patterns/
 media/boards/
+media/cards/
 media/component_pictures/
 media/deck_images/
 media/faction_boards/
 media/faction_icons/
-media/profile_pics/
-media/small_component_icons/
-media/cards/
-media/background_images/
 media/foreground_images/
-media/small_images/
+media/profile_pics/
 media/rules/
+media/small_component_icons/
+media/small_images/
 
 # Django stuff:
 *.log
