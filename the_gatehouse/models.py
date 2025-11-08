@@ -338,7 +338,7 @@ class Profile(models.Model):
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
     credit_link = models.CharField(max_length=400, null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
-    guilds = models.ManyToManyField(DiscordGuild, related_name="members", help_text="User's known Root Guilds.")
+    guilds = models.ManyToManyField(DiscordGuild, related_name="members", help_text="User's known Root Guilds.", blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
 
     @property

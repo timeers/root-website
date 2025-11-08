@@ -397,17 +397,20 @@ def create_efforts_from_api(game, participants):
         # 4. Create new profile if no match found
         if not player:
             if Profile.objects.filter(discord=player_without_number).exists():
-                player = Profile.objects.create(
-                    dwd=full_player_string,
-                    discord=full_player_string
-                )        
+                player, created = Profile.objects.get_or_create(
+                    discord=full_player_string,
+                    defaults={
+                        'dwd': full_player_string
+                    }
+                ) 
                 send_discord_message(f'Duplicate user {player} added.', 'report')
             else:
-                player = Profile.objects.create(
-                    dwd=full_player_string,
-                    discord=player_without_number
+                player, created = Profile.objects.get_or_create(
+                    discord=player_without_number,
+                    defaults={
+                        'dwd': full_player_string
+                    }
                 )
-        
         # Determine if this is a faction or vagabond
         faction_key = participant['faction']
         faction = None
