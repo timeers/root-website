@@ -13,7 +13,7 @@ from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
 from .models import Profile, ForegroundImage, BackgroundImage
-from .services.discordservice import get_discord_display_name, check_user_guilds, send_discord_message, update_discord_avatar
+from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, send_discord_message, update_discord_avatar
 from .utils import slugify_instance_discord
 
 from the_keep.utils import resize_image_to_webp, delete_old_image
@@ -68,6 +68,11 @@ def user_logged_in_handler(request, user, **kwargs):
     in_ww, in_wr, in_fr = check_user_guilds(user)
     display_name = get_discord_display_name(user)
 
+    if not profile.discord_id:
+        profile_updated = True
+        discord_id = get_discord_id(user)
+        profile.discord_id = discord_id
+    
     update_discord_avatar(user)
 
     if display_name and profile.display_name != display_name:

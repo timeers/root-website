@@ -108,11 +108,8 @@
                       {% endif %}
                       <li><hr class="dropdown-divider"></li>
 
-                      {% if user.is_superuser %}
-                          <li><a class="dropdown-item" href="{% url 'admin:index' %}"><i class="bi bi-shield-lock-fill mr-1"></i> {% trans 'Admin Site' %}</a></li>
-                      {% endif %}
                       {% if user.profile.admin %}
-                          <li><a class="dropdown-item" href="{% url 'players-list' %}"><i class="bi bi-people-fill mr-1"></i> {% trans 'Users' %}</a></li>
+                          <li><a class="dropdown-item" href="{% url 'admin-dashboard' %}"><i class="bi bi-shield-lock-fill mr-1"></i> {% trans 'Admin Dashboard' %}</a></li>
                       {% endif %}
 
                       <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected mr-1"></i> {% trans 'Settings' %}</a></li>

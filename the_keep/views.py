@@ -3492,10 +3492,15 @@ def create_law_group(request, slug):
     })
 
 @editor_onboard_required
-def edit_law_group(request, slug):
+def update_law_group(request, slug, lang_code):
+
+    language = Language.objects.filter(code=lang_code).first()
+    if not language:
+        language = Language.objects.filter(code='en').first()
+
     user_profile = request.user.profile
     source_group = get_object_or_404(LawGroup, slug=slug)
-    first_law = Law.objects.filter(group=source_group).first()
+    first_law = Law.objects.filter(group=source_group, language=language).first()
     if first_law:
         lang_code = first_law.language.code
     else:
@@ -3625,7 +3630,7 @@ def law_table_of_contents(request, lang_code='en'):
     language = Language.objects.filter(code=lang_code).first()
     if not language:
         language = Language.objects.first()
-    available_languages_qs = Law.objects.exclude(language=language)
+    available_languages_qs = Law.objects.filter(group__public=True).exclude(language=language)
     available_languages = Language.objects.filter(
             law__in=available_languages_qs
         ).exclude(id=language.id).distinct()

@@ -286,6 +286,7 @@ class Post(models.Model):
 
 
     title = models.CharField(max_length=40)
+    discord_channel_id = models.CharField(max_length=32, blank=True, null=True)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     animal = models.CharField(max_length=50, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
@@ -295,6 +296,7 @@ class Post(models.Model):
     date_posted = models.DateTimeField(default=timezone.now)
     artist = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='artist_posts', blank=True)
     art_by_kyle_ferrin = models.BooleanField(default=False)
+    ai_generated_art = models.BooleanField(default=False)
     official = models.BooleanField(default=False)
     in_root_digital = models.BooleanField(default=False)
     status = models.CharField(max_length=15 , default=StatusChoices.DEVELOPMENT, choices=StatusChoices.choices)

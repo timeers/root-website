@@ -144,7 +144,7 @@
             <a class="btn btn-danger btn-sm mt-1 mb-1 ml-1" href="{% url 'delete-law-group' slug=group.slug lang_code=lang_code %}">
                 <i class="bi bi-trash"></i>
             </a>
-            <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'edit-law-group' slug=group.slug %}">
+            <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'update-law-group' slug=group.slug lang_code=lang_code %}">
               <i class="bi bi-gear-wide-connected"></i>
             </a>
               <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'law-view' slug=group.slug lang_code=lang_code %}">

@@ -31,6 +31,13 @@ def get_discord_display_name(user):
     except SocialAccount.DoesNotExist:
         return None
     
+def get_discord_id(user):
+    try:
+        return SocialAccount.objects.get(user=user, provider='discord').uid
+    except SocialAccount.DoesNotExist:
+        return None
+
+
 
 def update_discord_avatar(user, force=False):
     try:
@@ -223,6 +230,10 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
         embed_title = "RDL Update"
         embed_color = 0xcbfbfd # Blue
+    elif category == 'rdl-delete':
+        webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
+        embed_title = "RDL Delete"
+        embed_color = 0xf95965 # Red
     elif category == 'user-summary':
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
         embed_title = "Daily User Summary"
@@ -231,7 +242,6 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
         embed_title = "Inactive Cleanup"
         embed_color = 0xfd9651 # Orange
-    # Red = f95965
 
     # Other
     else:
