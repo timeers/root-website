@@ -3,492 +3,425 @@ from rest_framework.response import Response
 from rest_framework import status
 from the_warroom.models import ScoreCard, TurnScore
 from the_keep.models import Faction, PostTranslation
-# from the_gatehouse.models import Profile
+from the_gatehouse.utils import generate_neon_color
 # from .serializers import ScoreCardDetailSerializer, FactionAverageTurnScoreSerializer
-from django.db.models import Avg, Sum, Count, Prefetch
+from django.db.models import Avg, Sum, Count, Prefetch, F, FloatField, Q
+from django.db.models.functions import Cast
+
 from django.utils.translation import get_language
 from collections import defaultdict
-
-
-from randomcolor import RandomColor
-
-def generate_neon_color():
-    random_color = RandomColor()
-    color = random_color.generate(luminosity='light', hue='pastel')[0]  # Use bright luminosity for neon-like colors
-    return color[0]
 
 
 class ScoreCardDetailView(APIView):
     def get(self, request, pk, format=None):
         try:
-            scorecard = ScoreCard.objects.get(pk=pk)
+            scorecard = ScoreCard.objects.prefetch_related('turns').get(pk=pk)
         except ScoreCard.DoesNotExist:
             return Response({"detail": "ScoreCard not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Retrieve all turns related to this scorecard
-        turns = scorecard.turns.all()
-
-        # Prepare chart data: turn number and total points for each turn
-        turn_data = []
-        game_points = 0
-        for turn in turns:
-            game_points += turn.total_points
-            turn_data.append({
-                "turn_number": turn.turn_number,
-                "faction_points": turn.faction_points,
-                "crafting_points": turn.crafting_points,
-                "battle_points": turn.battle_points,
-                "other_points": turn.other_points,
-                "total_points": turn.total_points,
-                "game_points": game_points
-            })
+        # Get turns with all data at once (already prefetched)
+        turn_data = list(scorecard.turns.values(
+            'turn_number',
+            'faction_points',
+            'crafting_points',
+            'battle_points',
+            'other_points',
+            'total_points',
+            'game_points_total'
+        ).order_by('turn_number'))
+        
+        # Rename game_points_total to game_points in the response
+        for turn in turn_data:
+            turn['game_points'] = turn.pop('game_points_total')
 
         color = scorecard.faction.color if scorecard.faction.color else generate_neon_color()
 
-
-        # Prepare the data for the response
         chart_data = {
             "scorecard_id": scorecard.id,
-            "faction": scorecard.faction.title,  # Assuming Faction model has a title
+            "faction": scorecard.faction.title,
             "total_faction_points": scorecard.total_faction_points,
             "total_crafting_points": scorecard.total_crafting_points,
             "total_battle_points": scorecard.total_battle_points,
             "total_other_points": scorecard.total_other_points,
             "color": color,
-            "turns": turn_data  # This contains the turn data for the chart
+            "turns": turn_data
         }
 
         return Response(chart_data)
 
 
-
 class GameScorecardView(APIView):
     def get(self, request, pk, format=None):
-        # Get all scorecards related to the specified game (via game primary key)
-        scorecards = ScoreCard.objects.filter(effort__game__pk=pk)
-
         current_lang_code = get_language()
         translations = PostTranslation.objects.filter(language__code=current_lang_code)
-        scorecards = scorecards.select_related('faction').prefetch_related(
+        
+        # Optimize: prefetch turns along with faction data
+        scorecards = ScoreCard.objects.filter(
+            effort__game__pk=pk
+        ).select_related('faction').prefetch_related(
+            'turns',  # Add this!
             Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
         )
 
-        # Check if there are no scorecards
         if not scorecards.exists():
-            print('No scorecards')
             return Response({
                 "message": "No scorecards found for this game."
             }, status=status.HTTP_200_OK)
 
-        # Prepare the data for each scorecard
         all_scorecards_data = []
 
         for scorecard in scorecards:
-            translated_title = scorecard.faction.title  # fallback
+            translated_title = scorecard.faction.title
             if hasattr(scorecard.faction, 'filtered_translations') and scorecard.faction.filtered_translations:
                 translated_title = scorecard.faction.filtered_translations[0].translated_title
-            # Retrieve all turns related to this scorecard
-            turns = scorecard.turns.all()
 
-            # Prepare chart data: turn number, total points, and game points for each turn
-            turn_data = []
-            game_points = 0
-            for turn in turns:
-                game_points += turn.total_points
-                turn_data.append({
-                    "turn_number": turn.turn_number,
-                    "total_points": turn.total_points,
-                    "game_points": game_points
-                })
+            # Get turn data directly from prefetched data
+            turn_data = list(scorecard.turns.values(
+                'turn_number',
+                'total_points',
+                'game_points_total'
+            ).order_by('turn_number'))
+            
+            # Rename game_points_total to game_points
+            for turn in turn_data:
+                turn['game_points'] = turn.pop('game_points_total')
+
             color = scorecard.faction.color if scorecard.faction.color else generate_neon_color()
-            # Prepare the data for this scorecard (similar to the ScoreCardDetailView)
+
             scorecard_data = {
                 "scorecard_id": scorecard.id,
-                # "faction": scorecard.faction.title,  # Assuming Faction model has a title
                 "faction": translated_title,
                 "color": color,
-                "turns": turn_data  # This contains the turn data for the chart
+                "turns": turn_data
             }
 
-            # Append this scorecard's data to the final list
             all_scorecards_data.append(scorecard_data)
 
-        # Return the list of scorecards data
         return Response(all_scorecards_data, status=status.HTTP_200_OK)
-
-
-    
-
-
 
 
 class FactionAverageTurnScoreView(APIView):
     def get(self, request, slug, format=None):
-        # Get all scorecards related to the given faction
-        scorecards = ScoreCard.objects.filter(faction__slug=slug, effort__isnull=False, final=True)
-        faction = Faction.objects.get(slug=slug)
-
+        # Get faction
+        try:
+            faction = Faction.objects.get(slug=slug)
+        except Faction.DoesNotExist:
+            return Response({
+                "message": "Faction not found."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
         color = faction.color if faction.color else generate_neon_color()
-        # Check if there are no scorecards
-        if not scorecards.exists():
-            # Handle case where there are no scorecards
+        
+        # Get scorecard count
+        scorecard_count = ScoreCard.objects.filter(
+            faction=faction,
+            effort__isnull=False,
+            final=True
+        ).count()
+        
+        if scorecard_count == 0:
             return Response({
                 "message": "No scorecards found."
             }, status=status.HTTP_200_OK)
         
-        # # Calculate the average number of Turns for the filtered scorecards
-        # turn_count = scorecards.annotate(num_turns=Count('turns')) 
-        # # Calculate the total number of turn objects and the total number of scorecards
-        # total_turns = sum([scorecard.num_turns for scorecard in turn_count])
-        # total_scorecards = scorecards.count()
-        # # Calculate the average
-        # average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
-
-
-        # Calculate the total points for each turn across all scorecards
-        turn_averages = (
-            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10, scorecard__final=True)  # Filter by the related scorecards
-            .values('turn_number')  # Group by turn number
-            .annotate(
-                total_points_sum=Sum('total_points'),  # Calculate the total points per turn
-                faction_points_sum=Sum('faction_points'),  # Calculate the faction points per turn
-                crafting_points_sum=Sum('crafting_points'),  # Calculate the crafting points per turn
-                battle_points_sum=Sum('battle_points'),  # Calculate the battle points per turn
-                other_points_sum=Sum('other_points'),  # Calculate the other points per turn
+        # Single optimized query with all aggregations
+        turn_data = (
+            TurnScore.objects
+            .filter(
+                scorecard__faction=faction,
+                scorecard__effort__isnull=False,
+                scorecard__final=True,
+                turn_number__lte=10
             )
-            .order_by('turn_number')  # Optional: to order by turn number
+            .values('turn_number')
+            .annotate(
+                turn_count=Count('id'),
+                avg_total_points=Sum('total_points') / Cast(Count('id'), FloatField()),
+                avg_faction_points=Sum('faction_points') / Cast(Count('id'), FloatField()),
+                avg_crafting_points=Sum('crafting_points') / Cast(Count('id'), FloatField()),
+                avg_battle_points=Sum('battle_points') / Cast(Count('id'), FloatField()),
+                avg_other_points=Sum('other_points') / Cast(Count('id'), FloatField()),
+                avg_game_points=Sum('game_points_total') / Cast(Count('id'), FloatField()),
+            )
+            .order_by('turn_number')
         )
-        # print('turn averages')
-        # print(turn_averages)
-        # print('end')
-        # Calculate the count of the scorecards
-        scorecard_count = scorecards.count()
-
-        # Initialize variables to store the total sum of points across all turns
+        
+        # Build response data
+        averages = []
         total_faction_points = 0
         total_crafting_points = 0
         total_battle_points = 0
         total_other_points = 0
-
-        # Format the data for the response
+        
+        for turn in turn_data:
+            avg_total = turn['avg_total_points'] or 0
+            avg_faction = turn['avg_faction_points'] or 0
+            avg_crafting = turn['avg_crafting_points'] or 0
+            avg_battle = turn['avg_battle_points'] or 0
+            avg_other = turn['avg_other_points'] or 0
+            avg_game = turn['avg_game_points'] or 0
+            
+            total_faction_points += avg_faction
+            total_crafting_points += avg_crafting
+            total_battle_points += avg_battle
+            total_other_points += avg_other
+            
+            averages.append({
+                "turn_number": turn['turn_number'],
+                "average_total_points": avg_total,
+                "average_faction_points": avg_faction,
+                "average_crafting_points": avg_crafting,
+                "average_battle_points": avg_battle,
+                "average_other_points": avg_other,
+                "average_game_points": avg_game,
+            })
+        
         average_data = {
-            "faction_name": scorecards.first().faction.title,  # Get the faction's name
+            "faction_name": faction.title,
             "count": scorecard_count,
             "color": color,
-            "averages": [],
-            "totals": [],
-        }
-        average_game_points = 0
-        for avg in turn_averages:
-            # Divide the total points by the number of scorecards for the faction
-            # average_total_points = avg['total_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_faction_points = avg['faction_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_crafting_points = avg['crafting_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
-    
-            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
-            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
-            running_total = 0
-            for current_turn in current_turns:
-                running_total = running_total + current_turn.game_points()
-            running_total = running_total / turn_count
-
-            # Divide the total points by the number of turns for the specific turn_number
-            average_total_points = avg['total_points_sum'] / turn_count if turn_count else 0
-            average_faction_points = avg['faction_points_sum'] / turn_count if turn_count else 0
-            average_crafting_points = avg['crafting_points_sum'] / turn_count if turn_count else 0
-            average_battle_points = avg['battle_points_sum'] / turn_count if turn_count else 0
-            average_other_points = avg['other_points_sum'] / turn_count if turn_count else 0
-            average_game_points += average_total_points
-
-            # Add the aggregated totals to the overall totals
-            total_faction_points += average_faction_points
-            total_crafting_points += average_crafting_points
-            total_battle_points += average_battle_points
-            total_other_points += average_other_points
-
-            average_data["averages"].append({
-                "turn_number": avg['turn_number'],
-                "average_total_points": average_total_points,
-                "average_faction_points": average_faction_points,
-                "average_crafting_points": average_crafting_points,
-                "average_battle_points": average_battle_points,
-                "average_other_points": average_other_points,
-                # # This average would take the average for each turn and add it to the previous average
-                #"average_game_points": average_game_points,
-                ## This line takes the game_total for each selected turn and averages them. As a result the average can be much higher or lower than the previous turn as outliers will have less averages.
-                "average_game_points": running_total,
-            })
-        # Add the aggregated totals to the "totals" list
-        average_data["totals"] = {
-            "total_faction_points": total_faction_points,
-            "total_crafting_points": total_crafting_points,
-            "total_battle_points": total_battle_points,
-            "total_other_points": total_other_points
-        }
-        # Return the data in JSON format
-        return Response(average_data, status=status.HTTP_200_OK)
-
-
-    
-
-class AverageTurnScoreView(APIView):
-    def get(self, request, format=None):
-
-        # Get the 'type' query parameter (optional)
-        faction_type = request.query_params.get('type', None)
-
-        # Get all scorecards related to the given faction type (if provided)
-        if faction_type:
-            # Filter by the provided faction type
-            # print('Faction Type', faction_type)
-            scorecards = ScoreCard.objects.filter(effort__isnull=False, faction__type=faction_type, faction__official=True, final=True)
-        else:
-            faction_type = "A"
-            # If no type is provided, get all scorecards with the original conditions
-            scorecards = ScoreCard.objects.filter(effort__isnull=False, final=True)
-
-
-        # Check if there are no scorecards
-        if not scorecards.exists():
-            # Handle case where there are no scorecards
-            return Response({
-                "message": "No scorecards found."
-            }, status=status.HTTP_200_OK)
-
-        # # Calculate the average number of Turns for the filtered scorecards
-        # turn_count = scorecards.annotate(num_turns=Count('turns')) 
-        # # Calculate the total number of turn objects and the total number of scorecards
-        # total_turns = sum([scorecard.num_turns for scorecard in turn_count])
-        # total_scorecards = scorecards.count()
-        # # Calculate the average
-        # average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
-
-
-        # Calculate the total points for each turn across all scorecards
-        turn_averages = (
-            TurnScore.objects.filter(scorecard__in=scorecards, turn_number__lte=10, scorecard__final=True)  # Filter by the related scorecards
-            .values('turn_number')  # Group by turn number
-            .annotate(
-                total_points_sum=Sum('total_points'),  # Calculate the total points per turn
-                faction_points_sum=Sum('faction_points'),  # Calculate the faction points per turn
-                crafting_points_sum=Sum('crafting_points'),  # Calculate the crafting points per turn
-                battle_points_sum=Sum('battle_points'),  # Calculate the battle points per turn
-                other_points_sum=Sum('other_points')  # Calculate the other points per turn
-            )
-            .order_by('turn_number')  # Optional: to order by turn number
-        )
-
-        # Calculate the count of the scorecards
-        scorecard_count = scorecards.count()
-
-        # Initialize variables to store the total sum of points across all turns
-        total_faction_points = 0
-        total_crafting_points = 0
-        total_battle_points = 0
-        total_other_points = 0
-
-        # Format the data for the response
-        average_data = {
-            "type": faction_type,
-            "count": scorecard_count,
-            "averages": [],
-            "totals": [],
-        }
-        average_game_points = 0
-        for avg in turn_averages:
-            # Divide the total points by the number of scorecards for the faction
-            
-            # average_total_points = avg['total_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_faction_points = avg['faction_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_crafting_points = avg['crafting_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_battle_points = avg['battle_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_other_points = avg['other_points_sum'] / scorecard_count if scorecard_count else 0
-            # average_game_points += average_total_points
-
-            turn_count = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
-            current_turns = TurnScore.objects.filter(scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
-            running_total = 0
-            for current_turn in current_turns:
-                running_total = running_total + current_turn.game_points()
-            running_total = running_total / turn_count
-
-            # Divide the total points by the number of turns for the specific turn_number
-            average_total_points = avg['total_points_sum'] / turn_count if turn_count else 0
-            average_faction_points = avg['faction_points_sum'] / turn_count if turn_count else 0
-            average_crafting_points = avg['crafting_points_sum'] / turn_count if turn_count else 0
-            average_battle_points = avg['battle_points_sum'] / turn_count if turn_count else 0
-            average_other_points = avg['other_points_sum'] / turn_count if turn_count else 0
-            average_game_points += average_total_points
-
-            # Add the aggregated totals to the overall totals
-            total_faction_points += average_faction_points
-            total_crafting_points += average_crafting_points
-            total_battle_points += average_battle_points
-            total_other_points += average_other_points
-
-            average_data["averages"].append({
-                "turn_number": avg['turn_number'],
-                "average_total_points": average_total_points,
-                "average_faction_points": average_faction_points,
-                "average_crafting_points": average_crafting_points,
-                "average_battle_points": average_battle_points,
-                "average_other_points": average_other_points,
-                # # This average would take the average for each turn and add it to the previous average
-                # "average_game_points": average_game_points,
-                ## This line takes the game_total for each selected turn and averages them. As a result the average can be much higher or lower than the previous turn as outliers will have less averages.
-                "average_game_points": running_total,
-
-            })
-        # Add the aggregated totals to the "totals" list
-        average_data["totals"] = {
-            "total_faction_points": total_faction_points,
-            "total_crafting_points": total_crafting_points,
-            "total_battle_points": total_battle_points,
-            "total_other_points": total_other_points
-        }
-        # Return the data in JSON format
-        return Response(average_data, status=status.HTTP_200_OK)
-    
-
-class PlayerScorecardView(APIView):
-    def get(self, request, slug, format=None):
-
-        # Get the 'recorder' query parameter from the URL (if provided)
-        recorder = request.query_params.get('recorder', None)
-
-        if recorder:
-            # Get all scorecards recorded by a player (via player slug)        
-            scorecards = ScoreCard.objects.filter(recorder__slug=slug, effort__isnull=False, final=True)
-        else:
-            # Get all scorecards related to the specified player (via player slug)        
-            scorecards = ScoreCard.objects.filter(effort__player__slug=slug, final=True)
-
-        current_lang_code = get_language()
-        translations = PostTranslation.objects.filter(language__code=current_lang_code)
-        scorecards = scorecards.select_related('faction').prefetch_related(
-            Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
-        )
-
-        # Check if there are no scorecards
-        if not scorecards.exists():
-            print('No scorecards')
-            return Response({
-                "message": "No scorecards found."
-            }, status=status.HTTP_200_OK)
-        # Group scorecards by faction
-        faction_groups = defaultdict(list)
-        for scorecard in scorecards:
-            faction_groups[scorecard.faction].append(scorecard)
-
-        # Initialize a dictionary to store the average data per faction
-        average_data_by_faction = {}
-
-
-
-        # Loop through each faction and calculate averages
-        for faction, faction_scorecards in faction_groups.items():
-
-
-            translated_title = faction.title  # fallback to default
-            if hasattr(faction, 'filtered_translations') and faction.filtered_translations:
-                translated_title = faction.filtered_translations[0].translated_title
-            # # Calculate the average number of Turns for the filtered scorecards
-            # turn_count = scorecards.annotate(num_turns=Count('turns')) 
-            # # Calculate the total number of turn objects and the total number of scorecards
-            # total_turns = sum([scorecard.num_turns for scorecard in turn_count])
-            # total_scorecards = scorecards.count()
-            # # Calculate the average
-            # average_turns = round(total_turns / total_scorecards) if total_scorecards > 0 else 0
-
-
-            turn_averages = (
-                TurnScore.objects.filter(scorecard__in=faction_scorecards, turn_number__lte=10, scorecard__final=True)
-                .values('turn_number')  # Group by turn number
-                .annotate(
-                    total_points_sum=Sum('total_points'),
-                    faction_points_sum=Sum('faction_points'),
-                    crafting_points_sum=Sum('crafting_points'),
-                    battle_points_sum=Sum('battle_points'),
-                    other_points_sum=Sum('other_points')
-                )
-                .order_by('turn_number')  # Order by turn number
-            )
-
-            # Calculate the count of the scorecards for the current faction
-            faction_scorecard_count = len(faction_scorecards)
-
-            # Initialize variables to store the total sum of points for the current faction
-            total_faction_points = 0
-            total_crafting_points = 0
-            total_battle_points = 0
-            total_other_points = 0
-
-            # Initialize the data for the current faction
-            faction_average_data = {
-                # "faction": faction.title, 
-                "faction": translated_title, 
-                "color": faction.color,
-                "count": faction_scorecard_count,
-                "averages": [],
-                "totals": {},
-            }
-
-            # Format the data for the current faction
-            average_game_points = 0
-            for avg in turn_averages:
-                # average_total_points = avg['total_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                # average_faction_points = avg['faction_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                # average_crafting_points = avg['crafting_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                # average_battle_points = avg['battle_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                # average_other_points = avg['other_points_sum'] / faction_scorecard_count if faction_scorecard_count else 0
-                # average_game_points += average_total_points
-                # print(faction.title, faction.id)
-                turn_count = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True).count()
-                current_turns = TurnScore.objects.filter(scorecard__faction=faction, scorecard__in=scorecards, turn_number=avg['turn_number'], scorecard__final=True)
-                running_total = 0
-                for current_turn in current_turns:
-                    running_total = running_total + current_turn.game_points()
-                running_total = running_total / turn_count
-
-                # Divide the total points by the number of turns for the specific turn_number
-                average_total_points = avg['total_points_sum'] / turn_count if turn_count else 0
-                average_faction_points = avg['faction_points_sum'] / turn_count if turn_count else 0
-                average_crafting_points = avg['crafting_points_sum'] / turn_count if turn_count else 0
-                average_battle_points = avg['battle_points_sum'] / turn_count if turn_count else 0
-                average_other_points = avg['other_points_sum'] / turn_count if turn_count else 0
-                average_game_points += average_total_points
-
-                total_faction_points += average_faction_points
-                total_crafting_points += average_crafting_points
-                total_battle_points += average_battle_points
-                total_other_points += average_other_points
-
-                # Append the averages for the current turn
-                faction_average_data["averages"].append({
-                    "turn_number": avg['turn_number'],
-                    "average_total_points": average_total_points,
-                    "average_faction_points": average_faction_points,
-                    "average_crafting_points": average_crafting_points,
-                    "average_battle_points": average_battle_points,
-                    "average_other_points": average_other_points,
-                    # # This average would take the average for each turn and add it to the previous average
-                    #"average_game_points": average_game_points,
-                    ## This line takes the game_total for each selected turn and averages them. As a result the average can be much higher or lower than the previous turn as outliers will have less averages.
-                    "average_game_points": running_total,
-                })
-
-            # Add the aggregated totals to the "totals" for the current faction
-            faction_average_data["totals"] = {
+            "averages": averages,
+            "totals": {
                 "total_faction_points": total_faction_points,
                 "total_crafting_points": total_crafting_points,
                 "total_battle_points": total_battle_points,
                 "total_other_points": total_other_points
             }
+        }
+        
+        return Response(average_data, status=status.HTTP_200_OK)
 
-            # Add this faction's data to the overall result
+
+
+class AverageTurnScoreView(APIView):
+    def get(self, request, format=None):
+        # Get the 'type' query parameter (optional)
+        faction_type = request.query_params.get('type', None)
+
+        # Build the base filter
+        scorecard_filter = Q(effort__isnull=False, final=True)
+        
+        if faction_type:
+            scorecard_filter &= Q(faction__type=faction_type, faction__official=True)
+        else:
+            faction_type = "A"
+
+        # Get scorecard count
+        scorecard_count = ScoreCard.objects.filter(scorecard_filter).count()
+
+        if scorecard_count == 0:
+            return Response({
+                "message": "No scorecards found."
+            }, status=status.HTTP_200_OK)
+
+        # Single optimized query with all aggregations
+        turn_data = (
+            TurnScore.objects
+            .filter(
+                scorecard__effort__isnull=False,
+                scorecard__final=True,
+                turn_number__lte=10
+            )
+        )
+        
+        # Add faction type filter if specified
+        if faction_type and faction_type != "A":
+            turn_data = turn_data.filter(
+                scorecard__faction__type=faction_type,
+                scorecard__faction__official=True
+            )
+        
+        # Aggregate by turn number
+        turn_data = (
+            turn_data
+            .values('turn_number')
+            .annotate(
+                turn_count=Count('id'),
+                avg_total_points=Sum('total_points') / Cast(Count('id'), FloatField()),
+                avg_faction_points=Sum('faction_points') / Cast(Count('id'), FloatField()),
+                avg_crafting_points=Sum('crafting_points') / Cast(Count('id'), FloatField()),
+                avg_battle_points=Sum('battle_points') / Cast(Count('id'), FloatField()),
+                avg_other_points=Sum('other_points') / Cast(Count('id'), FloatField()),
+                avg_game_points=Sum('game_points_total') / Cast(Count('id'), FloatField()),
+            )
+            .order_by('turn_number')
+        )
+
+        # Build response data
+        averages = []
+        total_faction_points = 0
+        total_crafting_points = 0
+        total_battle_points = 0
+        total_other_points = 0
+
+        for turn in turn_data:
+            avg_total = turn['avg_total_points'] or 0
+            avg_faction = turn['avg_faction_points'] or 0
+            avg_crafting = turn['avg_crafting_points'] or 0
+            avg_battle = turn['avg_battle_points'] or 0
+            avg_other = turn['avg_other_points'] or 0
+            avg_game = turn['avg_game_points'] or 0
+
+            total_faction_points += avg_faction
+            total_crafting_points += avg_crafting
+            total_battle_points += avg_battle
+            total_other_points += avg_other
+
+            averages.append({
+                "turn_number": turn['turn_number'],
+                "average_total_points": avg_total,
+                "average_faction_points": avg_faction,
+                "average_crafting_points": avg_crafting,
+                "average_battle_points": avg_battle,
+                "average_other_points": avg_other,
+                "average_game_points": avg_game,
+            })
+
+        average_data = {
+            "type": faction_type,
+            "count": scorecard_count,
+            "averages": averages,
+            "totals": {
+                "total_faction_points": total_faction_points,
+                "total_crafting_points": total_crafting_points,
+                "total_battle_points": total_battle_points,
+                "total_other_points": total_other_points
+            }
+        }
+
+        return Response(average_data, status=status.HTTP_200_OK)
+
+
+class PlayerScorecardView(APIView):
+    def get(self, request, slug, format=None):
+        # Get the 'recorder' query parameter from the URL (if provided)
+        recorder = request.query_params.get('recorder', None)
+
+        if recorder:
+            # Get all scorecards recorded by a player (via player slug)
+            scorecards = ScoreCard.objects.filter(
+                recorder__slug=slug,
+                effort__isnull=False,
+                final=True
+            )
+        else:
+            # Get all scorecards related to the specified player (via player slug)
+            scorecards = ScoreCard.objects.filter(
+                effort__player__slug=slug,
+                final=True
+            )
+
+        current_lang_code = get_language()
+        translations = PostTranslation.objects.filter(language__code=current_lang_code)
+        
+        # Optimize: select_related for faction, prefetch translations
+        scorecards = scorecards.select_related('faction').prefetch_related(
+            Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
+        )
+
+        # Check if there are no scorecards
+        if not scorecards.exists():
+            return Response({
+                "message": "No scorecards found."
+            }, status=status.HTTP_200_OK)
+
+        # Get all faction IDs from scorecards
+        faction_ids = scorecards.values_list('faction_id', flat=True).distinct()
+        
+        # Single query to get all turn data grouped by faction and turn_number
+        turn_data_by_faction = (
+            TurnScore.objects
+            .filter(
+                scorecard__in=scorecards,
+                scorecard__final=True,
+                turn_number__lte=10
+            )
+            .values('scorecard__faction_id', 'turn_number')
+            .annotate(
+                turn_count=Count('id'),
+                avg_total_points=Sum('total_points') / Cast(Count('id'), FloatField()),
+                avg_faction_points=Sum('faction_points') / Cast(Count('id'), FloatField()),
+                avg_crafting_points=Sum('crafting_points') / Cast(Count('id'), FloatField()),
+                avg_battle_points=Sum('battle_points') / Cast(Count('id'), FloatField()),
+                avg_other_points=Sum('other_points') / Cast(Count('id'), FloatField()),
+                avg_game_points=Sum('game_points_total') / Cast(Count('id'), FloatField()),
+            )
+            .order_by('scorecard__faction_id', 'turn_number')
+        )
+        
+        # Group turn data by faction_id
+        turns_by_faction = defaultdict(list)
+        for turn in turn_data_by_faction:
+            turns_by_faction[turn['scorecard__faction_id']].append(turn)
+        
+        # Group scorecards by faction for counting
+        faction_scorecard_counts = (
+            scorecards
+            .values('faction_id')
+            .annotate(count=Count('id'))
+        )
+        scorecard_count_dict = {item['faction_id']: item['count'] for item in faction_scorecard_counts}
+        
+        # Get unique factions from scorecards
+        factions = Faction.objects.filter(id__in=faction_ids).prefetch_related(
+            Prefetch('translations', queryset=translations, to_attr='filtered_translations')
+        )
+        
+        # Build response data
+        average_data_by_faction = {}
+        
+        for faction in factions:
+            # Get translated title
+            translated_title = faction.title
+            if hasattr(faction, 'filtered_translations') and faction.filtered_translations:
+                translated_title = faction.filtered_translations[0].translated_title
+            
+            # Get turn data for this faction
+            faction_turns = turns_by_faction.get(faction.id, [])
+            
+            # Calculate totals
+            total_faction_points = 0
+            total_crafting_points = 0
+            total_battle_points = 0
+            total_other_points = 0
+            
+            averages = []
+            for turn in faction_turns:
+                avg_total = turn['avg_total_points'] or 0
+                avg_faction = turn['avg_faction_points'] or 0
+                avg_crafting = turn['avg_crafting_points'] or 0
+                avg_battle = turn['avg_battle_points'] or 0
+                avg_other = turn['avg_other_points'] or 0
+                avg_game = turn['avg_game_points'] or 0
+                
+                total_faction_points += avg_faction
+                total_crafting_points += avg_crafting
+                total_battle_points += avg_battle
+                total_other_points += avg_other
+                
+                averages.append({
+                    "turn_number": turn['turn_number'],
+                    "average_total_points": avg_total,
+                    "average_faction_points": avg_faction,
+                    "average_crafting_points": avg_crafting,
+                    "average_battle_points": avg_battle,
+                    "average_other_points": avg_other,
+                    "average_game_points": avg_game,
+                })
+            
+            faction_average_data = {
+                "faction": translated_title,
+                "color": faction.color,
+                "count": scorecard_count_dict.get(faction.id, 0),
+                "averages": averages,
+                "totals": {
+                    "total_faction_points": total_faction_points,
+                    "total_crafting_points": total_crafting_points,
+                    "total_battle_points": total_battle_points,
+                    "total_other_points": total_other_points
+                }
+            }
+            
             average_data_by_faction[faction.title] = faction_average_data
 
-        # Return the average data by faction in the response
         return Response(average_data_by_faction, status=status.HTTP_200_OK)

@@ -444,13 +444,13 @@ class EffortCreateForm(forms.ModelForm):
             # Clear out cleaned_data, essentially skipping validation for this form
             cleaned_data = {}
             cleaned_data['delete'] = True
-            print(cleaned_data)
+            # print(cleaned_data)
             return cleaned_data
         
         if not faction and not player and not score:
             cleaned_data = {}
             cleaned_data['delete'] = True
-            print(cleaned_data)
+            # print(cleaned_data)
             return cleaned_data
 
         # print(cleaned_data.get('score'))

@@ -6,6 +6,12 @@ from unidecode import unidecode
 
 from django.utils.text import slugify
 
+from randomcolor import RandomColor
+
+def generate_neon_color():
+    random_color = RandomColor()
+    color = random_color.generate(luminosity='light', hue='pastel')[0]  # Use bright luminosity for neon-like colors
+    return color[0]
 
 
 def slugify_instance_discord(instance, save=False, new_slug=None):

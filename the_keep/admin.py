@@ -63,10 +63,6 @@ class MapAdmin(admin.ModelAdmin):
     def upload_map_csv(self, request):
 
         if request.method == 'POST':
-            print("action is posted")
-
-
-            print("action is posted")
             csv_file = request.FILES['csv_upload']
 
             if not csv_file.name.endswith('.csv'):

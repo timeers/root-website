@@ -180,7 +180,6 @@ class ProfileAdmin(admin.ModelAdmin):
     def upload_csv(self, request):
 
         if request.method == 'POST':
-            print("action is posted")
             csv_file = request.FILES['csv_upload']
 
             if not csv_file.name.endswith('.csv'):

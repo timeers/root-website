@@ -9,12 +9,12 @@
 </div>
 
 
-{{mismatches}}
+{% comment %} {{mismatches}}
 <ul>
   {% for mismatch in mismatches %}
     <li>{{ mismatch }}</li>
   {% empty %}
     <li>No mismatches found! 🎉</li>
   {% endfor %}
-</ul>
+</ul> {% endcomment %}
 {% endblock content %}

@@ -130,6 +130,7 @@ class GameListView(ListView):
         games = self._cached_queryset  # Use the already-evaluated queryset
         # Get the total count of games
         games_count = games.count()
+        
         efforts = Effort.objects.filter(game__in=games)
         if games_count > 5000:
             leaderboard_threshold = 10
@@ -901,9 +902,6 @@ def scorecard_manage_view(request, id=None):
                 warning_message = True
                 messages.info(request, f"Progress Saved. Dominance missing.")
                 # context['message'] = f"Dominance Error: The original effort has an active Dominance Played."
-            # if existing_scorecard == False:
-            #     parent.delete()
-            # return render(request, 'the_warroom/record_scores.html', context)
 
         
         for turn_form in formset:
@@ -916,11 +914,14 @@ def scorecard_manage_view(request, id=None):
         if parent.dominance != dominance:
             parent.dominance = dominance
             # print("dominance", dominance)
-            parent.save()  # Save the new or updated Game Score instance
+            # parent.save()  # Save the new or updated Game Score instance
 
         if parent.final != final_scorecard:
             parent.final = final_scorecard
-            parent.save()  # Save with the new final status
+            # parent.save()  # Save with the new final status
+
+        # Save and recalculate game points for each Turn
+        parent.save(recalculate_game_points=True)
 
         if not warning_message:
             if final_scorecard:

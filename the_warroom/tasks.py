@@ -369,27 +369,27 @@ def check_all_league_rounds(delete=False, list_games=False):
                         print(f"Deleted {count} games from '{round_obj.name}'")
     if not results:
         print("All Root Digital League rounds are up to date.")
+    else:
+        fields = []
+        for key, value in results.items():
+            if value.get('deleted_game_ids'):
+                fields.append({
+                    'name': key,
+                    'value': format_bulleted_list(value['deleted_game_ids'])
+                })
+            elif value['missing_count']:
+                fields.append({
+                    'name': key,
+                    'value': f"{value['missing_count']} games missing"
+                })
 
-    fields = []
-    for key, value in results.items():
-        if value.get('deleted_game_ids'):
-            fields.append({
-                'name': key,
-                'value': format_bulleted_list(value['deleted_game_ids'])
-            })
-        elif value['missing_count']:
-            fields.append({
-                'name': key,
-                'value': f"{value['missing_count']} games missing"
-            })
-
-    send_rich_discord_message(
-        f'{total_missing_count} games missing from RDL',
-        author_name='RDB Admin',
-        category='rdl-delete',
-        title='Deleted Games',
-        fields=fields
-    )
+        send_rich_discord_message(
+            f'{total_missing_count} games missing from RDL',
+            author_name='RDB Admin',
+            category='rdl-delete',
+            title='Deleted Games',
+            fields=fields
+        )
 
     return results
 
@@ -459,7 +459,6 @@ def compare_league_game_count(league_round):
 
     missing_count = site_count - api_count
 
-    print(f'Round {tournament_name}: {site_count} site games, {api_count} API games, difference {missing_count}')
 
     return site_count, api_count, missing_count
 

@@ -66,7 +66,6 @@ class RequestTimingMiddleware:
         response = self.get_response(request)
         duration = time.time() - start
 
-        if duration > 5:  # Only log if slower than 5 seconds
-            print(f"⚠️ Slow request: {request.path} took {duration:.2f}s")
-            logger.warning(f"⚠️ Slow request: {request.path} took {duration:.2f}s")
+        if duration > 4:  # Only log if slower than 4 seconds
+            logger.warning(f"Slow request: {request.path} took {duration:.2f}s")
         return response

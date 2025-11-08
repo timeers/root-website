@@ -708,7 +708,6 @@ def manage_user(request, slug):
                 user_to_edit.group = form.cleaned_data['group']
                 update_user = True
                 update_message  = f'{user_to_edit.name} has been updated.'
-                print(user_to_edit.group)
                 match user_to_edit.group:
                     case 'D':
                         user_to_edit.admin_onboard = False

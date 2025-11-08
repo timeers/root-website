@@ -2202,7 +2202,6 @@ def advanced_search(request, component_type='faction'):
         ).exists()
         for status_choice in StatusChoices
     }
-    print(f'statuses: {has_status}')
     # Add the selected status if it's valid
     if selected_status:
         try:
@@ -2348,7 +2347,6 @@ def advanced_search(request, component_type='faction'):
     }
 
     if request.htmx:
-        print("HTMX")
         return render(request, "the_keep/partials/advanced_search_results.html", context)    
     else:
         return render(request, "the_keep/advanced_search.html", context)
@@ -2867,9 +2865,6 @@ class PNPAssetListView(ListView):
         if self.request.headers.get('HX-Request') == 'true':
             # Only return the part of the template that HTMX will update
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
-        # print("NOT HTMX")
-
-
 
         if self.request.user.is_authenticated:
             send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')

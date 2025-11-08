@@ -220,7 +220,6 @@
 
         // Listen for HTMX after content has been loaded into the DOM
         document.body.addEventListener('htmx:afterOnLoad', function () {
-            console.log("HTMX")
             attachFileInputListeners();  // Re-attach the event listeners to any newly added file inputs
         });
 

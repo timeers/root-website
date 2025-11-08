@@ -399,9 +399,7 @@ class ScoreCard(models.Model):
     def efforts_available(self):
         if self.effort:
             return False
-        print(self)
         if self.dominance:
-            print('dominance')
             # If self.dominance is True, filter for efforts where dominance is not null
             available_efforts = Effort.objects.filter(
                 Q(game__efforts__player=self.recorder) |  # Player is linked to the game
@@ -409,7 +407,7 @@ class ScoreCard(models.Model):
                 scorecard=None, faction=self.faction,  # Effort has no associated scorecard
                 dominance__isnull=False
             ).exists()
-            print(f'Faction: {self.faction} - Dominance')
+            # print(f'Faction: {self.faction} - Dominance')
         else:
             # If self.dominance is False, filter for efforts with no dominance and score matching
             available_efforts = Effort.objects.filter(
@@ -426,15 +424,7 @@ class ScoreCard(models.Model):
                 score=self.total_points,  # Effort has no associated scorecard
                 game__final=True
             )
-            print(available_test_efforts)
-            for effort in available_test_efforts:
-                print(effort.game.get_absolute_url())
-            print(f'Faction: {self.faction} - No Dominance')
-
-
-
-        print(f'Faction: {self.faction} - Match: {available_efforts}')
-        
+           
         return available_efforts
 
     
@@ -445,6 +435,29 @@ class ScoreCard(models.Model):
         return reverse("detail-scorecard", kwargs={"id": self.id})
     class Meta:
         ordering = ['-date_posted']
+
+    def save(self, *args, recalculate_game_points=False, **kwargs):
+        super().save(*args, **kwargs)
+        
+        # Recalculate if explicitly requested
+        if recalculate_game_points:
+            self.recalculate_all_game_points()
+    
+    def recalculate_all_game_points(self):
+        """Recalculate game_points for all turns"""
+        turns = self.turns.all().order_by('turn_number')
+        running_total = 0
+        updates = []
+        
+        for turn in turns:
+            running_total += turn.total_points
+            if turn.game_points_total != running_total:
+                turn.game_points_total = running_total
+                updates.append(turn)
+        
+        if updates:
+            TurnScore.objects.bulk_update(updates, ['game_points_total'])
+
 
 # This is the poorly named segment of a Scorecard that contains the point breakdown for each Turn
 class TurnScore(models.Model):
@@ -457,7 +470,7 @@ class TurnScore(models.Model):
     generic_points = models.IntegerField(default=0)
     total_points = models.IntegerField(default=0)
     dominance = models.BooleanField(default=False)
-    # game_points = models.IntegerField(default=0)
+    game_points_total = models.IntegerField(default=0)
 
 
     def __str__(self):
@@ -466,15 +479,6 @@ class TurnScore(models.Model):
         unique_together = ('scorecard', 'turn_number')  # Ensure each game has only one entry per turn_number
         ordering = ['scorecard', 'turn_number']   
 
-    # Calculate the cumulative game points up to the current turn
-    def game_points(self):
-        # Filter turns in the same scorecard with turn_number <= current turn's turn_number
-        total_turns = self.scorecard.turns.filter(turn_number__lte=self.turn_number)
-        
-        # Sum up the total_points for those turns
-        total_game_points = total_turns.aggregate(Sum('total_points'))['total_points__sum'] or 0
-        
-        return total_game_points
 
   
 

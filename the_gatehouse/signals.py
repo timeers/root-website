@@ -123,7 +123,7 @@ def user_logged_in_handler(request, user, **kwargs):
         # Add the user to the group
         user.groups.add(group)
         user.is_staff = True
-        print(f'User {user} added to {group_name}')
+        send_discord_message(f'User {user} added to {group_name}')
         user.save()
 
     # If user is not in group A but is in the Admin group (remove from group)
@@ -133,7 +133,7 @@ def user_logged_in_handler(request, user, **kwargs):
         # Add the user to the group
         user.groups.remove(group)
         user.is_staff = False
-        print(f'User {user} removed from {group_name}')
+        send_discord_message(f'User {user} removed from {group_name}')
         user.save()
         
 
