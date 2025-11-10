@@ -241,9 +241,14 @@ class Expansion(models.Model):
         return self.title
     
     def count_links(self, user):
+
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
-        
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
+
+        # Only include wr_link if user is authenticated and has in_wr = True
+        if getattr(user, 'is_authenticated', False) and getattr(user.profile, 'in_weird_root', False):
+            link_fields.append('wr_link')
+
         # Count how many of these fields are not None or empty
         count = 0
         for field in link_fields:
@@ -414,14 +419,21 @@ class Post(models.Model):
 
 
     def count_links(self, user):
+
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
-        
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
+
+        # Only include wr_link if user is authenticated and has in_wr = True
+        if getattr(user, 'is_authenticated', False) and getattr(user.profile, 'in_weird_root', False):
+            link_fields.append('wr_link')
+
         # Count how many of these fields are not None or empty
         count = 0
         for field in link_fields:
                 if getattr(self, field):  # Checks if the field value is not None or empty string
                     count += 1
+        print(count)
+        
         return count
 
 

@@ -92,10 +92,12 @@
                 <button type="button" id="clear-filters" class="btn btn-sm btn-secondary mr-1">
                     <i class="bi bi-x-circle"></i> {% trans 'Clear' %}
                 </button>
-                <a id='advanced-search-btn' href="#" class="btn btn-sm btn-primary">
+                <button type="button" id="advanced-search-btn" class="btn btn-sm btn-primary">
                     <i class="bi bi-sliders"></i> {% trans 'Advanced Search' %}
-                </a>
+                </button>
             </div>
+
+
 
             {% if user.is_authenticated and not user.profile.weird %}
                 <div>

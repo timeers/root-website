@@ -193,10 +193,10 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_REPORTS_WEBHOOK_URL']
         embed_title = "Invite Requested"
         embed_color = 0x9746c7  # Purple color for invite
-    # elif category == 'user_updates':
-    #     webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
-    #     embed_title = 'New User Registered'
-    #     embed_color = 0xed3eed # Pink for new users
+    elif category == 'user_updates':
+        webhook_url = config['DISCORD_NEW_USER_WEBHOOK_URL']
+        embed_title = 'New User Registered'
+        embed_color = 0xed3eed # Pink for new users
     elif category == 'New Post':
         webhook_url = config['DISCORD_NEW_POST_WEBHOOK_URL']
         embed_title = "Report Received"

@@ -62,6 +62,9 @@ def user_logged_in_handler(request, user, **kwargs):
         user.save()
         new_user = True
     
+    if user.last_login is None:
+        new_user = True
+
     profile = user.profile
     profile_updated = False
     current_group = profile.group

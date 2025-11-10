@@ -396,9 +396,9 @@ def create_efforts_from_api(game, participants):
         
         # 4. Create new profile if no match found
         if not player:
-            if Profile.objects.filter(discord=player_without_number).exists():
+            if Profile.objects.filter(discord__iexact=player_without_number).exists():
                 player, created = Profile.objects.get_or_create(
-                    discord=full_player_string,
+                    discord=full_player_string.lower(),
                     defaults={
                         'dwd': full_player_string
                     }
@@ -406,7 +406,7 @@ def create_efforts_from_api(game, participants):
                 send_discord_message(f'Duplicate user {player} added.', 'report')
             else:
                 player, created = Profile.objects.get_or_create(
-                    discord=player_without_number,
+                    discord=player_without_number.lower(),
                     defaults={
                         'dwd': full_player_string
                     }

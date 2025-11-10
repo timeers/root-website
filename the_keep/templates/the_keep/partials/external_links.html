@@ -39,7 +39,7 @@
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                 {% trans 'Weird Root Thread' %}
             </a>
-            {% elif user.profile.player %}
+            {% comment %} {% elif user.profile.player %}
                 <a class="mr-2 mt-1" href="{% url 'weird-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                     {% trans 'Request Invite to Weird Root' %}
@@ -48,13 +48,13 @@
                 <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                     {% trans 'Join on Discord for Link' %}
-                </span>
+                </span> {% endcomment %}
             {% endif %}
-        {% else %}
+        {% comment %} {% else %}
             <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                 {% trans 'Log In with Weird Root for Link' %}
-            </a>
+            </a> {% endcomment %}
         {% endif %}
     {% endif %}
 
