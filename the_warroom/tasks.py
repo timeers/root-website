@@ -96,7 +96,7 @@ def import_league_games(limit=25, tournament_name="", days_back=1, date_from=Non
                 # Check if game already exists by league_id
                 league_id = str(match_data['id'])
                 if Game.objects.filter(league_id=league_id).exists():
-                    print(f"Game {league_id} already exists, skipping")
+                    # print(f"Game {league_id} already exists, skipping")
                     skipped_count += 1
                     skipped_list.append(league_id)
                     continue
@@ -340,7 +340,7 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
     return summary
 
 @shared_task(bind=True, autoretry_for=(requests.RequestException,), retry_backoff=True, max_retries=3)
-def check_all_league_rounds(delete=False, list_games=False):
+def check_all_league_rounds(delete=False, list_games=True):
     tournament, _ = Tournament.objects.get_or_create(name='Root Digital League')
     results = {}
     total_missing_count = 0
@@ -358,13 +358,23 @@ def check_all_league_rounds(delete=False, list_games=False):
 
             # Only list games if explicitly requested
             if list_games:
-                deleted_ids = find_deleted_games(round_obj)
+                # deleted_ids = find_deleted_games(round_obj)
+                api_result = find_deleted_games(round_obj)
+
+                if api_result.get("error"):
+                    print("API issue:", api_result["error"])
+                    deleted_ids = None
+                else:
+                    deleted_ids = api_result["deleted_ids"]
+
+                print(f'Count from API: {api_result['api_count']}')
+                
                 if deleted_ids:
                     results[round_obj.name]["deleted_game_ids"] = list(deleted_ids)
 
 
                     # Only delete if explicitly requested
-                    if delete:
+                    if delete == True:
                         count, _ = Game.objects.filter(league_id__in=deleted_ids, round=round_obj).delete()
                         print(f"Deleted {count} games from '{round_obj.name}'")
     if not results:
@@ -433,13 +443,30 @@ def find_deleted_games(league_round, limit=200):
 
     # Get all local game IDs for this round
     site_game_ids = set(
-        Game.objects.filter(round=league_round).values_list("league_id", flat=True)
+        Game.objects.filter(round=league_round)
+        .values_list("league_id", flat=True)
+        .iterator()
     )
 
-    # Identify games missing from API
+    # If API returned nothing at all, treat that as an error case
+    if not api_game_ids:
+        return {
+            "error": f"API returned zero IDs for {tournament_name}",
+            "api_count": 0,
+            "site_count": len(site_game_ids),
+            "deleted_count": None,
+            "deleted_ids": None,
+        }
+
+    # Find missing games
     deleted_ids = site_game_ids - api_game_ids
 
-    return deleted_ids
+    return {
+        "api_count": len(api_game_ids),
+        "site_count": len(site_game_ids),
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": deleted_ids,
+    }
 
 
 def compare_league_game_count(league_round):

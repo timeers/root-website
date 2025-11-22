@@ -8,7 +8,7 @@
     </div>
     <h2 class="mb-0 root-title">Update Laws of Root</h2>
   
-    <a href="{% url 'refresh-law-of-root' %}" class="btn btn-outline-secondary text-start">
+    <a href="{% url 'check-for-law-updates' %}" class="btn btn-outline-secondary text-start">
       <div>
         <i class="bi bi-arrow-repeat"></i> Check for Updates
       </div>
@@ -61,7 +61,7 @@
       </form>
       {% else %}
       <div class='mb-2'>
-      Law is up to date
+      Law is up to date <a href="#" class="btn btn-secondary preview-btn ml-1 disabled" target="_blank" aria-disabled="true">View</a>
       </div>
       {% endif %}
     </div>

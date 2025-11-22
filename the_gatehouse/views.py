@@ -622,9 +622,6 @@ def player_stats(request, slug):
     win_points = win_games + (coalition_games * .5)
     win_rate = win_points / all_games if all_games > 0 else 0
 
-    # print("Stat Lookup", f'tournament-{tournament}', f'round-{round}', f'game threshold-{game_threshold}')
-    # top_factions = player.faction_stats(tournament=tournament, round=round, game_threshold=game_threshold)
-    # most_factions = player.faction_stats(most_wins=True, tournament=tournament, round=round)
     top_factions = Faction.leaderboard(effort_qs=efforts, game_threshold=game_threshold)
     most_factions = Faction.leaderboard(top_quantity=True, effort_qs=efforts, game_threshold=1)
 
@@ -1185,7 +1182,7 @@ def admin_dashboard(request):
     registered_users = Profile.objects.filter(group="P", user__isnull=False).count()
     unregistered_users = Profile.objects.filter(group="O", user__isnull=False).count()
 
-    law_url = reverse('select-law-of-root')
+    law_url = reverse('manage-law-updates')
     admin_url = reverse('admin:index')
     
 

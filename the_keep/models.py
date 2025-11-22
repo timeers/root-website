@@ -516,26 +516,6 @@ class Post(models.Model):
             send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
 
 
-
-        # # if self.small_icon:
-        # # resize_image(self.small_icon, 80)
-        # resize_image_to_webp(self.small_icon, 80, instance=self, field_name='small_icon')
-        # # if self.board_image:
-        # # resize_image(self.board_image, 1200)  # Resize board_image
-        # resize_image_to_webp(self.board_image, 1200, instance=self, field_name='board_image')
-        # # if self.board_2_image:
-        # # resize_image(self.board_2_image, 1200)  # Resize board_image
-        # resize_image_to_webp(self.board_2_image, 1200, instance=self, field_name='board_2_image')
-        # # if self.card_image:
-        # # resize_image(self.card_image, 350)  # Resize card_image
-        # resize_image_to_webp(self.card_image, 350, instance=self, field_name='card_image')
-        # # if self.card_2_image:
-        # # resize_image(self.card_2_image, 350)  # Resize card_image
-        # resize_image_to_webp(self.card_2_image, 350, instance=self, field_name='card_2_image')
-        # # if self.picture:
-        # # resize_image(self.picture, 350)
-        # resize_image_to_webp(self.picture, 350, instance=self, field_name='picture')
-
     def _delete_old_image(self, old_image):
         """Helper method to delete old image if it exists."""
         if not old_image.name.startswith('default_images/'):
@@ -627,24 +607,32 @@ class Post(models.Model):
             # Save to picture field with unique filename
             self.picture.save(unique_filename, img_io, save=False)
 
-    def get_absolute_url(self):
+    def get_absolute_url(self, lang_code=None):
+        # Determine the base URL
         match self.component:
             case "Map":
-                return reverse('map-detail', kwargs={'slug': self.slug})
+                url = reverse('map-detail', kwargs={'slug': self.slug})
             case "Deck":
-                return reverse('deck-detail', kwargs={'slug': self.slug})
+                url = reverse('deck-detail', kwargs={'slug': self.slug})
             case "Landmark":
-                return reverse('landmark-detail', kwargs={'slug': self.slug})
+                url = reverse('landmark-detail', kwargs={'slug': self.slug})
             case "Tweak":
-                return reverse('tweak-detail', kwargs={'slug': self.slug})
+                url = reverse('tweak-detail', kwargs={'slug': self.slug})
             case "Hireling":
-                return reverse('hireling-detail', kwargs={'slug': self.slug})        
+                url = reverse('hireling-detail', kwargs={'slug': self.slug})        
             case "Vagabond":
-                return reverse('vagabond-detail', kwargs={'slug': self.slug})
+                url = reverse('vagabond-detail', kwargs={'slug': self.slug})
             case "Clockwork":
-                return reverse('clockwork-detail', kwargs={'slug': self.slug})
+                url = reverse('clockwork-detail', kwargs={'slug': self.slug})
             case _:
-                return reverse('faction-detail', kwargs={'slug': self.slug})
+                url = reverse('faction-detail', kwargs={'slug': self.slug})
+
+        # Append lang_code if provided
+        if lang_code:
+            query = urlencode({'lang': lang_code})
+            url = f"{url}?{query}"
+
+        return url
 
 
     def get_edit_url(self):
@@ -1553,37 +1541,38 @@ class Faction(Post):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False):
         """
         Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many factions will be displayed.
-        The game theshold is how many games a faction needs to play to qualify.
+        The game threshold is how many games a faction needs to play to qualify.
+        If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
         """
-
         language = get_language()
+        
         # Start with the base queryset for factions
-        queryset = cls.objects.all()
-
-        # Filter for finished games only
-        queryset = queryset.filter(efforts__in=effort_qs, efforts__game__final=True, component='Faction')
-
-        # Now, annotate with the total efforts and win counts
+        queryset = cls.objects.filter(
+            efforts__in=effort_qs, 
+            efforts__game__final=True, 
+            component='Faction'
+        )
+        
+        # Annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts'),
             win_count=Count('efforts', filter=Q(efforts__win=True)),
             coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True))
         )
         
-        # Filter factions who have enough efforts (before doing the annotation)
-
+        # Filter factions who have enough efforts
         queryset = queryset.filter(total_efforts__gte=game_threshold)
-
+        
         # Annotate with win_rate after filtering
         queryset = queryset.annotate(
             win_rate=Case(
                 When(total_efforts=0, then=Value(0)),
                 default=ExpressionWrapper(
-                    (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
+                    (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,
                     output_field=FloatField()
                 ),
                 output_field=FloatField()
@@ -1591,13 +1580,22 @@ class Faction(Post):
             tourney_points=Case(
                 When(total_efforts=0, then=Value(0)),
                 default=ExpressionWrapper(
-                    Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Win rate as percentage
+                    Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),
                     output_field=FloatField()
                 ),
                 output_field=FloatField()
             )
         )
+        
+        # Order the queryset
+        if top_quantity:
+            queryset = queryset.order_by('-tourney_points', '-win_rate')
+        else:
+            queryset = queryset.order_by('-win_rate', '-total_efforts')
 
+        queryset = queryset[:limit]
+
+        # Annotate with translated title
         queryset = queryset.annotate(
             selected_title=Coalesce(
                 Subquery(
@@ -1609,15 +1607,25 @@ class Faction(Post):
                 F('title')  # Fallback
             )
         )
+        
 
-
-        # Now we can order the queryset
-        if top_quantity:
-            # If top_quantity is True, order by total_efforts (most efforts) first
-            return queryset.order_by('-tourney_points', '-win_rate')[:limit]
-        else:
-            # Otherwise, order by win_rate (highest win rate) first
-            return queryset.order_by('-win_rate', '-total_efforts')[:limit]
+        
+        # Return as JSON if requested
+        if as_json:
+            return [
+                {
+                    'title': faction.selected_title,
+                    'win_rate': round(faction.win_rate, 2),
+                    'tourney_points': round(faction.tourney_points, 2),
+                    'total_efforts': faction.total_efforts,
+                    'url': faction.get_absolute_url(),
+                    'slug': faction.slug,
+                    'image_url': faction.small_icon.url if faction.small_icon else None,
+                }
+                for faction in queryset
+            ]
+        
+        return queryset
 
 
 
@@ -2069,6 +2077,8 @@ class PNPAsset(models.Model):
     class Meta:
         ordering = ['pinned', 'category', 'date_updated']
 
+    def __str__(self):
+        return f'{self.title} - {self.category} ({self.file_type})'
 
 
 class LawGroup(models.Model):
@@ -2205,6 +2215,13 @@ class LawGroup(models.Model):
             position__gt=self.position,
             laws__language=language,
             public=True,
+        ).distinct().order_by('position').first()
+    
+    def get_prime_law(self, language):
+        return Law.objects.filter(
+            group=self,
+            language=language,
+            prime_law=True,
         ).distinct().order_by('position').first()
 
 class Law(models.Model):
@@ -2589,7 +2606,8 @@ class RulesFile(models.Model):
             self.status = RulesFile.Status.ARCHIVE
             self.save(update_fields=['status'])
 
-
+    def get_absolute_url(self):
+        return reverse('law-preview', kwargs={'rule_id': self.id})
 
 
 
@@ -2609,7 +2627,7 @@ class FAQ(models.Model):
     )
 
     class Meta:
-        ordering = ['-post__official', 'post__title', 'date_posted']
+        ordering = ['-post__official', 'post__sorting', 'post__date_posted', 'post__title', 'date_posted']
 
     def __str__(self):
         return f'{self.question}'

@@ -3,13 +3,13 @@
     {% for faq in faqs %}
       <div class="accordion-item">
         <div class="accordion-header" onclick="toggleAccordion(this)">
-          {{ faq.question }}
+          Q: {{ faq.question }}
         </div>
         <div class="accordion-body">
             <div class='d-flex justify-content-between align-items-center'>
                 <div>
                   <div class='markdown-section'>
-                      {{ faq.answer|format_law_text_no_link }}
+                      A: {{ faq.answer|format_law_text_no_link }}
                   </div>
                   <div>
                       {% for reference in faq.reference_laws.all %}

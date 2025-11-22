@@ -11,17 +11,14 @@
     </thead>
     <tbody class="effort-rows">
         {% for faction in leaderboard_factions %}
-        <tr data-href="{% url 'faction-detail' faction.slug %}" class="clickable-row{% if forloop.counter > 10 %} extra-rows {% endif %}">
+        <tr data-href="{% url 'faction-detail' faction.slug %}" class="clickable-row">
             <td>{{ forloop.counter }}</td>
             <td>
            
                     <img class="faction-icon" src="{{ faction.small_icon.url }}">
+                    {% comment %} <img class="faction-icon" src="{{ faction.image_url }}"> {% endcomment %}
                     
-                    {% if faction.selected_title %}
-                        {{ faction.selected_title }}
-                    {% else %}
-                        {{ faction.title }}
-                    {% endif %}
+                    {{ faction.title }}
              
             </td>
             <td>

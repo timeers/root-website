@@ -32,6 +32,22 @@ class FAQAdmin(admin.ModelAdmin):
 class LawGroupAdmin(admin.ModelAdmin):
     list_display = ('abbreviation', 'title', 'type', 'public')
     search_fields = ('post__title', 'title', 'abbreviation')
+    actions = ['mark_lawgroup_public', 'mark_lawgroup_private']
+    
+    @admin.action(description="Mark Public")
+    def mark_lawgroup_public(self, request, queryset):
+        for group in queryset:
+            group.public = True
+            group.save()
+            self.message_user(request, f"{group} is now public")
+
+    @admin.action(description="Mark Private")
+    def mark_lawgroup_private(self, request, queryset):
+        for group in queryset:
+            group.public = False
+            group.save()
+            self.message_user(request, f"{group} is now private")
+
 
 class RulesFileAdmin(admin.ModelAdmin):
     list_display = ('language', 'post', 'version', 'status', 'commit_date', 'fetched_at')

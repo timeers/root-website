@@ -653,23 +653,14 @@ class Profile(models.Model):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False):
         """
         Get the players with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many players will be displayed.
         The game theshold is how many games a player needs to play to qualify.
         """
         # Start with the base queryset for profiles
-        queryset = cls.objects.all()
-
-        # If a tournament is provided, filter efforts that are related to that tournament
-
-        queryset = queryset.filter(efforts__in=effort_qs)
-        queryset = queryset.annotate(
-            total_efforts=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__game__final=True, efforts__game__test_match=False)),
-            win_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-            coalition_count=Count('efforts', filter=Q(efforts__in=effort_qs, efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
-        )
+        queryset = cls.objects.filter(efforts__in=effort_qs)
 
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
@@ -678,9 +669,9 @@ class Profile(models.Model):
             coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
         )
         
-        # Filter factions who have enough efforts (before doing the annotation)
-
+        # Filter players who have enough efforts (before doing the annotation)
         queryset = queryset.filter(total_efforts__gte=game_threshold)
+
 
         # Annotate with win_rate after filtering
         queryset = queryset.annotate(
@@ -701,13 +692,31 @@ class Profile(models.Model):
                 output_field=FloatField()
             )
         )
-        # Now we can order the queryset
+
+        # Order the queryset
         if top_quantity:
-            # If top_quantity is True, order by total_efforts (most efforts) first
-            return queryset.order_by('-tourney_points', '-win_rate')[:limit]
+            queryset = queryset.order_by('-tourney_points', '-win_rate')
         else:
-            # Otherwise, order by win_rate (highest win rate) first
-            return queryset.order_by('-win_rate', '-total_efforts')[:limit]
+            queryset = queryset.order_by('-win_rate', '-total_efforts')
+
+        queryset = queryset[:limit]
+        
+        # Return as JSON if requested
+        if as_json:
+            return [
+                {
+                    'title': profile.display_name or profile.discord,
+                    'win_rate': round(profile.win_rate, 2),
+                    'tourney_points': round(profile.tourney_points, 2),
+                    'total_efforts': profile.total_efforts,
+                    'url': profile.get_absolute_url(),
+                    'slug': profile.slug,
+                    'image_url': profile.image.url if profile.image else None,
+                }
+                for profile in queryset
+            ]
+                
+        return queryset
 
 
 

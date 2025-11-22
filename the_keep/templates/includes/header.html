@@ -25,6 +25,12 @@
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">
               {% trans 'Workshop' %}
             </a>
+            <a class="nav-item nav-link" href="{% url 'law-home' %}">
+              {% trans 'Laws' %}
+            </a>
+            <a class="nav-item nav-link" href="{% url 'faq-home' %}">
+              {% trans 'FAQ' %}
+            </a>
           </div>
 
 
@@ -89,9 +95,9 @@
                       <li><hr class="dropdown-divider"></li>
                       {% endif %}
 
-                      {% if user_recent_posts %}
+                      {% comment %} {% if user_recent_posts %}
                       <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection"></i> {% trans 'My Posts' %}</a></li>
-                      {% endif %}
+                      {% endif %} {% endcomment %}
 
                       {% if user.profile.designer %}
                       <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square mr-1"></i> {% trans 'New Post' %}</a></li>
@@ -100,7 +106,7 @@
                       {% endif %}
 
                       {% if user_recent_posts %}
-                      <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6>
+                      {% comment %} <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6> {% endcomment %}
                         {% for user_post in user_recent_posts %}
                             <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon mr-1" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
                         {% endfor %}

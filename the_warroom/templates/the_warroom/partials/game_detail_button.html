@@ -44,8 +44,7 @@
                 {% endif %}
             </small>
         </div>
-    
-        {% comment %} {% if game.landmarks.count > 0 or game.hirelings.count > 0 or game.tweaks.count > 0 %} {% endcomment %}
+        {% comment %}     
         {% if game.landmarks.all|length > 0 or game.hirelings.all|length > 0 or game.tweaks.all|length > 0 %}
 
             <div class="article-metadata">
@@ -74,7 +73,7 @@
                 </small>
             </div>
         {% endif %}
-    
+     {% endcomment %}
     
         <table>
             <thead>

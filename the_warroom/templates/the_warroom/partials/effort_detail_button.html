@@ -4,14 +4,10 @@
     <td class="username">
 
         {% if effort.player %}
-            {% if user.profile.player %}
-                {{ effort.player.name }}
-            {% else %}
-                {{ effort.player.name }}
-            {% endif %}
+            {{ effort.player.display_name }}
         {% else %}
             {% if effort.faction.type == "C" %}
-            {% trans 'Clockwork' %}
+                {% trans 'Clockwork' %}
             {% else %}
                 {% if effort.seat %}
                     {% trans 'Player' %} {{ effort.seat }}
@@ -38,9 +34,9 @@
             {% if effort.vagabond %}
                 ({{ effort.vagabond }})
             {% endif %}
-            {% if effort.captains %}
+            {% comment %} {% if effort.captains %}
                 ({{ effort.captains }})
-            {% endif %}
+            {% endif %} {% endcomment %}
             </span>
         {% else %}
             Faction N/A

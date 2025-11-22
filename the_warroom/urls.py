@@ -1,6 +1,6 @@
 from django.urls import path
 # from .views import 
-from .views import (GameListView, GameUpdateView, #GameListViewHX,
+from .views import (GameUpdateView, game_list_view, leaderboard_view, #GameListViewHX, GameListView, 
                     game_detail_hx_view, game_detail_view, 
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game, scorecard_manage_view, scorecard_detail_view,
@@ -23,9 +23,12 @@ urlpatterns = [
     
 
     path('battlefield/active/', in_progress_view, name='in-progress'),
-    path('battlefield/', GameListView.as_view(), name='games-home'),
-    path('warroom/', GameListView.as_view()),
-    path('games/', GameListView.as_view()),
+    # path('battlefield/', GameListView.as_view(), name='games-home'),
+    path('battlefield/', game_list_view, name='games-home'),
+    path('warroom/', game_list_view),
+    path('games/', game_list_view),
+
+    path('leaderboard/', leaderboard_view, name='leaderboard-view'),
 
     path('record/scorecard/', scorecard_manage_view, name='record-scorecard'),
     path("scorecard/<int:id>/", scorecard_detail_view, name='detail-scorecard'),

@@ -12,7 +12,7 @@
         </div>
         <div>
         {% if theme_artists %}
-            {% trans 'Original Art by' %}
+            {% trans 'Website Art by' %}
             {% for artist in theme_artists %}
                 {% if artist.credit_link %}
                     <a href='{{ artist.credit_link }}'>{{ artist.name }}</a>

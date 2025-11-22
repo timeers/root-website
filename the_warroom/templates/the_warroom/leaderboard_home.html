@@ -1,7 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% load static i18n %}
-{% block title %} - Games{% endblock %}
-{% block main_width_class %}col-md-9{% endblock %}
+{% block title %} - Leaderboards{% endblock %}
+{% block main_width_class %}col-md-12{% endblock %}
 {% block meta %}
     <!-- Open Graph tags -->
     <meta property="og:type" content="website">
@@ -9,12 +9,12 @@
     <meta property="og:image" content="{% static 'images/battlefield-icon.png' %}">
     <meta property="og:site_name" content="{{ site_title }}">
 
-    {% trans "The Battlefield" as battlefield_title %}
-    {% trans "Record and view games of Root to track Faction and Player stats" as battlefield_description %}
+    {% trans "The Leaderboard" as leaderboard_title %}
+    {% trans "Record and view games of Root to track Faction and Player stats" as leaderboard_description %}
 
-    <meta property="og:title" content="{{ battlefield_title }}">
-    <meta property="og:description" content="{{ battlefield_description }}">
-    <meta name="description" content="{{ battlefield_description }}">
+    <meta property="og:title" content="{{ leaderboard_title }}">
+    <meta property="og:description" content="{{ leaderboard_description }}">
+    <meta name="description" content="{{ leaderboard_description }}">
 {% endblock meta %}
 
 
@@ -24,70 +24,32 @@
     <div class="media-body">
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+            </div>
             <div class='d-flex'>
-                <h1 class='root-title'>{% trans 'Games' %}</h1>
+                <h1 class='root-title'>{% trans 'Leaderboards' %}</h1>
             </div>
             <div class='d-flex flex-wrap justify-content-end'>
-                
-                {% if user.profile.admin %}
-                <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">
-                    {% trans 'Series' %}
-                </a>
-                {% endif %}
-            
-
-                {% if user.is_authenticated %}
-                    <a href="{% url 'player-games' user.profile.slug %}" class="btn btn-sm btn-secondary ml-1 mb-3" id="player-games">
-                        {% trans 'My Games' %}
-                    </a>
-                {% endif %}
-                <div class="btn-group ml-1 mb-3">
-                    <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                        {% trans 'Record' %} +
-                    </button>
-                    <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="{% url 'record-game' %}">New Game</a></li>
-                    <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">New Scorecard</a></li>
-                    </ul>
-                </div>
-
-
-                {% if user_active_count %}
-                    <div class="position-relative d-inline-block ml-1">
-                        <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
-                            <i class="bi bi-pencil-square"></i>
-                            <span class="ml-1">{% trans 'In Progress' %}</span>
-                        </a>
-                            {% if user_active_games_count %}
-                            <span class="notification-badge">
-                                {{ user_active_games_count }}
-                            </span>
-                            {% endif %}
-                    </div>
-                {% endif %}
-
+                <button id="games-btn" class="btn btn-secondary mb-1">
+                    View Games
+                </button>
             </div>
         </div>
     </div>
 </article>
 
+{% include 'the_warroom/partials/leaderboard_list_home.html' %}
 
 <article class="media content-section">
     <div class="media-body">
 
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div class='d-flex'>
-            <h3>{% trans 'Filters' %}</h3>
-        </div>
-        <div class='d-flex flex-wrap justify-content-end'>
-            <button id="leaderboard-btn" class="btn btn-secondary mb-1">
-                <i class="bi bi-trophy-fill"></i> Leaderboards
-            </button>
-        </div>
-    </div>
-    <form hx-get="{% url 'games-home' %}" 
+
+    <h3>{% trans 'Filters' %}</h3>
+
+    <form hx-get="{% url 'leaderboard-view' %}" 
             hx-target="#games-container"
             hx-swap="outerHTML"
+            hx-include="#limit, #threshold"
             id="gamefilterform">
 
         <div class="row">
@@ -112,25 +74,49 @@
         </div>
 
         {% if user.is_authenticated and not user.profile.weird %}
-        <div class='mb-1'>
-            *Displaying Official Content Only
-        </div>
+            <div class='mb-1'>
+                *Displaying Official Content Only
+            </div>
         {% else %}
-        <div class='mb-1'>
-            {{ form.official }}
-        </div>
+            <div class='mb-1'>
+                {{ form.official }}
+            </div>
         {% endif %}
 
         <button class="btn btn-primary mb-1">{% trans 'Filter' %}</button>
-
     </form>
+
+
+<div class="row">
+    <div class="col-md-6 mb-1">
+        <label for="limit">Leaderboard Places</label>
+        <input type="number"
+               id="limit"
+               name="limit"
+               min="1"
+               max="25"
+               class="form-control"
+               value="{{ leaderboard_places }}">
+    </div>
+
+    <div class="col-md-6 mb-1">
+        <label for="threshold">Leaderboard Threshold</label>
+        <input type="number"
+               id="threshold"
+               name="threshold"
+               min="1"
+               max="1000"
+               class="form-control"
+               value="{{ leaderboard_threshold }}">
+    </div>
+</div>
 
 
 
     </div>
 </article>
     
-        {% include 'the_warroom/partials/game_list_home.html' %}
+        
     
     
 
@@ -177,12 +163,10 @@
             });
 
         }
-
-
-        document.getElementById('leaderboard-btn').addEventListener('click', function () {
+        document.getElementById('games-btn').addEventListener('click', function () {
             const form = document.getElementById('gamefilterform');
             form.removeAttribute('hx-get');      // disable htmx for this submission
-            form.action = "{% url 'leaderboard-view' %}";
+            form.action = "{% url 'games-home' %}";
             form.submit();                       // normal browser submit
         });
     </script>

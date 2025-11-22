@@ -7,6 +7,19 @@ from django import forms
 
 class GameFilter(django_filters.FilterSet):
 
+    # limit = forms.IntegerField(
+    #     required=False,
+    #     min_value=1,
+    #     max_value=25,
+    #     label="Leaderboard Places"
+    # )
+    # threshold = forms.IntegerField(
+    #     required=False,
+    #     min_value=1,
+    #     max_value=100,
+    #     label="Game Threshold"
+    # )
+
     map = django_filters.ModelChoiceFilter(
         # queryset=Map.objects.all(),  # Set the queryset for the filter
         queryset=Map.objects.none(),
@@ -46,6 +59,10 @@ class GameFilter(django_filters.FilterSet):
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # self.form.fields['limit'] = self.__class__.limit
+        # self.form.fields['threshold'] = self.__class__.threshold
+
         official_only = False
         if user and user.is_authenticated:
             if not user.profile.weird:

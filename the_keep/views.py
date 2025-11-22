@@ -13,7 +13,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest, FileResponse
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, F, Q, Value, Sum, ProtectedError, Count, IntegerField, FloatField, ExpressionWrapper
+from django.db.models import (Count, F, Q, Value, Sum, ProtectedError, Count, 
+                                CharField, IntegerField, FloatField, ExpressionWrapper)
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
 from django.conf import settings
@@ -265,7 +266,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
                 'name': 'Posted by:',
                 'value': self.request.user.profile.name
             })
-        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category=f'Post Created', title=f'Posted {post.component}', fields=fields)
+        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
 
         return response
 
@@ -353,7 +354,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
                 'name': 'Edited by:',
                 'value': self.request.user.profile.name
             })
-        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category=f'Post Edited', title=f'Edited {post.component}', fields=fields)
+        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
 
 
         return response
@@ -627,13 +628,13 @@ def create_post_translation(request, slug, lang=None):
                         'name': 'Posted by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category=f'Post Created', title=f'New {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
             else:
                 fields.append({
                         'name': 'Edited by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category=f'Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
 
 
             # Append the lang query parameter to the URL
@@ -2718,7 +2719,11 @@ class PNPAssetCreateView(CreateView):
         return kwargs    
     
     def get_success_url(self):
-
+        asset = self.object
+        fields = [
+            {'name': 'Posted by:', 'value': self.request.user.profile.name},
+        ]
+        send_rich_discord_message(f'{asset}', category='FAQ Law', title='New Asset', fields=fields)
         # Redirect to the asset list
         return reverse_lazy('asset-list') 
 
@@ -2730,7 +2735,6 @@ class PNPAssetUpdateView(UpdateView):
     model = PNPAsset
     form_class = PNPAssetCreateForm  # Reusing the form
     template_name = 'the_keep/asset_form.html'
-    success_url = reverse_lazy('asset-list')  # Redirect after successful update
 
 
     def form_valid(self, form):
@@ -2759,7 +2763,14 @@ class PNPAssetUpdateView(UpdateView):
         kwargs['profile'] = self.request.user.profile
         return kwargs 
 
-
+    def get_success_url(self):
+        asset = self.object
+        fields = [
+            {'name': 'Edited by:', 'value': self.request.user.profile.name},
+        ]
+        send_rich_discord_message(f'{asset}', category='FAQ Law', title='Edited Asset', fields=fields)
+        # Redirect to the asset list
+        return reverse_lazy('asset-list') 
 
 class PNPAssetDetailView(DetailView):
     model = PNPAsset
@@ -3012,7 +3023,7 @@ def universal_search(request):
         # Laws, look for exact matches first, then contains matches
         laws = Law.objects.filter(
             language__code=language,
-            group__type='Official',
+            group__type__in=['Official', 'Appendix'],
             group__public=True
         ).filter(
             (Q(plain_title__iexact=query) | Q(law_code__iexact=query) | Q(plain_description__iexact=query))
@@ -3020,7 +3031,7 @@ def universal_search(request):
         if not laws:
             laws = Law.objects.filter(
                 language__code=language,
-                group__type='Official',
+                group__type__in=['Official', 'Appendix'],
                 group__public=True
             ).filter(
                 (Q(plain_title__icontains=query) | Q(plain_description__icontains=query))
@@ -3619,10 +3630,14 @@ def copy_law_group_view(request, slug, lang_code=None):
     })
 
 
-def law_table_of_contents(request, lang_code='en'):
+def law_table_of_contents(request, lang_code=''):
+
     query = request.GET.get("q", "")
     filter_type = request.GET.get('type', 'all')
-    language = Language.objects.filter(code=lang_code).first()
+
+    if not lang_code:
+        lang_code = get_language()
+    language = Language.objects.filter(code=lang_code, law__isnull=False).first()
     if not language:
         language = Language.objects.first()
     available_languages_qs = Law.objects.filter(group__public=True).exclude(language=language)
@@ -3699,7 +3714,17 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
 
     group = get_object_or_404(LawGroup, slug=slug)
 
-    law_title = f"Law of Root - {group.title}"
+    if group.type == LawGroup.TypeChoices.OFFICIAL:
+        title_string = "Law of Root"
+    elif group.type == LawGroup.TypeChoices.BOT:
+        title_string = "Law of Rootbotics"
+    elif group.type == LawGroup.TypeChoices.FAN:
+        title_string = "Fan Law of Root"
+    elif group.type == LawGroup.TypeChoices.APPENDIX:
+        title_string = "Law of Root Appendix"
+
+
+    law_title = f"{title_string} - {group.title}"
 
 
     highlight_id = request.GET.get('highlight_law')
@@ -3711,14 +3736,14 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         selected_law = Law.objects.filter(id=highlight_id).first()
         if selected_law:
             if selected_law.prime_law:
-                law_meta_title = "Law of " + clean_meta_description(selected_law.title)
+                law_meta_title = f"{title_string} - " + clean_meta_description(selected_law.title)
             else:
-                law_meta_title = "Law of Root - " + selected_law.group.title + ": " + selected_law.law_code + " '" + clean_meta_description(selected_law.title) + "'"
+                law_meta_title = f"{title_string} - " + selected_law.group.title + ": " + selected_law.law_code + " '" + clean_meta_description(selected_law.title) + "'"
             law_meta_description = clean_meta_description(selected_law.description)
     elif highlight_group_id:
         selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
         if selected_group:
-            law_meta_title = "Law of " + clean_meta_description(selected_group.title)
+            law_meta_title = f"{title_string} - " + clean_meta_description(selected_group.title)
             law_meta_description = clean_meta_description(selected_group.description)
 
     try:
@@ -3752,7 +3777,7 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         .select_related('group', 'group__post')
         .prefetch_related(
         'group', 'children__group', 'children__children__group', 'children__children__children__group',
-        'reference_laws',
+        'reference_laws', 'faqs',
         'children', 'children__reference_laws', 
         'children__children', 'children__children__reference_laws', 
         'children__children__children', 'children__children__children__reference_laws', 
@@ -3766,15 +3791,21 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         top_level_laws = list(raw_top_level)
         assign_full_urls(top_level_laws, request)
     
+    previous_group = group.get_previous_by_position(language=language)
+    previous_name = previous_group.get_prime_law(language=language) if previous_group else None
+
+    next_group = group.get_next_by_position(language=language)
+    next_name = next_group.get_prime_law(language=language) if next_group else None
+
     date_updated = None
-    if group.post == None:
+    law_link = None
+    if group.type in {group.TypeChoices.OFFICIAL, group.TypeChoices.APPENDIX}:
         rule_file = RulesFile.objects.filter(language=language, post__isnull=True, status=RulesFile.Status.ACTIVE).first()
         if rule_file:
             date_updated = rule_file.commit_date
-        
+            law_link = f'https://rules.ledergames.com/?product=root&locale={language.locale}&printing={rule_file.version}'
 
-    previous_group = group.get_previous_by_position(language=language)
-    next_group = group.get_next_by_position(language=language)
+
 
     return {
         'post': group.post,
@@ -3788,12 +3819,15 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         'selected_language': language,
         'available_languages': available_languages,
         'previous_group': previous_group,
+        'previous_name': previous_name,
         'next_group': next_group,
+        'next_name': next_name,
         'prime_law': prime_law,
         'top_level_laws': top_level_laws,
         'group': group,
         'edit_mode': edit_mode,
         'date_updated': date_updated,
+        'law_link': law_link,
     }
 
 def law_group_view(request, slug, lang_code):
@@ -3994,7 +4028,7 @@ def update_official_laws(request, lang_code):
     return render(request, 'the_keep/law_upload_form.html', {'form': form})
 
 @admin_required
-def official_laws_selection(request):
+def manage_law_updates(request):
     new_rules = RulesFile.objects.filter(status=RulesFile.Status.NEW)
     current_rules = RulesFile.objects.filter(status=RulesFile.Status.ACTIVE)
 
@@ -4053,7 +4087,7 @@ def activate_rule(request):
                 messages.success(request, ". ".join(parts) + ".")
             rule.activate()
 
-    return redirect('select-law-of-root')
+    return redirect('manage-law-updates')
 
 
 @admin_required
@@ -4069,15 +4103,15 @@ def archive_rule(request):
         else:
             messages.warning(request, f"Failed to Archive rule {rule}")
 
-    return redirect('select-law-of-root')
+    return redirect('manage-law-updates')
 
 
 @admin_required
-def refresh_laws(request):
+def check_for_law_updates(request):
 
     message = sync_rules_task()
     messages.success(request, message)
-    return redirect('select-law-of-root')
+    return redirect('manage-law-updates')
 
 
 def law_preview(request, rule_id):
@@ -4100,10 +4134,14 @@ def law_preview(request, rule_id):
 
 # FAQs FAQ Views
 
-def faq_search(request, slug=None, lang_code='en'):
+def faq_search(request, slug=None, lang_code=None):
     query = request.GET.get("q", "")
 
+    if not lang_code:
+        lang_code = get_language()
     language = get_object_or_404(Language, code=lang_code)
+    if not language:
+        language = Language.objects.first()
 
     faq_editable = False
     user_profile = Profile.objects.none()
@@ -4161,14 +4199,71 @@ def faq_search(request, slug=None, lang_code='en'):
         }
 
     if request.htmx:
-        return render(request, "the_keep/partials/faq_list.html", context)
-    return render(request, "the_keep/faq.html", context)
+        return render(request, "the_keep/faq/partials/faq_list.html", context)
+    return render(request, "the_keep/faq/website_faq.html", context)
+
+
+def faq_home(request, lang_code=None):
+    query = request.GET.get("q", "")
+
+    if not lang_code:
+        lang_code = get_language()
+    language = get_object_or_404(Language, code=lang_code)
+    if not language:
+        language = Language.objects.first()
+    faqs = FAQ.objects.filter(post__isnull=False, language=language)
+
+
+
+    faqs = faqs.annotate(
+        post_title=Coalesce(
+            Subquery(
+                PostTranslation.objects.filter(
+                    post=OuterRef('post_id'),  # reference the related post
+                    language=language
+                ).values('translated_title')[:1],
+                output_field=CharField()
+            ),
+            F('post__title')  # fallback to the original post title
+        )
+    )
+
+
+
+    if query:
+        faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query)|Q(post__title__icontains=query))
+
+    # Determine other available languages for this context
+    available_languages_qs = FAQ.objects.filter(
+        Q(post__isnull=False)
+    ).exclude(language=language)
+
+    available_languages = Language.objects.filter(
+            faq__in=available_languages_qs
+        ).exclude(id=language.id).distinct()
+
+    unavailable_languages = Language.objects.exclude(
+        faq__in=available_languages_qs
+    ).exclude(id=language.id).distinct()
+
+
+    context = {
+        "faqs": faqs,
+        'lang_code': lang_code,
+        'selected_language': language,
+        'available_languages': available_languages,
+        'unavailable_languages': unavailable_languages,
+        }
+
+    if request.htmx:
+        return render(request, "the_keep/faq/partials/global_faq_list.html", context)
+    return render(request, "the_keep/faq/global_faq.html", context)
 
 @editor_required_class_based_view
 class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     model = FAQ
     form_class = FAQForm
-    template_name = 'the_keep/faq_form.html'
+    template_name = 'the_keep/faq/faq_form.html'
 
     def get_post(self):
         if not hasattr(self, '_post'):
@@ -4245,7 +4340,7 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
 class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = FAQ
     form_class = FAQForm
-    template_name = 'the_keep/faq_form.html'  # You can reuse the same form template
+    template_name = 'the_keep/faq/faq_form.html'  # You can reuse the same form template
 
     def test_func(self):
         faq = self.get_object()
@@ -4294,7 +4389,7 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 @editor_required_class_based_view
 class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = FAQ
-    template_name = 'the_keep/faq_confirm_delete.html'  # Create a simple confirmation template
+    template_name = 'the_keep/faq/faq_confirm_delete.html'  # Create a simple confirmation template
 
     def test_func(self):
         faq = self.get_object()

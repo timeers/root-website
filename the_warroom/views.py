@@ -55,83 +55,330 @@ from the_tavern.views import bookmark_toggle
 
 #  A list of all the games. Most recent update first
 
-class GameListView(ListView):
-    # queryset = Game.objects.all().prefetch_related('efforts')
-    model = Game
-    # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
-    context_object_name = 'games'
-    ordering = ['-date_posted']
-    paginate_by = settings.PAGE_SIZE
+# class GameListView(ListView):
+#     # queryset = Game.objects.all().prefetch_related('efforts')
+#     model = Game
+#     # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
+#     context_object_name = 'games'
+#     ordering = ['-date_posted']
+#     paginate_by = settings.PAGE_SIZE
 
-    def get_template_names(self):
-        if self.request.htmx:
-            return 'the_warroom/partials/game_list_home.html'
+#     def get_template_names(self):
+#         t0 = time.perf_counter()
+#         if self.request.htmx:
+#             return 'the_warroom/partials/game_list_home.html'
         
-        if self.request.user.is_authenticated:
-            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Battlefield')
-        else:
-            send_discord_message(f'{get_uuid(self.request)} viewing The Battlefield')
-        return 'the_warroom/games_home.html'
+#         if self.request.user.is_authenticated:
+#             send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Battlefield')
+#         else:
+#             send_discord_message(f'{get_uuid(self.request)} viewing The Battlefield')
+
+#         t1 = time.perf_counter()
+#         print(f"[TIMING] template names: {t1 - t0:.4f}s")
+#         return 'the_warroom/games_home.html'
     
-    def get_queryset(self):
+#     def get_queryset(self):
+#         t0 = time.perf_counter()
+#         if self.request.user.is_authenticated:
+#             if self.request.user.profile.weird:
+#                 queryset = Game.objects.filter(final=True).prefetch_related(
+#                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+#                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+#                     )
+#                 # queryset = super().get_queryset()
+#             else:
+#                 queryset = Game.objects.filter(official=True, final=True).prefetch_related(
+#                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+#                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+#                     )
+#                 # queryset = super().get_queryset().only_official_components()
+#         else:
+#             queryset = Game.objects.filter(final=True).prefetch_related(
+#                 'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+#                 'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+#                 )
+#             # queryset = super().get_queryset()
+#         self.filterset = GameFilter(self.request.GET, queryset=queryset, user=self.request.user)
+
+#         # # Store the filtered queryset in an instance variable to avoid re-evaluating it
+#         self._cached_queryset = self.filterset.qs
+#         t1 = time.perf_counter()
+#         print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
+#         return self.filterset.qs
         
-        if self.request.user.is_authenticated:
-            if self.request.user.profile.weird:
-                queryset = Game.objects.filter(final=True).prefetch_related(
-                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                    'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                    )
-                # queryset = super().get_queryset()
-            else:
-                queryset = Game.objects.filter(official=True, final=True).prefetch_related(
-                    'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                    'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                    )
-                # queryset = super().get_queryset().only_official_components()
+#     def get_context_data(self, **kwargs):
+#         t10 = time.perf_counter()
+#         # context = super().get_context_data(**kwargs)
+#         context = {}
+
+#         # Create a dictionary to collect context values
+#         context_data = {}
+#         t0 = time.perf_counter()
+#         print(f"[TIMING] context start: {t0 - t10:.4f}s")
+#         theme = get_theme(self.request)
+
+#         background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='games')
+
+
+#         context['background_image'] = background_image
+#         context['foreground_images'] = foreground_images
+#         context['background_pattern'] = background_pattern
+#         # context['theme_artists'] = theme_artists
+#         t1 = time.perf_counter()
+#         print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
+#         # Reuse the cached queryset here instead of calling get_queryset again
+#         games = self._cached_queryset  # Use the already-evaluated queryset
+
+#         # Paginate games
+#         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
+#         page_number = self.request.GET.get('page')  # Get the page number from the request
+
+#         try:
+#             page_obj = paginator.get_page(page_number)  # Get the specific page of games
+#         except EmptyPage:
+#             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
+
+#         # Get the total count of games
+#         games_count = paginator.count
+
+#         t2 = time.perf_counter()
+#         print(f"[TIMING] context games assembly: {t2 - t1:.4f}s")
+
+#         efforts = Effort.objects.filter(game__in=games)
+#         if games_count > 5000:
+#             leaderboard_threshold = 10
+#         elif games_count > 2000:
+#             leaderboard_threshold = 5
+#         elif games_count > 1500:
+#             leaderboard_threshold = 4
+#         elif games_count > 1000:
+#             leaderboard_threshold = 3
+#         elif games_count > 500:
+#             leaderboard_threshold = 2
+#         else:
+#             leaderboard_threshold = 1
+
+#         if games_count > 1500:
+#             faction_threshold = 10
+#         elif games_count > 500:
+#             faction_threshold = 5
+#         else:
+#             faction_threshold = 1
+
+#         # Get leaderboard data
+#         context_data.update({
+#             'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+#             'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+#             'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=faction_threshold),
+#             'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=faction_threshold),
+#             'leaderboard_threshold': leaderboard_threshold,
+#         })
+        
+#         t3 = time.perf_counter()
+#         print(f"[TIMING] context leaderboard assembly: {t3 - t2:.4f}s")
+
+
+#         t4 = time.perf_counter()
+#         print(f"[TIMING] context paginate assembly: {t4 - t3:.4f}s")
+#         # Add paginated data to the context dictionary
+#         context_data.update({
+#             'games': page_obj,  # Pass the paginated page object to the context
+#             'is_paginated': paginator.num_pages > 1,  # Set is_paginated boolean
+#             'page_obj': page_obj,  # Pass the page_obj to the context
+#             'games_count': games_count,
+#             'form': self.filterset.form,
+#             'filterset': self.filterset,
+#         })
+
+#         # Update the main context with the collected context data
+#         context.update(context_data)
+#         t5 = time.perf_counter()
+#         print(f"[TIMING] context update: {t5 - t4:.4f}s")
+
+#         print(f"[TIMING] context total: {t5 - t0:.4f}s")
+#         return context
+
+
+def game_list_view(request):
+    
+    # Determine template
+    t0 = time.perf_counter()
+    if hasattr(request, 'htmx') and request.htmx:
+        template_name = 'the_warroom/partials/game_list_home.html'
+    else:
+        if request.user.is_authenticated:
+            send_discord_message(
+                f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Battlefield'
+            )
         else:
-            queryset = Game.objects.filter(final=True).prefetch_related(
-                'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-                'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-                )
-            # queryset = super().get_queryset()
-        self.filterset = GameFilter(self.request.GET, queryset=queryset, user=self.request.user)
+            send_discord_message(f'{get_uuid(request)} viewing The Battlefield')
+        template_name = 'the_warroom/games_home.html'
+    
+    t1 = time.perf_counter()
+    print(f"[TIMING] template names: {t1 - t0:.4f}s")
+    
+    # Build queryset
+    t0 = time.perf_counter()
+    if request.user.is_authenticated and not request.user.profile.weird:
+        queryset = Game.objects.filter(official=True, final=True).prefetch_related(
+            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+            'map', 'deck',
+            # 'hirelings', 'landmarks', 'tweaks', 
+        )
+    else:
+        queryset = Game.objects.filter(final=True).prefetch_related(
+            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+            'map', 'deck',
+            # 'hirelings', 'landmarks', 'tweaks', 
+        )
+    
+    # Apply filters
+    filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
+    games = filterset.qs.order_by('-date_posted')
+    
+    t1 = time.perf_counter()
+    print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
+    
+    # Build context
+    t10 = time.perf_counter()
+    context = {}
+    
+    t0 = time.perf_counter()
+    print(f"[TIMING] context start: {t0 - t10:.4f}s")
+    
+    # Theme
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
+        theme=theme, page='games'
+    )
+    
+    context['background_image'] = background_image
+    context['foreground_images'] = foreground_images
+    context['background_pattern'] = background_pattern
+    
+    t1 = time.perf_counter()
+    print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
+    
+    # Pagination
+    paginate_by = settings.PAGE_SIZE
+    paginator = Paginator(games, paginate_by)
+    page_number = request.GET.get('page')
+    
+    try:
+        page_obj = paginator.get_page(page_number)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+    
+    t12 = time.perf_counter()
+    print(f"[TIMING] context pagination: {t12 - t1:.4f}s")
 
-        # # Store the filtered queryset in an instance variable to avoid re-evaluating it
-        self._cached_queryset = self.filterset.qs
+    games_count = paginator.count
+    
+    t2 = time.perf_counter()
+    print(f"[TIMING] context games count: {t2 - t12:.4f}s")
+    t3 = time.perf_counter()
+    print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
+    t4 = time.perf_counter()
+    print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
+    # Leaderboard data
+    context.update({
+        'games': page_obj,
+        'is_paginated': paginator.num_pages > 1,
+        'page_obj': page_obj,
+        'games_count': games_count,
+        'form': filterset.form,
+        'filterset': filterset,
+    })
+    
+    t5 = time.perf_counter()
+    print(f"[TIMING] context update: {t5 - t4:.4f}s")
 
-        return self.filterset.qs
-        
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+    response = render(request, template_name, context)
+    t6 = time.perf_counter()
 
-        # Create a dictionary to collect context values
-        context_data = {}
+    print(f"[TIMING] render: {t6 - t5:.4f}s")
+    print(f"[TIMING] total: {t6 - t0:.4f}s")
+    
+    return response
 
-        theme = get_theme(self.request)
 
-        if self.request.user.is_authenticated:
-            profile = self.request.user.profile
+
+def leaderboard_view(request):
+    
+
+    try:
+        leaderboard_threshold = int(request.GET.get("threshold", 0))
+    except (TypeError, ValueError):
+        leaderboard_threshold = 0
+    try:
+        leaderboard_places = int(request.GET.get("limit", 10))
+    except (TypeError, ValueError):
+        leaderboard_places = 10
+
+
+    # Determine template
+    t0 = time.perf_counter()
+    if hasattr(request, 'htmx') and request.htmx:
+        template_name = 'the_warroom/partials/leaderboard_list_home.html'
+    else:
+        if request.user.is_authenticated:
+            send_discord_message(
+                f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Leaderboard'
+            )
         else:
-            profile = None
+            send_discord_message(f'{get_uuid(request)} viewing The Leaderboard')
+        template_name = 'the_warroom/leaderboard_home.html'
+    
+    t1 = time.perf_counter()
+    print(f"[TIMING] template names: {t1 - t0:.4f}s")
+    
+    # Build queryset
+    t0 = time.perf_counter()
+    if request.user.is_authenticated and not request.user.profile.weird:
+        queryset = Game.objects.filter(official=True, final=True).prefetch_related(
+            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+            'map', 'deck',
+            # 'hirelings', 'landmarks', 'tweaks', 
+        )
+    else:
+        queryset = Game.objects.filter(final=True).prefetch_related(
+            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
+            'map', 'deck',
+            # 'hirelings', 'landmarks', 'tweaks', 
+        )
+    
+    # Apply filters
+    filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
+    games = filterset.qs.order_by('-date_posted')
+    games_count = games.count()
+    t1 = time.perf_counter()
+    print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
+    
+    # Build context
+    t10 = time.perf_counter()
+    context = {}
+    
+    t0 = time.perf_counter()
+    print(f"[TIMING] context start: {t0 - t10:.4f}s")
+    
+    # Theme
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
+        theme=theme, page='games'
+    )
+    
+    context['background_image'] = background_image
+    context['foreground_images'] = foreground_images
+    context['background_pattern'] = background_pattern
+    
+    t1 = time.perf_counter()
+    print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
+    
 
-        background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='games')
-
-
-        context['background_image'] = background_image
-        context['foreground_images'] = foreground_images
-        context['background_pattern'] = background_pattern
-        # context['theme_artists'] = theme_artists
-
-
-
-        in_progress = Game.objects.filter(final=False, recorder=profile)
-        
-        # Reuse the cached queryset here instead of calling get_queryset again
-        games = self._cached_queryset  # Use the already-evaluated queryset
-        # Get the total count of games
-        games_count = games.count()
-        
-        efforts = Effort.objects.filter(game__in=games)
+    
+    # Leaderboard thresholds
+    efforts = Effort.objects.filter(game__in=games)
+    if leaderboard_threshold == 0:
         if games_count > 5000:
             leaderboard_threshold = 10
         elif games_count > 2000:
@@ -144,49 +391,63 @@ class GameListView(ListView):
             leaderboard_threshold = 2
         else:
             leaderboard_threshold = 1
-
-        if games_count > 1500:
-            faction_threshold = 10
-        elif games_count > 500:
-            faction_threshold = 5
-        else:
-            faction_threshold = 1
-
-        # Get leaderboard data
-        context_data.update({
-            'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-            'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-            'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=faction_threshold),
-            'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=faction_threshold),
-            'leaderboard_threshold': leaderboard_threshold,
-        })
         
+    t2 = time.perf_counter()
+    print(f"[TIMING] context games count: {t2 - t1:.4f}s")
+    top_players = Profile.leaderboard(
+        limit=leaderboard_places, 
+        effort_qs=efforts, 
+        game_threshold=leaderboard_threshold, 
+        as_json=False)
+    most_players = Profile.leaderboard(
+        limit=leaderboard_places, 
+        effort_qs=efforts, 
+        top_quantity=True, 
+        game_threshold=leaderboard_threshold, 
+        as_json=False)
+    t3 = time.perf_counter()
+    print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
+    top_factions = Faction.leaderboard(
+        limit=leaderboard_places, 
+        effort_qs=efforts, 
+        game_threshold=leaderboard_threshold, 
+        as_json=False)
+    most_factions = Faction.leaderboard(
+        limit=leaderboard_places, 
+        effort_qs=efforts, 
+        top_quantity=True, 
+        game_threshold=leaderboard_threshold, 
+        as_json=False)
+    print(top_factions)
+    t4 = time.perf_counter()
+    print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
+    # Leaderboard data
+    context.update({
+        'top_players': top_players,
+        'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+        'leaderboard_threshold': leaderboard_threshold,
+        'leaderboard_places': leaderboard_places,
+        'has_top_factions': bool(top_factions),
+        'has_most_factions': bool(most_factions),
+        'has_top_players': bool(top_players),
+        'has_most_players': bool(most_players),
+        'games_count': games_count,
+        'form': filterset.form,
+        'filterset': filterset,
+    })
+    
+    t5 = time.perf_counter()
+    print(f"[TIMING] context update: {t5 - t4:.4f}s")
 
+    response = render(request, template_name, context)
+    t6 = time.perf_counter()
 
-        # Paginate games
-        paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
-        page_number = self.request.GET.get('page')  # Get the page number from the request
-
-        try:
-            page_obj = paginator.get_page(page_number)  # Get the specific page of games
-        except EmptyPage:
-            page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-        
-        # Add paginated data to the context dictionary
-        context_data.update({
-            'in_progress': in_progress,
-            'games': page_obj,  # Pass the paginated page object to the context
-            'is_paginated': paginator.num_pages > 1,  # Set is_paginated boolean
-            'page_obj': page_obj,  # Pass the page_obj to the context
-            'games_count': games_count,
-            'form': self.filterset.form,
-            'filterset': self.filterset,
-        })
-
-        # Update the main context with the collected context data
-        context.update(context_data)
-
-        return context
+    print(f"[TIMING] render: {t6 - t5:.4f}s")
+    print(f"[TIMING] total: {t6 - t0:.4f}s")
+    
+    return response
 
 
 @player_required  # assuming you have an FBV decorator matching your CBV one

@@ -331,12 +331,12 @@ def create_laws_from_yaml(group, language, yaml_data):
             law.reference_laws.clear()
         # Handle 'children'
         for i, child in enumerate(entry.get('children', [])):
-            create_law(child, lang_code, parent=law, position=i)
+            create_law(child, lang_code, parent=law, position=i+1)
 
 
     for i, entry in enumerate(yaml_data):
         is_prime = i == 0  # Treat first item as prime law
-        create_law(entry, lang_code, parent=None, position=i, is_prime=is_prime)
+        create_law(entry, lang_code, parent=None, position=i+1, is_prime=is_prime)
 
 
 
@@ -357,13 +357,13 @@ def categorize_groups(uploaded_yaml):
     for idx, (title, group_data) in enumerate(uploaded_yaml.items(), start=1):
         if 'appendix' in group_data:
             appendix[title] = {'data': group_data, 'post': None, 'index': idx}
-        elif group_data['color'] == '#000000':
+        elif group_data['color'] == '#000000' or group_data['color'] == '#ffffff':
             unmatched[title] = {'data': group_data, 'post': None, 'index': idx}
         else:
             post = Faction.objects.filter(title=title, official=True).first()
             if not post:
                 law_group_by_index = LawGroup.objects.filter(abbreviation=idx).first()
-                if law_group_by_index:
+                if law_group_by_index and law_group_by_index.post:
                     post = Faction.objects.filter(title=law_group_by_index.post.title).first()
             if post:
                 matched[title] = {'data': group_data, 'post': post, 'index': idx}

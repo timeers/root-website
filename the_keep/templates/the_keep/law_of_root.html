@@ -579,7 +579,7 @@
           <i class="bi bi-chevron-left"></i> 
           </div>
           <div class='d-flex mx-auto'>
-            {{ previous_group }}
+            {{ previous_name }}
           </div>
 
       </a>
@@ -587,13 +587,14 @@
       <div class='d-flex align-items-center mr-1'></div>
     {% endif %}
 
+    <div class='d-flex align-items-center mr-1'></div>
 
 
     {% if next_group %}
       <a href="{% url 'law-view' slug=next_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
     
           <div class='d-flex mx-auto'>
-            {{ next_group }} 
+            {{ next_name }} 
           </div>
           <div class='d-flex align-items-center ml-1'>
             <i class="bi bi-chevron-right"></i>
@@ -609,11 +610,15 @@
 
 
 {% if date_updated %}
-<div class='mb-3 d-flex justify-content-center'>
-  <small>
-    Updated on {{date_updated|date:"F j, Y"}}
-  </small>
-</div>
+
+  <div class='mb-3 d-flex justify-content-center subtle-link'>
+      <a href={{law_link}}>
+        <small>
+          Law of Root updated on {{date_updated|date:"F j, Y"}}
+        </small>
+      </a>
+  </div>
+
 {% endif %}
 
 
@@ -887,7 +892,7 @@ document.addEventListener('DOMContentLoaded', function () {
         await navigator.clipboard.writeText(link);
 
         icon.classList.remove('bi-link-45deg');
-        icon.classList.add('bi-clipboard-check', 'text-success');
+        icon.classList.add('bi-clipboard2-check', 'text-success');
 
         if (lawDiv) {
           lawDiv.classList.add('highlight-temp');
@@ -897,7 +902,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         setTimeout(() => {
-          icon.classList.remove('bi-clipboard-check', 'text-success');
+          icon.classList.remove('bi-clipboard2-check', 'text-success');
           icon.classList.add('bi-link-45deg');
 
           if (lawDiv) {

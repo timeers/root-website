@@ -1,0 +1,54 @@
+{% load i18n text_filters %}
+<div class="accordion" id="faq-accordion">
+    {% for faq in faqs %}
+      <div class="accordion-item">
+        <div class="accordion-header" onclick="toggleAccordion(this)">
+          <div>
+          <div>
+            <img class="faction-icon" src="{{ faq.post.small_icon.url }}">
+            {{faq.post_title}}
+          </div>
+          <div>
+            Q: {{ faq.question }}
+          </div>
+        </div>
+        </div>
+        <div class="accordion-body">
+            <div class='d-flex justify-content-between align-items-center'>
+                <div>
+                  <div class='markdown-section'>
+                      A: {{ faq.answer|format_law_text_no_link }}
+                  </div>
+                  <div>
+                      {% for reference in faq.reference_laws.all %}
+                        {% include 'the_keep/partials/law_reference.html' %}
+                      {% endfor %}
+                  </div>
+                  <div>
+                    <a class='btn btn-sm btn-primary' href="{{ faq.post.get_absolute_url }}?lang={{lang_code}}">
+                      {% blocktrans with post_title=faq.post_title %}
+                        View {{ post_title }}
+                      {% endblocktrans %}
+                    </a>
+                  </div>
+                </div>
+                {% if faq_editable %}
+                    <div>
+                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'faq-edit' pk=faq.id %}"><i class="bi bi-pencil-square"></i></a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+      </div>
+    {% empty %}
+      {% if available_languages %}
+        <div class="alert alert-warning text-center my-1">
+          {% blocktrans %}
+          No {{selected_language}} FAQs available.
+          {% endblocktrans%}
+        </div>
+      {% else %}
+        <div class="alert alert-warning text-center my-1">{% trans 'No FAQs available.' %}</div>
+      {% endif %}
+    {% endfor %}
+  </div>

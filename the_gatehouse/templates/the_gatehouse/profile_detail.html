@@ -193,7 +193,7 @@
                             <th>{% trans 'Category' %}</th>
                             <th>{% trans 'File' %}</th>
                             <th>{% trans 'Date' %}</th>
-                            <th>{% trans 'Shared By' %}</th>
+                            {% comment %} <th>{% trans 'Shared By' %}</th> {% endcomment %}
                             {% if profile.player %}
                             <th></th>
                             {% endif %}
@@ -208,7 +208,7 @@
                             <td>---</td>
                             <td>---</td>
                             <td>---</td>
-                            <td>---</td>
+                            {% comment %} <td>---</td> {% endcomment %}
                             {% if profile.player %}
                             <td>---</td>
                             {% endif %}

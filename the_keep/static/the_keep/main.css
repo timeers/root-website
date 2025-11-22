@@ -542,10 +542,6 @@ th, td {
   text-overflow: ellipsis;   /* Add "..." when truncated */
 }
 
-.extra-rows {
-  display: none;
-}
-
 
 .adset-img {
   max-height: 300px;
