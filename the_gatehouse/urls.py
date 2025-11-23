@@ -4,7 +4,7 @@ from .views import (user_settings, player_page_view,
                     designer_component_view, post_bookmarks, game_bookmarks,
                     player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
-                    status_check, general_feedback, post_feedback, player_feedback,
+                    status_check, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error, 
                     admin_dashboard, sync_discord_avatar)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
@@ -40,6 +40,9 @@ urlpatterns = [
     path('feedback/post/<slug:slug>/', post_feedback, name='post-feedback'),
     path('feedback/profile/<slug:slug>/', player_feedback, name='player-feedback'),
     path('feedback/game/<int:id>/', game_feedback, name='game-feedback'),
+    path('feedback/law/<slug:slug>/<str:lang_code>/', law_feedback, name='law-feedback'),
+    path('feedback/faq/', faq_feedback, name='faq-feedback'),
+    path('feedback/faq/<slug:slug>/', faq_feedback, name='post-faq-feedback'),
     path('feedback/request-invite/', weird_root_invite, name='generic-weird-root-invite'),
     path('feedback/request-invite/<slug:slug>/', weird_root_invite, name='weird-root-invite'),
     path('feedback/french-invite/', french_root_invite, name='generic-french-root-invite'),

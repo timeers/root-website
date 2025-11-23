@@ -622,6 +622,15 @@
 {% endif %}
 
 
+    <!-- Option to send Feedback -->
+     <div class='mb-2 d-flex justify-content-between'>
+        <a href="{% url 'law-feedback' slug=group.slug lang_code=lang_code %}" class='subtle-link'>
+            <small>
+                {% trans 'Is something missing or incorrect?' %}
+            </small>
+        </a>
+     </div>
+
 {% endblock content %}
 
 

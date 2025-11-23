@@ -14,13 +14,15 @@ from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequ
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import (Count, F, Q, Value, Sum, ProtectedError, Count, 
-                                CharField, IntegerField, FloatField, ExpressionWrapper)
+                                CharField, IntegerField, FloatField, ExpressionWrapper,
+                                Case, When)
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
 from django.conf import settings
 from django.db import IntegrityError
 from django.urls import reverse, reverse_lazy
 from django.contrib import messages
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from django.utils.translation import get_language
 
 from the_warroom.filters import GameFilter
@@ -3666,12 +3668,53 @@ def law_table_of_contents(request, lang_code=''):
     elif filter_type == 'fan':
         laws = laws.filter(group__type='Fan')
 
-    search_q = Q(title__icontains=query) | Q(description__icontains=query)
+    
 
     if query:
-        official_laws = laws.filter(Q(search_q) & (Q(group__type="Official") | Q(group__type="Appendix"))).distinct()
-        bot_laws = laws.filter(search_q, group__type="Bot").distinct()
-        fan_laws = laws.filter(search_q, group__type="Fan").distinct()
+        search_q = Q(title__icontains=query) | Q(description__icontains=query)
+        # official_laws = laws.filter(Q(search_q) & (Q(group__type="Official") | Q(group__type="Appendix"))).distinct()
+        # bot_laws = laws.filter(search_q, group__type="Bot").distinct()
+        # fan_laws = laws.filter(search_q, group__type="Fan").distinct()
+
+        # Annotate laws with match strength
+        laws_with_rank = laws.filter(Q(search_q)).annotate(
+            match_rank=Case(
+                When(title__iexact=query, then=0),
+                When(title__iexact=query+".", then=0),
+                When(title__icontains=query, then=1),
+                When(description__icontains=query, then=2),
+                default=3,
+                output_field=IntegerField(),
+            )
+        ).order_by('match_rank', 'title')
+
+        official_laws = laws_with_rank.filter(
+            Q(group__type__in=["Official", "Appendix"])
+        )
+
+        bot_laws = laws_with_rank.filter(group__type="Bot")
+        fan_laws = laws_with_rank.filter(group__type="Fan")
+
+        # For postgres
+        # query_vec = SearchQuery(query)
+
+        # vector = (
+        #     SearchVector('title', weight='A') +
+        #     SearchVector('description', weight='B')
+        # )
+
+        # laws_with_rank = laws.annotate(
+        #     search_vector=vector,
+        #     search_rank=SearchRank(vector, query_vec)
+        # ).filter(
+        #     search_vector=query_vec
+        # ).order_by('-search_rank')
+
+        # official_laws = laws_with_rank.filter(group__type__in=["Official", "Appendix"])
+        # bot_laws      = laws_with_rank.filter(group__type="Bot")
+        # fan_laws      = laws_with_rank.filter(group__type="Fan")
+
+
     else:
         official_laws = laws.filter(
             Q(prime_law=True) & (Q(group__type="Official") | Q(group__type="Appendix"))

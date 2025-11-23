@@ -126,6 +126,19 @@ class="w-75 mx-auto">
     {% include 'the_keep/faq/partials/faq_list.html' with faqs=faqs %}
   </div>
 </article>
+
+
+{% if post %}
+    <!-- Option to send Feedback -->
+     <div class='mb-2 d-flex justify-content-between'>
+        <a href="{% url 'post-faq-feedback' post.slug %}" class='subtle-link'>
+            <small>
+                {% trans 'Is something missing or incorrect?' %}
+            </small>
+        </a>
+     </div>
+{% endif %}
+
   {% endblock %}
 
   {% block scripts %}

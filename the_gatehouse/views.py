@@ -21,7 +21,7 @@ from django.views.generic import ListView
 
 from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort, Game
-from the_keep.models import Faction, Post, RulesFile
+from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm
 from .models import Profile, Language, Website
@@ -1056,6 +1056,51 @@ def game_feedback(request, id):
         return redirect(game.get_absolute_url())
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+
+
+def law_feedback(request, slug, lang_code):
+
+    language = Language.objects.filter(code=lang_code).first()
+    law_group = get_object_or_404(LawGroup, slug=slug)
+    prime_law = law_group.get_prime_law(language=language)
+
+    message_category = 'report'
+    feedback_subject = f'Law: {law_group} ({lang_code})'
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    if request.method == 'POST' and context.get('form').is_valid():
+        return redirect(prime_law.get_absolute_url())
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+def faq_feedback(request, slug=None):
+
+    if slug:
+        post = get_object_or_404(Post, slug=slug)
+    else:
+        post = None
+
+    message_category = 'report'
+    if post:
+        feedback_subject = f'{post.title}: FAQ'
+    else:
+        feedback_subject = 'FAQ Feedback'
+
+    context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
+
+    # If form is valid (i.e., handled in the utility function)
+    
+    if request.method == 'POST' and context.get('form').is_valid():
+        if post:
+            return redirect(post.get_absolute_url())
+        else:
+            return redirect('faq-home')
+
+    return render(request, 'the_gatehouse/discord_feedback.html', context)
+
 
 def bug_report(request):
 

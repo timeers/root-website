@@ -33,7 +33,7 @@ class LawGroupAdmin(admin.ModelAdmin):
     list_display = ('abbreviation', 'title', 'type', 'public')
     search_fields = ('post__title', 'title', 'abbreviation')
     actions = ['mark_lawgroup_public', 'mark_lawgroup_private']
-    
+
     @admin.action(description="Mark Public")
     def mark_lawgroup_public(self, request, queryset):
         for group in queryset:
@@ -54,7 +54,7 @@ class RulesFileAdmin(admin.ModelAdmin):
     search_fields = ('version', 'status')
 
 class LawAdmin(admin.ModelAdmin):
-    list_display = ('law_code', 'title', 'group__post', 'language', 'law_index', 'prime_law')
+    list_display = ('law_code', 'title', 'group__post', 'language', 'law_index', 'prime_law', 'level')
     search_fields = ('group__post__title', 'title', 'law_code', 'group__title')
 
 class TranslationAdmin(admin.ModelAdmin):
