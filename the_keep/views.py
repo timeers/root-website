@@ -4248,6 +4248,7 @@ def faq_search(request, slug=None, lang_code=None):
 
 def faq_home(request, lang_code=None):
     query = request.GET.get("q", "")
+    filter_type = request.GET.get('type', 'all')
 
     if not lang_code:
         lang_code = get_language()
@@ -4256,7 +4257,12 @@ def faq_home(request, lang_code=None):
         language = Language.objects.first()
     faqs = FAQ.objects.filter(post__isnull=False, language=language)
 
-
+    if filter_type == 'official':
+        faqs = FAQ.objects.filter(post__isnull=False, language=language, post__official=True)
+    elif filter_type == 'fan':
+        faqs = FAQ.objects.filter(post__isnull=False, language=language, post__official=False)
+    else:
+        faqs = FAQ.objects.filter(post__isnull=False, language=language)
 
     faqs = faqs.annotate(
         post_title=Coalesce(

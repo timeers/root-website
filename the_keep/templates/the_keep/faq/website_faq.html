@@ -1,5 +1,24 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n static %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/law-icon.png' %}">
+{% comment %} <meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" /> {% endcomment %}
+<meta property="og:site_name" content="Root Database">
+{% if post %}
+  <meta property="og:title" content="{{post.title}} FAQ">
+  <meta property="og:description" content="Frequently asked questions for {{post.title}}.">
+  <meta name="description" content="Frequently asked questions for {{post.title}}.">
+{% else %}
+  <meta property="og:title" content="Root Database FAQ">
+  <meta property="og:description" content="Frequently asked questions for the Root Database website.">
+  <meta name="description" content="Frequently asked questions for the Root Database website.">
+{% endif %}
+{% endblock meta%}
+
 {% block content %}
 
 {% if post %}

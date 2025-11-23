@@ -1,5 +1,19 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n static %}
+
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/law-icon.png' %}">
+{% comment %} <meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" /> {% endcomment %}
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="Root FAQ">
+<meta property="og:description" content="Frequently asked questions for Root and its Fan Factions.">
+<meta name="description" content="Frequently asked questions for Root and its Fan Factions.">
+{% endblock meta%}
+
 {% block content %}
 
 <article class="content-section">
@@ -43,8 +57,22 @@ hx-target="#faq-results"
 hx-swap="innerHTML"
 hx-trigger="submit, input delay:300ms" 
 autocomplete="off"
-class="w-75 mx-auto">
+class="mx-auto d-flex align-items-center mb-2 gap-2"
+style='max-width: 800px;'>
     <input type="text" name="q" placeholder="Search FAQs..." class="form-control">
+
+
+
+    <!-- Hidden field to hold the selected type -->
+    <input type="hidden" name="type" id="faq-type-value" value="all">
+
+    <!-- Segmented Button Group -->
+    <div class="btn-group ml-2" role="group" aria-label="FAQ type filter" id="faq-type-buttons">
+      <button type="button" class="btn btn-outline-secondary" data-type="official">Official</button>
+      <button type="button" class="btn btn-outline-secondary active" data-type="all">All</button>
+      <button type="button" class="btn btn-outline-secondary" data-type="fan">Fan</button>
+    </div>
+
   </form>
   
 
@@ -76,6 +104,28 @@ class="w-75 mx-auto">
       });
       item.classList.toggle('active');
     }
+
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const buttons = document.querySelectorAll("#faq-type-buttons button");
+    const hiddenInput = document.getElementById("faq-type-value");
+
+    buttons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        buttons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        hiddenInput.value = btn.getAttribute("data-type");
+
+        // Trigger HTMX form submission manually
+        document.getElementById("faq-search-form").dispatchEvent(new Event("submit", { bubbles: true }));
+      });
+    });
+  });
+
+
+
+
   </script>
 
 {% endblock scripts %}
