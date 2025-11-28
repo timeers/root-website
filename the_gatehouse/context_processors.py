@@ -13,6 +13,7 @@ def active_user_data(request):
         global_message = config.global_message
         global_message_type = config.message_type
         woodland_warriors_invite = config.woodland_warriors_invite
+        french_root_invite = config.french_root_invite
         rdb_feedback_invite = config.rdb_feedback_invite
 
         post_count = 0
@@ -59,6 +60,7 @@ def active_user_data(request):
             'global_message': global_message,
             'global_message_type': global_message_type,
             'woodland_warriors_invite': woodland_warriors_invite,
+            'french_root_invite': french_root_invite,
             'rdb_feedback_invite': rdb_feedback_invite,
         }
 

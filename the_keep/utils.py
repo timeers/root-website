@@ -69,7 +69,7 @@ DEFAULT_TITLES_TRANSLATIONS = {
         'es': 'Fabricar',
         'nl': 'Vervaardigen',
         'pl': 'Przekuwanie',
-        'fr': 'Artisanat',
+        'fr': 'Fabrication',
     },
     'Setup Modifications': {
         'en': 'Setup Modifications',

@@ -418,7 +418,6 @@ def leaderboard_view(request):
         top_quantity=True, 
         game_threshold=leaderboard_threshold, 
         as_json=False)
-    print(top_factions)
     t4 = time.perf_counter()
     print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
     # Leaderboard data

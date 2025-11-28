@@ -1290,7 +1290,7 @@ class PNPAssetCreateForm(forms.ModelForm):
     
 
 class AddLawForm(forms.Form):
-    title = forms.CharField(max_length=50)
+    title = forms.CharField(max_length=100)
     description = forms.CharField(required=False)
     group_id = forms.IntegerField()
     parent_id = forms.IntegerField(required=False)

@@ -2178,14 +2178,14 @@ def advanced_search(request, component_type='faction'):
         meta_title = f"{component} Search"
     filter_description = describe_filters(filters=filters)
     if filter_description:
-        meta_description = f'Results: {post_count}, {filter_description}'
+        meta_description = f'Results: {post_count}, {filter_description}.'
     else:
         if component == "Clockwork":
-            meta_description = f'Search {post_count} Root Clockwork Fan Factions using advanced filters'
+            meta_description = f'Search {post_count} Root Clockwork Fan Factions using advanced filters.'
         elif component == "Tweak":
-            meta_description = f'Search {post_count} Root House Rules using advanced filters'
+            meta_description = f'Search {post_count} Root House Rules using advanced filters.'
         else:
-            meta_description = f'Search {post_count} Root Fan {component}s using advanced filters'
+            meta_description = f'Search {post_count} Root Fan {component}s using advanced filters.'
 
     # Determine if filters are necessary
     has_piece_type = {

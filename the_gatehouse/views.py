@@ -1163,6 +1163,22 @@ def french_root_invite(request, slug=None):
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
+@login_required
+def join_french_root(request):
+    origin = request.GET.get("origin")
+    discord_invite = request.GET.get("invite")
+
+    user = request.user
+    user.profile.in_french_root = True
+    user.profile.save()
+
+    return render(request, "the_gatehouse/discord_join_french_root.html", {
+        "discord_url": discord_invite,
+        "origin": origin,
+    })
+
+    # return redirect(french_root_invite)
+
 def status_check(request):
     # Check database connection
     try:
