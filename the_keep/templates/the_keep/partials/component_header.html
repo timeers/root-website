@@ -110,7 +110,7 @@
     <div>
                 {% if object.expansion %}
                     <div>
-                        <a class="mr-2" href="{% url 'expansion-detail' object.expansion.slug %}">
+                        <a class="mr-2" href="{% url 'expansion-detail' object.expansion.slug %}?lang={{ language_code }}">
                             {% if object.expansion.picture %}
                                 <img class="lg-faction-icon" src="{{ object.expansion.picture.url }}">
                             {% endif %}

@@ -1164,20 +1164,24 @@ def french_root_invite(request, slug=None):
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
 @login_required
-def join_french_root(request):
+def join_discord_server(request):
     origin = request.GET.get("origin")
-    discord_invite = request.GET.get("invite")
+    invite = request.GET.get("invite")
 
-    user = request.user
-    user.profile.in_french_root = True
-    user.profile.save()
+    config = Website.get_singular_instance()
+    invite_map = {
+        config.french_root_invite: "in_french_root",
+        config.woodland_warriors_invite: "in_woodland_warriors",
+        config.weird_root_invite: "in_weird_root",
+    }
 
-    return render(request, "the_gatehouse/discord_join_french_root.html", {
-        "discord_url": discord_invite,
-        "origin": origin,
-    })
+    field_to_update = invite_map.get(invite)
+    if field_to_update:
+        setattr(request.user.profile, field_to_update, True)
+        request.user.profile.save()
 
-    # return redirect(french_root_invite)
+    return redirect(origin or "/")
+
 
 def status_check(request):
     # Check database connection

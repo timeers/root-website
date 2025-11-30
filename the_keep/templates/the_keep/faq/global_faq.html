@@ -9,18 +9,36 @@
 {% comment %} <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" /> {% endcomment %}
 <meta property="og:site_name" content="Root Database">
-<meta property="og:title" content="Root FAQ">
-<meta property="og:description" content="Frequently asked questions for Root and its Fan Factions.">
-<meta name="description" content="Frequently asked questions for Root and its Fan Factions.">
+<meta property="og:title" content="{{ faq_title }}">
+<meta property="og:description" content="{{ faq_description }}">
+<meta name="description" content="{{ faq_description }}">
 {% endblock meta%}
 
 {% block content %}
+
+
+{% if expansion_object %}
+<div class='mb-2 d-flex justify-content-between'>
+
+  <a href="{{ expansion_object.get_absolute_url }}?lang={{lang_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <div class='d-flex align-items-center mr-1'>
+      <i class="bi bi-chevron-left"></i> 
+      </div>
+      <div class='d-flex mx-auto'>
+        {{expansion_object.title}}
+      </div>
+  </a>
+
+
+</div>
+{% endif %}
+
 
 <article class="content-section">
   <div class="d-flex justify-content-between align-items-center">
     <div>
     </div>
-      <h1 class='root-title'>{% trans 'Root FAQ' %}</h1>
+      <h1 class='root-title'>{{ faq_title }}</h1>
 
     <div>
  
@@ -34,7 +52,11 @@
 
                 {% for lang in available_languages %}
                   <li>
-                    <a class="dropdown-item" href="{% url 'faq-home-lang' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                    {% if expansion_slug %}
+                      <a class="dropdown-item" href="{% url 'expansion-faq' lang_code=lang.code expansion_slug=expansion_slug %}"><small>{{ lang.name }}</small></a>
+                    {% else %}
+                      <a class="dropdown-item" href="{% url 'faq-home-lang' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                    {% endif %}
                   </li>
                 {% endfor %}
           
@@ -52,7 +74,7 @@
 
 
 <form id="faq-search-form" 
-hx-get="{% url 'faq-home-lang' lang_code=lang_code  %}" 
+hx-get="{% if expansion_slug %}{% url 'expansion-faq' lang_code=lang_code expansion_slug=expansion_slug %}{% else %}{% url 'faq-home-lang' lang_code=lang_code %}{% endif %}" 
 hx-target="#faq-results" 
 hx-swap="innerHTML"
 hx-trigger="submit, input delay:300ms" 
@@ -65,14 +87,14 @@ style='max-width: 800px;'>
 
     <!-- Hidden field to hold the selected type -->
     <input type="hidden" name="type" id="faq-type-value" value="all">
-
+    {% if not expansion_slug %}
     <!-- Segmented Button Group -->
     <div class="btn-group ml-2" role="group" aria-label="FAQ type filter" id="faq-type-buttons">
       <button type="button" class="btn btn-outline-secondary" data-type="official">Official</button>
       <button type="button" class="btn btn-outline-secondary active" data-type="all">All</button>
       <button type="button" class="btn btn-outline-secondary" data-type="fan">Fan</button>
     </div>
-
+    {% endif %}
   </form>
   
 

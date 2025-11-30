@@ -71,7 +71,7 @@ from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
 from django.db import models
-from django.db.models import OuterRef, Subquery, F, Value
+from django.db.models import OuterRef, Subquery, F, Value, Exists
 from django.db.models.functions import Coalesce
 
 from yaml.representer import SafeRepresenter
@@ -92,9 +92,8 @@ QuotedDumper.add_representer(str, quoted_presenter)
 
 def expansion_detail_view(request, slug):
 
-    language_code = get_language()
-    language_code_object = Language.objects.filter(code=language_code).first()
-
+    language_code = request.GET.get('lang') or get_language()
+    language = Language.objects.filter(code=language_code).first()
 
     expansion = get_object_or_404(Expansion, slug=slug)
 
@@ -103,7 +102,7 @@ def expansion_detail_view(request, slug):
             Subquery(
                 PostTranslation.objects.filter(
                     post=OuterRef('pk'),
-                    language=language_code_object  # Assuming you want the current language
+                    language=language  # Assuming you want the current language
                 ).values('translated_title')[:1],
                 output_field=models.CharField()
             ),
@@ -113,7 +112,7 @@ def expansion_detail_view(request, slug):
             Subquery(
                 PostTranslation.objects.filter(
                     post=OuterRef('pk'),
-                    language=language_code_object
+                    language=language
                 ).values('translated_description')[:1],
                 output_field=models.TextField()
             ),
@@ -123,7 +122,7 @@ def expansion_detail_view(request, slug):
             Subquery(
                 PostTranslation.objects.filter(
                     post=OuterRef('pk'),
-                    language=language_code_object
+                    language=language
                 ).values('translated_lore')[:1],
                 output_field=models.TextField()
             ),
@@ -151,6 +150,54 @@ def expansion_detail_view(request, slug):
     else:
         open_expansion = False
 
+    # Determine other available languages for this context
+    post_exists = Post.objects.filter(
+        expansion=expansion,
+        language=OuterRef('pk')
+    )
+
+    translation_exists = PostTranslation.objects.filter(
+        post__expansion=expansion,
+        language=OuterRef('pk')
+    )
+
+    faq_exists = FAQ.objects.filter(
+        post__expansion=expansion,
+        language=OuterRef('pk')
+    )
+
+    law_exists = Law.objects.filter(
+        language=OuterRef("pk"),
+        group__post__expansion=expansion
+    )
+
+    available_languages = Language.objects.filter(
+        Q(Exists(post_exists)) |
+        Q(Exists(translation_exists)) |
+        Q(Exists(faq_exists)) |
+        Q(Exists(law_exists))
+    ).exclude(id=language.id).distinct()
+
+
+
+
+    existing_law = Law.objects.filter(group__post__expansion=expansion).first()
+    if existing_law:
+        available_law = Law.objects.filter(group__post__expansion=expansion, language=language, prime_law=True, group__public=True).first()
+    else:  
+        available_law = None
+
+    existing_faq = FAQ.objects.filter(post__expansion=expansion).first()
+    if existing_faq:
+        available_faq = FAQ.objects.filter(post__expansion=expansion, language=language).first()
+    else:  
+        available_faq = None
+
+    if available_faq and available_law:
+        col_class = 'w-100'
+    else:
+        col_class = 'w-50'
+
 
     context = {
         'expansion': expansion,
@@ -168,13 +215,17 @@ def expansion_detail_view(request, slug):
         'tts_link': tts_link,
         'bgg_link': bgg_link,
         'pnp_link': pnp_link,
+
+        'col_class': col_class,
+        'available_law': available_law,
+        'available_faq': available_faq,
+        'language_code': language_code,
+
+        'selected_language': language,
+        'available_languages': available_languages,
     }
 
     return render(request, 'the_keep/expansion_detail.html', context)
-
-class ExpansionFactionsListView(ListView):
-    model = Faction
-    context_object_name = 'objects'
 
 @designer_required_class_based_view
 class ExpansionCreateView(LoginRequiredMixin, CreateView):
@@ -234,9 +285,6 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")
             return redirect('expansion-detail', expansion.slug) 
-
-
-
 
 
 
@@ -3787,7 +3835,7 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         selected_group = LawGroup.objects.filter(id=highlight_group_id).first()
         if selected_group:
             law_meta_title = f"{title_string} - " + clean_meta_description(selected_group.title)
-            law_meta_description = clean_meta_description(selected_group.description)
+            law_meta_description = ""
 
     try:
         prime_law = Law.objects.get(group=group, prime_law=True, language=language)
@@ -3933,6 +3981,46 @@ def law_group_edit_view(request, slug, lang_code):
 
     return render(request, 'the_keep/law_of_root.html', context)
 
+
+def expansion_law_group(request, expansion_slug, lang_code):
+
+    language = Language.objects.filter(code=lang_code).first()
+    if not language:
+        language = Language.objects.filter(code='en').first()
+
+    expansion = get_object_or_404(Expansion, slug=expansion_slug)
+
+    groups = LawGroup.objects.filter(public=True, post__expansion=expansion)
+
+    # Determine other available languages for this context
+    available_languages_qs = Law.objects.filter(group__post__expansion__slug=expansion.slug).exclude(language=language)
+
+    available_languages = Language.objects.filter(
+            law__in=available_languages_qs
+        ).exclude(id=language.id).distinct()
+
+    all_groups_context = []
+    for group in groups:
+        group_context = get_law_group_context(
+            request,
+            slug=group.slug,
+            edit_mode=False,
+            lang_code=lang_code
+        )
+        all_groups_context.append(group_context)
+    law_title = f'Law of Root - {expansion.title}'
+    law_description = f'Law of Root: {expansion.title}'
+    context = {
+        "expansion": expansion,
+        "groups": all_groups_context,
+        'law_title': law_title,
+        'law_description': law_description,
+        'lang_code': lang_code,
+        'selected_language': language,
+        'available_languages': available_languages,
+    }
+
+    return render(request, 'the_keep/expansion_law.html', context)
 
 def export_laws_yaml_view(request, group_slug, lang_code):
     try:
@@ -4246,7 +4334,7 @@ def faq_search(request, slug=None, lang_code=None):
     return render(request, "the_keep/faq/website_faq.html", context)
 
 
-def faq_home(request, lang_code=None):
+def faq_home(request, lang_code=None, expansion_slug=None):
     query = request.GET.get("q", "")
     filter_type = request.GET.get('type', 'all')
 
@@ -4257,12 +4345,20 @@ def faq_home(request, lang_code=None):
         language = Language.objects.first()
     faqs = FAQ.objects.filter(post__isnull=False, language=language)
 
+    faq_title = "Root FAQ"
+    faq_description = "Frequently asked questions for Root and its Fan Factions."
+    expansion_object = None
+    if expansion_slug:
+        expansion_object = Expansion.objects.filter(slug=expansion_slug).first()
+        if expansion_object:
+            faqs = faqs.filter(post__expansion=expansion_object)
+            faq_title = f'{expansion_object.title} FAQ'
+            faq_description = f"Frequently asked questions for Root: {expansion_object.title}."
+
     if filter_type == 'official':
-        faqs = FAQ.objects.filter(post__isnull=False, language=language, post__official=True)
+        faqs = faqs.filter(post__official=True)
     elif filter_type == 'fan':
-        faqs = FAQ.objects.filter(post__isnull=False, language=language, post__official=False)
-    else:
-        faqs = FAQ.objects.filter(post__isnull=False, language=language)
+        faqs = faqs.filter(post__official=False)
 
     faqs = faqs.annotate(
         post_title=Coalesce(
@@ -4277,8 +4373,6 @@ def faq_home(request, lang_code=None):
         )
     )
 
-
-
     if query:
         faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query)|Q(post__title__icontains=query))
 
@@ -4286,6 +4380,8 @@ def faq_home(request, lang_code=None):
     available_languages_qs = FAQ.objects.filter(
         Q(post__isnull=False)
     ).exclude(language=language)
+    if expansion_object:
+        available_languages_qs = available_languages_qs.filter(post__expansion=expansion_object)
 
     available_languages = Language.objects.filter(
             faq__in=available_languages_qs
@@ -4302,6 +4398,10 @@ def faq_home(request, lang_code=None):
         'selected_language': language,
         'available_languages': available_languages,
         'unavailable_languages': unavailable_languages,
+        'faq_title': faq_title,
+        'faq_description': faq_description,
+        'expansion_slug': expansion_slug,
+        'expansion_object': expansion_object,
         }
 
     if request.htmx:

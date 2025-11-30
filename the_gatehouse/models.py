@@ -743,6 +743,7 @@ class Website(models.Model):
     message_type = models.CharField(max_length=15 , default=MessageChoices.INFO, choices=MessageChoices.choices)
     woodland_warriors_invite = models.CharField(max_length=100, null=True, blank=True)
     french_root_invite = models.CharField(max_length=100, null=True, blank=True)
+    weird_root_invite = models.CharField(max_length=100, null=True, blank=True)
     rdb_feedback_invite = models.CharField(max_length=100, null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
     last_law_check = models.DateTimeField(null=True, blank=True)

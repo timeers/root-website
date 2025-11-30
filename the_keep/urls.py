@@ -67,9 +67,10 @@ urlpatterns = [
     path('new/vagabond/', views.VagabondCreateView.as_view(), name='vagabond-create'),
     path('new/expansion/', views.ExpansionCreateView.as_view(), name='expansion-create'),
     
-    # path('expansion/<slug:slug>/', ExpansionDetailView.as_view(), name='expansion-detail'),
+
     path('expansion/<slug:slug>/', views.expansion_detail_view, name='expansion-detail'),
-    # path('expansion/<slug:slug>/factions/', ExpansionDetailView.as_view(), name='expansion-factions'),
+    path('expansion/<slug:expansion_slug>/faq/<str:lang_code>/', views.faq_home, name='expansion-faq'),
+    path('expansion/<slug:expansion_slug>/law/<str:lang_code>/', views.expansion_law_group, name='expansion-law'),
     path('expansion/<slug:slug>/update/', views.ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', views.ExpansionDeleteView.as_view(), name='expansion-delete'),
     # path('expansion/<slug:expansion_slug>/law/', views.law_hierarchy_view, name='expansion-law'),

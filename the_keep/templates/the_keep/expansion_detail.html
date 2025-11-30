@@ -13,15 +13,15 @@
 {% endblock meta%}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center;">
-        <h1 class='root-title'>{{ expansion.title }}</h1>
-        {% if expansion.designer == user.profile and user.profile.designer %}
-                <div>
-                    <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}"><i class="bi bi-pencil-square"></i></a>
-                    <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}"><i class="bi bi-trash3"></i></a>
-                </div>
-        {% endif %}
-</div>
+
+
+<article class="content-section d-flex justify-content-between align-items-center">
+  <div class='mx-auto text-center'>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1 class='root-title'>{{ expansion.title }}</h1>
+
+        </div>
         {% if expansion.designer %}
         {% trans 'by' %} 
                 {% if user.profile.player %}
@@ -30,6 +30,50 @@
                         {{ expansion.designer.name }}
                 {% endif %}
         {% endif %}
+
+        </div>
+
+        <div>
+ 
+                {% if expansion.designer == user.profile and user.profile.designer %}
+                        <div>
+                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'expansion-update' expansion.slug %}"><i class="bi bi-pencil-square"></i></a>
+                        <a class="btn btn-danger btn-sm mt-1 mb-1" href="{% url 'expansion-delete' expansion.slug %}"><i class="bi bi-trash3"></i></a>
+                        </div>
+                {% endif %}
+
+          {% if available_languages %}
+                
+                <div class="dropdown d-inline">
+                  <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
+                  </button>
+                  
+                  <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+                    
+                            {% for lang in available_languages %}
+                              <li>
+                                <a class="dropdown-item" href="{% url 'expansion-detail' slug=expansion.slug %}?lang={{lang.code}}"><small>{{ lang.name }}</small></a>
+                              </li>
+                            {% endfor %}
+
+                  </ul>
+                </div>
+            
+          {% else %}
+                  <small>
+                      {{ selected_language }}
+                  </small>
+          {% endif %}
+  
+        </div>
+</article>
+
+{% if expansion.picture or expansion.description or expansion.lore or open_expansion %}
+
+<article class="content-section d-flex justify-content-between align-items-center">
+  <div class='mx-auto text-center'>
+
         {% if expansion.picture %}
         <div><img class="rounded-corner-img responsive-img mb-1" src="{{ expansion.picture.url }}"></div>
         {% endif %}
@@ -46,22 +90,24 @@
                 </div>
         {% endif %}
 
+   </div>
+</article>
+
+{% endif %}
+
+
         {% if links_count != 0 %}
                 {% with expansion as object %}
                 {% include 'the_keep/partials/external_links.html' %}
                 {% endwith %}
         {% endif %}
 
+        <!-- Law and FAQ -->
+        {% include 'the_keep/partials/expansion_law_faq.html' %}
 
         {% if posts %}
             {% if factions %}
-            <h2>
-                {% if factions.count != 1 %}
-                        {% trans 'Factions' %} 
-                {% else %}
-                        {% trans 'Faction' %} 
-                {% endif %}
-        </h2>
+                <h2 class='root-title'>Faction{% if factions.count != 1 %}s{% endif %}</h2>
             {% for object in factions %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -69,7 +115,7 @@
             {% endfor %}
             {% endif %}
             {% if decks %}
-            <h2>Deck{% if decks.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>Deck{% if decks.count != 1 %}s{% endif %}</h2>
             {% for object in decks %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -77,7 +123,7 @@
             {% endfor %}
             {% endif %}
             {% if maps %}
-            <h2>Map{% if maps.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>Map{% if maps.count != 1 %}s{% endif %}</h2>
             {% for object in maps %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -85,7 +131,7 @@
             {% endfor %}
             {% endif %}
             {% if vagabonds %}
-            <h2>Vagabond{% if vagabonds.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>Vagabond{% if vagabonds.count != 1 %}s{% endif %}</h2>
             {% for object in vagabonds %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -93,7 +139,7 @@
             {% endfor %}
             {% endif %}
             {% if hirelings %}
-            <h2>Hireling{% if hirelings.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>Hireling{% if hirelings.count != 1 %}s{% endif %}</h2>
             {% for object in hirelings %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -101,7 +147,7 @@
             {% endfor %}
             {% endif %}
             {% if landmarks %}
-            <h2>Landmark{% if landmarks.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>Landmark{% if landmarks.count != 1 %}s{% endif %}</h2>
             {% for object in landmarks %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -109,7 +155,7 @@
             {% endfor %}
             {% endif %}
             {% if clockworks %}
-            <h2>Clockwork Faction{% if clockworks.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>Clockwork Faction{% if clockworks.count != 1 %}s{% endif %}</h2>
             {% for object in clockworks %}
                 
                     {% include 'the_keep/partials/post.html' %}
@@ -117,7 +163,7 @@
             {% endfor %}
             {% endif %}
             {% if tweaks %}
-            <h2>House Rule{% if tweaks.count != 1 %}s{% endif %}</h2>
+                <h2 class='root-title'>House Rule{% if tweaks.count != 1 %}s{% endif %}</h2>
             {% for object in tweaks %}
                 
                     {% include 'the_keep/partials/post.html' %}

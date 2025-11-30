@@ -6,7 +6,7 @@ from .views import (user_settings, player_page_view,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error, 
-                    admin_dashboard, sync_discord_avatar, join_french_root)
+                    admin_dashboard, sync_discord_avatar, join_discord_server)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -49,7 +49,7 @@ urlpatterns = [
     path('feedback/french-invite/<slug:slug>/', french_root_invite, name='french-root-invite'),
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),
 
-    path('join/french-root/', join_french_root, name='join-french-root'),
+    path('join-discord-server/', join_discord_server, name='join-discord-server'),
 
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),

@@ -54,17 +54,30 @@ class GameFilter(django_filters.FilterSet):
         # print(f'Official Only: {official_only}')
         # Filter for only Official content if fan content is deselected
         if official_only:
-            decks_qs = Deck.objects.filter(games__isnull=False, official=True).distinct()
-            maps_qs = Map.objects.filter(games__isnull=False, official=True).distinct()
-            factions_qs = Faction.objects.filter(efforts__isnull=False, official=True).distinct()
-            vagabonds_qs = Vagabond.objects.filter(efforts__isnull=False, official=True).distinct()
-            players_qs = Profile.objects.filter(efforts__isnull=False, official=True).distinct()
+            # decks_qs = Deck.objects.filter(games__isnull=False, official=True).distinct()
+            # maps_qs = Map.objects.filter(games__isnull=False, official=True).distinct()
+            # factions_qs = Faction.objects.filter(efforts__isnull=False, official=True).distinct()
+            # vagabonds_qs = Vagabond.objects.filter(efforts__isnull=False, official=True).distinct()
+            # players_qs = Profile.objects.filter(efforts__isnull=False, official=True).distinct()
+
+            decks_qs = Deck.objects.filter(official=True)
+            maps_qs = Map.objects.filter(official=True)
+            factions_qs = Faction.objects.filter(official=True)
+            vagabonds_qs = Vagabond.objects.filter(official=True)
+            players_qs = Profile.objects.filter(official=True)
+
         else:
-            decks_qs = Deck.objects.filter(games__isnull=False).distinct()
-            maps_qs = Map.objects.filter(games__isnull=False).distinct()
-            factions_qs = Faction.objects.filter(efforts__isnull=False).distinct()
-            vagabonds_qs = Vagabond.objects.filter(efforts__isnull=False).distinct()
-            players_qs = Profile.objects.filter(efforts__isnull=False).distinct()
+            # decks_qs = Deck.objects.filter(games__isnull=False).distinct()
+            # maps_qs = Map.objects.filter(games__isnull=False).distinct()
+            # factions_qs = Faction.objects.filter(efforts__isnull=False).distinct()
+            # vagabonds_qs = Vagabond.objects.filter(efforts__isnull=False).distinct()
+            # players_qs = Profile.objects.filter(efforts__isnull=False).distinct()
+
+            decks_qs = Deck.objects.all()
+            maps_qs = Map.objects.all()
+            factions_qs = Faction.objects.all()
+            vagabonds_qs = Vagabond.objects.all()
+            players_qs = Profile.objects.all()
 
         self.filters['faction'].queryset = factions_qs
         self.filters['vagabond'].queryset = vagabonds_qs
