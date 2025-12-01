@@ -5,7 +5,7 @@
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% static 'images/law-icon.png' %}">
+<meta property="og:image" content="{% if expansion.picture %}{{ expansion.picture.url }}{% else %}{% static 'images/law-icon.png' %}{% endif %}">
 {% comment %} <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" /> {% endcomment %}
 <meta property="og:site_name" content="Root Database">
@@ -17,15 +17,15 @@
 {% block content %}
 
 
-{% if expansion_object %}
+{% if expansion %}
 <div class='mb-2 d-flex justify-content-between'>
 
-  <a href="{{ expansion_object.get_absolute_url }}?lang={{lang_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
+  <a href="{{ expansion.get_absolute_url }}?lang={{lang_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
     <div class='d-flex align-items-center mr-1'>
       <i class="bi bi-chevron-left"></i> 
       </div>
       <div class='d-flex mx-auto'>
-        {{expansion_object.title}}
+        {{expansion.title}}
       </div>
   </a>
 

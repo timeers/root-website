@@ -13,33 +13,50 @@
             {% trans 'Find at Leder Games' %}
         </a>
     {% endif %}
+
     {% if bgg_link %}
         <a class="mr-2 mt-1" href="{{ bgg_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/BGG.webp' %}" alt="Board Game Geek">
             {% trans 'Board Game Geek Post' %}
         </a>
     {% endif %}
+
     {% if tts_link %}
         <a class="mr-2 mt-1" href="{{ tts_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/TTS.webp' %}" alt="Tabletop Simulator">
             {% trans 'Tabletop Simulator' %}
         </a>
     {% endif %}
+
     {% if object.ww_link %}
-        <a class="mr-2 mt-1" href="{{ object.ww_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
-            {% trans 'Woodland Warriors Thread' %}
-        </a>
+        {% if user.is_authenticated %}
+            {% if user.profile.player %}
+                <a class="mr-2 mt-1" href="{{ object.ww_link }}" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+                    {% trans 'Woodland Warriors Thread' %}
+                </a>
+            {% else %}
+                <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+                    {% trans 'Join on Discord for Link' %}
+                </span>
+            {% endif %}
+        {% else %}
+            <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
+                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+                {% trans 'Woodland Warriors Thread' %}
+            </a>
+        {% endif %}
     {% endif %}
 
     {% if object.wr_link %}
         {% if user.is_authenticated %}
             {% if user.profile.in_weird_root %}
-            <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
-                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
-                {% trans 'Weird Root Thread' %}
-            </a>
-            {% comment %} {% elif user.profile.player %}
+                <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
+                    {% trans 'Weird Root Thread' %}
+                </a>
+            {% elif user.profile.player %}
                 <a class="mr-2 mt-1" href="{% url 'weird-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                     {% trans 'Request Invite to Weird Root' %}
@@ -48,16 +65,15 @@
                 <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                     {% trans 'Join on Discord for Link' %}
-                </span> {% endcomment %}
+                </span>
             {% endif %}
-        {% comment %} {% else %}
+        {% else %}
             <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
-                {% trans 'Log In with Weird Root for Link' %}
-            </a> {% endcomment %}
+                {% trans 'Weird Root Thread' %}
+            </a>
         {% endif %}
     {% endif %}
-
 
     {% if object.fr_link %}
         {% if user.is_authenticated %}
@@ -66,7 +82,7 @@
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
                     {% trans 'French Root Thread' %}
                 </a>
-            {% else %}
+            {% elif user.profile.player %}
                 <a class="mr-2 mt-1"
                 href="#"
                 onclick="handleJoinClick('{{ french_root_invite }}', '{% url 'join-discord-server' %}', '{{ request.path|urlencode }}')"
@@ -74,6 +90,11 @@
                     <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
                     {% trans 'Join French Root' %}
                 </a>
+            {% else %}
+                <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
+                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
+                    {% trans 'Join on Discord for Link' %}
+                </span>
             {% endif %}
         {% else %}
             <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">

@@ -5,22 +5,22 @@
     {% trans "Sign In" %}
 {% endblock head_title %}
 {% block content %}
-<article class="media content-section">
-    <div class="media-body">
+<div class="discord-login-page">
+    <div class="login-card">
 
     <h1 class='root-title'>
         {% blocktrans with provider.name as provider %}Sign In{% endblocktrans %}
     </h1>
     {% element p %}
-        {% blocktrans with provider.name as provider %}You are about to sign in using your existing {{ provider }} Account. You will be redirected to Discord to review these permissions.{% endblocktrans %}
+        {% blocktrans with provider.name as provider %}You're about to sign in using your {{ provider }} Account. This will redirect you to Discord to complete authentication.{% endblocktrans %}
     {% endelement %}
 
     {% element form method="post" no_visible_fields=True %}
         {% slot actions %}
             {% csrf_token %}
         <!-- Login with Discord Form -->
-        <button type="submit" class="btn btn-primary">
-            <i class="fa fa-external-link"></i> 
+        <button type="submit" class="btn btn-discord">
+            <i class="bi bi-discord"></i>
             {% blocktrans with provider.name as provider %}
             Continue to {{ provider }}
             {% endblocktrans %}
@@ -29,5 +29,7 @@
     {% endelement %}
 
     </div>
-</article>
+</div>
+
+
 {% endblock content %}

@@ -78,10 +78,10 @@
         <div><img class="rounded-corner-img responsive-img mb-1" src="{{ expansion.picture.url }}"></div>
         {% endif %}
         {% if expansion.lore %}
-            <p class="lore-content mt-2">{{ expansion.lore }}</p>
+            <p class="lore-content article-content mt-2{% if expansion.description %} border-bottom{% endif %}">{{ expansion.lore }}</p>
         {% endif %}
         {% if expansion.description %}
-        <div>{{ expansion.description }}</div>
+        <div class='article-content'>{{ expansion.description }}</div>
         {% endif %}
         
         {% if open_expansion %}

@@ -4,7 +4,7 @@
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% static 'images/law-icon.png' %}">
+<meta property="og:image" content="{% if expansion.picture %}{{ expansion.picture.url }}{% else %}{% static 'images/law-icon.png' %}{% endif %}">
 <meta property="og:site_name" content="{{ site_title }}">
 <meta property="og:title" content="{{ law_title|format_law_text_only }}">
 <meta property="og:description" content="{{ law_description|format_law_text_only }}">
@@ -39,7 +39,7 @@
 
 <article class="content-section d-flex justify-content-between align-items-center">
   <div class='mx-auto text-center'>
-    <h1 class='root-title'>{{ law_description }}</h1>
+    <h1 class='root-title'>{{ law_title }}</h1>
   </div>
   <div>
  

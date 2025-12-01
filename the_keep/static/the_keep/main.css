@@ -25,6 +25,11 @@ body {
     height: 100%;  /* Make sure the body takes up the entire height of the screen */
   }
 
+.navbar.fixed-top {
+    min-height: 5rem;
+}
+
+
 /* Make the main content area flexible so it can grow to fill available space */
 .main-content {
   flex: 1;  /* Allow the content to grow and push the footer down */
@@ -1115,7 +1120,7 @@ tr.clickable-row:hover {
 }
 
 .background-image-padding {
-  height: 60vh; /* You can adjust based on your needs */
+  height: 60vh; 
   min-height: calc(100vw / var(--scale-factor)); /* Keeps aspect ratio */
 }
 
@@ -1445,7 +1450,7 @@ tr.clickable-row:hover {
 .color-square {
   width: 30px;                    /* Size of the color square */
   height: 30px;                   /* Size of the color square */
-  border-radius: 5px;             /* Optional: Rounded corners for the color square */
+  border-radius: 5px;            
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);  /* Soft drop shadow */
 }
 
@@ -2049,4 +2054,53 @@ tr.clickable-row:hover {
 .widget-img {
   height: 120px;
   object-fit: cover;
+}
+
+
+.discord-login-page {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 60vh;
+    margin: 0;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #dcddde;
+}
+
+.discord-login-page .login-card {
+    background: #ffffff;
+    padding: 2.5rem;
+    border-radius: 8px;
+    width: 380px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    text-align: center;
+}
+
+.discord-login-page h1 {
+    margin-bottom: 1rem;
+    color: #2e3338;
+    font-weight: 700;
+    font-size: 2 rem;
+}
+
+.discord-login-page p {
+    color: #5e6772;
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+}
+
+.btn-discord {
+    background-color: #5865F2; /* Discord blurple */
+    border: none;
+    padding: 0.65rem 1.4rem;
+    font-size: 1rem;
+    width: 100%;
+    border-radius: 6px;
+    transition: background .15s ease;
+    font-weight: 600;
+    color: white;
+}
+
+.btn-discord:hover {
+    background-color: #4752c4;
 }

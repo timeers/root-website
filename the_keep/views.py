@@ -4008,8 +4008,8 @@ def expansion_law_group(request, expansion_slug, lang_code):
             lang_code=lang_code
         )
         all_groups_context.append(group_context)
-    law_title = f'Law of Root - {expansion.title}'
-    law_description = f'Law of Root: {expansion.title}'
+    law_title = f'Law of Root: {expansion.title}'
+    law_description = f'The strictly defined, formal rules of Root: {expansion.title}'
     context = {
         "expansion": expansion,
         "groups": all_groups_context,
@@ -4347,13 +4347,13 @@ def faq_home(request, lang_code=None, expansion_slug=None):
 
     faq_title = "Root FAQ"
     faq_description = "Frequently asked questions for Root and its Fan Factions."
-    expansion_object = None
+    expansion = None
     if expansion_slug:
-        expansion_object = Expansion.objects.filter(slug=expansion_slug).first()
-        if expansion_object:
-            faqs = faqs.filter(post__expansion=expansion_object)
-            faq_title = f'{expansion_object.title} FAQ'
-            faq_description = f"Frequently asked questions for Root: {expansion_object.title}."
+        expansion = Expansion.objects.filter(slug=expansion_slug).first()
+        if expansion:
+            faqs = faqs.filter(post__expansion=expansion)
+            faq_title = f'{expansion.title} FAQ'
+            faq_description = f"Frequently asked questions for Root: {expansion.title}."
 
     if filter_type == 'official':
         faqs = faqs.filter(post__official=True)
@@ -4380,8 +4380,8 @@ def faq_home(request, lang_code=None, expansion_slug=None):
     available_languages_qs = FAQ.objects.filter(
         Q(post__isnull=False)
     ).exclude(language=language)
-    if expansion_object:
-        available_languages_qs = available_languages_qs.filter(post__expansion=expansion_object)
+    if expansion:
+        available_languages_qs = available_languages_qs.filter(post__expansion=expansion)
 
     available_languages = Language.objects.filter(
             faq__in=available_languages_qs
@@ -4401,7 +4401,7 @@ def faq_home(request, lang_code=None, expansion_slug=None):
         'faq_title': faq_title,
         'faq_description': faq_description,
         'expansion_slug': expansion_slug,
-        'expansion_object': expansion_object,
+        'expansion': expansion,
         }
 
     if request.htmx:
