@@ -6,7 +6,7 @@
     <div>
         <a class="btn btn-secondary btn-sm mx-1" href="{% url 'law-of-root' lang_code='en' %}"><i class="bi bi-chevron-left"></i> {% trans 'Back to Law' %}</a>
     </div>
-    <h2 class="mb-0 root-title">Update Laws of Root</h2>
+    
   
     <a href="{% url 'check-for-law-updates' %}" class="btn btn-outline-secondary text-start">
       <div>
@@ -20,6 +20,7 @@
     </a>
 
   </div>
+  <h2 class="text-center root-title">Update Laws of Root</h2>
   <hr>
   
 
@@ -61,7 +62,7 @@
       </form>
       {% else %}
       <div class='mb-2'>
-      Law is up to date <a href="#" class="btn btn-secondary preview-btn ml-1 disabled" target="_blank" aria-disabled="true">View</a>
+      Law is up to date <a href="{% url 'law-preview' data.id %}" class="btn btn-secondary ml-1">View</a>
       </div>
       {% endif %}
     </div>

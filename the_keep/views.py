@@ -4009,7 +4009,7 @@ def expansion_law_group(request, expansion_slug, lang_code):
         )
         all_groups_context.append(group_context)
     law_title = f'Law of Root: {expansion.title}'
-    law_description = f'The strictly defined, formal rules of Root: {expansion.title}'
+    law_description = f'The strictly defined, formal rules for Root: {expansion.title}.'
     context = {
         "expansion": expansion,
         "groups": all_groups_context,
@@ -4169,13 +4169,14 @@ def manage_law_updates(request):
     # Add active rules
     for rule in current_rules:
         rules_by_language[rule.language.name]['active'] = rule
+        rules_by_language[rule.language.name]['id'] = rule.id
 
     # Add new rules
     for rule in new_rules:
         rules_by_language[rule.language.name]['new'].append(rule)
 
     last_law_check = Website.get_singular_instance().last_law_check
-
+    print(dict(rules_by_language))
     context = {
         'rules_by_language': dict(rules_by_language),
         'last_law_check': last_law_check,
@@ -4287,7 +4288,7 @@ def faq_search(request, slug=None, lang_code=None):
     else:
         post = None
         faqs = FAQ.objects.filter(post=None, language=language)
-        if request.user.is_staff:
+        if user_profile.admin:
             faq_editable = True
 
     if query:
@@ -4391,6 +4392,17 @@ def faq_home(request, lang_code=None, expansion_slug=None):
         faq__in=available_languages_qs
     ).exclude(id=language.id).distinct()
 
+    # Check if the FAQ can be edited
+    faq_editable = False
+    user_profile = Profile.objects.none()
+    if request.user.is_authenticated:
+        user_profile = request.user.profile
+    if expansion and user_profile:
+        if user_profile.admin or user_profile == expansion.designer and user_profile.editor:
+            faq_editable = True
+    else:
+        if user_profile.admin:
+            faq_editable = True
 
     context = {
         "faqs": faqs,
@@ -4402,6 +4414,7 @@ def faq_home(request, lang_code=None, expansion_slug=None):
         'faq_description': faq_description,
         'expansion_slug': expansion_slug,
         'expansion': expansion,
+        'faq_editable': faq_editable,
         }
 
     if request.htmx:

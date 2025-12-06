@@ -158,15 +158,15 @@ def import_league_games(limit=25, tournament_name="", days_back=1, date_from=Non
                 fields=[error_field]
             )
 
-    if imported_count > 0 or error_count > 0:
-        # Send import summary message to Discord
-        send_rich_discord_message(
-            message,
-            author_name='RDB Admin',
-            category='rdl-import',
-            title='RDL Import',
-            fields=fields
-        )
+    # if imported_count > 0 or error_count > 0:
+    #     # Send import summary message to Discord
+    #     send_rich_discord_message(
+    #         message,
+    #         author_name='RDB Admin',
+    #         category='rdl-import',
+    #         title='RDL Import',
+    #         fields=fields
+    #     )
 
     return summary
 

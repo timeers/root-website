@@ -51,7 +51,7 @@ def sync_rules_task(self):
     if updated_locales:
         locales_str = ", ".join(updated_locales)
         message = f"New Rules available for the following languages: {locales_str}"
-        send_discord_message(message=message, category='automation')
+        send_discord_message(message=message, category='report')
     else:
         message = "No new rules available from Leder Rules Library."
 

@@ -1,0 +1,346 @@
+<script>
+
+{% if edit_mode %}
+
+
+
+    function showModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (!modal) return;
+
+      modal.style.display = 'flex';
+
+      // ESC key to close
+      function escHandler(e) {
+        if (e.key === 'Escape') {
+          hideModal(modal);
+        }
+      }
+
+      document.addEventListener('keydown', escHandler);
+
+
+      // Store the handlers so they can be removed
+      modal._escHandler = escHandler;
+
+    }
+
+    function hideModal(modal) {
+      modal.style.display = 'none';
+      document.removeEventListener('keydown', modal._escHandler);
+    
+      // Reset form if one exists in the modal
+      const form = modal.querySelector('form');
+      if (form) {
+        form.reset(); // resets input, textarea, select (not Select2 though)
+      }
+    
+      // Clear textContent in specific elements
+      const textElementsToClear = modal.querySelectorAll('.modal-card [id$="-law-code"], .modal-card [id$="-title"]');
+      textElementsToClear.forEach(el => el.textContent = '');
+    
+      // Clear Select2 selections
+      $(modal).find('select').val(null).trigger('change');
+    }
+
+    document.querySelectorAll('form textarea').forEach(textarea => {
+      textarea.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault(); // Prevent newline
+          this.form.querySelector('button[type="submit"]').click(); // Trigger submit
+        }
+      });
+    });
+
+
+
+
+
+    document.querySelectorAll('.delete-law-button').forEach(button => {
+      button.addEventListener('click', () => {
+        document.getElementById('delete-law-id').value = button.dataset.id;
+        document.getElementById('delete-law-title').textContent = button.dataset.title;
+        showModal('delete-law-modal');
+        {% comment %} document.getElementById('delete-law-modal').style.display = 'block'; {% endcomment %}
+      });
+    });
+
+    document.getElementById('delete-law-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(this);
+      const response = await fetch("{% url 'delete-law-ajax' %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        location.reload();  // Refresh to remove deleted law
+      } else {
+        alert('Failed to delete law.');
+      }
+    });
+
+
+
+
+    document.querySelectorAll('.edit-law-button').forEach(button => {
+      button.addEventListener('click', () => {
+          // Populate form fields
+          document.getElementById('edit-law-id').value = button.dataset.id;
+          document.getElementById('edit-law-title').value = button.dataset.title;
+          document.getElementById('edit-law-description').value = button.dataset.description;
+          document.getElementById('edit-law-law-code').textContent = "Edit " + button.dataset.code;
+          // Set reference laws
+          const referenceLawsSelect = $('#id_edit_reference_laws');  // Using jQuery to access the Select2 element
+          const references = button.dataset.references || '';
+          const selectedIds = references.split(',').map(id => id.trim()).filter(Boolean);
+
+          // Set selected options in Select2
+          referenceLawsSelect.val(selectedIds).trigger('change');
+
+          // Show the modal
+          showModal('edit-law-modal');
+      });
+    });
+
+
+
+
+    document.getElementById('edit-law-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(this);
+
+      const response = await fetch("{% url 'edit-law-ajax' %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        location.reload(); // Reload to reflect the updated law
+      } else {
+        alert("Failed to update law.");
+      }
+    });
+
+
+
+    document.querySelectorAll('.edit-description-button').forEach(button => {
+      button.addEventListener('click', () => {
+        // Populate form with data
+        document.getElementById('edit-description-id').value = button.dataset.id;
+        document.getElementById('readonly-law-title').textContent = button.dataset.title;
+        document.getElementById('edit-description-description').value = button.dataset.description;
+        document.getElementById('edit-description-law-code').textContent = "Edit " + button.dataset.code;
+
+        // Set reference laws
+        const referenceLawsSelect = $('#id_edit_description_reference_laws');  // Using jQuery to access the Select2 element
+        const references = button.dataset.references || '';
+        const selectedIds = references.split(',').map(id => id.trim()).filter(Boolean);
+
+        // Set selected options in Select2
+        referenceLawsSelect.val(selectedIds).trigger('change');
+
+        // Show modal
+        showModal('edit-description-modal');
+      
+      });
+    });
+
+    document.getElementById('edit-description-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(this);
+
+      const response = await fetch("{% url 'edit-law-description-ajax' %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        location.reload(); // Reload to reflect the updated law
+      } else {
+        alert("Failed to update law.");
+      }
+    });
+
+
+
+
+
+
+    document.querySelectorAll('.move-law-button').forEach(button => {
+      button.addEventListener('click', async () => {
+        const url = button.dataset.url;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': '{{ csrf_token }}'
+          }
+        });
+
+        if (response.ok) {
+          location.reload();
+        } else {
+          alert('Move failed');
+        }
+      });
+    });
+
+
+
+
+
+    document.querySelectorAll('.add-law-button').forEach(button => {
+    button.addEventListener('click', () => {
+      {% comment %} document.getElementById('add-law-modal').style.display = 'block'; {% endcomment %}
+      document.getElementById('modal-group-id').value = button.dataset.group;
+      document.getElementById('modal-parent-id').value = button.dataset.parent || '';
+      document.getElementById('modal-prev-id').value = button.dataset.prev || '';
+      document.getElementById('modal-next-id').value = button.dataset.next || '';
+      document.getElementById('modal-language-id').value = {{selected_language.id}} || '';
+      document.getElementById('modal-law-code').textContent = 'Add ' + (button.dataset.code || '');
+
+      showModal('add-law-modal');
+    });
+    });
+
+    document.getElementById('add-law-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(e.target);
+    const response = await fetch("{% url 'add-law-ajax' %}", {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+      },
+      body: formData
+    });
+
+    if (response.ok) {
+      location.reload();  // Reload to show the new law
+    } else {
+      alert("Failed to add law.");
+    }
+    });
+
+    $(document).ready(function() {
+      // Apply Select2 to the reference_laws field
+      $('#id_edit_description_reference_laws').select2({
+        placeholder: "Links to Reference Laws", // Add a placeholder
+        width: '100%' // Set the width to 100% for responsiveness
+    });
+      $('#id_edit_reference_laws').select2({
+          placeholder: "Links to Reference Laws", // Add a placeholder
+          width: '100%' // Set the width to 100% for responsiveness
+      });
+      $('#id_reference_laws').select2({
+        placeholder: "Links to Reference Laws", // Add a placeholder
+        width: '100%' // Set the width to 100% for responsiveness
+    });
+    });
+{% else %}
+
+
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.copy-link-icon').forEach(icon => {
+    const originalIconClass = [...icon.classList].find(cls => cls.startsWith('bi-'));
+    icon.addEventListener('click', async () => {
+      const link = icon.getAttribute('data-link');
+      const lawDiv = icon.closest('[id^="law-"]');
+
+      try {
+        await navigator.clipboard.writeText(link);
+
+        if (originalIconClass) {
+          icon.classList.remove(originalIconClass);
+        }
+        icon.classList.add('bi-clipboard2-check', 'text-success');
+
+        if (lawDiv) {
+          lawDiv.classList.add('highlight-temp');
+          // Trigger reflow to restart animation
+          void lawDiv.offsetWidth;
+          lawDiv.classList.add('active');
+        }
+
+        setTimeout(() => {
+          icon.classList.remove('bi-clipboard2-check', 'text-success');
+          if (originalIconClass) {
+            icon.classList.add(originalIconClass);
+          }
+
+          if (lawDiv) {
+            lawDiv.classList.remove('active');
+            // Remove highlight-temp after fade out completes (match CSS transition time, e.g. 800ms)
+            setTimeout(() => {
+              lawDiv.classList.remove('highlight-temp');
+            }, 1000);
+          }
+        }, 1700);
+      } catch (err) {
+        alert('Failed to copy link.');
+      }
+    });
+  });
+
+});
+
+
+
+{% endif %}
+
+
+
+{% if highlight_id %}
+const target = document.getElementById("law-{{ highlight_id }}");
+if (target) {
+  target.scrollIntoView({ 
+    behavior: 'smooth',
+    block: 'center'  
+  });
+  target.classList.add('highlight-temp');
+  void target.offsetWidth;
+  target.classList.add('active');
+  setTimeout(() => {
+    target.classList.remove('active');
+    setTimeout(() => {
+      target.classList.remove('highlight-temp');
+    }, 800);
+  }, 3000);
+}
+
+{% elif highlight_group_id %}
+const target = document.getElementById("group-{{ highlight_group_id }}");
+if (target) {
+  target.scrollIntoView({ 
+    behavior: 'smooth',
+    block: 'center'  
+  });
+  target.classList.add('highlight-temp');
+  void target.offsetWidth;
+  target.classList.add('active');
+  setTimeout(() => {
+    target.classList.remove('active');
+    setTimeout(() => {
+      target.classList.remove('highlight-temp');
+    }, 800);
+  }, 3000);
+}
+{% endif %}
+
+
+  </script>
+
