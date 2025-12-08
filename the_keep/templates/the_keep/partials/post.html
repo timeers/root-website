@@ -112,7 +112,7 @@
                 </h2>
                 {% comment %} <h2 class='root-title'>{{ object.title }}</h2> {% endcomment %}
                 {% comment %} <h2 class='root-title' {% if object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ object.color }};"{% endif %}>{{ object.title }}</h2> {% endcomment %}
-                {% trans 'by' %} {{ object.designer.name }}
+                {% trans 'by' %} {{ object.designers_list }}
              {% if object.artist %}
             <div class="article-metadata">
                 {% trans 'Art by' %} {{ object.artist.name }}

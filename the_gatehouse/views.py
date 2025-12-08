@@ -332,12 +332,15 @@ def designer_component_view(request, slug):
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
     # Get the component from the query parameters
-    component = request.GET.get('component')  # e.g., /designer/john-doe/component/?component=some_component
+    component = request.GET.get('component')
     # Filter posts based on the designer and the component (if provided)
+    components = Post.objects.filter(
+        (Q(designer=designer) |
+        Q(co_designers=designer)) &
+        Q(status__lte=view_status)
+    ).distinct()
     if component:
-        components = designer.posts.filter(component__icontains=component, status__lte=view_status)
-    else:
-        components = designer.posts.filter(status__lte=view_status)
+        components = components.filter(component__icontains=component)
     # print(f'Components: {components.count()}')
     # Get the total count of components (total posts matching the filter)
     total_count = components.count()

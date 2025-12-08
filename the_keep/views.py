@@ -981,6 +981,12 @@ def ultimate_component_view(request, slug):
             object_color = None
 
     absolute_uri = build_absolute_uri(request, object.get_absolute_url())
+
+    # Meta Tags
+    meta_description = object.get_meta_description(language)
+    meta_image_url = object.get_meta_image_url(language)
+
+
     context = {
         'object': object,
         'games_total': games_total,
@@ -1038,6 +1044,8 @@ def ultimate_component_view(request, slug):
         'bgg_link': bgg_link,
         'pnp_link': pnp_link,
 
+        'meta_description': meta_description,
+        'meta_image_url': meta_image_url,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -1330,27 +1338,62 @@ def list_view(request, slug=None):
 
     posts, search, search_type, designer, faction_type, reach_value, status, language_code, expansion = _search_components(request, slug)
     # designers = Profile.objects.annotate(posts_count=Count('posts')).filter(posts_count__gt=0)
-    view_status = 4
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
-        if request.user.profile.weird:
-            # Filter designers who have at least one post with a status less than or equal to the user's view_status
-            designers = Profile.objects.annotate(
-                posts_count=Count('posts'),
-                valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
-            ).filter(posts_count__gt=0, valid_posts_count__gt=0)
-        else:
-            # Filter designers who have at least one post with 'official' property set to True
-            designers = Profile.objects.annotate(
-                official_posts_count=Count('posts', filter=Q(posts__official=True)),
-                valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
-                ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
     else:
-        designers = Profile.objects.annotate(
-            posts_count=Count('posts'),
-            valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
-            ).filter(posts_count__gt=0, valid_posts_count__gt=0)
-    
+        view_status = 4
+
+    # if request.user.is_authenticated:
+    #     if request.user.profile.weird:
+    #         # Filter designers who have at least one post with a status less than or equal to the user's view_status
+    #         designers = Profile.objects.annotate(
+    #             posts_count=Count('posts'),
+    #             valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+    #         ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+    #     else:
+    #         # Filter designers who have at least one post with 'official' property set to True
+    #         designers = Profile.objects.annotate(
+    #             official_posts_count=Count('posts', filter=Q(posts__official=True)),
+    #             valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+    #             ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
+    # else:
+    #     designers = Profile.objects.annotate(
+    #         posts_count=Count('posts'),
+    #         valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
+    #         ).filter(posts_count__gt=0, valid_posts_count__gt=0)
+        
+    designer_annotations = {
+        "posts_count": Count("posts", distinct=True) + Count("co_designed_posts", distinct=True),
+        "valid_posts_count": Count(
+            "posts",
+            filter=Q(posts__status__lte=view_status),
+            distinct=True
+        ) + Count(
+            "co_designed_posts",
+            filter=Q(co_designed_posts__status__lte=view_status),
+            distinct=True
+        )
+    }
+
+    designer_filters = Q(valid_posts_count__gt=0)
+
+    # If user is authenticated and not weird, require at least one official post
+    if request.user.is_authenticated and not request.user.profile.weird:
+        designer_annotations["official_posts_count"] = Count(
+            "posts",
+            filter=Q(posts__official=True),
+            distinct=True
+        ) + Count(
+            "co_designed_posts",
+            filter=Q(co_designed_posts__official=True),
+            distinct=True
+        )
+        designer_filters &= Q(official_posts_count__gt=0)
+
+    # Query designers
+    designers = Profile.objects.annotate(**designer_annotations).filter(designer_filters)
+
+
     used_languages = Language.objects.filter(
             Q(post__isnull=False) | Q(posttranslation__isnull=False)
         ).distinct()
@@ -1478,7 +1521,10 @@ def _search_components(request, slug=None):
         posts = posts.filter(component__icontains=search_type)
 
     if designer:
-        posts = posts.filter(designer__id=designer)
+        posts = posts.filter(
+            Q(designer__id=designer) |
+            Q(co_designers__id=designer)
+        )
 
     if expansion:
         posts = posts.filter(expansion__id=expansion)
@@ -1609,7 +1655,16 @@ def get_profiles(user, view_status, component, selected_id, related_name):
 
 
 def get_designers(user, view_status, component, selected_id):
-    return get_profiles(user, view_status, component, selected_id, related_name='posts')
+    designers = get_profiles(
+        user, view_status, component, selected_id, related_name='posts'
+    )
+    co_designers = get_profiles(
+        user, view_status, component, selected_id, related_name='co_designed_posts'
+    )
+
+    # merge and remove duplicates
+    return (designers | co_designers).distinct()
+    # return get_profiles(user, view_status, component, selected_id, related_name='posts')
 
 def get_artists(user, view_status, component, selected_id):
     return get_profiles(user, view_status, component, selected_id, related_name='artist_posts')
@@ -1652,7 +1707,10 @@ def apply_filters(qs, filters, component):
         )
 
     if filters.get('designer'):
-        qs = qs.filter(designer__id=filters['designer'])
+        qs = qs.filter(
+            Q(designer__id=filters['designer']) |
+            Q(co_designers__id=filters['designer'])
+        )
 
     if filters.get('artist'):
         qs = qs.filter(artist__id=filters['artist'])
@@ -4176,7 +4234,6 @@ def manage_law_updates(request):
         rules_by_language[rule.language.name]['new'].append(rule)
 
     last_law_check = Website.get_singular_instance().last_law_check
-    print(dict(rules_by_language))
     context = {
         'rules_by_language': dict(rules_by_language),
         'last_law_check': last_law_check,

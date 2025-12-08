@@ -4,38 +4,9 @@
     <meta property="og:url" content="{{ absolute_uri }}?lang={{ language_code }}">
     <meta property="og:site_name" content="Root Database">
     <meta property="og:title" content="{{ object_title }}">
-    {% if object.component == 'Clockwork' %}
-        <meta property="og:image" content="{% if object.board_image %}{{object_board_image_url}}{% else %}{{ object.picture.url }}{% endif %}">
-        <meta property="og:description" content="{% if not object.official %}Fan {% endif %}Clockwork Faction{% if object.based_on %} for {{ based_on_title }}{% endif %} by {{ object.designer.name }}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-        <meta name="description" content="{% if not object.official %}Fan {% endif %}Clockwork Faction{% if object.based_on %} for {{ based_on_title }}{% endif %} by {{ object.designer.name }}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-    {% elif object.component == 'Deck'%}
-        <meta property="og:image" content="{% if object.card_image %}{{object_card_image_url}}{% else %}{{ object.picture.url }}{% endif %}">
-        <meta property="og:description" content="{{ object.card_total }} Card {% if not object.official %}Fan {% endif %}Deck by {{ object.designer.name }}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-        <meta name="description" content="{{ object.card_total }} Card {% if not object.official %}Fan {% endif %}Deck by {{ object.designer.name }}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-    {% elif object.component == 'Faction' %}
-        <meta property="og:image" content="{% if object.board_image %}{{object_board_image_url}}{% elif object.card_image %}{{object_card_image_url}}{% else %}{{ object.picture.url }}{% endif %}">
-        <meta property="og:description" content="{% if object.reach > 0 %}{{ object.reach }} Reach {% endif %}{% if object.type != "U" %}{{ object.get_type_display }} {% endif %}{% if not object.official %}Fan {% endif %}{{ object.component }} by {{ object.designer.name }}{% if object.based_on %} based on {{ based_on_title }}{% endif %}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-        <meta name="description" content="{% if object.reach > 0 %}{{ object.reach }} Reach {% endif %}{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}{{ object.component }} by {{ object.designer.name }}{% if object.based_on %} based on {{ based_on_title }}{% endif %}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-    {% elif object.component == 'Hireling' %}
-        <meta property="og:image" content="{% if object.board_image %}{{object_board_image_url}}{% elif object.card_image %}{{object_card_image_url}}{% else %}{{ object.picture.url }}{% endif %}">
-        <meta property="og:description" content="{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}Hireling by {{ object.designer.name }}{% if object.based_on %} for {{ based_on_title }} by {{ object.based_on.designer.name }}{% endif %}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-        <meta name="description" content="{{ object.get_type_display }} {% if not object.official %}Fan {% endif %}Hireling by {{ object.designer.name }}{% if object.based_on %} for {{ based_on_title }} by {{ object.based_on.designer.name }}{% endif %}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-    {% elif object.component == 'Landmark' %}
-        <meta property="og:image" content="{% if object.card_image %}{{object_card_image_url}}{% else %}{{ object.picture.url }}{% endif %}">
-        <meta property="og:description" content="{% if not object.official %}Fan {% endif %}Landmark by {{ object.designer.name }}{% if object.card_text %} - {{ object.card_text }}{% elif object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-        <meta name="description" content="{% if not object.official %}Fan {% endif %}Landmark by {{ object.designer.name }}{% if object.card_text %} - {{ object.card_text }}{% elif object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-    {% elif object.component == 'Map' %}
-        <meta property="og:image" content="{{ object.picture.url }}">
-        <meta property="og:description" content="{{ object.clearings }} clearing {% if not object.official %}Fan {% endif %}Map by {{ object.designer.name }}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-        <meta name="description" content="{{ object.clearings }} clearing {% if not object.official %}Fan {% endif %}Map by {{ object.designer.name }}{% if object_lore %} - {{ object_lore }}{% elif object_description %} - {{ object_description }}{% endif %}">
-    {% elif object.component == 'Tweak' %}
-        <meta property="og:image" content="{{ object.picture.url }}">
-        <meta property="og:description" content="{% if object_description %}{{ object_description }}{% else %}House Rule by {{ object.designer.name }}{% endif %}">
-        <meta name="description" content="{% if object_description %}{{ object_description }}{% else %}House Rule by {{ object.designer.name }}{% endif %}">
-    {% elif object.component == 'Vagabond' %}
-        <meta property="og:image" content="{% if object.card_image %}{{object_card_image_url}}{% else %}{{ object.picture.url }}{% endif %}">
-        <meta property="og:description" content="{% if not object.official %}Fan {% endif %}Vagabond by {{ object.designer.name }} - {{ object.ability }}: {{ object.ability_description }}">
-        <meta name="description" content="{% if not object.official %}Fan {% endif %}Vagabond by {{ object.designer.name }} - {{ object.ability }}: {{ object.ability_description }}">
-    {% endif %}
+    <meta property="og:image" content="{{ meta_image_url }}">
+    <meta property="og:description" content="{{ meta_description }}">
+    <meta name="description" content="{{ meta_description }}">
+
 
 

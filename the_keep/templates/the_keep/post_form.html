@@ -278,11 +278,13 @@
                 </div>
                 {% comment %} End Links {% endcomment %}
 
-                
+                <div class='soft-shadow'>
                 {% if form.language %}
-                    {{ form.language|as_crispy_field}}
+                    {{ form.language|as_crispy_field }}
                 {% endif %}
 
+                {{ form.co_designers|as_crispy_field }}
+                </div>
                 {% comment %} END END
                 {{ form | crispy }} {% endcomment %}
             </fieldset>
@@ -333,7 +335,7 @@
             if ($('#id_artist').length) {
                 $('#id_artist').select2();
             }
-
+            $('#id_co_designers').select2();
             // Initial check on page load
             updateRootjamVisibility();
 

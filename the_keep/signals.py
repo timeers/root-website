@@ -47,6 +47,10 @@ def law_group_pre_save(sender, instance, **kwargs):
 def component_post_save(sender, instance, created, **kwargs):
     if created:
         slugify_post_title(instance, save=True)
+        designers_list = instance.get_designers_list()
+        instance.designers_list = designers_list
+        instance.save(update_fields=["designers_list"])
+
 
 @receiver(post_save, sender=Expansion)
 def expansion_post_save(sender, instance, created, **kwargs):

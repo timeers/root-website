@@ -100,8 +100,11 @@
                 {% endif %}
 
             {% endif %}
-
+            
                 {% trans 'by' %} 
+            {% for designer in object.co_designers.all %}
+                <a href="{% url 'player-detail' designer.slug %}">{{ designer.name }}</a>{% if not forloop.last %}, {% else %} and {% endif %}
+            {% endfor %}
             <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
         </div>
@@ -140,9 +143,13 @@
                     </a>
                     {% trans 'by' %} 
                     {% if user.profile.player %}
+                        {% for designer in object.based_on.co_designers.all %}
+                            <a href="{% url 'player-detail' designer.slug %}">{{ designer.name }}</a>{% if not forloop.last %}, {% else %} and {% endif %}
+                        {% endfor %}
                         <a class="mr-2" href="{% url 'player-detail' object.based_on.designer.slug %}">{{ object.based_on.designer.name }}</a>
+                    
                     {% else %}
-                        {{ object.based_on.designer.name }}
+                        {{ object.based_on.designers_list }}
                     {% endif %}
                 
                     {% endif %}

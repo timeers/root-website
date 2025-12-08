@@ -19,7 +19,7 @@ from .models import (
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
+top_fields = ['designer', 'co_designers', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
 bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'language']
 
 
@@ -363,6 +363,12 @@ class PostCreateForm(forms.ModelForm):
         queryset=Language.objects.all(),
         empty_label=None
     )
+    co_designers = forms.ModelMultipleChoiceField(required=False, 
+        queryset=Profile.objects.all(),
+        widget=forms.SelectMultiple,
+        help_text="Co-Designers will be credited but unable to make changes.",
+        label="Co-Designers (Optional)"
+        )
     class Meta:
         model = Post
         fields = top_fields + bottom_fields
@@ -443,9 +449,9 @@ class PostCreateForm(forms.ModelForm):
         # Remove language if it already exists
         if post_instance:
             self.fields.pop('language', None)
-
-        
-
+            self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(
+                id=post_instance.designer.id
+            )
 
         if not post_instance:
             self.fields['designer'].initial = user.profile.id
@@ -501,11 +507,8 @@ class PostCreateForm(forms.ModelForm):
             leder_games_link = cleaned_data.get('leder_games_link')
             official = cleaned_data.get('official')
             in_root_digital = cleaned_data.get('in_root_digital')
-            # designer = cleaned_data.get('designer')
-
-            # # # If designer is None, set it to the current user's profile
-            # # if not designer and self.user:
-            # #     designer = self.user.profile
+            co_designers = cleaned_data.get('co_designers')
+            designer = cleaned_data.get('designer')
 
             # Check that at least one of the links are filled
             if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]):
@@ -540,6 +543,11 @@ class PostCreateForm(forms.ModelForm):
             if in_root_digital and not official:
                 raise ValidationError('Only official products can be included in Root Digital')
             
+            if designer and co_designers and designer in co_designers:
+                raise ValidationError(
+                    {"co_designers": f"Designer {designer} cannot also be listed as a co-designer."}
+                )
+
             return cleaned_data
 
 

@@ -49,7 +49,7 @@
                     {% endif %}
                 {% endif %}
                 {% if result.designer %}
-                    {% blocktrans with result_designer=result.designer.display_name %}
+                    {% blocktrans with result_designer=result.designers_list %}
                         by {{ result_designer }}
                     {% endblocktrans %}
                 {% endif %}

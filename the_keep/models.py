@@ -293,6 +293,7 @@ class Post(models.Model):
     title = models.CharField(max_length=40)
     discord_channel_id = models.CharField(max_length=32, blank=True, null=True)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
+    co_designers = models.ManyToManyField(Profile, related_name="co_designed_posts", blank=True)
     animal = models.CharField(max_length=50, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
@@ -343,6 +344,7 @@ class Post(models.Model):
     component = models.CharField(max_length=20, choices=ComponentChoices.choices, null=True, blank=True)
     sorting = models.IntegerField(default=10)
     component_snippet = models.CharField(max_length=100, null=True, blank=True)
+    designers_list = models.CharField(max_length=1000, null=True, blank=True)
     date_updated = models.DateTimeField(default=timezone.now)
     date_modified = models.DateTimeField(auto_now=True)
 
@@ -505,13 +507,18 @@ class Post(models.Model):
             language = Language.objects.first()
             self.language = language
 
+        if not new_post:
+            designers_list = self.get_designers_list()
+            self.designers_list = designers_list
+
+
         super().save(*args, **kwargs)
 
         if new_post:
             fields = []
             fields.append({
                     'name': 'By:',
-                    'value': self.designer.discord
+                    'value': self.designers_list
                 })
             send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
 
@@ -704,8 +711,59 @@ class Post(models.Model):
         plays = self.get_plays_queryset()
         return plays.count() if plays else 0
     
+    def get_designers_list(self):
+        designers = [self.designer] + list(self.co_designers.all())
+        names = [d.name for d in designers]
 
+        if len(names) == 0:
+            return ""
+        if len(names) == 1:
+            return names[0]
+        if len(names) == 2:
+            return f"{names[0]} and {names[1]}"
         
+        # 3 or more
+        return ", ".join(names[:-1]) + f", and {names[-1]}"
+    
+    def fan_prefix(self):
+        return "" if self.official else "Fan "
+
+    def get_meta_description(self, language=None):
+        raise NotImplementedError("Subclass must implement this.")
+
+    def get_translated_field(self, field_name, language=None):
+        """
+        Returns the translated field if available for the given language,
+        otherwise returns the default field on the object.
+        """
+        if field_name != 'ability' and field_name != 'ability_description' and field_name != 'bgg_link' and field_name != 'pnp_link' and field_name != 'tts_link':
+            translated_field_name = f"translated_{field_name}"
+        else:
+            translated_field_name = field_name
+
+        if language:
+            translation = self.translations.filter(language=language).first()
+            if translation:
+                value = getattr(translation, translated_field_name, None)
+                if value:
+                    return value
+
+        # fallback to original post
+        return getattr(self, field_name)
+
+    def get_translated_image_url(self, field_name, language=None):
+        """
+        Returns the URL of a translated image field, or default if not available.
+        Returns None if no image exists.
+        """
+        image_field = self.get_translated_field(field_name, language)
+        if image_field:
+            try:
+                return image_field.url
+            except ValueError:  # in case the file is missing
+                return None
+        return None
+
     class Meta:
         ordering = ['sorting', '-official', 'status', '-date_posted', 'id']
 
@@ -797,29 +855,6 @@ class Deck(Post):
             self.picture = 'default_images/deck.png'
         self.component_snippet = f"{self.card_total} Card"
 
-        # Check if the image field has changed (only works if the instance is already saved)
-        # if self.pk:  # If the object already exists in the database
-        #     old_instance = Post.objects.get(pk=self.pk)
-           
-        #     if self.card_image:
-        #         field_name = 'card_image'
-        #     else:
-        #         field_name = 'picture'
-        #     old_image = getattr(old_instance, field_name)
-        #     new_image = getattr(self, field_name)
-        #     if old_image != new_image or not self.small_icon:
-        #         delete_old_image(getattr(old_instance,'small_icon'))
-        #         self.process_and_save_small_icon(field_name)
-        #         delete_old_image(getattr(old_instance,'picture'))
-        #         self.process_and_save_picture(field_name)
-        # else:
-        #     if self.card_image:
-        #         field_name = 'card_image'
-        #     else:
-        #         field_name = 'picture'
-        #     self.process_and_save_small_icon(field_name)
-        #     self.process_and_save_picture(field_name)
-
         super().save(*args, **kwargs)  # Call the parent save method
 
 
@@ -905,17 +940,17 @@ class Deck(Post):
         return result
 
 
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        base = f"{self.card_total} Card {self.fan_prefix()}Deck by {designers}"
+        lore = self.get_translated_field("lore", language)
+        description = self.get_translated_field("description", language)
+        extra = lore or description or ""
+        return f"{base} - {extra}" if extra else base
 
-        # if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
-        #     stable_ready = True
-        # else:
-        #     stable_ready = False
-        # print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
-        # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
-
-
-
-
+    def get_meta_image_url(self, language=None):
+        return self.get_translated_image_url("card_image", language) or \
+               (self.picture.url if self.picture else None)
 
 
 class Landmark(Post):
@@ -1026,15 +1061,20 @@ class Landmark(Post):
         )
         return result
 
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        base = f"{self.fan_prefix()}Landmark by {designers}"
+        card_text = self.get_translated_field("card_text", language)
+        lore = self.get_translated_field("lore", language)
+        description = self.get_translated_field("description", language)
+        extra = card_text or lore or description or ""
 
+        return f"{base} - {extra}" if extra else base
 
-
-        # if play_count >= game_threshold and self.status != 'Stable' and unique_players >= player_threshold and official_faction_count >= faction_threshold and official_map_count >= map_threshold and official_deck_count >= deck_threshold:
-        #     stable_ready = True
-        # else:
-        #     stable_ready = False
-        # print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
-        # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
+    def get_meta_image_url(self, language=None):
+        return self.get_translated_image_url("card_image", language) or \
+               self.get_translated_image_url("board_image", language) or \
+               (self.picture.url if self.picture else None)
 
 class Tweak(Post):
     def save(self, *args, **kwargs):
@@ -1149,6 +1189,18 @@ class Tweak(Post):
         #     stable_ready = False
         # print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
         # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        base = f"House Rule by {designers}"
+
+        lore = self.get_translated_field("lore", language)
+        description = self.get_translated_field("description", language)
+        extra = lore or description or ""
+
+        return f"{base} - {extra}" if extra else base
+    
+    def get_meta_image_url(self, language=None):
+        return (self.picture.url if self.picture else None)
 
 class Map(Post):
     clearings = models.IntegerField(default=12)
@@ -1284,9 +1336,16 @@ class Map(Post):
         #     stable_ready = False
         # print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
         # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        base = f"{self.clearings} clearing {self.fan_prefix()}Map by {designers}"
+        lore = self.get_translated_field("lore", language)
+        description = self.get_translated_field("description", language)
+        extra = lore or description or ""
+        return f"{base} - {extra}" if extra else base
 
-
-
+    def get_meta_image_url(self, language=None):
+        return (self.picture.url if self.picture else None)
 
 class Vagabond(Post):
     class AbilityChoices(models.TextChoices):
@@ -1455,6 +1514,18 @@ class Vagabond(Post):
 
         # print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
         # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold, win_count, loss_count)
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        base = f"{self.fan_prefix()}Vagabond by {designers}"
+        ability = self.get_translated_field("ability", language)
+        ability_description = self.get_translated_field("ability_description", language)
+        extra = f"{ability}: {ability_description}"
+        
+        return f"{base} - {extra}" if extra else base
+
+    def get_meta_image_url(self, language=None):
+        return self.get_translated_image_url("card_image", language) or \
+               (self.picture.url if self.picture else None)
 
 class Faction(Post):
     class TypeChoices(models.TextChoices):
@@ -1730,6 +1801,40 @@ class Faction(Post):
         # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold, win_count, loss_count)
 
 
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        parts = []
+
+        # --- Shared faction logic ---
+        if self.reach > 0:
+            parts.append(f"{self.reach} Reach")
+
+        # type “U” means skip (your template logic)
+        if self.type != "U":
+            parts.append(self.get_type_display())
+
+        parts.append(f"{self.fan_prefix()}Faction by {designers}")
+
+        # --- based_on logic ---
+        if self.based_on:
+            parts.append(f"based on {self.based_on.title}")
+
+        # --- extra text (lore / description) ---
+        lore = self.get_translated_field("lore", language)
+        description = self.get_translated_field("description", language)
+        extra = lore or description or ""
+
+        if extra:
+            parts.append(f'- {extra}')
+
+        return " ".join(parts)
+    
+    def get_meta_image_url(self, language=None):
+        # Clockwork & Faction share board_image / fallback to picture
+        board_url = self.get_translated_image_url("board_image", language)
+        card_url = self.get_translated_image_url("card_image", language)
+
+        return board_url or card_url or (self.picture.url if self.picture else None)
 
 class Hireling(Post):
     class TypeChoices(models.TextChoices):
@@ -1880,8 +1985,23 @@ class Hireling(Post):
         #     stable_ready = False
         # print(f'Stable Ready: {stable_ready}, Plays: {play_count}/{game_threshold}, Players: {unique_players}/{player_threshold}, Official Factions: {official_faction_count}/{faction_threshold}')
         # return (stable_ready, play_count, unique_players, official_faction_count, game_threshold, player_threshold, faction_threshold, official_map_count, map_threshold, official_deck_count, deck_threshold)
+    def get_meta_description(self, language=None):
+        designers = self.get_designers_list()
+        base = f"{self.get_type_display()} {self.fan_prefix()}Hireling by {designers}"
 
+        if self.based_on:
+            base += f" for {self.based_on.title} by {self.based_on.designer.name}"
 
+        lore = self.get_translated_field("lore", language)
+        description = self.get_translated_field("description", language)
+        extra = lore or description or ""
+
+        return f"{base} - {extra}" if extra else base
+
+    def get_meta_image_url(self, language=None):
+        return self.get_translated_image_url("board_image", language) or \
+               self.get_translated_image_url("card_image", language) or \
+               (self.picture.url if self.picture else None)
 
 PIECE_NAME_TRANSLATIONS = {
     'Warrior': {
