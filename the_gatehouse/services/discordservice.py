@@ -32,19 +32,16 @@ def get_discord_display_name(user):
         return None
     
 def get_discord_id(user):
-    try:
-        return SocialAccount.objects.get(user=user, provider='discord').uid
-    except SocialAccount.DoesNotExist:
-        return None
+    social_account = SocialAccount.objects.filter(user=user, provider='discord').first()
+    return str(social_account.uid) if social_account else None
 
 
 
 def update_discord_avatar(user, force=False):
-    try:
-        social_account = SocialAccount.objects.get(user=user, provider='discord')
-    except SocialAccount.DoesNotExist:
+    social_account = SocialAccount.objects.filter(user=user, provider='discord').first()
+    if not social_account:
         return None
-
+    
     profile = getattr(user, "profile", None)
     if not profile:
         return None

@@ -1261,7 +1261,7 @@ def component_games(request, slug):
     total_efforts = 0
     # On first load get faction and VB Stats
     page_number = request.GET.get('page')  # Get the page number from the request
-    print(page_number)
+    # print(page_number)
     if not page_number:
         
         if object.component == "Faction":
@@ -2178,7 +2178,7 @@ def filter_by_field_quantity(queryset, *, field_type, quantity=None, comparator=
     
     try:
         filter_lookup = {f'{field_type}__{comparator}': quantity}
-        print(filter_lookup)
+        # print(filter_lookup)
         queryset = queryset.filter(**filter_lookup)
     except FieldError:
         pass

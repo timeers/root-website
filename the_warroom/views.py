@@ -215,7 +215,7 @@ def game_list_view(request):
         template_name = 'the_warroom/games_home.html'
     
     t1 = time.perf_counter()
-    print(f"[TIMING] template names: {t1 - t0:.4f}s")
+    # print(f"[TIMING] template names: {t1 - t0:.4f}s")
     
     # Build queryset
     t0 = time.perf_counter()
@@ -237,14 +237,14 @@ def game_list_view(request):
     games = filterset.qs.order_by('-date_posted')
     
     t1 = time.perf_counter()
-    print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
+    # print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
     
     # Build context
     t10 = time.perf_counter()
     context = {}
     
     t0 = time.perf_counter()
-    print(f"[TIMING] context start: {t0 - t10:.4f}s")
+    # print(f"[TIMING] context start: {t0 - t10:.4f}s")
     
     # Theme
     theme = get_theme(request)
@@ -257,7 +257,7 @@ def game_list_view(request):
     context['background_pattern'] = background_pattern
     
     t1 = time.perf_counter()
-    print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
+    # print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
     
     # Pagination
     paginate_by = settings.PAGE_SIZE
@@ -270,16 +270,16 @@ def game_list_view(request):
         page_obj = paginator.page(paginator.num_pages)
     
     t12 = time.perf_counter()
-    print(f"[TIMING] context pagination: {t12 - t1:.4f}s")
+    # print(f"[TIMING] context pagination: {t12 - t1:.4f}s")
 
     games_count = paginator.count
     
     t2 = time.perf_counter()
-    print(f"[TIMING] context games count: {t2 - t12:.4f}s")
+    # print(f"[TIMING] context games count: {t2 - t12:.4f}s")
     t3 = time.perf_counter()
-    print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
+    # print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
     t4 = time.perf_counter()
-    print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
+    # print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
     # Leaderboard data
     context.update({
         'games': page_obj,
@@ -291,13 +291,13 @@ def game_list_view(request):
     })
     
     t5 = time.perf_counter()
-    print(f"[TIMING] context update: {t5 - t4:.4f}s")
+    # print(f"[TIMING] context update: {t5 - t4:.4f}s")
 
     response = render(request, template_name, context)
     t6 = time.perf_counter()
 
-    print(f"[TIMING] render: {t6 - t5:.4f}s")
-    print(f"[TIMING] total: {t6 - t0:.4f}s")
+    # print(f"[TIMING] render: {t6 - t5:.4f}s")
+    # print(f"[TIMING] total: {t6 - t0:.4f}s")
     
     return response
 
@@ -330,7 +330,7 @@ def leaderboard_view(request):
         template_name = 'the_warroom/leaderboard_home.html'
     
     t1 = time.perf_counter()
-    print(f"[TIMING] template names: {t1 - t0:.4f}s")
+    # print(f"[TIMING] template names: {t1 - t0:.4f}s")
     
     # Build queryset
     t0 = time.perf_counter()
@@ -352,14 +352,14 @@ def leaderboard_view(request):
     games = filterset.qs.order_by('-date_posted')
     games_count = games.count()
     t1 = time.perf_counter()
-    print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
+    # print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
     
     # Build context
     t10 = time.perf_counter()
     context = {}
     
     t0 = time.perf_counter()
-    print(f"[TIMING] context start: {t0 - t10:.4f}s")
+    # print(f"[TIMING] context start: {t0 - t10:.4f}s")
     
     # Theme
     theme = get_theme(request)
@@ -372,7 +372,7 @@ def leaderboard_view(request):
     context['background_pattern'] = background_pattern
     
     t1 = time.perf_counter()
-    print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
+    # print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
     
 
     
@@ -393,7 +393,7 @@ def leaderboard_view(request):
             leaderboard_threshold = 1
         
     t2 = time.perf_counter()
-    print(f"[TIMING] context games count: {t2 - t1:.4f}s")
+    # print(f"[TIMING] context games count: {t2 - t1:.4f}s")
     top_players = Profile.leaderboard(
         limit=leaderboard_places, 
         effort_qs=efforts, 
@@ -406,7 +406,7 @@ def leaderboard_view(request):
         game_threshold=leaderboard_threshold, 
         as_json=False)
     t3 = time.perf_counter()
-    print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
+    # print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
     top_factions = Faction.leaderboard(
         limit=leaderboard_places, 
         effort_qs=efforts, 
@@ -419,7 +419,7 @@ def leaderboard_view(request):
         game_threshold=leaderboard_threshold, 
         as_json=False)
     t4 = time.perf_counter()
-    print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
+    # print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
     # Leaderboard data
     context.update({
         'top_players': top_players,
@@ -438,13 +438,13 @@ def leaderboard_view(request):
     })
     
     t5 = time.perf_counter()
-    print(f"[TIMING] context update: {t5 - t4:.4f}s")
+    # print(f"[TIMING] context update: {t5 - t4:.4f}s")
 
     response = render(request, template_name, context)
     t6 = time.perf_counter()
 
-    print(f"[TIMING] render: {t6 - t5:.4f}s")
-    print(f"[TIMING] total: {t6 - t0:.4f}s")
+    # print(f"[TIMING] render: {t6 - t5:.4f}s")
+    # print(f"[TIMING] total: {t6 - t0:.4f}s")
     
     return response
 

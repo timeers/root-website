@@ -70,9 +70,12 @@ def user_logged_in_handler(request, user, **kwargs):
     current_group = profile.group
     in_ww, in_wr, in_fr = check_user_guilds(user)
     display_name = get_discord_display_name(user)
+    send_discord_message(f"Discord user {display_name} logging in",category='report')
 
     if not profile.discord_id:
+        send_discord_message(f"Discord user {display_name} does not have an id",category='report')
         discord_id = get_discord_id(user)
+        send_discord_message(f"Discord user {display_name} has id {discord_id}",category='report')
         if discord_id:
             if not Profile.objects.filter(discord_id=discord_id).exists():
                 profile.discord_id = discord_id
@@ -80,13 +83,13 @@ def user_logged_in_handler(request, user, **kwargs):
             else:
                 # Handle conflict
                 send_discord_message(f"Discord ID {discord_id} already exists for another profile",category='report')
-    
+    send_discord_message(f"Discord user {display_name} updating Avatar",category='report')
     update_discord_avatar(user)
-
+    send_discord_message(f"Discord user {display_name} updating Display Name",category='report')
     if display_name and profile.display_name != display_name:
         profile.display_name = display_name
         profile_updated = True
-
+    send_discord_message(f"Discord user {display_name} setting group",category='report')
     # If user is a member of WW but in group O (add to group P)
     if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr) or (current_group == 'O' and in_fr):
         user_posts = Post.objects.filter(designer=profile)

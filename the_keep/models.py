@@ -434,7 +434,6 @@ class Post(models.Model):
         for field in link_fields:
                 if getattr(self, field):  # Checks if the field value is not None or empty string
                     count += 1
-        print(count)
         
         return count
 
