@@ -72,9 +72,14 @@ def user_logged_in_handler(request, user, **kwargs):
     display_name = get_discord_display_name(user)
 
     if not profile.discord_id:
-        profile_updated = True
         discord_id = get_discord_id(user)
-        profile.discord_id = discord_id
+        if discord_id:
+            if not Profile.objects.filter(discord_id=discord_id).exists():
+                profile.discord_id = discord_id
+                profile_updated = True
+            else:
+                # Handle conflict
+                send_discord_message(f"Discord ID {discord_id} already exists for another profile",category='report')
     
     update_discord_avatar(user)
 
