@@ -142,7 +142,7 @@ SOCIALACCOUNT_PROVIDERS = {
         ],
 
         'AUTH_PARAMS': {
-            'prompt': 'consent'  # Optional
+            # 'prompt': 'consent'  # Optional
         }
     }
 }
@@ -239,9 +239,6 @@ ACCOUNT_EMAIL_REQUIRED = False
 SOCIALACCOUNT_QUERY_EMAIL = False  # This doesn't seem to do anything
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 
-
-# #Added this line to work on Users and Players
-# AUTH_USER_MODEL = "users.User"
 
 SOCIALACCOUNT_STORE_TOKENS = True # This on the other hand is important!
 
