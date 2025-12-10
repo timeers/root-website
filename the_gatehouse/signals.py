@@ -39,8 +39,6 @@ def manage_profile(sender, instance, created, **kwargs):
         # print(f'Profile created/linked: {profile.discord}')
         # logger.info(f'Profile created/linked: {profile.discord}')
         # send_discord_message(f'Profile created for {profile.discord}', category='user_updates')
-
-
     else:
         try:
             profile = instance.profile
@@ -56,19 +54,24 @@ def manage_profile(sender, instance, created, **kwargs):
 def user_logged_in_handler(request, user, **kwargs):
     new_user = False
     # logger.info(f'{user} logged in')
+    send_discord_message(f"{user} logged in",category='report')
     send_discord_message(f'{user} logged in')
 
     if not hasattr(user, 'profile'):
+        send_discord_message(f"{user} has no profile, creating",category='report')
         user.save()
         new_user = True
     
     if user.last_login is None:
+        send_discord_message(f"{user} first login",category='report')
         new_user = True
 
     profile = user.profile
     profile_updated = False
     current_group = profile.group
+    send_discord_message(f"Checking user guilds",category='report')
     in_ww, in_wr, in_fr = check_user_guilds(user)
+    send_discord_message(f"Getting display name",category='report')
     display_name = get_discord_display_name(user)
     send_discord_message(f"Discord user {display_name} logging in",category='report')
 
