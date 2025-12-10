@@ -19,17 +19,29 @@ with open('/etc/config.json') as config_file:
 
 def get_discord_display_name(user):
     try:
-        # Get the Discord social account
-        social_account = SocialAccount.objects.get(user=user, provider='discord')
-        # Extract the display name from the extra data
-        display_name = social_account.extra_data.get('global_name', '')
+        social = SocialAccount.objects.get(user=user, provider="discord")
+        data = social.extra_data or {}
 
-        # Remove all emojis
-        display_name = emoji.replace_emoji(display_name, '').strip()
+        # Prefer Discord global_name → username → fallback to Django username
+        display_name = (
+            data.get("global_name")
+            or data.get("username")
+            or data.get("user", {}).get("username")
+            or user.username   # fallback
+        )
+
+        # Emoji stripping (safe)
+        try:
+            display_name = emoji.replace_emoji(display_name, replace='').strip()
+        except Exception:
+            display_name = display_name.strip()
 
         return display_name
+
     except SocialAccount.DoesNotExist:
-        return None
+        # No Discord account → fallback to normal Django username
+        return user.username
+
     
 def get_discord_id(user):
     social_account = SocialAccount.objects.filter(user=user, provider='discord').first()
