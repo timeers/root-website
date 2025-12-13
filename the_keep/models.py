@@ -2756,6 +2756,12 @@ class FAQ(models.Model):
             self.language = get_default_language()        
         super().save(*args, **kwargs)
 
+    def clean(self):
+        super().clean()
+        if re.search(r'\n\s*\n+', self.answer):
+            raise ValidationError({
+                'answer': 'The answer cannot contain multiple page breaks in a row.'
+            })
 
 class FeaturedItem(models.Model):
     date = models.DateField(unique=True)

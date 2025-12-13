@@ -1660,7 +1660,6 @@ tr.clickable-row:hover {
   font-size: 0.95em;
   max-width: 100%;
   width: auto;
-  /* margin: auto 1em; */
 }
 
 .markdown-section th,

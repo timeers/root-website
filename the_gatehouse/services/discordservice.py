@@ -22,7 +22,7 @@ def get_discord_display_name(user):
         social = SocialAccount.objects.get(user=user, provider="discord")
         data = social.extra_data or {}
 
-        # Prefer Discord global_name → username → fallback to Django username
+        # Prefer Discord global_name then username then fallback to Django username
         display_name = (
             data.get("global_name")
             or data.get("username")
@@ -39,7 +39,7 @@ def get_discord_display_name(user):
         return display_name
 
     except SocialAccount.DoesNotExist:
-        # No Discord account → fallback to normal Django username
+        # No Discord account then fallback to normal Django username
         return user.username
 
     

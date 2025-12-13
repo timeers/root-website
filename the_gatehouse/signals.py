@@ -53,12 +53,9 @@ def manage_profile(sender, instance, created, **kwargs):
 @receiver(user_logged_in)
 def user_logged_in_handler(request, user, **kwargs):
     new_user = False
-    # logger.info(f'{user} logged in')
-    send_discord_message(f"{user} logged in",category='report')
     send_discord_message(f'{user} logged in')
 
     if not hasattr(user, 'profile'):
-        send_discord_message(f"{user} has no profile, creating",category='report')
         user.save()
         new_user = True
     
@@ -69,31 +66,27 @@ def user_logged_in_handler(request, user, **kwargs):
     profile = user.profile
     profile_updated = False
     current_group = profile.group
-    send_discord_message(f"Checking user guilds",category='report')
     in_ww, in_wr, in_fr = check_user_guilds(user)
-    send_discord_message(f"Getting display name",category='report')
     display_name = get_discord_display_name(user)
-    send_discord_message(f"Discord user {display_name} logging in",category='report')
 
     if not profile.discord_id:
-        send_discord_message(f"Discord user {display_name} does not have an id",category='report')
         discord_id = get_discord_id(user)
-        send_discord_message(f"Discord user {display_name} has id {discord_id}",category='report')
         if discord_id:
             if not Profile.objects.filter(discord_id=discord_id).exists():
                 profile.discord_id = discord_id
                 profile_updated = True
             else:
                 # Handle conflict
-                send_discord_message(f"Discord ID {discord_id} already exists for another profile",category='report')
-    send_discord_message(f"Discord user {display_name} updating Avatar",category='report')
-    update_discord_avatar(user)
-    send_discord_message(f"Discord user {display_name} updating Display Name",category='report')
+                send_discord_message(f"Discord ID {discord_id} already exists for another profile and cannot be assigned to {user}",category='report')
+    # Add discord Avatar if profile is using the default
+    update_discord_avatar(user, force=False)
+
+    # Set the display name
     if display_name and profile.display_name != display_name:
         profile.display_name = display_name
         profile_updated = True
-    send_discord_message(f"Discord user {display_name} setting group",category='report')
-    # If user is a member of WW but in group O (add to group P)
+
+    # If user is a member of a Root Discord but in group O (add to group P)
     if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr) or (current_group == 'O' and in_fr):
         user_posts = Post.objects.filter(designer=profile)
         if user_posts:
@@ -137,7 +130,7 @@ def user_logged_in_handler(request, user, **kwargs):
         # Add the user to the group
         user.groups.add(group)
         user.is_staff = True
-        send_discord_message(f'User {user} added to {group_name}')
+        send_discord_message(f'User {user} added to {group_name}', category='report')
         user.save()
 
     # If user is not in group A but is in the Admin group (remove from group)
@@ -147,7 +140,7 @@ def user_logged_in_handler(request, user, **kwargs):
         # Add the user to the group
         user.groups.remove(group)
         user.is_staff = False
-        send_discord_message(f'User {user} removed from {group_name}')
+        send_discord_message(f'User {user} removed from {group_name}', category='report')
         user.save()
         
 

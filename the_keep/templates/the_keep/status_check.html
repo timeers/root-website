@@ -38,10 +38,17 @@
             This {{ object_component }} has been abandoned by the designer and no further development is planned.
         {% endblocktrans %}
     {% elif object.status == '4' %}
-        {% blocktrans %}
-            This {{ object_component }} is not currently being worked on and is considered inactive.<br>
-            The designer, if they choose, can make this {{ object_component }} active again.
-        {% endblocktrans %}
+        {% if play_count == 0 %}
+            {% blocktrans %}
+                This {{ object_component }} is not currently being worked on and is considered inactive.<br>
+                If they choose, the designer can mark this {{ object_component }} as in "Development" again.
+            {% endblocktrans %}
+        {% else %}
+            {% blocktrans %}
+                This {{ object_component }} is not currently being worked on and is considered inactive.<br>
+                If they choose, the designer can mark this {{ object_component }} as in "Development" or "Testing" again.
+            {% endblocktrans %}
+        {% endif %}
     {% elif object.status == '3' %}
         {% blocktrans %}
             This {{ object_component }} is still in the design stage, potentially undergoing major changes before being considered stable.<br>

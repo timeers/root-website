@@ -74,6 +74,7 @@
             {% endif %}
         </div>
     </div>
+    
     <div>
         <div class='mt-1'>
             {% if object_animal %}
@@ -108,7 +109,14 @@
             <a class="mr-2" href="{% url 'player-detail' object.designer.slug %}">{{ object.designer.name }}</a>
 
         </div>
-        <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
+        <div class="d-flex align-items-center">
+            <small class="text-muted">{{ object.date_posted |date:"F j, Y" }}</small>
+            {% if object.version %}
+                
+                    <small class='ml-1 text-muted'>- Version {{ object.version }}</small>
+                
+            {% endif %}
+        </div>
     </div>
     <div>
                 {% if object.expansion %}
@@ -218,6 +226,8 @@
                         {{ object_animal }}
                         </a>
                     {% endif %}
+
+
                 </div>
             
         

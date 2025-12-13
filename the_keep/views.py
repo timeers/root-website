@@ -2650,6 +2650,8 @@ def status_check(request, slug):
         else:
             object_color = "#5f788a"
 
+    status_message = ''
+
     context = {
         'object': object,
         'object_color': object_color,
