@@ -2483,6 +2483,8 @@ def advanced_search(request, component_type='faction'):
     # Meta data
     if component == "Tweak":
         meta_title = "House Rule Search"
+    elif component_type == 'captain':
+        meta_title = "Captain Search"
     else:
         meta_title = f"{component} Search"
     filter_description = describe_filters(filters=filters)

@@ -336,8 +336,7 @@
                 {% endif %}
             </div>
         </form>
-        {% if object.id and object.status != '1' %}
-
+        {% if object.id %}
             {% if object.status == '2' %}
                 <div class="alert alert-success" role="alert">
                     On the {{ object.title }} status page you can monitor the progress you've made towards marking this {{ object.component }} "Stable" (Click on the button labeled "Testing" to see the stats). {{ object.component }}'s without any recorded games in the last six months will return to "Development".
