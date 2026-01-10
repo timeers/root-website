@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.10.1] - 2026-1-9 Update
+
+### New Features
+- TTS Export
+- Record Knave Captains in Games
+
+### Improvements
+
+### Bug Fixes
+
+### Known Issues
+- Unable to remove turns on Scorecard once saved
+- Games page slow to load
+
 ## [1.10.0] - 2026-1-9 Happy New Year!
 
 Users can now submit new Factions to the website! Submitted Factions will need to be reviewed by an admin before they are made public. Knave Captains - starting items and abilities can now be added to Vagabonds. Users can also add detailed card images for their Faction's cards.

@@ -38,7 +38,7 @@
 <td>
     {% if effort.faction %}
         <span class='root-title'>
-        <a href="{% url 'faction-detail' effort.faction.slug %}">
+        <a href="{{ effort.faction.get_absolute_url }}">
             <div class="parent mr-2 mb-1">
                 <!-- The first image -->
                 <img class="faction-icon image1" src="{{ effort.faction.small_icon.url }}" alt="Faction Icon">
