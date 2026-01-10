@@ -1,12 +1,12 @@
 from django.urls import path
 from the_keep.views import list_view
 from .views import (user_settings, player_page_view, 
-                    designer_component_view, post_bookmarks, game_bookmarks,
+                    designer_component_view, post_bookmarks, game_bookmarks, submitted_component_view,
                     player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error, 
-                    admin_dashboard, sync_discord_avatar, join_discord_server)
+                    admin_dashboard, sync_discord_avatar, join_discord_server, changelog_list_view)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -22,6 +22,7 @@ urlpatterns = [
     path('profile/<slug:slug>/creations/', list_view, name='player-creations'),
     path('profile/<slug:slug>/component-list/', designer_component_view, name='designer-components'),
     path('profile/<slug:slug>/artwork/', artist_component_view, name='artist-components'),
+    path('profile/<slug:slug>/submitted/', submitted_component_view, name='submitted-components'),
     # path('profile/<slug:slug>/games/', PlayerGameListView.as_view(), name='player-games'),
     path('profile/<slug:slug>/games/', player_game_list_view, name='player-games'),
     path('profile/<slug:slug>/post-bookmarks/', post_bookmarks, name='post-bookmarks'),
@@ -40,7 +41,7 @@ urlpatterns = [
     path('feedback/post/<slug:slug>/', post_feedback, name='post-feedback'),
     path('feedback/profile/<slug:slug>/', player_feedback, name='player-feedback'),
     path('feedback/game/<int:id>/', game_feedback, name='game-feedback'),
-    path('feedback/law/<slug:slug>/<str:lang_code>/', law_feedback, name='law-feedback'),
+    path('feedback/law/<slug:slug>/<str:language_code>/', law_feedback, name='law-feedback'),
     path('feedback/faq/', faq_feedback, name='faq-feedback'),
     path('feedback/faq/<slug:slug>/', faq_feedback, name='post-faq-feedback'),
     path('feedback/request-invite/', weird_root_invite, name='generic-weird-root-invite'),
@@ -51,6 +52,7 @@ urlpatterns = [
 
     path('join-discord-server/', join_discord_server, name='join-discord-server'),
 
+    path('updates/', changelog_list_view, name='changelog-list-view'),
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),
 ]

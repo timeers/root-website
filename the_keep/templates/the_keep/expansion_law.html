@@ -17,7 +17,7 @@
 
 <div class='mb-2 d-flex justify-content-between'>
 
-    <a href="{{ expansion.get_absolute_url }}?lang={{lang_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{{ expansion.get_absolute_url }}?lang={{language_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
         <div class='d-flex align-items-center mr-1'>
         <i class="bi bi-chevron-left"></i> 
         </div>
@@ -27,7 +27,7 @@
 
     </a>
 
-    <a href="{% url 'law-of-root' lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <a href="{% url 'law-of-root' language_code=language_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
         <div class='d-flex mx-auto'>
           View Law of Root
         </div>
@@ -56,7 +56,7 @@
                         {% if available_languages %}
                             {% for lang in available_languages %}
                               <li>
-                                <a class="dropdown-item" href="{% url 'expansion-law' expansion_slug=expansion.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                                <a class="dropdown-item" href="{% url 'expansion-law' expansion_slug=expansion.slug language_code=lang.code %}"><small>{{ lang.name }}</small></a>
                               </li>
                             {% endfor %}
                         {% endif %}
@@ -85,7 +85,7 @@
         <div class="d-flex justify-content-between align-items-center">
           <div id="group-{{ group.id }}" class='d-flex'>
        
-            <a href='{{ group.post.get_absolute_url }}{% if lang_code %}?lang={{ lang_code }}{% endif %}'>
+            <a href='{{ group.post.get_absolute_url }}{% if language_code %}?lang={{ language_code }}{% endif %}'>
 
             <h2 class='root-title'>{{ group.abbreviation }}. {{ prime_law.title }}
               {% if group.post %}
@@ -102,8 +102,8 @@
 
         </div>
         {% if prime_law.description %}
-          {{ prime_law.description|format_law_text:lang_code }}
-          {% comment %} {% format_law_text prime_law.description lang_code %} {% endcomment %}
+          {{ prime_law.description|format_law_text:language_code }}
+          {% comment %} {% format_law_text prime_law.description language_code %} {% endcomment %}
         {% endif %}
         {% if prime_law.reference_laws %}
           {% for reference in prime_law.reference_laws.all %}
@@ -129,8 +129,8 @@
                     {% include 'the_keep/partials/law_copy_button.html' %}
                   {% endwith %}
                 </div>
-                {{ law.description|format_law_text:lang_code }}
-                {% comment %} {% format_law_text law.description lang_code %} {% endcomment %}
+                {{ law.description|format_law_text:language_code }}
+                {% comment %} {% format_law_text law.description language_code %} {% endcomment %}
                 {% if law.reference_laws %}
                   {% for reference in law.reference_laws.all %}
                     {% include 'the_keep/partials/law_reference.html' %}
@@ -156,8 +156,8 @@
                         {% endwith %}
                       </div>
 
-                      {{ child.description|format_law_text:lang_code }}
-                      {% comment %} {% format_law_text child.description lang_code %} {% endcomment %}
+                      {{ child.description|format_law_text:language_code }}
+                      {% comment %} {% format_law_text child.description language_code %} {% endcomment %}
                       {% if child.reference_laws %}
                         {% for reference in child.reference_laws.all %}
                           {% include 'the_keep/partials/law_reference.html' %}
@@ -180,8 +180,8 @@
                                 {% endwith %}
                               </div>
 
-                              {{ grandchild.description|format_law_text:lang_code }}
-                              {% comment %} {% format_law_text grandchild.description lang_code %} {% endcomment %}
+                              {{ grandchild.description|format_law_text:language_code }}
+                              {% comment %} {% format_law_text grandchild.description language_code %} {% endcomment %}
                               {% if grandchild.reference_laws %}
                                 {% for reference in grandchild.reference_laws.all %}
                                   {% include 'the_keep/partials/law_reference.html' %}
@@ -204,8 +204,8 @@
                                         {% include 'the_keep/partials/law_copy_button.html' %}
                                       {% endwith %}  
                                     </div>
-                                    {{ great_grandchild.description|format_law_text:lang_code }}
-                                    {% comment %} {% format_law_text great_grandchild.description lang_code %} {% endcomment %}
+                                    {{ great_grandchild.description|format_law_text:language_code }}
+                                    {% comment %} {% format_law_text great_grandchild.description language_code %} {% endcomment %}
                                     {% if great_grandchild.reference_laws %}
                                       {% for reference in great_grandchild.reference_laws.all %}
                                         {% include 'the_keep/partials/law_reference.html' %}
@@ -502,7 +502,7 @@
   <div class='mb-3 d-flex justify-content-between'>
 
     {% if previous_group %}
-      <a href="{% url 'law-view' slug=previous_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+      <a href="{% url 'law-view' slug=previous_group.slug language_code=language_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
           <div class='d-flex align-items-center mr-1'>
           <i class="bi bi-chevron-left"></i> 
           </div>
@@ -519,7 +519,7 @@
 
 
     {% if next_group %}
-      <a href="{% url 'law-view' slug=next_group.slug lang_code=lang_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+      <a href="{% url 'law-view' slug=next_group.slug language_code=language_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
     
           <div class='d-flex mx-auto'>
             {{ next_name }} 

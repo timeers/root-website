@@ -68,7 +68,7 @@ ALLOWED_ATTRIBUTES = {
 
 # # This makes [[]] into SMALLCAPS () into italics and {{}} into images with links to faction laws
 @register.filter
-def format_law_text(value, lang_code='en'):
+def format_law_text(value, language_code='en'):
     if not value:
         return ""
 
@@ -88,7 +88,7 @@ def format_law_text(value, lang_code='en'):
         img_tag = f'<img src="{img_url}" alt="{keyword}" class="inline-icon">'
         if keyword in FACTION_SLUGS:
             slug = FACTION_SLUGS[keyword]
-            url = reverse('law-view', kwargs={'slug': slug, 'lang_code': lang_code})
+            url = reverse('law-view', kwargs={'slug': slug, 'language_code': language_code})
             return f'<a href="{url}">{img_tag}</a>'
         return img_tag
 

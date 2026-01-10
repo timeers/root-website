@@ -2,7 +2,7 @@
 
 {% load i18n %}
 
-{% block title %} - {{ player.discord }}{% endblock %}
+{% block title %}{{ player.discord }} | {% endblock %}
 
 {% block content %}
     <div class="d-flex justify-content-between align-items-top">
@@ -109,6 +109,11 @@
         {% if player.assets.count %}
         <li class="nav-item" role="presentation">
             <a class="nav-link" id="assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false">{% trans 'Resources' %} ({{ player.assets.count }})</a>
+        </li>
+        {% endif %}
+        {% if submissions %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="submissions-tab" data-bs-toggle="tab" href="#submissions" role="tab" aria-controls="submissions" aria-selected="false">{% trans 'Submissions' %}</a>
         </li>
         {% endif %}
     </ul>
@@ -228,7 +233,19 @@
         </div>
     </div>
         {% endif %}
-
+        {% if submissions %}
+        <!-- submissions -->
+        <div class="tab-pane fade" id="submissions" role="tabpanel" aria-labelledby="submissions-tab">
+            
+            
+                
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'submitted-components' player.slug %}" 
+            hx-swap="outerHTML"></div>
+                
+           
+        </div>
+        {% endif %}
 
     </div>
 </div>

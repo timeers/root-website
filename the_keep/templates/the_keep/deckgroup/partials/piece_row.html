@@ -1,0 +1,12 @@
+<tr{% if can_edit %} data-href="{% url "add-deckgroup" post_slug=post.slug language_code=language_code piece_id=piece.id %}" class="clickable-row"{% endif %}>
+    <td>
+        {% if piece.small_icon %}
+        <img class="lg-faction-icon" src="{{ piece.small_icon.url }}" alt="{{ piece.name }} Card Back">
+        {% else %}
+        None
+        {% endif %}
+    </td>  
+    <td>{{ piece.name }}</td>
+    {% comment %} <td>{{ piece.quantity }}</td> {% endcomment %}
+    <td>{% if can_edit %}{{ piece.quantity }}{% else %}0{% endif %}</td>
+</tr>

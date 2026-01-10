@@ -20,7 +20,7 @@
 {% if expansion %}
 <div class='mb-2 d-flex justify-content-between'>
 
-  <a href="{{ expansion.get_absolute_url }}?lang={{lang_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
+  <a href="{{ expansion.get_absolute_url }}?lang={{language_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
     <div class='d-flex align-items-center mr-1'>
       <i class="bi bi-chevron-left"></i> 
       </div>
@@ -53,9 +53,9 @@
                 {% for lang in available_languages %}
                   <li>
                     {% if expansion_slug %}
-                      <a class="dropdown-item" href="{% url 'expansion-faq' lang_code=lang.code expansion_slug=expansion_slug %}"><small>{{ lang.name }}</small></a>
+                      <a class="dropdown-item" href="{% url 'expansion-faq' language_code=lang.code expansion_slug=expansion_slug %}"><small>{{ lang.name }}</small></a>
                     {% else %}
-                      <a class="dropdown-item" href="{% url 'faq-home-lang' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                      <a class="dropdown-item" href="{% url 'faq-home-lang' language_code=lang.code %}"><small>{{ lang.name }}</small></a>
                     {% endif %}
                   </li>
                 {% endfor %}
@@ -74,7 +74,7 @@
 
 
 <form id="faq-search-form" 
-hx-get="{% if expansion_slug %}{% url 'expansion-faq' lang_code=lang_code expansion_slug=expansion_slug %}{% else %}{% url 'faq-home-lang' lang_code=lang_code %}{% endif %}" 
+hx-get="{% if expansion_slug %}{% url 'expansion-faq' language_code=language_code expansion_slug=expansion_slug %}{% else %}{% url 'faq-home-lang' language_code=language_code %}{% endif %}" 
 hx-target="#faq-results" 
 hx-swap="innerHTML"
 hx-trigger="submit, input delay:300ms" 

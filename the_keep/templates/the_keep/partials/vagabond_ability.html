@@ -1,21 +1,27 @@
-{% load i18n %}
-{% if object.component == 'Vagabond' %}
-{% load static %}
+{% load i18n static %}
+
 <div class="d-flex flex-wrap">
-<h2 class='root-title mx-auto'>{% trans 'Ability' %}</h2>
+<h3 class='root-title mx-auto'>{% trans 'Ability' %}</h2>
 </div>
 
-<div class="d-flex align-items-center gap-2 mb-3">
-    {% if object.ability_item != 'None' %}
-        <div class="d-flex align-items-center">
-            <img class="lg-faction-icon" src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}">
-            <i class="bi bi-arrow-right ms-2 mr-2"></i>
+<div class="d-flex align-items-center mb-3">
+
+    {% if component == 'Vagabond' %}
+        {% if object.ability_item != 'None' %}
+            <div class="d-flex align-items-center">
+                <img class="lg-faction-icon" src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}">
+                <i class="bi bi-arrow-right ms-2 mr-2"></i>
+            </div>
+        {% endif %}
+    
+        <div>
+            <div style="font-weight: bold; font-size: 1.5rem;">{{ object_ability }}</div>
+            <div>{{ object_ability_description }}</div>
+        </div>
+    {% else %}
+        <div>
+            <div>{{ object_ability_description }}</div>
         </div>
     {% endif %}
 
-    <div>
-        <div style="font-weight: bold; font-size: 1.5rem;">{{ object_ability }}</div>
-        <div>{{ object_ability_description }}</div>
-    </div>
 </div>
-{% endif %}

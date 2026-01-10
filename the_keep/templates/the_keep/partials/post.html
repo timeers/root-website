@@ -94,6 +94,15 @@
                     </div>
                 </div>
                     <i class="bi bi-dash-circle-fill text-secondary"></i>
+                {% elif object.status == '9' %}
+                <div class='hidden-status'>
+                    <div class='text-dark mr-2'>
+                        <small>
+                            {% trans 'Submitted' %}
+                        </small>
+                    </div>
+                </div>
+                    <i class="bi bi-hourglass-split text-dark"></i>
                 {% else %}
                 <div class='hidden-status'>
                     <div class='text-dark mr-2'>

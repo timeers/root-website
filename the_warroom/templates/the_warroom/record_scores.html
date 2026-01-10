@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
-{% block title %} - Record{% endblock %}
+{% load i18n static %}
+{% block title %}Record | {% endblock %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: start;">
     <legend>{% if object.id %}
@@ -103,7 +103,11 @@
             <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Total Points' %}</div>
             <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Points' %}</div>
             <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Total Score' %}</div>
-            <div class="turn-column dom-column hidden" id="id_dominance-column">{% trans 'Dom' %}</div>
+            <div class="turn-column dom-column hidden" id="id_dominance-column">
+                <img class="lg-faction-icon"  
+                    src="{% static 'images/tags/' %}Dominance_Tag.png" 
+                    alt="Dominance">
+            </div>
         </div>
 
         {% for form in formset %}

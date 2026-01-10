@@ -281,7 +281,7 @@ def send_discord_message(message, category=None):
 
 
 def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
-    # Check if DEBUG is False in the config (uncomment this if you want to use it)
+    # Check if DEBUG is False in the config (uncomment this to test it)
     if config["DEBUG_VALUE"] == "True":
         return  # Do nothing if DEBUG is True
     

@@ -1,0 +1,41 @@
+{% load i18n %}
+<form
+  hx-post="{% url 'add-card' deckgroup.id %}"
+  hx-target="this"
+  hx-swap="outerHTML"
+  enctype="multipart/form-data"
+  class="card p-3 mb-2">
+
+  {% csrf_token %}
+
+  <div class="row">
+    <div class="col-md-4">
+      {{ form.name.label_tag }}
+      {{ form.name }}
+    </div>
+
+    <div class="col-md-4">
+      {{ form.front_image.label_tag }}
+      {{ form.front_image }}
+    </div>
+
+    <div class="col-md-4">
+      {{ form.tags.label_tag }}
+      {{ form.tags }}
+    </div>
+  </div>
+
+  <div class="mt-2 d-flex gap-2">
+    <button type="submit" class="btn btn-success btn-sm">
+      {% trans "Save Card" %}
+    </button>
+
+    <button type="button"
+    class="btn btn-outline-secondary btn-sm"
+    onclick="this.closest('form').remove()">
+    {% trans "Cancel" %}
+    </button>
+
+  </div>
+
+</form>

@@ -23,9 +23,9 @@
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
 
     {% if title %}
-        <title>{{site_title}} - {{ title }}</title>
+        <title>{{title}} | {{ site_title }}</title>
     {% else %}
-        <title>{{site_title}}{% block title %}{% endblock %}</title>
+        <title>{% block title %}{% endblock %}{{site_title}}</title>
     {% endif %}
     <link rel="icon" href="{% static 'images/RDBFrogLogo.png' %}" type="image/png">
     <!-- Apple Bookmark Icon -->

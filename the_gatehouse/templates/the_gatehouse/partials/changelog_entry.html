@@ -1,0 +1,36 @@
+<div class="dashboard-widget card shadow-sm mb-3">
+  <div class="changelog-release mx-5 my-3">
+    <h2 class='root-title'>{{ release.version }}{% if release.title %} - {{ release.title }}{% endif %}</h2>
+    <p class="text-muted">{{ release.date|date:"F d, Y" }}</p>
+    
+    {% if release.description %}
+    <p>{{ release.description }}</p>
+    {% endif %}
+    
+    {% regroup release.entries.all by get_category_display as category_list %}
+    
+    {% for category in category_list %}
+    <div class="category-section mb-3">
+      <h4>
+        {% if category.grouper == "New Feature" %}<i class="bi bi-check-circle-fill"></i>{% endif %}
+        {% if category.grouper == "Improvement" %}<i class="bi bi-tools"></i>{% endif %}
+        {% if category.grouper == "Bug Fix" %}<i class="bi bi-bug-fill"></i>{% endif %}
+        {% if category.grouper == "Breaking Change" %}<i class="bi bi-exclamation-circle-fill"></i>{% endif %}
+        {% if category.grouper == "Known Issue" %}<i class="bi bi-question-circle-fill"></i>{% endif %}
+        
+        {% if category.grouper == "Bug Fix" %}
+            {{ category.grouper }}{{ category.list|length|pluralize:"es" }}
+        {% else %}
+            {{ category.grouper }}{{ category.list|length|pluralize }}
+        {% endif %}      
+        </h4>
+      <ul>
+        {% for entry in category.list %}
+        <li>{{ entry.description }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+

@@ -1,0 +1,716 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+
+{% block content %}
+
+<div class='mb-2 d-flex justify-content-between'>
+
+  <a href="{% url 'select-deckgroups' post_slug=post.slug language_code=language_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <div class='d-flex align-items-center mr-1'>
+      <i class="bi bi-chevron-left"></i> 
+      </div>
+      <div class='d-flex mx-auto'>
+        All Decks
+      </div>
+  </a>
+
+{% if deckgroup.id %}
+<a href='{{ deckgroup.get_absolute_url }}' class='btn btn-sm btn-primary'>Done</a>
+{% endif %}
+</div>
+
+
+  <div class="card p-3 mb-3">
+    <h2 class='root-title'>
+      {% if is_create %}
+        {{ post.title }} - {{piece.name}}
+      {% else %}
+        {{ post.title }} - {{deckgroup.name}}
+      {% endif %}
+    </h2>
+
+  </div>
+
+{% comment %} {% include "the_keep/deckgroup/partials/deck_details.html" %} {% endcomment %}
+
+<!-- ================= Deck Form ================= -->
+
+<form method="post" enctype="multipart/form-data" class="mb-4">
+  {% csrf_token %}
+
+  <div class="card p-3 mb-3">
+    <h5 class='root-title'>{% trans "Deck" %}</h5>
+
+    <div class="row">
+      <div class="col-md-6">
+        {{ form.name.label_tag }}
+        {{ form.name }}
+      </div>
+    </div>
+
+    <div class="mt-3">
+        {% comment %} <img src="{{ deckgroup.back_image.url }}" {% endcomment %}
+      {{ form.back_image.label_tag }}
+      {% if preview_image %}
+      <div class='mb-2'>
+        <img src="{{preview_image.url}}"
+              class="img-fluid rounded"
+              style="max-width: 100px; height: auto;">
+        <p class='text-muted small'>Upload a new image below, or this will be used</p>
+      </div>
+      {% elif deckgroup.back_image %}
+      <div class='mb-2'>
+
+        <img src="{{deckgroup.back_image.url}}"
+              class="img-fluid rounded"
+              style="max-width: 100px; height: auto; max-height: 200px; object-fit: contain;"
+              >
+      </div>
+      {% endif %}
+      {{ form.back_image }}
+      <div class="form-text">
+        {% if not deckgroup.back_image %}
+        <strong>Card back image required.</strong><br>
+        {% endif %}
+        This image is separate from the component image to support
+        language-specific card backs.<br>
+        If the artwork changes, please update <strong>both images</strong>.
+      </div>
+    </div>
+
+    <div class="mt-3" id="card-count-container">
+        <label>{% trans "Card Count" %}</label>
+        <p class="form-control-plaintext">
+        <strong id="actual-card-count">{% if deckgroup.id %}{{ deckgroup.card_count }}{% else %}{{stated_card_count}}{% endif %}</strong> {% trans "cards" %}
+        </p>
+    </div>
+
+
+    <button type="submit" class="btn btn-success mt-3">
+      {% if is_create %}
+        {% trans "Create Deck" %}
+      {% else %}
+        {% trans "Save Changes" %}
+      {% endif %}
+    </button>
+  </div>
+</form>
+
+<!-- ================= Cards Section ================= -->
+
+{% if not is_create %}
+  <div class="card p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class='root-title'>{% trans "Cards" %}</h5>
+
+    </div>
+
+    <div id="card-list" class="row">
+        {% for card in cards %}
+            {% include "the_keep/deckgroup/partials/card_row.html" %}
+        {% empty %}
+            <p class="text-muted ml-3">{% trans "No cards yet." %}</p>
+        {% endfor %}
+    </div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <button
+        class="btn btn-sm btn-primary"
+        id="add-card-btn"
+        data-deckgroup-id="{{ deckgroup.id }}">
+        + {% trans "Add Card" %}
+        </button>
+    </div>
+  </div>
+{% endif %}
+
+
+<!-- Delete Card Modal -->
+<div class="modal fade" id="deleteCardModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Confirm Delete</h5>
+        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-card-text"></p>
+        <img id="delete-card-image" src="" alt="" style="max-width:80%;">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-card">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Card Modal -->
+<div class="modal fade" id="editCardModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>Edit Card</h5>
+        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="edit-card-id">
+
+        <div class="mb-2">
+          <label>Name</label>
+          <input class="form-control" id="edit-card-name">
+        </div>
+
+        <div class="mb-2">
+        <label>Image</label>
+
+        <img
+            id="edit-card-image-preview"
+            src=""
+            class="img-fluid mb-2"
+            style="max-height: 200px; display: none;">
+
+        <input type="file" id="edit-card-image" class="form-control" accept="image/*">
+        </div>
+
+
+        <div class="mb-2">
+        <label>Tags</label><br>
+
+        {% for value, label in card_tags %}
+            <label class="me-2">
+            <input
+                type="checkbox"
+                class="edit-card-tag"
+                value="{{ value }}">
+            <img class="lg-faction-icon"  
+                src="{% static 'images/tags/' %}{{ label }}_Tag.png" 
+                alt="{{ label }} Tag">
+       
+            </label>
+        {% endfor %}
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="save-card-changes">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Card Modal -->
+<div class="modal fade" id="addCardModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>{% trans "Add Card" %}</h5>
+        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="mb-2">
+          <label>{% trans "Name" %}</label>
+          <input class="form-control" id="add-card-name">
+        </div>
+
+        <div class="mb-2">
+          <label>{% trans "Image" %} <span class="text-danger">*</span></label>
+          
+          <img
+            id="add-card-image-preview"
+            src=""
+            class="img-fluid mb-2"
+            style="max-height: 200px; display: none;">
+          
+          <input type="file" id="add-card-image" class="form-control" accept="image/*">
+          <div class="invalid-feedback">
+            Please select an image file.
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label>{% trans "Tags" %}</label><br>
+          {% for value, label in card_tags %}
+            <label class="me-2">
+              <input
+                type="checkbox"
+                class="add-card-tag"
+                value="{{ value }}">
+              {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+        <button class="btn btn-primary" id="save-new-card">{% trans "Add Card" %}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Edit Deck Modal -->
+<div class="modal fade" id="editDeckModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+
+
+    <form method="post" enctype="multipart/form-data" class="mb-4">
+      {% csrf_token %}
+
+
+      <div class="modal-header">
+        <h5>Edit Deck</h5>
+        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="edit-card-id">
+
+        <div class="mb-2">
+          <label>Name</label>
+          {{ form.name }}
+        </div>
+
+        <div class="mb-2">
+          <label>Image</label>
+
+          <img
+              id="edit-deck-image-preview"
+              src=""
+              class="img-fluid mb-2"
+              style="max-height: 200px; display: none;">
+
+          {{ form.back_image.label_tag }}
+          {{ form.back_image }}
+        </div>
+
+
+        <div class="mt-3 card-count-container">
+            <p class="form-control-plaintext">
+            <strong id="actual-card-count">{% if deckgroup.id %}{{ deckgroup.card_count }}{% else %}{{stated_card_count}}{% endif %}</strong> {% trans "cards" %}
+            </p>
+        </div>
+
+
+
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-success mt-3">
+          {% if is_create %}
+            {% trans "Create Deck" %}
+          {% else %}
+            {% trans "Save Changes" %}
+          {% endif %}
+        </button>
+      </div>
+
+
+    </form>
+
+    </div>
+  </div>
+</div>
+
+
+
+<!-- Sortable -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script> 
+<script>
+
+// Update count display
+{% if is_create %}
+let cardCount = 0;
+{% else %}
+let cardCount = {{ deckgroup.cards.count }};
+{% endif %}
+function updateCardCount() {
+const countDisplay = document.getElementById('actual-card-count');
+if (countDisplay) {
+    countDisplay.textContent = cardCount;
+}
+}
+
+{% if not is_create %}
+// Reorder cards
+  document.addEventListener("DOMContentLoaded", () => {
+    new Sortable(document.getElementById("card-list"), {
+      animation: 150,
+      onEnd: function(evt) {
+        let order = [...evt.to.children].map(el => el.id.replace("card-", ""));
+        fetch("{% url 'reorder-cards' deckgroup.id %}", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": "{{ csrf_token }}"
+          },
+          body: JSON.stringify({ order })
+        });
+      }
+    });
+  }); 
+
+
+
+// Open Delete Card Modal
+document.addEventListener("click", function(e) {
+    if (e.target.matches(".delete-card-btn")) {
+        const cardId = e.target.dataset.cardId;
+        const cardName = e.target.dataset.cardName;
+        const cardImage = e.target.dataset.cardImage;
+
+        // Populate modal
+        const modal = document.getElementById("deleteCardModal");
+        if (cardName){
+            document.querySelector("#delete-card-text").textContent = `Delete ${cardName}?`;
+        }else{
+            document.querySelector("#delete-card-text").textContent = `Delete card?`;
+        }
+        document.querySelector("#delete-card-image").src = cardImage;
+        modal.dataset.cardId = cardId;
+
+        // Show modal
+        new bootstrap.Modal(modal).show();
+    }
+});
+
+// Delete Card
+document.getElementById("confirm-delete-card").addEventListener("click", function() {
+    const modal = document.getElementById("deleteCardModal");
+    const cardId = modal.dataset.cardId;
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    fetch(`/cards/${cardId}/delete/`, {
+        method: "DELETE",
+        headers: {
+            "X-CSRFToken": csrfToken
+        }
+    }).then(res => {
+        if (res.ok) {
+            // Remove the card row
+            const row = document.getElementById(`card-${cardId}`);
+            if (row) row.remove();
+
+            // Decrement card count
+            cardCount--;
+            updateCardCount();
+            document.activeElement.blur();
+            // Hide modal
+            bootstrap.Modal.getInstance(modal).hide();
+        } else {
+            alert("Failed to delete card.");
+        }
+    });
+});
+
+// Open Edit Card Modal
+document.addEventListener("click", function (e) {
+  if (!e.target.matches(".edit-card-btn")) return;
+
+  const btn = e.target;
+  const cardId = btn.dataset.cardId;
+  const name = btn.dataset.cardName || "";
+  const imageUrl = btn.dataset.cardImage || "";
+  const tagsRaw = btn.dataset.cardTags || "[]";
+
+  let tags;
+  try {
+    tags = JSON.parse(tagsRaw);
+  } catch {
+    tags = [];
+  }
+
+  document.getElementById("edit-card-id").value = cardId;
+  document.getElementById("edit-card-name").value = name;
+  document.getElementById("edit-card-image").value = "";
+
+  const img = document.getElementById("edit-card-image-preview");
+  if (imageUrl) {
+    img.src = imageUrl;
+    img.style.display = "block";
+  } else {
+    img.src = "";
+    img.style.display = "none";
+  }
+
+  document.querySelectorAll(".edit-card-tag").forEach(cb => {
+    cb.checked = tags.includes(cb.value);
+  });
+
+  new bootstrap.Modal(document.getElementById("editCardModal")).show();
+});
+
+
+// Save Edit Card Changes
+document.getElementById("save-card-changes").addEventListener("click", function() {
+    const cardId = document.getElementById("edit-card-id").value;
+    const name = document.getElementById("edit-card-name").value;
+    const imageFile = document.getElementById("edit-card-image").files[0];
+    
+    const formData = new FormData();
+    formData.append("name", name);
+    
+    // Add image if selected
+    if (imageFile) {
+        formData.append("front_image", imageFile);
+    }
+    
+    // Collect selected tags
+    const tags = Array.from(document.querySelectorAll(".edit-card-tag:checked"))
+        .map(cb => cb.value);
+    formData.append("tags", JSON.stringify(tags));
+
+    fetch(`/cards/${cardId}/edit/`, {
+        method: "POST",
+        headers: {
+            "X-CSRFToken": document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: formData
+    })
+    .then(res => res.text())
+    .then(html => {
+        // Replace the entire card row with the updated HTML
+        const oldRow = document.getElementById(`card-${cardId}`);
+        if (oldRow) {
+            oldRow.outerHTML = html;
+        }
+        document.activeElement.blur();
+        // Hide modal
+        bootstrap.Modal.getInstance(document.getElementById("editCardModal")).hide();
+    })
+    .catch(err => {
+        console.error("Error updating card:", err);
+        alert("Failed to update card.");
+    });
+});
+
+// Open Add Card Modal (clear validation state)
+document.getElementById("add-card-btn").addEventListener("click", function() {
+  // Clear the form
+  document.getElementById("add-card-name").value = "";
+  document.getElementById("add-card-image").value = "";
+  document.getElementById("add-card-image-preview").src = "";
+  document.getElementById("add-card-image-preview").style.display = "none";
+  
+  // Clear validation state
+  document.getElementById("add-card-image").classList.remove("is-invalid");
+  
+  document.querySelectorAll(".add-card-tag").forEach(cb => {
+    cb.checked = false;
+  });
+  
+  new bootstrap.Modal(document.getElementById("addCardModal")).show();
+});
+
+// Save New Card (validation before submit)
+document.getElementById("save-new-card").addEventListener("click", function() {
+  const imageFile = document.getElementById("add-card-image").files[0];
+  const imageInput = document.getElementById("add-card-image");
+  
+  // Clear previous validation
+  imageInput.classList.remove("is-invalid");
+  
+  // Validate image is selected
+  if (!imageFile) {
+    imageInput.classList.add("is-invalid");
+    // Focus the input to draw attention
+    imageInput.focus();
+    return;
+  }
+  
+  const deckgroupId = document.getElementById("add-card-btn").dataset.deckgroupId;
+  const name = document.getElementById("add-card-name").value;
+  
+  const formData = new FormData();
+  formData.append("name", name);
+  formData.append("front_image", imageFile);
+  
+  const tags = Array.from(document.querySelectorAll(".add-card-tag:checked"))
+    .map(cb => cb.value);
+  formData.append("tags", JSON.stringify(tags));
+
+  fetch(`/decks/${deckgroupId}/add-card/`, {
+    method: "POST",
+    headers: {
+      "X-CSRFToken": document.querySelector('[name=csrfmiddlewaretoken]').value
+    },
+    body: formData
+  })
+  .then(res => {
+    if (!res.ok) {
+      throw new Error('Failed to add card');
+    }
+    return res.text();
+  })
+  .then(html => {
+    const noCardsMsg = document.querySelector("#card-list .text-muted");
+    if (noCardsMsg) {
+      noCardsMsg.remove();
+    }
+    
+    document.getElementById("card-list").insertAdjacentHTML('beforeend', html);
+    
+    cardCount++;
+    
+    const cardCountContainer = document.getElementById('card-count-container');
+    const statedCardInput = cardCountContainer.querySelector('[id*="stated_card_count"]');
+    
+    if (statedCardInput) {
+      cardCountContainer.innerHTML = `
+        <label>Card Count</label>
+        <p class="form-control-plaintext">
+          <strong id="actual-card-count">${cardCount}</strong> cards
+        </p>
+      `;
+    } else {
+      updateCardCount();
+    }
+    
+    document.activeElement.blur();
+    bootstrap.Modal.getInstance(document.getElementById("addCardModal")).hide();
+  })
+  .catch(err => {
+    console.error("Error adding card:", err);
+    alert("Failed to add card. Please try again.");
+  });
+});
+
+// Remove invalid class when file is selected
+document.getElementById("add-card-image").addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  const preview = document.getElementById("add-card-image-preview");
+  
+  // Remove validation error when file is selected
+  this.classList.remove("is-invalid");
+  
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      preview.src = e.target.result;
+      preview.style.display = "block";
+    };
+    reader.readAsDataURL(file);
+  } else {
+    preview.src = "";
+    preview.style.display = "none";
+  }
+});
+
+
+// Preview image for Add Card Modal
+document.getElementById("add-card-image").addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  const preview = document.getElementById("add-card-image-preview");
+  
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      preview.src = e.target.result;
+      preview.style.display = "block";
+    };
+    reader.readAsDataURL(file);
+  } else {
+    preview.src = "";
+    preview.style.display = "none";
+  }
+});
+
+// Preview image for Edit Card Modal
+document.getElementById("edit-card-image").addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  const preview = document.getElementById("edit-card-image-preview");
+  
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      preview.src = e.target.result;
+      preview.style.display = "block";
+    };
+    reader.readAsDataURL(file);
+  } else {
+    // If no file selected, revert to original image if it exists
+    const editBtn = document.querySelector(".edit-card-btn[data-card-id='" + document.getElementById("edit-card-id").value + "']");
+    const originalImage = editBtn ? editBtn.dataset.cardImage : "";
+    
+    if (originalImage) {
+      preview.src = originalImage;
+      preview.style.display = "block";
+    } else {
+      preview.src = "";
+      preview.style.display = "none";
+    }
+  }
+});
+
+
+// Unfocus modals on cancel - loop through all modals
+const modalIds = ['editCardModal', 'addCardModal', 'deleteCardModal', 'editDeckModal'];
+
+modalIds.forEach(modalId => {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.addEventListener('hide.bs.modal', function (e) {
+      document.activeElement.blur();
+    });
+  }
+});
+{% endif %}
+
+{% comment %} 
+document.addEventListener("DOMContentLoaded", function () {
+    const editBtn = document.getElementById("edit-deckgroup-btn");
+    const deckModal = document.getElementById("editDeckModal");
+    const preview = document.getElementById("edit-deck-image-preview");
+
+    if (!editBtn || !deckModal || !preview ) return;
+
+    // Open modal and set initial image
+    editBtn.addEventListener("click", function () {
+        const deckImage = this.dataset.backImage || "";
+        const fileInput = modal.querySelector('input[type="file"][name*="back_image"]')
+        if (deckImage) {
+            preview.src = deckImage;
+            preview.style.display = "block";
+        } else {
+            preview.src = "";
+            preview.style.display = "none";
+        }
+    
+
+      if (fileInput) {
+        fileInput.value = "";
+        
+        // Update preview when selecting a new file
+        fileInput.addEventListener("change", function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    preview.src = e.target.result;
+                    preview.style.display = "block";
+                };
+                reader.readAsDataURL(file);
+            } else {
+                // Revert to original image if no file selected
+                const originalImageBtn = document.querySelector(`.edit-deck-btn[data-deck-id='${deckId}']`);
+                const originalImage = originalImageBtn ? originalImageBtn.dataset.backImage : "";
+                if (originalImage) {
+                    preview.src = originalImage;
+                    preview.style.display = "block";
+                } else {
+                    preview.src = "";
+                    preview.style.display = "none";
+                }
+            }
+        });
+      }
+  });
+}); {% endcomment %}
+
+</script>
+
+
+{% endblock %}

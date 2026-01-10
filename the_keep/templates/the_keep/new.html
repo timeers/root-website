@@ -6,7 +6,11 @@
 {% block content %}
 <div class='root-title'>
     <h1 class='d-flex justify-content-center'>
+        {% if admin_view %}
         {% trans 'Post a New' %}
+        {% else %}
+        {% trans 'Request a New' %}
+        {% endif %}
     </h1>
     <a href="{% url 'faction-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
@@ -48,10 +52,12 @@
             {% trans 'House Rule' %}
         </article>
     </a>
+    {% if admin_view %}
     <a href="{% url 'expansion-create' %}">
         <article class="content-section post-card d-flex justify-content-center">
             {% trans 'Expansion' %}
         </article>
     </a>
+    {% endif %}
 </div>
 {% endblock %}

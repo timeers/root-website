@@ -37,6 +37,10 @@
         {% blocktrans %}
             This {{ object_component }} has been abandoned by the designer and no further development is planned.
         {% endblocktrans %}
+    {% elif object.status == '9' %}
+        {% blocktrans %}
+            This {{ object_component }} has been submitted but not yet approved.
+        {% endblocktrans %}
     {% elif object.status == '4' %}
         {% if play_count == 0 %}
             {% blocktrans %}

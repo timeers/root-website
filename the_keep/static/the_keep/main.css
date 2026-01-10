@@ -2103,3 +2103,20 @@ tr.clickable-row:hover {
 .btn-discord:hover {
     background-color: #4752c4;
 }
+
+.invalid-feedback {
+    display: block;
+}
+
+
+
+/* Subtle hover effect for cards*/
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}

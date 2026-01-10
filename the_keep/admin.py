@@ -13,7 +13,9 @@ from the_gatehouse.models import Profile
 from the_warroom.admin import CsvImportForm
 
 from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
-                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law, RulesFile)
+                     PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law, RulesFile,
+                     Card, CardDeck, DeckGroup,
+                     )
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
 
@@ -25,9 +27,28 @@ class PostTranslationInline(admin.StackedInline):
     model = PostTranslation
     extra = 0
 
+class CardInline(admin.StackedInline):
+    model = Card
+    extra = 0
+
 class FAQAdmin(admin.ModelAdmin):
     list_display = ('post__title', 'question', 'language')
     search_fields = ('post__title', 'question')
+
+class CardAdmin(admin.ModelAdmin):
+    list_display = ('name', 'group__name', 'group__post__title')
+    search_fields = ('group__post__title', 'group__name', 'name')
+
+class CardDeckAdmin(admin.ModelAdmin):
+    list_display = ('group__post__title','group__name', 'deck_index')
+    search_fields = ('group__post__title', 'group__name')
+
+class DeckGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'post__title')
+    search_fields = ('post__title', 'name')
+    inlines = [CardInline]
+
+
 
 class LawGroupAdmin(admin.ModelAdmin):
     list_display = ('abbreviation', 'title', 'type', 'public')
@@ -1157,3 +1178,6 @@ admin.site.register(FAQ, FAQAdmin)
 admin.site.register(LawGroup, LawGroupAdmin)
 admin.site.register(Law, LawAdmin)
 admin.site.register(RulesFile, RulesFileAdmin)
+admin.site.register(Card, CardAdmin)
+admin.site.register(CardDeck, CardDeckAdmin)
+admin.site.register(DeckGroup, DeckGroupAdmin)

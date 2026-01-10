@@ -52,8 +52,8 @@ class ScoreCardDetailView(APIView):
 
 class GameScorecardView(APIView):
     def get(self, request, pk, format=None):
-        current_lang_code = get_language()
-        translations = PostTranslation.objects.filter(language__code=current_lang_code)
+        current_language_code = get_language()
+        translations = PostTranslation.objects.filter(language__code=current_language_code)
         
         # Optimize: prefetch turns along with faction data
         scorecards = ScoreCard.objects.filter(
@@ -311,8 +311,8 @@ class PlayerScorecardView(APIView):
                 final=True
             )
 
-        current_lang_code = get_language()
-        translations = PostTranslation.objects.filter(language__code=current_lang_code)
+        current_language_code = get_language()
+        translations = PostTranslation.objects.filter(language__code=current_language_code)
         
         # Optimize: select_related for faction, prefetch translations
         scorecards = scorecards.select_related('faction').prefetch_related(

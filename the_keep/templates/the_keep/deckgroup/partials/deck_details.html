@@ -1,0 +1,44 @@
+{% load custom_filters static i18n %}
+<div class="col-md-4 col-lg-3 mb-3" id="deckgroup-{{ deckgroup.id }}">
+    <div class="card p-3 text-center h-100">
+    
+    <!-- Deck Image in Middle (larger) -->
+    {% if deckgroup.back_image %}
+    <div class="mb-2 flex-grow-1 d-flex align-items-center justify-content-center">
+        <img src="{{ deckgroup.back_image.url }}" 
+            class="img-fluid rounded" 
+            style="max-width: 100%; height: auto; max-height: 200px; object-fit: contain;"
+            alt="{{ deckgroup.name|default:'Deck' }}">
+    </div>
+    {% endif %}
+    
+
+    <!-- Deck Name -->
+    <h6 class="h5 root-title card-title mb-2" style="min-height: 1.5rem;">
+        {% if deckgroup.name %}{{ deckgroup.name }}{% else %}&nbsp;{% endif %}
+    </h6>
+
+    <!-- Card Count -->
+    <div id="card-count-container">
+        <p class="form-control-plaintext">
+        <strong id="actual-card-count">{{ deckgroup.card_count }}</strong> {% trans "cards" %}
+        </p>
+    </div>
+
+    
+    <!-- Edit/Delete Buttons (if in edit mode) -->
+    {% if is_edit %}
+    <div class="d-flex justify-content-center mt-auto">
+        <button type="button"
+                id='edit-deckgroup-btn'
+                class="btn btn-secondary btn-sm mr-2">
+        Edit
+        </button>
+        <button type="button"
+                class="btn btn-danger btn-sm delete-deckgroup-btn">
+        Delete
+        </button>
+    </div>
+    {% endif %}
+    </div>
+</div>

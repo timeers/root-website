@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load crispy_forms_tags i18n %}
-{% block title %} - New Expansion{% endblock %}
+{% block title %}New Expansion | {% endblock %}
 {% block content %}
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">
@@ -29,6 +29,12 @@
             changeYear: true,         // Allow year change via dropdown
             yearRange: "c-100:c+10"  // Year range (from 100 years ago to 10 years in the future)
         });
+
+        if ($('#id_designer').length) {
+            $('#id_designer').select2();
+        }
+        $('#id_co_designers').select2();
     });
+
 </script>
 {% endblock %}

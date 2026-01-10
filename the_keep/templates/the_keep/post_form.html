@@ -2,11 +2,7 @@
 {% load crispy_forms_tags i18n %}
 
 {% block title %}
-{% if not object.id %}
-     - {% trans 'New' %}
-{% else %}
-     - {% trans 'Edit' %}
-{% endif %}
+{% if not object.id %}{% trans 'New' %}{% else %}{% trans 'Edit' %}{% endif %} | 
 {% endblock %}
 {% block content %}
     <div class="content-section">
@@ -66,9 +62,6 @@
                 {% if form.official %}
                 <div class='soft-shadow'>
                     <span class="h5 root-title">Admin Options</span>
-                    {% if form.designer %}
-                        {{ form.designer|as_crispy_field }}
-                    {% endif %}
                     {% if form.official %}
                         {{ form.official|as_crispy_field }}
                     {% endif %}
@@ -199,6 +192,40 @@
                                 {{ form.starting_crossbow|as_crispy_field }}
                             {% endif %}
                     </div>
+
+                    <div class='soft-shadow'>
+                        <span class="h5 root-title">Knave Captain</span>
+                            {% if form.captain %}
+                                {{ form.captain|as_crispy_field }}
+                            {% endif %}
+                            <div class='collapse' id='knave-captain-form'>
+                            {% if form.captain_ability %}
+                                {{ form.captain_ability|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_coins %}
+                                {{ form.captain_coins|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_boots %}
+                                {{ form.captain_boots|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_bag %}
+                                {{ form.captain_bag|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_tea %}
+                                {{ form.captain_tea|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_sword %}
+                                {{ form.captain_sword|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_hammer %}
+                                {{ form.captain_hammer|as_crispy_field }}
+                            {% endif %}
+                            {% if form.captain_crossbow %}
+                                {{ form.captain_crossbow|as_crispy_field }}
+                            {% endif %}
+                            </div>
+                    </div>
+
                 {% endif %}
                 {% comment %} End Vagabond Fields {% endcomment %}
 
@@ -232,14 +259,19 @@
                         {{ form.small_icon|as_crispy_field }}
                     </div>
                 {% endif %}
-                {% if form.board_image %}
-                    <div class='soft-shadow'>
-                        {{ form.board_image|as_crispy_field }}
-                    </div>
-                {% endif %}
                 {% if form.card_image %}
                     <div class='soft-shadow'>
                         {{ form.card_image|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.card_2_image %}
+                    <div class="soft-shadow{% if form.captain %} collapse{% endif %}{% if form.card_2_image.errors or form.captain.value %} show{% endif %}" id='second-card-image'>
+                        {{ form.card_2_image|as_crispy_field }}
+                    </div>
+                {% endif %}
+                {% if form.board_image %}
+                    <div class='soft-shadow'>
+                        {{ form.board_image|as_crispy_field }}
                     </div>
                 {% endif %}
                 {% if form.board_2_image %}
@@ -247,11 +279,7 @@
                         {{ form.board_2_image|as_crispy_field }}
                     </div>
                 {% endif %}
-                {% if form.card_2_image %}
-                    <div class='soft-shadow'>
-                        {{ form.card_2_image|as_crispy_field }}
-                    </div>
-                {% endif %}
+
                 {% comment %} End image fields {% endcomment %}
 
 
@@ -277,14 +305,21 @@
                     {{ form.rootjam_link|as_crispy_field}}
                 </div>
                 {% comment %} End Links {% endcomment %}
-
+            
                 <div class='soft-shadow'>
-                {% if form.language %}
-                    {{ form.language|as_crispy_field }}
-                {% endif %}
-
-                {{ form.co_designers|as_crispy_field }}
+                    <span class="h5 root-title">Designers</span>
+                    {% if form.designer %}
+                        {{ form.designer|as_crispy_field }}
+                    {% endif %}
+                    {{ form.co_designers|as_crispy_field }}
+                    {{ form.co_designers_can_edit|as_crispy_field }}
                 </div>
+            
+                {% if form.language %}
+                <div class='soft-shadow'>
+                    {{ form.language|as_crispy_field }}
+                </div>
+                {% endif %}
                 {% comment %} END END
                 {{ form | crispy }} {% endcomment %}
             </fieldset>
@@ -301,6 +336,26 @@
                 {% endif %}
             </div>
         </form>
+        {% if object.id and object.status != '1' %}
+
+            {% if object.status == '2' %}
+                <div class="alert alert-success" role="alert">
+                    On the {{ object.title }} status page you can monitor the progress you've made towards marking this {{ object.component }} "Stable" (Click on the button labeled "Testing" to see the stats). {{ object.component }}'s without any recorded games in the last six months will return to "Development".
+                </div>
+            {% elif object.status == '3' %}
+                <div class="alert alert-info" role="alert">
+                    Record games with {{ object.title }} to move this {{ object.component }} into the "Testing" group. {{ object.component }}'s without any updates or recorded games in the last six months will return to "Inactive".
+                </div>
+            {% elif object.status == '4' %}
+                <div class="alert alert-warning" role="alert">
+                    If you have made any updates to {{ object.title }} be sure to change the status from "Inactive" to "Development". {{ object.component }}'s without any updates or recorded games in the last six months will return to "Inactive".
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="alert alert-warning" role="alert">
+                This {% if form.form_type == 'Tweak' %}{% trans 'House Rule' %}{% else %}{% trans form.form_type %}{% endif %} will be submitted for review. If it is approved it will be made public and the selected designers will be allowed to make changes. If you are not the designer you will not be able to make any changes to the {% if form.form_type == 'Tweak' %}{% trans 'House Rule' %}{% else %}{% trans form.form_type %}{% endif %} after submission.
+            </div>
+        {% endif %}
     </div>
 {% endblock content %}
 
@@ -342,6 +397,45 @@
             // Check on change
             $('#id_expansion').on('change', updateRootjamVisibility);
         });
-    </script>
+
+    $(document).ready(function() {
+        // Grab elements
+        const $captain = $('#id_captain');
+        const $knaveForm = $('#knave-captain-form');
+        const $secondImageForm = $('#second-card-image');
+
+        // Safety check: only proceed if the captain field exists
+        if (!$captain.length) return;
+
+        // Function to toggle forms based on checkbox state
+        function toggleForms() {
+            const isChecked = $captain.prop('checked');
+
+            if ($knaveForm.length) {
+                if (isChecked) {
+                    $knaveForm.collapse('show');
+                } else {
+                    $knaveForm.collapse('hide');
+                }
+            }
+
+            if ($secondImageForm.length) {
+                if (isChecked) {
+                    $secondImageForm.collapse('show');
+                } else {
+                    $secondImageForm.collapse('hide');
+                }
+            }
+        }
+
+        // Initialize visibility on page load
+        toggleForms();
+
+        // Bind change event to toggle dynamically
+        $captain.on('change', toggleForms);
+    });
+
+</script>
+
 
 {% endblock scripts %}

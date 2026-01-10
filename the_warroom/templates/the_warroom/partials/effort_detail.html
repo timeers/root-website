@@ -9,13 +9,28 @@
 
     {% else %}
         {% if effort.faction.type == "C" %}
-        {% trans 'Clockwork' %}
+            {% trans 'Clockwork' %}
         {% else %}
-            {% if effort.seat %}
-                {% trans 'Player' %} {{ effort.seat }}
-            {% else %}
-                ---
-            {% endif %}
+
+                {% if can_edit %}
+                    <button type="button" 
+                            class="btn btn-success btn-sm add-player-to-effort"
+                            data-effort-id="{{ effort.id }}"
+                            data-game-id="{{ game.id }}">
+                        +
+                        {% if effort.seat %}
+                            {% trans 'Player' %} {{ effort.seat }}
+                        {% else %}
+                            ---
+                        {% endif %}
+                    </button>
+                {% else %}
+                    {% if effort.seat %}
+                        {% trans 'Player' %} {{ effort.seat }}
+                    {% else %}
+                        ---
+                    {% endif %}
+                {% endif %}
         {% endif %}
     {% endif %}
 </td>

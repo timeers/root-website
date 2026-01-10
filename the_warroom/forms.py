@@ -308,7 +308,7 @@ class GameCreateForm(forms.ModelForm):
                 cleaned_data['solo'] = False
             
             # One player playing multiple hands means Playtest
-            if test_match:
+            if test_match or human_count == 0:
                 cleaned_data['test_match'] = True
             else:
                 cleaned_data['test_match'] = False

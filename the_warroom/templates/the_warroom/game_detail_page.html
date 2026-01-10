@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load static i18n %}
-{% block title %} - Game{% endblock %}
+{% block title %}Game | {% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
@@ -55,10 +55,6 @@
 
         {% if game.map.board_image %}
             <div>
-                {% comment %} <img class="rounded-corner-img responsive-img" src="{{ game.map.board_image.url }}"> {% endcomment %}
-        
-
-
                 <picture>
                     {% if game.map.small_board_image %}
                         <source media="(max-width: 500px)" srcset="{{ game.map.small_board_image.url }}">
@@ -89,26 +85,9 @@
                 </div>
             </div>
         {% endif %}
-
-
-        {% comment %} 
-        {% if user.is_authenticated %}
-            {% if user.profile in participants or user.profile == game.recorder %}
-                {% include 'the_tavern/game_comment_form.html' %}
-            {% endif %}
-        {% endif %}
-        {% if user.profile.player %}
-            <h3>Notes</h3>
-            <span id="commentscount">({{ game.comments.count }})</span>
-            <div id="game-notes">
-            {% for comment in game.comments.all %}
-                {% include 'the_tavern/comment.html' %}
-            {% endfor %}
-            </div>
-        {% endif %} {% endcomment %}
         
         {% if game.notes %}
-            <div class='mb-1'>
+            <div class='mb-1' style="white-space: pre-line;">
                 {% comment %} <h4>Notes:</h4> {% endcomment %}
                 {{ game.notes }}
             </div>
@@ -204,6 +183,53 @@
 
 {% endif %}
 
+{% if can_edit %}
+
+<!-- Add Player to Effort Modal -->
+<div class="modal fade" id="addPlayerToEffortModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class='root-title'>{% trans "Add Player" %}</h5>
+        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+      </div>
+      
+      <form id="add-player-to-effort-form">
+        {% csrf_token %}
+        <input type="hidden" id="effort-id-input" name="effort_id">
+        
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="effort-player-select">{% trans "Select Player" %}</label>
+            <select class="form-control" id="effort-player-select" name="player_id">
+              <option value="">{% trans "Search for a player..." %}</option>
+              {% for player in all_players %}
+                <option value="{{ player.id }}">{{ player.discord }}</option>
+              {% endfor %}
+            </select>
+            <small class="form-text text-muted">
+              {% trans "Adding a player to a submitted game cannot be undone." %}
+            </small>
+          </div>
+          
+          <div id="effort-player-errors"></div>
+        </div>
+        
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            {% trans "Cancel" %}
+          </button>
+          <button type="submit" class="btn btn-primary">
+            {% trans "Save Player" %}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% include 'the_warroom/partials/register_player_modal.html' %}
+{% endif %}
 
 {% endblock content %}
 
@@ -322,6 +348,335 @@
             }
             return color;
         }
+
+{% if can_edit %}
+
+
+// Open Add Player to Effort modal
+$(document).on('click', '.add-player-to-effort', function() {
+  const effortId = $(this).data('effort-id');
+  const gameId = $(this).data('game-id');
+  
+  // Store effort ID in hidden input
+  $('#effort-id-input').val(effortId);
+  
+  // Clear previous selection and errors
+  $('#effort-player-select').val('').trigger('change');
+  $('#effort-player-errors').html('');
+  
+  // Open modal
+  new bootstrap.Modal(document.getElementById('addPlayerToEffortModal')).show();
+});
+
+// Initialize Select2 on the effort player select
+$(document).ready(function() {
+  $('#effort-player-select').select2({
+    placeholder: "Search for a player...",
+    width: '100%',
+    allowClear: true,
+    dropdownParent: $('#addPlayerToEffortModal'),
+    language: {
+      noResults: function(params) {
+        return "No player found";
+      }
+    }
+  });
+  
+  // Add register button listener
+  addRegisterButtonListenerForEffort($('#effort-player-select'));
+});
+
+// Special register button listener for effort modal
+function addRegisterButtonListenerForEffort(selectElement) {
+  selectElement.on('select2:open', function(e) {
+    const select2 = selectElement.data('select2');
+    const searchField = select2.$dropdown.find('.select2-search__field');
+    
+    searchField.on('input', function() {
+      const searchTerm = $(this).val();
+      
+      setTimeout(() => {
+        $('.register-player-btn-container').remove();
+        
+        if (searchTerm.length > 0) {
+          const results = select2.$results.find('.select2-results__option:not(.select2-results__message)');
+          let hasExactMatch = false;
+          
+          results.each(function() {
+            const resultText = $(this).text().trim().toLowerCase();
+            if (resultText === searchTerm.toLowerCase()) {
+              hasExactMatch = true;
+              return false;
+            }
+          });
+          
+          if (!hasExactMatch) {
+            const registerBtn = $(`
+              <div class="register-player-btn-container p-2 border-top">
+                <button type="button" class="btn btn-success btn-sm btn-block register-new-player-for-effort" 
+                        data-search-term="${searchTerm}">
+                  <i class="bi bi-person-plus-fill"></i> Register "${searchTerm}" as new player
+                </button>
+              </div>
+            `);
+            
+            select2.$results.append(registerBtn);
+          }
+        }
+      }, 100);
+    });
+  });
+}
+
+// Handle clicking register from effort modal (opens main register modal)
+$(document).on('click', '.register-new-player-for-effort', function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const searchTerm = $(this).data('search-term');
+  
+  // Close effort modal and Select2
+  $('#effort-player-select').select2('close');
+  bootstrap.Modal.getInstance(document.getElementById('addPlayerToEffortModal')).hide();
+  
+  // Mark that we came from effort modal
+  $('#registerPlayerModal').data('source-context', 'effort-modal');
+  $('#registerPlayerModal').data('source-select-id', 'effort-player-select');
+  
+  // Pre-fill register modal
+  $('#modal-discord').val(searchTerm);
+  //$('#modal-display-name').val(searchTerm);
+  $('#player-modal-errors').html('');
+  
+  // Open register modal
+  new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+});
+
+// Handle form submission to add player to effort
+$('#add-player-to-effort-form').on('submit', function(e) {
+  e.preventDefault();
+  
+  const effortId = $('#effort-id-input').val();
+  const playerId = $('#effort-player-select').val();
+  
+  if (!playerId) {
+    $('#effort-player-errors').html('<div class="alert alert-warning">Please select a player.</div>');
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('effort_id', effortId);
+  formData.append('player_id', playerId);
+  
+  fetch("{% url 'add-player-to-effort' %}", {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      // Close modal
+      bootstrap.Modal.getInstance(document.getElementById('addPlayerToEffortModal')).hide();
+      
+      // Reload page to show updated effort
+      location.reload();
+    } else {
+      $('#effort-player-errors').html(`<div class="alert alert-danger">${data.error}</div>`);
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    $('#effort-player-errors').html('<div class="alert alert-danger">Failed to add player. Please try again.</div>');
+  });
+});
+
+// Update the main register modal success handler to handle effort context
+document.addEventListener('htmx:afterRequest', function(event) {
+  if (event.target.id === 'register-player-modal-form' && event.detail.xhr.status === 200) {
+    const response = JSON.parse(event.detail.xhr.responseText);
+    
+    if (response.id && response.discord) {
+      const sourceContext = $('#registerPlayerModal').data('source-context');
+      
+      // Add to all player selects
+      const playerSelects = $('[id$="-player"], #effort-player-select');
+      playerSelects.each(function() {
+        const newOption = new Option(response.discord, response.id, false, false);
+        $(this).append(newOption);
+      });
+      
+      // If we came from effort modal, select the new player and reopen effort modal
+      if (sourceContext === 'effort-modal') {
+        $('#effort-player-select').val(response.id).trigger('change');
+        
+        // Close register modal
+        bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+        
+        // Clear context
+        $('#registerPlayerModal').data('source-context', null);
+        
+        // Reopen effort modal after brief delay
+        setTimeout(() => {
+          new bootstrap.Modal(document.getElementById('addPlayerToEffortModal')).show();
+        }, 300);
+      } else {
+        // Handle normal context (from game recording form)
+        const sourceSelectId = $('#registerPlayerModal').data('source-select-id');
+        if (sourceSelectId && sourceSelectId !== 'effort-player-select') {
+          $(`#${sourceSelectId}`).val(response.id).trigger('change');
+        }
+        
+        bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+      }
+      
+      // Show success message
+      $('#player-modal-errors').html(`
+        <div class="alert alert-success">
+          <i class="bi bi-check-circle"></i> Player registered successfully!
+        </div>
+      `);
+    }
+  }
+});
+
+// Blur handler for effort modal
+document.getElementById('addPlayerToEffortModal').addEventListener('hide.bs.modal', function() {
+  document.activeElement.blur();
+});
+
+// Handle register player form responses (works for both modal and regular form)
+document.addEventListener('htmx:afterRequest', function(event) {
+    // Handle both register-form and register-player-modal-form
+    if (event.target.id !== 'register-form' && event.target.id !== 'register-player-modal-form') {
+        return;
+    }
+    
+    const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+    if (!contentType || !contentType.includes('application/json')) {
+        return;
+    }
+    
+    // Determine which error container to use based on which form submitted
+    const isModal = event.target.id === 'register-player-modal-form';
+    const errorContainer = document.getElementById(isModal ? 'player-modal-errors' : 'player-form-errors');
+    
+    // Clear all previous error or success messages
+    if (errorContainer) {
+        errorContainer.innerHTML = '';
+    }
+    
+    // Remove all error messages for each field before processing the new response
+    const existingErrorDivs = document.querySelectorAll('.error-message');
+    existingErrorDivs.forEach(div => div.remove());
+    
+    // Handle error response (400)
+    if (event.detail.xhr.status === 400) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const errors = JSON.parse(response.error);
+        
+        if (errors && errorContainer) {
+            // Create a consolidated error message
+            let errorHtml = '<div class="alert alert-danger"><strong>Registration failed:</strong><ul class="mb-0">';
+            
+            // Iterate through each error for the fields
+            for (const fieldName in errors) {
+                if (errors.hasOwnProperty(fieldName)) {
+                    const fieldErrors = errors[fieldName];
+                    
+                    // Add to consolidated error message
+                    fieldErrors.forEach(error => {
+                        errorHtml += `<li><strong>${fieldName}:</strong> ${error.message}</li>`;
+                    });
+                }
+            }
+            
+            errorHtml += '</ul></div>';
+            errorContainer.innerHTML = errorHtml;
+        }
+    }
+    
+    // Handle success response (200)
+    if (event.detail.xhr.status === 200) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        
+        if (response.id && response.discord) {
+            // Clear the form fields
+            const form = document.getElementById(event.target.id);
+            if (form) {
+                form.reset();
+            }
+            
+            // Show success message
+            const successMessage = response.message || "Player registered successfully!";
+            const successDiv = document.createElement('div');
+            successDiv.classList.add('success-message', 'alert', 'alert-success');
+            successDiv.innerHTML = `<p><i class="bi bi-check-circle"></i> ${successMessage}</p>`;
+            if (errorContainer) {
+                errorContainer.appendChild(successDiv);
+            }
+            
+            // Check if we came from effort modal
+            const sourceContext = $('#registerPlayerModal').data('source-context');
+            
+            // Add to all player selects (both game recording and effort modal)
+            const playerSelects = $('[id$="-player"], #effort-player-select');
+            playerSelects.each(function() {
+                const newOption = new Option(response.discord + " (New)", response.id, false, false);
+                $(this).append(newOption);
+            });
+            
+            // If modal, handle modal-specific behavior
+            if (isModal) {
+                // If we came from effort modal
+                if (sourceContext === 'effort-modal') {
+                    $('#effort-player-select').val(response.id).trigger('change');
+                    
+                    // Close register modal
+                    bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+                    
+                    // Clear context
+                    $('#registerPlayerModal').data('source-context', null);
+                    
+                    // Reopen effort modal after brief delay
+                    setTimeout(() => {
+                        new bootstrap.Modal(document.getElementById('addPlayerToEffortModal')).show();
+                    }, 300);
+                } else {
+                    // Handle normal context (from game recording form)
+                    const sourceSelectId = $('#registerPlayerModal').data('source-select-id');
+                    
+                    // If opened from a specific select via Select2, select the new player
+                    if (sourceSelectId && sourceSelectId !== 'effort-player-select') {
+                        const sourceSelect = $(`#${sourceSelectId}`);
+                        sourceSelect.val(response.id).trigger('change');
+                        
+                        // Clear the stored source
+                        $('#registerPlayerModal').data('source-select-id', null);
+                    }
+                    
+                    // Close modal after short delay to show success message
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+                    }, 1500);
+                }
+            }
+        }
+    }
+});
+
+// Blur active element when register modal closes to prevent aria-hidden warning
+document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
+  document.activeElement.blur();
+  // Also clear the stored source select ID and context
+  $(this).data('source-select-id', null);
+  $(this).data('source-context', null);
+});
+
+{% endif %}
+
   </script>
 
   {% endblock scripts %}

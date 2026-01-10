@@ -175,7 +175,7 @@ def resize_image(image_field, max_size):
     except Exception as e:
         print(f"Error resizing image: {e}")
 
-
+# Saves space but not supported by TTS
 def resize_image_to_webp(image_field, max_size=None):
     """
     Resize and convert an image to WebP if needed.
@@ -246,6 +246,100 @@ def resize_image_to_webp(image_field, max_size=None):
         print(f"Error resizing image: {e}")
         return None
 
+# # PNG Version
+# def resize_image_in_place(image_field, max_size=None):
+#     if not image_field or not image_field.name:
+#         return
+
+#     path = image_field.path
+#     if not os.path.exists(path):
+#         return
+
+#     try:
+#         img = Image.open(path)
+
+#         # Skip if already PNG and within max size
+#         if img.format == "PNG" and (not max_size or (img.width <= max_size and img.height <= max_size)):
+#             return  # nothing to do
+
+#         # Resize if needed
+#         if max_size and (img.width > max_size or img.height > max_size):
+#             img.thumbnail((max_size, max_size), Image.LANCZOS)
+
+#         # Normalize mode
+#         if img.mode not in ("RGB", "RGBA"):
+#             img = img.convert("RGBA")
+
+#         # Save only if changes were made
+#         img.save(path, format="PNG", optimize=True)
+
+#     except Exception as e:
+#         print(f"Failed to resize image {path}: {e}")
+
+# WebP Version
+def resize_image_in_place(image_field, max_size=None, quality=85):
+    """
+    Resize and convert image to WebP format in place.
+    
+    Args:
+        image_field: Django ImageField
+        max_size: Maximum width/height in pixels (maintains aspect ratio)
+        quality: WebP quality (0-100, default 85 for good balance)
+    """
+    if not image_field or not image_field.name:
+        return
+    
+    path = image_field.path
+    if not os.path.exists(path):
+        return
+    
+    try:
+        img = Image.open(path)
+        
+        # Check if we need to do anything
+        is_webp = img.format == "WEBP"
+        needs_resize = max_size and (img.width > max_size or img.height > max_size)
+        
+        # Skip if already WebP and within max size
+        if is_webp and not needs_resize:
+            return  # nothing to do
+        
+        # Resize if needed
+        if needs_resize:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+        
+        # Normalize mode for WebP
+        # WebP supports both RGB and RGBA
+        if img.mode not in ("RGB", "RGBA"):
+            # Use RGBA if image has transparency, otherwise RGB
+            if img.mode in ("LA", "P") and "transparency" in img.info:
+                img = img.convert("RGBA")
+            else:
+                img = img.convert("RGB")
+        
+        # Change extension to .webp if needed
+        if not is_webp:
+            base_path = os.path.splitext(path)[0]
+            new_path = f"{base_path}.webp"
+            
+            # Save as WebP
+            img.save(new_path, format="WEBP", quality=quality, method=6)
+            
+            # Update the image_field to point to new file
+            old_name = image_field.name
+            new_name = old_name.rsplit('.', 1)[0] + '.webp'
+            image_field.name = new_name
+            
+            # Delete old file
+            if os.path.exists(path) and path != new_path and not image_field.name.startswith('default_images/'):
+                os.remove(path)
+
+        else:
+            # Already WebP, just save optimized version
+            img.save(path, format="WEBP", quality=quality, method=6)
+            
+    except Exception as e:
+        print(f"Failed to resize/convert image {path}: {e}")
 
 
 def delete_old_image(old_image):
@@ -262,6 +356,14 @@ def validate_hex_color(value):
     # Regular expression to check for valid hex color codes (e.g., #RRGGBB)
     if not re.match(r'^#([0-9A-Fa-f]{6})$', value):
         raise ValidationError(f"{value} is not a valid hex color code.")
+
+def validate_png(image):
+    try:
+        img = Image.open(image)
+        if img.format != "PNG":
+            raise ValidationError("Only PNG files are allowed.")
+    except Exception:
+        raise ValidationError("Invalid image file.")
 
 
 
@@ -450,17 +552,27 @@ def strip_formatting(text):
     if not text:
         return ''
     
-    # Remove "({{ ... }})" blocks
-    text = re.sub(r'\s*\(\s*\{\{.*?\}\}\s*\)', '', text)
-
-    # Remove {{...}} blocks (like {{ keyword.image }})
-    text = re.sub(r'\s*\{\{.*?\}\}', '', text)
+    # Replace {{...}} blocks - remove braces, capitalize first letter
+    def capitalize_template(match):
+        content = match.group(1).strip()  # Get content between {{ }}
+        if content:
+            return content[0].upper() + content[1:]
+        return content
+    
+    text = re.sub(r'\{\{\s*(.*?)\s*\}\}', capitalize_template, text)
+    
+    # Replace **text** blocks - remove asterisks, capitalize content
+    def capitalize_bold(match):
+        content = match.group(1).strip().upper()
+        return content
+    
+    text = re.sub(r'\*\*\s*(.*?)\s*\*\*', capitalize_bold, text)
     
     # Remove \ from markdown
     text = re.sub(r'\\([()_*[\]{}#.!\\])', r'\1', text)
-
-    # Remove ** for small caps and _ for italics
-    text = text.replace('**', '').replace('_', '')
+    
+    # Remove _ for italics (just remove the underscores, don't capitalize)
+    text = text.replace('_', '')
     
     # Strip extra whitespace
     return text.strip()
@@ -627,3 +739,54 @@ def generate_comparison_markdown(results):
     markdown_lines[1:1] = summary_lines
 
     return "\n".join(markdown_lines)
+
+
+def get_fresh_image_url(image_field):
+    """
+    Returns the URL for an ImageField with a cache-busting query parameter
+    based on the file's last-modified timestamp.
+    """
+    if not image_field:
+        return None
+    
+    ts = 0  # default fallback
+    
+    try:
+        # Check if file exists before trying to get modified time
+        if image_field.storage.exists(image_field.name):
+            ts = int(image_field.storage.get_modified_time(image_field.name).timestamp())
+    except (FileNotFoundError, ValueError, AttributeError, OSError):
+        # Silently fall back to ts=0
+        pass
+    
+    try:
+        return f"{image_field.url}?v={ts}"
+    except (ValueError, AttributeError):
+        return None
+
+
+
+def user_can_edit(request, post=None):
+    # Check to make sure the user is logged in and has a profile
+    user = request.user
+    if not user.is_authenticated:
+        return False
+    profile = getattr(user, "profile", None)
+    if not profile:
+        return False
+    
+    # Admins can always make changes
+    if profile.admin:
+        return True
+    
+    if post:
+        # Only accounts with Editor status can make changes
+        if profile.editor:
+            if profile == post.designer:
+                return True
+            # Co-designers can only make changes if the post is marked as such
+            if post.co_designers.filter(pk=profile.pk).exists() and post.co_designers_can_edit:
+                return True
+
+    return False
+

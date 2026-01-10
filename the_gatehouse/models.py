@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
 from the_keep.utils import validate_hex_color, delete_old_image
+from the_keep.services.upload_paths import avatar_upload_path, changelog_image_upload_path
 
 class MessageChoices(models.TextChoices):
     DANGER = 'danger'
@@ -312,7 +313,7 @@ class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     # theme = models.CharField(max_length=20 , default=Theme.LIGHT, choices=Theme.choices, null=True, blank=True)
     theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
-    image = models.ImageField(default='default_images/default_user.png', upload_to='profile_pics')
+    image = models.ImageField(default='default_images/default_user.png', upload_to=avatar_upload_path)
     last_avatar_sync = models.DateTimeField(null=True, blank=True)
 
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
@@ -769,6 +770,76 @@ class DailyUserVisit(models.Model):
     def __str__(self):
         return f"{self.profile.discord} - {self.date}"
     
+
+
+class Changelog(models.Model):
+    version = models.CharField(max_length=50, unique=True) 
+    title = models.CharField(max_length=200, blank=True)
+    date = models.DateField(default=timezone.now)
+    description = models.TextField(blank=True)
+    image = models.ImageField(upload_to=changelog_image_upload_path, blank=True, null=True)
+    source_hash = models.CharField(max_length=65, blank=True, editable=False)
+    slug = models.SlugField(unique=True, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-date', 'id']
+    
+    def __str__(self):
+        return f"{self.version} - {self.date}"
+
+    def save(self, *args, **kwargs):
+        field_name = 'image'
+        
+        # Check if the instance already exists (i.e., is not a new object)
+        if self.pk:
+            try:
+                old_instance = Changelog.objects.get(pk=self.pk)
+                old_image = getattr(old_instance, field_name)
+                new_image = getattr(self, field_name)
+                
+                # If the image has changed, delete the old one(s)
+                if old_image and old_image != new_image:
+                    delete_old_image(old_image)
+            except Changelog.DoesNotExist:
+                # The object does not exist yet, nothing to delete
+                pass
+
+        super().save(*args, **kwargs)
+
+
+class ChangelogEntry(models.Model):
+    CATEGORY_CHOICES = [
+        ('feature', 'New Feature'),
+        ('improvement', 'Improvement'),
+        ('bugfix', 'Bug Fix'),
+        ('breaking', 'Breaking Change'),
+        ('issues', 'Known Issue'),
+    ]
+
+    CATEGORY_ORDER = {
+        'feature': 0,
+        'improvement': 1,
+        'bugfix': 2,
+        'breaking': 3,
+        'issues': 4,
+    }
+
+    changelog = models.ForeignKey(Changelog, related_name='entries', on_delete=models.CASCADE)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    category_order = models.PositiveSmallIntegerField(editable=False)
+    description = models.TextField()
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['category_order', 'order', 'id']
+
+    
+    def __str__(self):
+        return f"{self.get_category_display()}: {self.description[:50]}"
+    
+    def save(self, *args, **kwargs):
+        self.category_order = self.CATEGORY_ORDER.get(self.category, 99)
+        super().save(*args, **kwargs)
 
 
 # # Surveys

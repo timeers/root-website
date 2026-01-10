@@ -1,6 +1,6 @@
 <!-- Component Manifest -->
 {% load static i18n %}
-{% if object.pieces.count or object.component == 'Vagabond' or object.component == 'Deck' or object.designer == user.profile and user.profile.editor_onboard or user.profile.admin and not object.designer.designer %}
+{% if object.pieces.count or object.component == 'Vagabond' or can_edit and user.profile.editor_onboard %}
 <div class='mt-2 mb-2'>
 
     {% if object.designer == user.profile and user.profile.editor_onboard and user.profile.editor or user.profile.admin %}
@@ -11,7 +11,7 @@
         </div>    
     {% endif %}
     <div class="manifest-box
-        {% if not object.warriors.all and not object.buildings.all and not object.tokens.all and not object.cards.all and object.component != 'Deck' and not object.otherpieces.all and object.component != "Vagabond" %}
+        {% if not object.warriors.all and not object.buildings.all and not object.tokens.all and not object.cards.all and not object.otherpieces.all and object.component != "Vagabond" %}
          hidden
          {% endif %}
     ">
@@ -21,15 +21,18 @@
     </div>
 
     <div class="d-flex flex-wrap justify-content-evenly">
-        {% if object.component == "Vagabond" %}
+        {% if component == "Vagabond" %}
             {% include 'the_keep/partials/vagabond_items.html' %}
+        {% endif %}
+        {% if component == "Captain" %}
+            {% include 'the_keep/partials/vagabond_captain_items.html' %}
         {% endif %}
         {% if object.component != "Vagabond" or object.warriors.all %}
             {% if user.profile.admin or object.warriors.all or object.designer == user.profile and user.profile.editor_onboard  %}
                 <div class="p-2 flex-fill text-center piece-box{% if not object.warriors.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>{% trans 'Warriors' %}</h5>
                     <div id="W-pieces" class="d-flex flex-column align-items-center">
-                        {% for piece in object.warriors.all %}
+                        {% for piece in warriors %}
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
@@ -49,7 +52,7 @@
                 <div class="p-2 flex-fill text-center piece-box{% if not object.buildings.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>{% trans 'Buildings' %}</h5>
                     <div id="B-pieces" class="d-flex flex-column align-items-center">
-                        {% for piece in object.buildings.all %}
+                        {% for piece in buildings %}
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
@@ -69,7 +72,7 @@
                 <div class="p-2 flex-fill text-center piece-box{% if not object.tokens.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>{% trans 'Tokens' %}</h5>
                     <div id="T-pieces" class="d-flex flex-column align-items-center">
-                        {% for piece in object.tokens.all %}
+                        {% for piece in tokens %}
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
@@ -85,30 +88,11 @@
                 </div>
             {% endif %}
 
-            {% if user.profile.admin or object.cards.all or object.component == 'Deck' or object.designer == user.profile and user.profile.editor_onboard %}
-                <div class="p-2 flex-fill text-center piece-box{% if not object.cards.all and object.component != 'Deck' %} hidden-pieces{% endif %}">
+            {% if user.profile.admin or object.cards.all or object.designer == user.profile and user.profile.editor_onboard %}
+                <div class="p-2 flex-fill text-center piece-box{% if not object.cards.all %} hidden-pieces{% endif %}">
                     <h5 class='root-title'>{% trans 'Cards' %}</h5>
                     <div id="C-pieces" class="d-flex flex-column align-items-center">
-                        {% if object.component == 'Deck' %}
-
-                            <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
-                                <div class="d-flex align-items-center">
-                                    {% if object.card_image %}
-                                        <img class="lg-faction-icon mr-2" src="{{ object.card_image.url }}">x
-                                    {% endif %}
-                                    {{ object.card_total }} {% trans 'Cards' %}
-                                </div>
-
-                            </div>
-                            {% if user.profile.admin or object.designer == user.profile and user.profile.editor_onboard %}
-                            <div class="d-flex">
-                                <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons" id="saveAndGo-button">
-                                    {% trans 'Edit Cards' %} <i class="bi bi-pencil-square"></i>
-                                </button>
-                            </div>
-                        {% endif %}
-                        {% endif %}
-                        {% for piece in object.cards.all %}
+                        {% for piece in cards %}
                             {% include 'the_keep/partials/piece_line.html' %}
                         {% endfor %}
                     </div>
@@ -120,16 +104,22 @@
                                 hx-swap="beforeend"
                             >Add+</button>
                         </div>
+                        <div>
+                            <a class='btn btn-warning me-2 hidden-buttons my-2' 
+                            href="{% url 'post-cards-router' language_code=language_code post_slug=object.slug %}">
+                                Edit Cards
+                            </a>
+                        </div>
                     {% endif %}
                 </div>
             {% endif %}            
         {% endif %}
 
-        {% if user.profile.admin or object.component == "Vagabond" or object.otherpieces.all or object.designer == user.profile and user.profile.editor_onboard %}
-            <div class="p-2 flex-fill text-center piece-box{% if not object.otherpieces.all and object.component != "Vagabond" %} hidden-pieces{% endif %}">
+        {% if user.profile.admin or component == "Vagabond" or object.otherpieces.all or object.designer == user.profile and user.profile.editor_onboard %}
+            <div class="p-2 flex-fill text-center piece-box{% if not object.otherpieces.all and component != "Vagabond" %} hidden-pieces{% endif %}">
                 <h5 class='root-title'>{% trans 'Other Pieces' %}</h5>
                 <div id="O-pieces" class="d-flex flex-column align-items-center">
-                    {% if object.component == "Vagabond" %}
+                    {% if component == "Vagabond" %}
                     <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
                         <div class="d-flex align-items-center">
                             <img class="lg-faction-icon mr-2" src="{% static 'items/Relationship Markers.png' %}" alt="Relationship Markers">
@@ -137,7 +127,7 @@
                         </div>
                     </div>
                     {% endif %}
-                    {% for piece in object.otherpieces.all %}
+                    {% for piece in otherpieces %}
                         {% include 'the_keep/partials/piece_line.html' %}
                     {% endfor %}
                 </div>

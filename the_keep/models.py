@@ -1,31 +1,33 @@
 import os
-import uuid
 import re
 import inflect
 import random
+import uuid
+
+
 
 from decimal import Decimal
 from urllib.parse import urlencode
 from datetime import date
 from PIL import Image
-from io import BytesIO
 from dataclasses import dataclass, field
 from typing import Optional
+from unidecode import unidecode
 
 from django.apps import apps
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models.signals import pre_save, post_save
 from django.db.models import (
-    Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, OuterRef, Subquery
+    Count, F, ExpressionWrapper, FloatField, 
+    Q, Case, When, Value, OuterRef, Subquery, Max
     )
 from django.db.models.functions import Cast, Coalesce
 from django.db.models.query import QuerySet 
 from django.utils import timezone 
 from django.utils.translation import get_language
+from django.utils.text import slugify
 from django.urls import reverse
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.translation import gettext_lazy as _
 
@@ -33,7 +35,21 @@ from the_gatehouse.models import Profile, Language
 from the_gatehouse.services.discordservice import send_rich_discord_message
 from the_gatehouse.utils import int_to_alpha, int_to_roman
 
-from .utils import validate_hex_color, delete_old_image, hex_to_rgb, strip_formatting, DEFAULT_TITLES_TRANSLATIONS
+from .utils import (validate_hex_color, validate_png, 
+                    delete_old_image, hex_to_rgb, strip_formatting, DEFAULT_TITLES_TRANSLATIONS,
+                )
+
+from .services.upload_paths import (
+    board_back_upload_path, board_front_upload_path,
+    deck_back_upload_path, deck_sheet_upload_path, card_upload_path,
+    card_front_upload_path, card_back_upload_path,
+    post_icon_upload_path, post_picture_upload_path,
+    post_small_upload_path,
+    translation_board_back_upload_path, translation_board_front_upload_path, 
+    translation_card_back_upload_path, translation_card_front_upload_path,
+    translation_small_upload_path,
+    piece_upload_path,
+)
 
 
 # Stable requirements
@@ -172,7 +188,7 @@ class StatusChoices(models.TextChoices):
     DEVELOPMENT = '3', _('Development')
     INACTIVE = '4', _('Inactive')
     ABANDONED = '5', _('Abandoned')
-    DEEPFREEZE = '9', 'Deep Freeze'
+    SUBMITTED = '9', _('Submitted')
 
 # def get_status_name_from_int(status_int):
 #     # Iterate through the choices to find the matching integer
@@ -197,6 +213,8 @@ class PostManager(models.Manager):
 class Expansion(models.Model):
     title = models.CharField(max_length=100)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
+    co_designers_can_edit = models.BooleanField(default=False)
+    co_designers = models.ManyToManyField(Profile, related_name="co_designed_expansions", blank=True)
     description = models.TextField(null=True, blank=True)
     lore = models.TextField(null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
@@ -212,6 +230,7 @@ class Expansion(models.Model):
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     open_roster = models.BooleanField(default=False)
+    designers_list = models.CharField(max_length=1000, null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -256,6 +275,26 @@ class Expansion(models.Model):
                 count += 1
         return count
 
+    def get_designers_list(self):
+        designers = []
+
+        if self.designer:
+            designers.append(self.designer)
+
+        designers.extend(self.co_designers.all())
+
+        names = [d.name for d in designers if d]
+
+        if not names:
+            return ""
+        if len(names) == 1:
+            return names[0]
+        if len(names) == 2:
+            return f"{names[0]} and {names[1]}"
+        
+        # 3 or more
+        return ", ".join(names[:-1]) + f", and {names[-1]}"
+
     def save(self, *args, **kwargs):
 
         # Check if the image field has changed (only works if the instance is already saved)
@@ -268,13 +307,18 @@ class Expansion(models.Model):
             new_image = getattr(self, field_name)
             if old_image != new_image:
                 delete_old_image(old_image)
-        
+
         super().save(*args, **kwargs)
-        # Resize images before saving
-        # if self.picture:
-            # resize_image(self.picture, 1200)  # Resize expansion image
-            # resize_image_to_webp(self.picture, 1200, instance=self, field_name='picture')
-            
+
+        # Update designers_list after save
+        designers_list = self.get_designers_list()
+        print(f'Designers list {designers_list}')
+        if self.designers_list != designers_list:
+            print("Designers list does not match")
+            print(f"Old:{self.designers_list}")
+            print(f"New:{designers_list}")
+            self.designers_list = designers_list
+            Expansion.objects.filter(pk=self.pk).update(designers_list=designers_list)
 
 class Post(models.Model):
     
@@ -293,6 +337,8 @@ class Post(models.Model):
     title = models.CharField(max_length=40)
     discord_channel_id = models.CharField(max_length=32, blank=True, null=True)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
+    submitted_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, blank=True, null=True, related_name='submissions')
+    co_designers_can_edit = models.BooleanField(default=False)
     co_designers = models.ManyToManyField(Profile, related_name="co_designed_posts", blank=True)
     animal = models.CharField(max_length=50, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
@@ -319,13 +365,13 @@ class Post(models.Model):
     rootjam_link = models.CharField(max_length=400, null=True, blank=True)
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
-    small_icon = models.ImageField(upload_to='small_component_icons/custom', null=True, blank=True)
+    small_icon = models.ImageField(upload_to=post_icon_upload_path, null=True, blank=True)
 
-    picture = models.ImageField(upload_to='component_pictures', null=True, blank=True)
-    board_image = models.ImageField(upload_to='boards', null=True, blank=True)
-    card_image = models.ImageField(upload_to='cards', null=True, blank=True)
-    board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
-    card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
+    picture = models.ImageField(upload_to=post_picture_upload_path, null=True, blank=True)
+    board_image = models.ImageField(upload_to=board_front_upload_path, null=True, blank=True)
+    card_image = models.ImageField(upload_to=card_front_upload_path, null=True, blank=True)
+    board_2_image = models.ImageField(upload_to=board_back_upload_path, null=True, blank=True)
+    card_2_image = models.ImageField(upload_to=card_back_upload_path, null=True, blank=True)
 
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
@@ -348,12 +394,11 @@ class Post(models.Model):
     date_updated = models.DateTimeField(default=timezone.now)
     date_modified = models.DateTimeField(auto_now=True)
 
-    small_picture = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_board_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_card_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_board_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_card_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-
+    small_picture = models.ImageField(upload_to=post_small_upload_path, null=True, blank=True)
+    small_board_image = models.ImageField(upload_to=post_small_upload_path, null=True, blank=True)
+    small_card_image = models.ImageField(upload_to=post_small_upload_path, null=True, blank=True)
+    small_board_2_image = models.ImageField(upload_to=post_small_upload_path, null=True, blank=True)
+    small_card_2_image = models.ImageField(upload_to=post_small_upload_path, null=True, blank=True)
 
 
     objects = PostManager()
@@ -437,7 +482,6 @@ class Post(models.Model):
         
         return count
 
-
     def warriors(self):
         return Piece.objects.filter(parent=self, type=Piece.TypeChoices.WARRIOR)
     def buildings(self):
@@ -456,7 +500,7 @@ class Post(models.Model):
                 delete_old_image(piece_image)
 
         # Delete the old image file from storage before deleting the instance
-        image_fields = ['card_image', 'picture', 'small_icon', 'board_image']
+        image_fields = ['card_image', 'picture', 'small_icon', 'board_image', 'board_2_image', 'card_2_image']
         for field_name in image_fields:
             post_image = getattr(self, field_name)
 
@@ -464,7 +508,7 @@ class Post(models.Model):
             if post_image and not post_image.name.startswith('default_images/'):
                 # Delete non-default images
                 print(f'deleting {post_image}')
-                self._delete_old_image(post_image)
+                delete_old_image(post_image)
             else:
                 print(f'not deleting {post_image}')
         
@@ -473,12 +517,11 @@ class Post(models.Model):
 
 
     def save(self, *args, **kwargs):
-
-        # Check if the image field has changed (only works if the instance is already saved)
+        # Check if the image field has changed
         if self.pk:  # If the object already exists in the database
             old_instance = Post.objects.get(pk=self.pk)
             # List of fields to check and delete old images if necessary
-            image_fields = ['card_image', 'picture', 'small_icon', 'board_image']
+            image_fields = ['card_image', 'picture', 'small_icon', 'board_image', 'board_2_image', 'card_2_image']
             for field_name in image_fields:
                 old_image = getattr(old_instance, field_name)
                 new_image = getattr(self, field_name)
@@ -487,12 +530,10 @@ class Post(models.Model):
                     if old_image and not old_image.name.startswith('default_images/'):
                         # Delete non-default images
                         self._delete_old_image(old_image)
-                    else:
-                        # Ignore any files in the default_images folder
-                        print(f"Default image saved: {old_image}")
             new_post = False
         else:
             new_post = True
+
 
         if self.color:
             rgb = hex_to_rgb(self.color)
@@ -506,20 +547,26 @@ class Post(models.Model):
             language = Language.objects.first()
             self.language = language
 
-        if not new_post:
-            designers_list = self.get_designers_list()
-            self.designers_list = designers_list
-
-
         super().save(*args, **kwargs)
 
-        if new_post:
+        # Update designers_list after save
+        designers_list = self.get_designers_list()
+        if self.designers_list != designers_list:
+            self.designers_list = designers_list
+            Post.objects.filter(pk=self.pk).update(designers_list=designers_list)
+        # If the post is new and not in submittal status
+        if new_post and self.status != '9':
             fields = []
             fields.append({
                     'name': 'By:',
                     'value': self.designers_list
                 })
             send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
+            
+            # If the designer is registered and the post was submitted by an admin, update the designer's profile
+            if self.designer.group == "P":
+                self.designer.group = "E"
+                self.designer.save(update_fields=["group"])
 
 
     def _delete_old_image(self, old_image):
@@ -557,63 +604,7 @@ class Post(models.Model):
         except Exception as e:
             print(f"Error resizing image: {e}")
 
-    def process_and_save_small_icon(self, image_field_name):
-        """
-        Process the image field, resize it, and save it to the `small_icon` field.
-        This method can be used by any subclass of Post to reuse the image processing logic.
-        """
-        # Get the image from the specified field
-        image = getattr(self, image_field_name)
-
-        if image:
-            # Open the image from the ImageFieldFile
-            img = Image.open(image)
-                # Convert the image to RGB if it's in a mode like 'P' (palette-based)
-            # if img.mode != 'RGB':
-            #     img = img.convert('RGB')
-            # Create a copy of the image
-            small_icon_copy = img.copy()
-
-            # Optionally, save the image to a new BytesIO buffer
-            img_io = BytesIO()
-            small_icon_copy.save(img_io, format='WEBP', quality=80)  # Save as a webp, or another format as needed
-            img_io.seek(0)
-            # Now you can assign the img_io to your model field or save it to a new ImageField
-            # Generate a unique filename using UUID
-            unique_filename = f"{uuid.uuid4().hex}.webp"
-
-            # Save to small_icon field with unique filename
-            self.small_icon.save(unique_filename, img_io, save=False)
-
-    def process_and_save_picture(self, image_field_name):
-        """
-        Process the image field, resize it, and save it to the `picture` field.
-        This method can be used by any subclass of Post to reuse the image processing logic.
-        """
-        # Get the image from the specified field
-        image = getattr(self, image_field_name)
-
-        if image:
-            # Open the image from the ImageFieldFile
-            img = Image.open(image)
-                # Convert the image to RGB if it's in a mode like 'P' (palette-based)
-            # if img.mode != 'RGB':
-            #     img = img.convert('RGB')
-            # Create a copy of the image
-            picture_copy = img.copy()
-
-            # Optionally, save the image to a new BytesIO buffer
-            img_io = BytesIO()
-            picture_copy.save(img_io, format='WEBP', quality=80)  # Save as a webp, or another format as needed
-            img_io.seek(0)
-            # Now you can assign the img_io to your model field or save it to a new ImageField
-            # Generate a unique filename using UUID
-            unique_filename = f"{uuid.uuid4().hex}.webp"
-
-            # Save to picture field with unique filename
-            self.picture.save(unique_filename, img_io, save=False)
-
-    def get_absolute_url(self, lang_code=None):
+    def get_absolute_url(self, language_code=None):
         # Determine the base URL
         match self.component:
             case "Map":
@@ -633,9 +624,9 @@ class Post(models.Model):
             case _:
                 url = reverse('faction-detail', kwargs={'slug': self.slug})
 
-        # Append lang_code if provided
-        if lang_code:
-            query = urlencode({'lang': lang_code})
+        # Append language_code if provided
+        if language_code:
+            query = urlencode({'lang': language_code})
             url = f"{url}?{query}"
 
         return url
@@ -763,6 +754,20 @@ class Post(models.Model):
                 return None
         return None
 
+    def get_linked_law(self, language):
+        """""
+        Returns the linked law for that language if any
+        """""
+        return self.linked_laws.filter(language=language).last()
+    
+    def has_only_one_card(self) -> bool:
+        cards = list(
+            self.pieces.filter(type=Piece.TypeChoices.CARD).values_list('id', flat=True)[:2]
+        )
+        return len(cards) == 1
+
+
+
     class Meta:
         ordering = ['sorting', '-official', 'status', '-date_posted', 'id']
 
@@ -776,10 +781,10 @@ class PostTranslation(models.Model):
 
     translated_title = models.CharField(max_length=40, null=True, blank=True)
 
-    translated_board_image = models.ImageField(upload_to='boards', null=True, blank=True)
-    translated_card_image = models.ImageField(upload_to='cards', null=True, blank=True)
-    translated_board_2_image = models.ImageField(upload_to='boards', null=True, blank=True)
-    translated_card_2_image = models.ImageField(upload_to='cards', null=True, blank=True)
+    translated_board_image = models.ImageField(upload_to=translation_board_front_upload_path, null=True, blank=True)
+    translated_card_image = models.ImageField(upload_to=translation_card_front_upload_path, null=True, blank=True)
+    translated_board_2_image = models.ImageField(upload_to=translation_board_back_upload_path, null=True, blank=True)
+    translated_card_2_image = models.ImageField(upload_to=translation_card_back_upload_path, null=True, blank=True)
     
     translated_lore = models.TextField(null=True, blank=True)
     translated_description = models.TextField(null=True, blank=True)
@@ -788,19 +793,18 @@ class PostTranslation(models.Model):
     ability = models.CharField(max_length=150, null=True, blank=True)
     ability_description = models.TextField(null=True, blank=True)
 
+    captain_ability = models.TextField(null=True, blank=True)
+
     bgg_link = models.CharField(max_length=400, null=True, blank=True)
     tts_link = models.CharField(max_length=400, null=True, blank=True)
     pnp_link = models.CharField(max_length=400, null=True, blank=True)
 
     version = models.CharField(max_length=40, blank=True, null=True)
 
-
-
-
-    small_board_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_card_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_board_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
-    small_card_2_image = models.ImageField(upload_to='small_images', null=True, blank=True)
+    small_board_image = models.ImageField(upload_to=translation_small_upload_path, null=True, blank=True)
+    small_card_image = models.ImageField(upload_to=translation_small_upload_path, null=True, blank=True)
+    small_board_2_image = models.ImageField(upload_to=translation_small_upload_path, null=True, blank=True)
+    small_card_2_image = models.ImageField(upload_to=translation_small_upload_path, null=True, blank=True)
 
     class Meta:
         unique_together = ('post', 'language')
@@ -817,15 +821,6 @@ class PostTranslation(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-
-        # resize_image(self.translated_board_image, 1200)  # Resize board_image
-        # resize_image(self.translated_board_2_image, 1200)  # Resize board_image
-        # resize_image(self.translated_card_image, 350)  # Resize card_image
-        # resize_image(self.translated_card_2_image, 350)  # Resize card_image
-        # resize_image_to_webp(self.translated_board_image, 1200, instance=self, field_name='translated_board_image')
-        # resize_image_to_webp(self.translated_board_2_image, 1200, instance=self, field_name='translated_board_2_image')
-        # resize_image_to_webp(self.translated_card_image, 350, instance=self, field_name='translated_card_image')
-        # resize_image_to_webp(self.translated_card_2_image, 350, instance=self, field_name='translated_card_2_image')
 
     def get_absolute_url(self):
         parent_url = self.post.get_absolute_url()
@@ -846,7 +841,7 @@ class PostBookmark(models.Model):
 
 
 class Deck(Post):
-    card_total = models.IntegerField()
+    card_total = models.PositiveIntegerField()
     def save(self, *args, **kwargs):
         self.component = 'Deck'  # Set the component type
         self.sorting = 3
@@ -959,21 +954,6 @@ class Landmark(Post):
         self.sorting = 5
         if not self.picture:
             self.picture = 'default_images/landmark.png'
-
-        # Check if the image field has changed (only works if the instance is already saved)
-        # if self.pk:  # If the object already exists in the database
-        #     old_instance = Post.objects.get(pk=self.pk)
-           
-
-        #     field_name = 'picture'
-        #     old_image = getattr(old_instance, field_name)
-        #     new_image = getattr(self, field_name)
-        #     if old_image != new_image or not self.small_icon:
-        #         delete_old_image(getattr(old_instance,'small_icon'))
-        #         self.process_and_save_small_icon(field_name)
-        # else:
-        #     field_name = 'picture'
-        #     self.process_and_save_small_icon(field_name)
     
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -1081,19 +1061,7 @@ class Tweak(Post):
         self.sorting = 8
         if not self.picture:
             self.picture = 'default_images/tweak.png'
-        # Check if the image field has changed (only works if the instance is already saved)
-        # if self.pk:  # If the object already exists in the database
-        #     old_instance = Post.objects.get(pk=self.pk)
 
-        #     field_name = 'picture'
-        #     old_image = getattr(old_instance, field_name)
-        #     new_image = getattr(self, field_name)
-        #     if old_image != new_image or not self.small_icon:
-        #         delete_old_image(getattr(old_instance,'small_icon'))
-        #         self.process_and_save_small_icon(field_name)
-        # else:
-        #     field_name = 'picture'
-        #     self.process_and_save_small_icon(field_name)
         super().save(*args, **kwargs)  # Call the parent save method
 
     def stable_check(self):
@@ -1202,11 +1170,11 @@ class Tweak(Post):
         return (self.picture.url if self.picture else None)
 
 class Map(Post):
-    clearings = models.IntegerField(default=12)
-    forests = models.IntegerField(blank=True, null=True)
-    river_clearings = models.IntegerField(blank=True, null=True)
-    building_slots = models.IntegerField(blank=True, null=True)
-    ruins = models.IntegerField(blank=True, null=True, default=4)
+    clearings = models.PositiveIntegerField(default=12)
+    forests = models.PositiveIntegerField(blank=True, null=True)
+    river_clearings = models.PositiveIntegerField(blank=True, null=True)
+    building_slots = models.PositiveIntegerField(blank=True, null=True)
+    ruins = models.PositiveIntegerField(blank=True, null=True, default=4)
     fixed_clearings = models.BooleanField(default=False)
     default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
     def save(self, *args, **kwargs):
@@ -1217,30 +1185,7 @@ class Map(Post):
 
         self.component_snippet = f"{self.clearings} Clearing"
 
-        # # Check if the image field has changed (only works if the instance is already saved)
-        # if self.pk:  # If the object already exists in the database
-        #     old_instance = Post.objects.get(pk=self.pk)
-           
-        #     if self.board_image:
-        #         field_name = 'board_image'
-        #     else:
-        #         field_name = 'picture'
-        #     old_image = getattr(old_instance, field_name)
-        #     new_image = getattr(self, field_name)
-        #     if old_image != new_image or not self.small_icon:
-        #         # delete_old_image(getattr(old_instance,'small_icon'))
-        #         self.process_and_save_small_icon(field_name)
-        #         # delete_old_image(getattr(old_instance,'picture'))
-        #         self.process_and_save_picture(field_name)
-        # else:
-        #     if self.board_image:
-        #         field_name = 'board_image'
-        #     else:
-        #         field_name = 'picture'
-        #     self.process_and_save_small_icon(field_name)
-        #     self.process_and_save_picture(field_name)
-            
-
+        
         super().save(*args, **kwargs)
 
 
@@ -1365,34 +1310,31 @@ class Vagabond(Post):
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
-    starting_coins = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_boots = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_bag = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_tea = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_hammer = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_crossbow = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_sword = models.IntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
-    starting_torch = models.IntegerField(default=1, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    starting_coins = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_boots = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_bag = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_tea = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_hammer = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_crossbow = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_sword = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
+    starting_torch = models.PositiveIntegerField(default=1, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    
+    captain = models.BooleanField(default=False)
+    captain_ability = models.TextField(null=True, blank=True)
+    captain_coins = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    captain_boots = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    captain_bag = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    captain_tea = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    captain_hammer = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    captain_crossbow = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    captain_sword = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(2)])
+    
     def save(self, *args, **kwargs):
         self.component = 'Vagabond'  # Set the component type
         self.sorting = 4
         if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
 
-        # Check if the image field has changed (only works if the instance is already saved)
-        # if self.pk:  # If the object already exists in the database
-        #     old_instance = Post.objects.get(pk=self.pk)
-
-        #     field_name = 'picture'
-        #     old_image = getattr(old_instance, field_name)
-        #     new_image = getattr(self, field_name)
-        #     if old_image != new_image or not self.small_icon:
-        #         delete_old_image(getattr(old_instance,'small_icon'))
-        #         self.process_and_save_small_icon(field_name)
-        # else:
-
-        #     field_name = 'picture'
-        #     self.process_and_save_small_icon(field_name)
 
         super().save(*args, **kwargs)  # Call the parent save method
 
@@ -1526,6 +1468,12 @@ class Vagabond(Post):
         return self.get_translated_image_url("card_image", language) or \
                (self.picture.url if self.picture else None)
 
+    def get_captain_law(self, language):
+        """""
+        Returns the captain law for that language if any
+        """""
+        return self.linked_laws.filter(language=language).first()
+
 class Faction(Post):
     class TypeChoices(models.TextChoices):
         MILITANT = 'M', _('Militant')  # Marked for translation
@@ -1555,9 +1503,6 @@ class Faction(Post):
 
     def save(self, *args, **kwargs):
         
-        # if not self.card_image:  # Only set if it's not already defined
-        #     if self.reach != 0:
-        #         self.card_image = f'default_images/adset_cards/ADSET_{self.get_type_display()}_{self.reach}.png'
         if not self.small_icon:  # Only set if it's not already defined
             self.small_icon = 'default_images/default_faction_icon.png'
         if not self.picture or self.picture == 'default_images/animals/default_animal.png': #Update animal if default was previously used.
@@ -1851,23 +1796,6 @@ class Hireling(Post):
         if not self.picture or self.picture == 'default_images/animals/default_animal.png':
             self.picture = animal_default_picture(self)
         self.component_snippet = f"{self.get_type_display()}"
-        # Call the parent class's save() method (this saves self to the database)
-
-        # Check if the image field has changed (only works if the instance is already saved)
-        # if self.pk:  # If the object already exists in the database
-        #     old_instance = Post.objects.get(pk=self.pk)
-
-        #     field_name = 'picture'
-        #     old_image = getattr(old_instance, field_name)
-        #     new_image = getattr(self, field_name)
-        #     if old_image != new_image or not self.small_icon:
-        #         delete_old_image(getattr(old_instance,'small_icon'))
-        #         self.process_and_save_small_icon(field_name)
-        # else:
-        #     field_name = 'picture'
-        #     self.process_and_save_small_icon(field_name)
-
-
 
         super().save(*args, **kwargs)
 
@@ -2036,7 +1964,7 @@ PIECE_NAME_TRANSLATIONS = {
 }
 
 
-# Game Pieces for Factions and Hirelings
+
 class Piece(models.Model):
     class TypeChoices(models.TextChoices):
         WARRIOR = 'W'
@@ -2044,15 +1972,20 @@ class Piece(models.Model):
         TOKEN = 'T'
         CARD = 'C'
         OTHER = 'O'
+    # uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     name = models.CharField(max_length=30)
-    quantity = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     description = models.TextField(null=True, blank=True)
     suited = models.BooleanField(default=False)
     parent = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='pieces')
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
-    small_icon = models.ImageField(upload_to='pieces', null=True, blank=True)
+    small_icon = models.ImageField(upload_to=piece_upload_path, null=True, blank=True)
 
     def __str__(self):
+        return f'{self.name} ({self.type})'
+    
+    @property
+    def get_name(self):
         lang = get_language()
         translations = PIECE_NAME_TRANSLATIONS.get(self.name, {})
         return translations.get(lang, self.name)
@@ -2091,10 +2024,7 @@ class Piece(models.Model):
                 delete_old_image(old_image)
         
         super().save(*args, **kwargs)
-        # Resize images before saving
-        # if self.small_icon:
-        #     # resize_image(self.small_icon, 80)  # Resize small_icon
-        #     resize_image_to_webp(self.small_icon, 80, instance=self, field_name='small_icon')
+
 
 
     def delete(self, *args, **kwargs):
@@ -2178,6 +2108,7 @@ class PNPAsset(models.Model):
         PSD = 'PSD', 'PSD'
         VIDEO = 'Video', _('Video')
         SAI2 = 'Sai2', 'Sai2'
+        SVG = 'SVG', 'SVG'
         OTHER = 'Other', _('Other')
 
     date_updated = models.DateTimeField(default=timezone.now)
@@ -2361,6 +2292,8 @@ class Law(models.Model):
     plain_title = models.TextField(null=True, blank=True)
     plain_description = models.TextField(null=True, blank=True)
 
+    linked_post = models.ForeignKey(Post, on_delete=models.SET_NULL, null=True, blank=True, related_name='linked_laws')
+
     reference_laws = models.ManyToManyField(
         'self',
         symmetrical=False,
@@ -2506,7 +2439,7 @@ class Law(models.Model):
     def get_absolute_url(self):
         url = reverse('law-view', kwargs={
             'slug': self.group.slug,
-            'lang_code': self.language.code
+            'language_code': self.language.code
             })
         query_params = {'highlight_law': self.id}
         return f'{url}?{urlencode(query_params)}'
@@ -2514,7 +2447,7 @@ class Law(models.Model):
     def get_edit_url(self):
         url = reverse('edit-law-view', kwargs={
             'slug': self.group.slug,
-            'lang_code': self.language.code
+            'language_code': self.language.code
             })
         # query_params = {'highlight_law': self.id}
         # return f'{url}?{urlencode(query_params)}'
@@ -2602,10 +2535,10 @@ class Law(models.Model):
 
 @transaction.atomic
 def duplicate_laws_for_language(source_group: LawGroup, source_language, target_language):
-    def find_translation_key_by_title(title, source_lang_code):
+    def find_translation_key_by_title(title, source_language_code):
         title_lower = title.strip().lower()
         for original_key, translations in DEFAULT_TITLES_TRANSLATIONS.items():
-            translated_title = translations.get(source_lang_code)
+            translated_title = translations.get(source_language_code)
             if translated_title and translated_title.strip().lower() == title_lower:
                 return original_key
         return None
@@ -2762,6 +2695,202 @@ class FAQ(models.Model):
             raise ValidationError({
                 'answer': 'The answer cannot contain multiple page breaks in a row.'
             })
+
+    def get_post_title(self):
+        translations = getattr(self.post, 'filtered_translations', [])
+        if translations:
+            return translations[0].translated_title
+        return self.post.title
+
+
+class SnapPoint(models.Model):
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        related_name="snap_points"
+    )
+
+    # Position
+    pos_x = models.FloatField()
+    pos_y = models.FloatField()
+    pos_z = models.FloatField()
+
+    # Rotation
+    rot_x = models.FloatField(default=0)
+    rot_y = models.FloatField(default=0)
+    rot_z = models.FloatField(default=0)
+
+
+    def __str__(self):
+        return f"SnapPoint ({self.pos_x}, {self.pos_y}, {self.pos_z})"
+    
+    def to_tts_dict(self):
+        return {
+            "Position": {
+                "x": self.pos_x,
+                "y": self.pos_y,
+                "z": self.pos_z,
+            },
+            "Rotation": {
+                "x": self.rot_x,
+                "y": self.rot_y,
+                "z": self.rot_z,
+            },
+        }
+
+
+
+# ----------------------
+# Deck Models
+# ----------------------
+
+class DeckGroup(models.Model):
+    """
+    A DeckGroup holds multiple Decks and a common card back image.
+    Each deck contains up to 99 cards.
+    """
+    name = models.CharField(max_length=255)
+    post = models.ForeignKey(Post, related_name='decks', on_delete=models.CASCADE)
+    piece = models.ForeignKey(Piece, related_name='decks', on_delete=models.CASCADE)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE, default=get_default_language)
+
+    back_image = models.ImageField(upload_to=deck_back_upload_path)
+    slug = models.SlugField(null=True, blank=True)
+    # stated_card_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['post', 'piece', 'language'],
+                name='unique_deckgroup_per_post_piece_language'
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def ordered_cards(self):
+        """Cache ordered card list to avoid repeated queries."""
+        if not hasattr(self, '_ordered_cards_cache'):
+            self._ordered_cards_cache = list(self.cards.all().order_by('order'))
+        return self._ordered_cards_cache
+
+    def get_or_create_deck_for_card_index(self, card_index):
+        """Return the CardDeck that should hold this card index."""
+        deck_number = card_index // 99
+        deck, created = CardDeck.objects.get_or_create(
+            group=self,
+            deck_index=deck_number
+        )
+        return deck
+
+    @property
+    def card_count(self):
+        """
+        Returns the actual card count if cards exist, 
+        otherwise returns the stated count.
+        """
+        actual_count = self.cards.count()
+        if actual_count > 0:
+            return actual_count
+        return self.piece.quantity
+    
+    @property
+    def has_actual_cards(self):
+        """Check if this deck group has actual cards added."""
+        return self.cards.exists()
+    
+    def get_absolute_url(self):
+        return reverse('deckgroup-detail', kwargs={'deckgroup_slug': self.slug, 'post_slug': self.post.slug, 'language_code': self.language.code})
+
+    def get_edit_url(self):
+        return reverse('edit-deckgroup', kwargs={'deckgroup_slug': self.slug, 'post_slug': self.post.slug, 'language_code': self.language.code})
+                     
+    def delete(self, *args, **kwargs):
+        back_image = getattr(self, 'back_image')
+        if back_image:
+            # Delete non-default images
+            delete_old_image(back_image)
+        super().delete(*args, **kwargs)
+
+class CardDeck(models.Model):
+    """
+    A Deck contains a batch of up to 99 cards from a DeckGroup.
+    """
+    group = models.ForeignKey(DeckGroup, related_name="decks", on_delete=models.CASCADE)
+    deck_index = models.PositiveIntegerField()
+    sprite_sheet = models.ImageField(upload_to=deck_sheet_upload_path, null=True, blank=True)
+    sprite_hash = models.CharField(max_length=32, blank=True, null=True)  # store MD5 hash
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "deck_index"],
+                name="unique_deck_per_group"
+            )
+        ]
+
+    @property
+    def cards_in_deck(self):
+        """Return the cards belonging to this deck."""
+        start = self.deck_index * 99
+        end = start + 99
+        return self.group.ordered_cards[start:end]
+
+    @property
+    def card_count(self):
+        return len(self.cards_in_deck)
+
+class CardTag(models.TextChoices):
+    FOX = "Fox", "Fox"
+    RABBIT = "Rabbit", "Rabbit"
+    MOUSE = "Mouse", "Mouse"
+    BIRD = "Bird", "Bird"
+    FROG = "Frog", "Frog"
+    DOMINANCE = "Dominance", "Dominance"
+
+class Card(models.Model):
+    """
+    A single card in a DeckGroup.
+    """
+    group = models.ForeignKey(DeckGroup, related_name="cards", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, blank=True, null=True)
+    text = models.CharField(max_length=255, blank=True, null=True)
+    front_image = models.ImageField(upload_to=card_upload_path)
+    tags = models.JSONField(default=list, blank=True, null=True)
+
+    order = models.PositiveIntegerField(editable=False, default=0)  # for deterministic ordering
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            max_order = self.group.cards.aggregate(Max('order'))['order__max'] or 0
+            self.order = max_order + 1
+        else:
+            old_instance = Card.objects.get(pk=self.pk)
+            # List of fields to check and delete old images if necessary
+            field_name = 'front_image'
+
+            old_image = getattr(old_instance, field_name)
+            new_image = getattr(self, field_name)
+            if old_image != new_image:
+                delete_old_image(old_image)
+
+        super().save(*args, **kwargs)
+
+    @property
+    def deck(self):
+        """Return the deck this card belongs to."""
+        return self.group.get_or_create_deck_for_card_index(self.order)
+
+    @property
+    def card_index_in_deck(self):
+        """Return this card's index within its deck (0-98)."""
+        return self.order % 99
+
+    @property
+    def tag_string(self):
+        return " ".join(self.tags).strip() if self.tags else ""
 
 class FeaturedItem(models.Model):
     date = models.DateField(unique=True)

@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %} - Delete{% endblock %}
+{% block title %}Delete | {% endblock %}
 {% block content %}
     <div class="content-section">
         <form method="POST">
@@ -28,7 +28,7 @@
                     {% trans 'Yes, Delete' %}
                 </button>
                 {% if object.post %}
-                <a class="btn btn-secondary" href="{% url 'faq-view' slug=object.post.slug lang_code=object.language.code %}">{% trans 'Cancel' %}</a>
+                <a class="btn btn-secondary" href="{% url 'faq-view' slug=object.post.slug language_code=object.language.code %}">{% trans 'Cancel' %}</a>
                 {% else %}
                     <a class="btn btn-secondary" href="{% url 'website-faq' %}">{% trans 'Cancel' %}</a>
                 {% endif %}

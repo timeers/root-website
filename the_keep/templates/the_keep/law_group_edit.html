@@ -14,7 +14,7 @@
     {% csrf_token %}
     {{ form|crispy }}
     <button type="submit" class="btn btn-success">{% trans "Save" %}</button>
-    <a href="{% url 'edit-law-view' slug=source_group.slug lang_code=lang_code %}" class="btn btn-secondary">{% trans "Cancel" %}</a>
+    <a href="{% url 'edit-law-view' slug=source_group.slug language_code=language_code %}" class="btn btn-secondary">{% trans "Cancel" %}</a>
   </form>
 </article>
 {% endblock %}

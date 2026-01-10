@@ -1,0 +1,86 @@
+
+{% load static i18n %}
+<div class="p-2 flex-fill text-center piece-box">
+    <h5 class='root-title'>{% trans 'Captain Items' %}</h5>
+    <div id="V-pieces" class="d-flex flex-column align-items-center">
+        {% if object.captain_tea or object.captain_bag or object.captain_boots or object.captain_coins or object.captain_hammer or object.captain_sword or object.captain_crossbow %}
+            {% if object.captain_tea %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}tea.png" alt="Tea">x
+                        {{ object.captain_tea }}
+                        {% trans 'Tea' %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if object.captain_bag %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}bag.png" alt="Bag">x
+                        {{ object.captain_bag }}
+                        {% if not object.captain_bag == 1 %}{% trans 'Bags' %}{%else%}{% trans 'Bag' %}{% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if object.captain_boots %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}boots.png" alt="Boots">x
+                        {{ object.captain_boots }}
+                        {% if not object.captain_boots == 1 %}{% trans 'Boots' %}{%else%}{% trans 'Boot' %}{% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if object.captain_coins %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}coins.png" alt="Coins">x
+                        {{ object.captain_coins }}
+                        {% trans 'Coins' %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if object.captain_hammer %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}hammer.png" alt="Hammer">x
+                        {{ object.captain_hammer }}
+                        {% if not object.captain_hammer == 1 %}{% trans 'Hammers' %}{%else%}{% trans 'Hammer' %}{% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if object.captain_sword %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}sword.png" alt="Sword">x
+                        {{ object.captain_sword }}
+                        {% if not object.captain_sword == 1 %}{% trans 'Swords' %}{%else%}{% trans 'Sword' %}{% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if object.captain_crossbow %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <img class="lg-faction-icon mr-2" src="{% static 'items/' %}crossbow.png" alt="Crossbow">x
+                        {{ object.captain_crossbow }}
+                        {% if not object.captain_crossbow == 1 %}{% trans 'Crossbows' %}{%else%}{% trans 'Crossbow' %}{% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    {% trans 'None' %}
+                </div>
+            </div>
+        {% endif %}
+        {% if object.designer == user.profile and user.profile.designer %}
+            <div class="d-flex">
+                <button class="btn btn-outline-warning btn-sm ml-1 mb-1 hidden-buttons" id="saveAndGo-button">
+                    {% trans 'Edit Items' %} <i class="bi bi-pencil-square"></i>
+                </button>
+            </div>
+        {% endif %}
+    </div>
+</div>
+        

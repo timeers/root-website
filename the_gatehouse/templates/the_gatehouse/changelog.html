@@ -1,0 +1,29 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n static %}
+
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+{% if latest_changelog.image %}
+    <meta property="og:image" content="{{ latest_changelog.image.url }}">
+{% else %}
+    <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+{% endif %}
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta%}
+
+
+{% block content %}
+<div class='card my-2'>
+<h1 class='root-title text-center my-3'>Changelog</h1>
+</div>
+{% with latest_changelog as release %}
+{% include 'the_gatehouse/partials/changelog_entry.html' %}
+{% endwith %}
+{% include 'the_gatehouse/partials/changelog_list.html' %}
+
+{% endblock content %}

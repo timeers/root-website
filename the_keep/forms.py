@@ -13,13 +13,14 @@ from the_keep.utils import generate_abbreviation_choices
 from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
     Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation,
-    LawGroup, Law, FAQ
+    LawGroup, Law, FAQ,
+    DeckGroup, Card, CardTag
 )
 
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'co_designers', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
+top_fields = ['designer', 'co_designers', 'co_designers_can_edit', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
 bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'language']
 
 
@@ -28,9 +29,15 @@ class PostSearchForm(forms.ModelForm):
 
 class ExpansionCreateForm(forms.ModelForm):
     form_type = 'Expansion'
+    co_designers = forms.ModelMultipleChoiceField(required=False, 
+        queryset=Profile.objects.all(),
+        widget=forms.SelectMultiple,
+        help_text="Co-Designers will be credited but unable to make changes.",
+        label="Co-Designers (Optional)"
+        )
     class Meta:
         model = Expansion
-        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'open_roster', 'end_date']
+        fields = ['title', 'picture', 'description', 'lore', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'open_roster', 'end_date', 'designer', 'co_designers']
         labels = {
             'bgg_link': "Board Game Geek Post", 
             'tts_link': "Tabletop Simulator", 
@@ -45,6 +52,11 @@ class ExpansionCreateForm(forms.ModelForm):
         }
     def __init__(self, user=None, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            expansion_instance = kwargs.pop('instance', None)
+            if expansion_instance and expansion_instance.designer:
+                self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(
+                    id=expansion_instance.designer.id
+                )    
             self.fields['description'].widget.attrs.update({
                 'rows': '2'
                 })
@@ -57,6 +69,7 @@ class ExpansionCreateForm(forms.ModelForm):
             if not user.profile.admin:
                 self.fields.pop('open_roster', None)
                 self.fields.pop('end_date', None)
+                self.fields.pop('designer', None)
             # Remove Weird Root link option if not in Weird Root
             if not user.profile.in_weird_root:
                 self.fields.pop('wr_link', None)
@@ -74,6 +87,13 @@ class ExpansionCreateForm(forms.ModelForm):
             pnp_link = cleaned_data.get('pnp_link')
             leder_games_link = cleaned_data.get('leder_games_link')
             rootjam_link = cleaned_data.get('rootjam_link')
+            designer = cleaned_data.get('designer')
+            co_designers = cleaned_data.get('co_designers')
+
+            if designer and co_designers and designer in co_designers:
+                raise ValidationError(
+                    {"co_designers": f"Designer {designer} cannot also be listed as a co-designer."}
+                )
             # Validate URLs
             url_validator = URLValidator()
             for url in [bgg_link, tts_link, ww_link, wr_link, pnp_link, leder_games_link, rootjam_link]:
@@ -92,7 +112,7 @@ class ExpansionCreateForm(forms.ModelForm):
                 raise ValidationError('Link to Board Game Geek is not a valid thread')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
                 raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
-            if leder_games_link and not "ledergames.com/products" in leder_games_link:
+            if leder_games_link and not "ledergames.com/products" in leder_games_link and not "ledergames.com/collections/games/products/" in leder_games_link:
                     raise ValidationError('Link to Leder Games is not a valid product')
             if pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
                     raise ValidationError('PNP links must be to Dropbox or Google Drive')
@@ -363,12 +383,22 @@ class PostCreateForm(forms.ModelForm):
         queryset=Language.objects.all(),
         empty_label=None
     )
-    co_designers = forms.ModelMultipleChoiceField(required=False, 
+    co_designers = forms.ModelMultipleChoiceField(
+        required=False, 
         queryset=Profile.objects.all(),
         widget=forms.SelectMultiple,
-        help_text="Co-Designers will be credited but unable to make changes.",
+        help_text="Co-Designers are credited in the design's header and the design is added to their profile page.",
         label="Co-Designers (Optional)"
         )
+    co_designers_can_edit = forms.BooleanField(
+        help_text="Co-Designers with an authorized account will be able to make changes (they will not be able to add or remove co-designers).",
+        label="Allow co-designers to make changes",
+        required=False,
+    )
+    designer = forms.ModelChoiceField(
+        queryset=Profile.objects.all(),
+        help_text='Once approved, the designer will be able to make changes and authorize co-designers.'
+    )
     class Meta:
         model = Post
         fields = top_fields + bottom_fields
@@ -429,11 +459,9 @@ class PostCreateForm(forms.ModelForm):
         # Conditionally exclude artists for non admin users
         exclude_profiles = ['kyleferrin', 'leder games', 'joshuayearsley', 'patrickleder']
         
-        # If not admin user the designer will be the active user
-        # Admin users can create posts for any user.
         if not user.profile.admin:
             self.fields['artist'].queryset = Profile.objects.exclude(discord__in=exclude_profiles)
-            self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
+            # self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
             # Limit language choices to English and the user's language
             if user_language:
                 self.fields['language'].queryset = Language.objects.filter(
@@ -442,15 +470,20 @@ class PostCreateForm(forms.ModelForm):
             else:
                 # If no language only allow English
                 self.fields['language'].queryset = Language.objects.filter(code='en')
-        else:
-            self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
-            Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B") | Q(group='E')
-            )
+ 
+
         # Remove language if it already exists
         if post_instance:
             self.fields.pop('language', None)
             self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(
                 id=post_instance.designer.id
+            )
+            if not user.profile.admin and not user.profile == post_instance.designer:
+                self.fields.pop('co_designers_can_edit', None)
+                self.fields.pop('co_designers', None)
+
+        self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
+            Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B") | Q(group='E')
             )
 
         if not post_instance:
@@ -458,9 +491,7 @@ class PostCreateForm(forms.ModelForm):
 
         self.fields['designer'].label = "Designer"
 
-        # Hide the designer field for non-admin users
-
-        if not user.profile.admin or post_instance:
+        if post_instance:
             self.fields.pop('designer', None)  # Remove designer field entirely
         if not user.profile.admin:
             self.fields.pop('official', None)  # Remove official field entirely
@@ -503,6 +534,7 @@ class PostCreateForm(forms.ModelForm):
             wr_link = cleaned_data.get('wr_link')
             fr_link = cleaned_data.get('fr_link')
             pnp_link = cleaned_data.get('pnp_link')
+            stl_link = cleaned_data.get('stl_link')
             rootjam_link = cleaned_data.get('rootjam_link')
             leder_games_link = cleaned_data.get('leder_games_link')
             official = cleaned_data.get('official')
@@ -512,41 +544,59 @@ class PostCreateForm(forms.ModelForm):
 
             # Check that at least one of the links are filled
             if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]):
-                raise ValidationError("Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+                self.add_error(None, "Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+                # raise ValidationError("Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+            
             # Validate URLs
             url_validator = URLValidator()
-            for url in [bgg_link, tts_link, ww_link, wr_link, fr_link, pnp_link, leder_games_link, rootjam_link]:
-                if url:  # Only validate if the field is filled
+
+            url_fields = {
+                'bgg_link': bgg_link,
+                'tts_link': tts_link,
+                'ww_link': ww_link,
+                'wr_link': wr_link,
+                'fr_link': fr_link,
+                'pnp_link': pnp_link,
+                'leder_games_link': leder_games_link,
+                'rootjam_link': rootjam_link,
+                'stl_link': stl_link,
+            }
+
+            for field_name, url in url_fields.items():
+                if url:  # only validate filled fields
                     try:
                         url_validator(url)
                     except ValidationError:
-                        raise ValidationError(f"The field '{url}' must be a valid URL.")
+                        self.add_error(
+                            field_name,
+                            "Please enter a valid URL."
+                )
+
+
             if ww_link and not f"discord.com/channels/{config['WW_GUILD_ID']}" in ww_link:
-                raise ValidationError(f"Link to Woodland Warriors is not a valid thread")
+                self.add_error('ww_link', f"Link to Woodland Warriors is not a valid thread. Please ensure the link is to the correct Discord server.")
             if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
-                raise ValidationError(f"Link to Weird Root is not a valid thread")
+                self.add_error('wr_link', f"Link to Weird Root is not a valid thread. Please ensure the link is to the correct Discord server.")
             if fr_link and not f"discord.com/channels/{config['FR_GUILD_ID']}" in fr_link:
-                raise ValidationError(f"Link to French Root is not a valid thread")
+                self.add_error('fr_link', f"Link to French Root is not a valid thread. Please ensure the link is to the correct Discord server.")
             if bgg_link and not "boardgamegeek.com/thread/" in bgg_link:
-                raise ValidationError('Link to Board Game Geek is not a valid thread')
+                self.add_error('bgg_link', 'Link to Board Game Geek is not a valid thread. Please ensure the link is to a BGG Thread.')
             if tts_link and not "steamcommunity.com/sharedfiles/" in tts_link:
-                raise ValidationError('Link to Tabletop Simulator is not a valid shared file')
+                self.add_error('tts_link', 'Link to Tabletop Simulator is not a valid shared file. Please ensure the link is a valid Steam Workshop link.')
             if pnp_link and not "dropbox.com" in pnp_link and not "drive.google.com" in pnp_link and not "docs.google.com" in pnp_link:
-                    raise ValidationError('PNP links must be to Dropbox or Google Drive')
+                    self.add_error('pnp_link', 'PNP links must be to Dropbox or Google Drive.')
             if rootjam_link and not "itch.io/" in rootjam_link:
-                    raise ValidationError('Link to RootJam entry is not a valid itch.io page')
+                    self.add_error('rootjam_link', 'Link to RootJam entry is not a valid itch.io page.')
             if leder_games_link:
-                if not "ledergames.com/products" in leder_games_link:
-                    raise ValidationError('Link to Leder Games is not a valid product')
+                if not "ledergames.com/products" in leder_games_link and not "ledergames.com/collections/games/products/" in leder_games_link:
+                    self.add_error('leder_games_link', 'Link to Leder Games is not a valid product.')
                 if not official:
-                    raise ValidationError('Only Official products can be linked to Leder Games')
+                    self.add_error('leder_games_link', 'Only Official products can be linked to Leder Games')
             if in_root_digital and not official:
-                raise ValidationError('Only official products can be included in Root Digital')
+                self.add_error('in_root_digital','Only official products can be included in Root Digital')
             
             if designer and co_designers and designer in co_designers:
-                raise ValidationError(
-                    {"co_designers": f"Designer {designer} cannot also be listed as a co-designer."}
-                )
+                self.add_error("co_designers", f"Designer {designer} cannot also be listed as a co-designer.")
 
             return cleaned_data
 
@@ -629,7 +679,12 @@ class MapCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         title = cleaned_data.get('title')
             # Check if the same name already exists
         if Map.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Map").exists():
-            raise ValidationError(f'A map with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A Map with the name {title} already exists. Please choose a different name.")
+        if self.errors:
+            self.add_error(
+                None,
+                "Please fix the errors below before submitting."
+            )
         return cleaned_data
 
 class MapImportForm(PostImportForm):  # Inherit from PostCreateForm
@@ -688,7 +743,12 @@ class DeckCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         title = cleaned_data.get('title')
             # Check if the same name already exists
         if Deck.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Deck").exists():
-            raise ValidationError(f'A deck with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A Deck with the name {title} already exists. Please choose a different name.")
+        if self.errors:
+            self.add_error(
+                None,
+                "Please fix the errors below before submitting."
+            )        
         return cleaned_data
 
 class DeckImportForm(PostImportForm):
@@ -753,7 +813,12 @@ class LandmarkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         title = cleaned_data.get('title')
             # Check if the same name already exists
         if Landmark.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Landmark").exists():
-            raise ValidationError(f'A landmark with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A Landmark with the name {title} already exists. Please choose a different name.")
+        if self.errors:
+            self.add_error(
+                None,
+                "Please fix the errors below before submitting."
+            )
         return cleaned_data
 
 class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
@@ -795,7 +860,12 @@ class TweakCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         title = cleaned_data.get('title')
             # Check if the same name already exists
         if Tweak.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Tweak").exists():
-            raise ValidationError(f'A tweak with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A House Rule with the name {title} already exists. Please choose a different name.")
+        if self.errors:
+            self.add_error(
+                None,
+                "Please fix the errors below before submitting."
+            )
         return cleaned_data
 
 class HirelingImportForm(PostImportForm):  # Inherit from PostCreateForm
@@ -892,7 +962,14 @@ class HirelingCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         title = cleaned_data.get('title')
             # Check if the same name already exists
         if Hireling.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Hireling").exists():
-            raise ValidationError(f'A hireling with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A Hireling with the name {title} already exists. Please choose a different name.")
+
+            # raise ValidationError(f'A hireling with the name "{title}" already exists. Please choose a different name.')
+        if self.errors:
+            self.add_error(
+                None,
+                "Please fix the errors below before submitting."
+            )
         return cleaned_data
 
 class VagabondCreateForm(PostCreateForm): 
@@ -923,16 +1000,31 @@ class VagabondCreateForm(PostCreateForm):
         label=_('Vagabond Card'),  # Set the label for the card_image field
         required=True
     )
+    captain = forms.BooleanField(
+        label=_('Include as Captain'),
+        required=False
+    )
+    card_2_image = forms.ImageField(
+        label=_('Captain Card*'),  # Set the label for the card_image field
+        required=False
+    )
+    
     class Meta(PostCreateForm.Meta):  # Inherit Meta from PostCreateForm
         model = Vagabond  # Specify the model to be Vagabond
-        fields = top_fields + ['picture', 'animal', 'based_on', 'card_image',
-                                'ability_item', 'ability', 'ability_description', 
-                                'starting_torch', 'starting_coins', 'starting_boots',
-                                'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow'] + bottom_fields
+        fields = top_fields + [
+            'picture', 'animal', 'based_on', 'card_image',
+            'ability_item', 'ability', 'ability_description', 
+            'starting_torch', 'starting_coins', 'starting_boots',
+            'starting_bag', 'starting_tea', 'starting_sword', 'starting_hammer', 'starting_crossbow', 'card_2_image'
+            ] + bottom_fields + [
+                'captain', 'captain_ability',
+                'captain_coins', 'captain_boots', 'captain_bag', 'captain_tea', 'captain_sword', 'captain_hammer', 'captain_crossbow'
+            ]
     def __init__(self, *args, **kwargs):
         instance = kwargs.get('instance', None)
         super().__init__(*args, **kwargs)
         self.fields['ability_description'].widget.attrs.update({'rows': '2'})
+        self.fields['captain_ability'].widget.attrs.update({'rows': '2'})
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief explanation on how to use this Vagabond...'
             })
@@ -957,12 +1049,73 @@ class VagabondCreateForm(PostCreateForm):
             starting_hammer = cleaned_data.get('starting_hammer')
             starting_crossbow = cleaned_data.get('starting_crossbow')
             title = cleaned_data.get('title')
+
+            captain = cleaned_data.get('captain')
+            captain_ability = cleaned_data.get('captain_ability')
+            captain_coins = cleaned_data.get('captain_coins')
+            captain_boots = cleaned_data.get('captain_boots')
+            captain_bag = cleaned_data.get('captain_bag')
+            captain_tea = cleaned_data.get('captain_tea')
+            captain_sword = cleaned_data.get('captain_sword')
+            captain_hammer = cleaned_data.get('captain_hammer')
+            captain_crossbow = cleaned_data.get('captain_crossbow')
+            card_2_image = cleaned_data.get('card_2_image')
+
             # Check if the same name already exists
             if Vagabond.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Vagabond").exists():
-                raise ValidationError(f'A vagabond with the name "{title}" already exists. Please choose a different name.')
+                self.add_error('title', f"A Vagabond with the name {title} already exists. Please choose a different name.")
+                # raise ValidationError(f'A vagabond with the name "{title}" already exists. Please choose a different name.')
             # Check that the VB doesn't have a wild amount of items
             if (starting_torch+starting_coins+starting_boots+starting_bag+starting_tea+starting_sword+starting_hammer+starting_crossbow) > 8:
-                raise ValidationError("Please check the number of starting items (8 max). A Vagabond typically starts with 3-4 items.")
+                self.add_error(None, "Please check the number of starting items (8 max). A Vagabond typically starts with 3-4 items.")
+                self.add_error('starting_torch', '')
+                self.add_error('starting_coins', '')
+                self.add_error('starting_boots', '')
+                self.add_error('starting_bag', '')
+                self.add_error('starting_tea', '')
+                self.add_error('starting_sword', '')
+                self.add_error('starting_hammer', '')
+                self.add_error('starting_crossbow', '')
+                # raise ValidationError("Please check the number of starting items (8 max). A Vagabond typically starts with 3-4 items.")
+            
+            # Captain Logic
+            if captain:
+                captain_items = captain_coins+captain_boots+captain_bag+captain_tea+captain_sword+captain_hammer+captain_crossbow
+                if captain_items != 2:
+                    self.add_error(None, f"A Knave Captain cannot have {captain_items} Item(s). Please select 2.")
+                    self.add_error('captain_coins', '')
+                    self.add_error('captain_boots', '')
+                    self.add_error('captain_bag', '')
+                    self.add_error('captain_tea', '')
+                    self.add_error('captain_sword', '')
+                    self.add_error('captain_hammer', '')
+                    self.add_error('captain_crossbow', '')
+                    # raise ValidationError(f"A Knave Captain cannot have {captain_items} Item(s). Please select 2.")
+                if captain_ability == "":
+                    self.add_error('captain_ability', "Please describe the Captain's Ability.")
+                    # raise ValidationError("Please describe the Captain Ability.")
+                if not card_2_image:
+                    self.add_error('card_2_image', "Please include a Knave Captain Card.")
+                    # raise ValidationError("Please include a Knave Captain Card.")
+            else:
+                # If not a captain, reset all captain fields
+                cleaned_data['captain_ability'] = ""
+                cleaned_data['captain_coins'] = 0
+                cleaned_data['captain_boots'] = 0
+                cleaned_data['captain_bag'] = 0
+                cleaned_data['captain_tea'] = 0
+                cleaned_data['captain_sword'] = 0
+                cleaned_data['captain_hammer'] = 0
+                cleaned_data['captain_crossbow'] = 0
+                cleaned_data['card_2_image'] = None
+
+
+            if self.errors:
+                self.add_error(
+                    None,
+                    "Please fix the errors below before submitting."
+                )
+
             return cleaned_data
 
 class VagabondImportForm(PostImportForm): 
@@ -1068,17 +1221,22 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         type = cleaned_data.get('type')
         if reach != 0:
             if type == 'I' and reach > 6:
-                raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
+                self.add_error('reach', 'Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
+                # raise ValidationError('Reach Score does not match Type selected. Either decrease Reach or select "Militant"')
             elif type == 'M' and reach < 6:
-                raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
+                self.add_error('reach', 'Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
+                # raise ValidationError('Reach Score does not match Type selected. Either increase Reach or select "Insurgent"')
             elif type == "U" and reach != 0:
-                raise ValidationError('Reach Score does not match Type selected.')
+                self.add_error('reach', 'Reach Score does not match Type selected.')
+                # raise ValidationError('Reach Score does not match Type selected.')
 
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')
 
         if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Faction").exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Clockwork").exists():
-            raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A Faction with the name {title} already exists. Please choose a different name.")
+
+            # raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
 
     def clean(self):
         cleaned_data = super().clean()
@@ -1158,15 +1316,21 @@ class ClockworkCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         label=_('Faction Board Front'),  # Set the label for the faction board field
         required=True
     )
+    board_2_image = forms.ImageField(
+        label=_('Faction Board Back'),  # Set the label for the faction board back field
+        required=False
+    )
     class Meta(PostCreateForm.Meta): 
         model = Faction 
-        fields = top_fields + ['picture', 'color', 'color_group', 'small_icon', 'animal', 'based_on', 'board_image'] + bottom_fields
+        fields = top_fields + ['picture', 'color', 'color_group', 'small_icon', 'animal', 'based_on', 'board_image', 'board_2_image'] + bottom_fields
 
     def clean_title_uniqueness(self, cleaned_data):
         title = cleaned_data.get('title')
 
         if Faction.objects.exclude(id=self.instance.id).filter(title__iexact=title).exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Faction").exists() or PostTranslation.objects.exclude(post__id=self.instance.id).filter(translated_title__iexact=title, post__component="Clockwork").exists():
-            raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
+            self.add_error('title', f"A Faction with the name {title} already exists. Please choose a different name.")
+
+            # raise ValidationError(f'A faction with the name "{title}" already exists. Please choose a different name.')
 
     def clean(self):
         cleaned_data = super().clean()
@@ -1226,7 +1390,9 @@ class PieceForm(forms.ModelForm):
         quantity = self.cleaned_data.get('quantity')
 
         if quantity > 99:
-            raise ValidationError('Quantity cannot be greater than 99.')
+            self.add_error('quantity', 'Quantity cannot be greater than 99.')
+
+            # raise ValidationError('Quantity cannot be greater than 99.')
         
         return quantity
 
@@ -1389,3 +1555,20 @@ class FAQForm(forms.ModelForm):
 
 class YAMLUploadForm(forms.Form):
     file = forms.FileField(label="Upload YAML Law file")
+
+
+# Card & DeckGroups
+class DeckGroupForm(forms.ModelForm):
+    class Meta:
+        model = DeckGroup
+        fields = ["name", "back_image"]
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+
+class CardForm(forms.ModelForm):
+    class Meta:
+        model = Card
+        fields = ["name", "front_image"]

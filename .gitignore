@@ -22,10 +22,13 @@ media/deck_images/
 media/faction_boards/
 media/faction_icons/
 media/foreground_images/
+media/pieces/
 media/profile_pics/
 media/rules/
 media/small_component_icons/
 media/small_images/
+media/tts_decks/
+media/uploads/
 
 # Django stuff:
 *.log

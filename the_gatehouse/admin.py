@@ -5,7 +5,8 @@ from django.urls import path, reverse
 from django.shortcuts import render
 from .models import (Profile, PlayerBookmark, 
                      Theme, BackgroundImage, ForegroundImage, 
-                     Website, Language, Holiday, DailyUserVisit, DiscordGuild)
+                     Website, Language, Holiday, DailyUserVisit, DiscordGuild,
+                     Changelog, ChangelogEntry)
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -18,6 +19,10 @@ class BackgroundInline(admin.StackedInline):
 class ForegroundInline(admin.StackedInline):
     model = ForegroundImage
     extra = 0
+class ChangelogEntryInline(admin.StackedInline):
+    model = ChangelogEntry
+    extra = 0
+
 
 class DiscordGuildAdmin(admin.ModelAdmin):
     list_display = ['name', 'guild_id']
@@ -35,6 +40,10 @@ class HolidayAdmin(admin.ModelAdmin):
 class ThemeAdmin(admin.ModelAdmin):
     list_display = ['name', 'holiday', 'public', 'active', 'backup_theme']
     inlines = [BackgroundInline, ForegroundInline]
+
+class ChangelogAdmin(admin.ModelAdmin):
+    list_display = ['version', 'title', 'date']
+    inlines = [ChangelogEntryInline]
 
 class BackgroundImageAdmin(admin.ModelAdmin):
     list_display = ['name', 'page', 'theme__name', 'image']
@@ -284,3 +293,4 @@ admin.site.register(Language, LanguangeAdmin)
 admin.site.register(Holiday, HolidayAdmin)
 admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
 admin.site.register(DiscordGuild, DiscordGuildAdmin)
+admin.site.register(Changelog, ChangelogAdmin)

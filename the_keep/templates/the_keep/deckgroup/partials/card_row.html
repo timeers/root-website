@@ -1,0 +1,73 @@
+{% load custom_filters static %}
+<div class="col-md-4 col-lg-3 mb-3" id="card-{{ card.id }}">
+    {% comment %} <div class="card p-3 text-center h-100"> {% endcomment %}
+
+    <div class="card p-3 text-center h-100{% if not is_edit %} card-hover{% endif %}" 
+        {% if not is_edit %}
+        data-card-id="{{ card.id }}"
+        data-card-name="{{ card.name|default:'' }}"
+        data-card-text="{{ card.text|default:'' }}"
+        data-card-image="{% if card.front_image %}{{ card.front_image.url }}{% endif %}"
+        data-card-tags='{{ card.tags|json_encode|default:"[]" }}'
+        {% endif %}>
+
+
+    <!-- Tags (always reserve space) -->
+    <div style="min-height: 40px; display: flex; align-items: center; justify-content: center;">
+        {% if card.tags %}
+        {% for tag in card.tags %}
+        <img class="lg-faction-icon"  
+            src="{% static 'images/tags/' %}{{ tag }}_Tag.png" 
+            alt="{{ tag }} Tag">
+        {% endfor %}
+        {% else %}
+        &nbsp;
+        {% endif %}
+    </div>
+
+    
+    <!-- Card Image -->
+    {% if card.front_image %}
+    <div class="mb-2 flex-grow-1 d-flex align-items-center justify-content-center">
+        <img src="{{ card.front_image.url }}" 
+            class="img-fluid rounded" 
+            style="max-width: 100%; height: auto; max-height: 200px; object-fit: contain;"
+            alt="{{ card.name|default:'Card' }}">
+    </div>
+    {% endif %}
+    
+
+    <!-- Card Name -->
+    <h6 class="h5 root-title card-title mb-2" style="min-height: 1.5rem;">
+        {% if card.name %}{{ card.name }}{% else %}&nbsp;{% endif %}
+    </h6>
+
+
+    
+    <!-- Edit/Delete Buttons (if in edit mode) -->
+    {% if is_edit %}
+    {% if card.text %}
+        <div class='text-center'>
+            {{ card.text }}
+        </div>
+    {% endif %}
+    <div class="d-flex justify-content-center mt-auto">
+        <button type="button"
+                class="btn btn-secondary btn-sm edit-card-btn mr-2"
+                data-card-id="{{ card.id }}"
+                data-card-name="{{ card.name|default:'' }}"
+                data-card-image="{% if card.front_image %}{{ card.front_image.url }}{% endif %}"
+                data-card-tags='{{ card.tags|json_encode|default:"[]" }}'>
+        Edit
+        </button>
+        <button type="button"
+                class="btn btn-danger btn-sm delete-card-btn"
+                data-card-id="{{ card.id }}"
+                data-card-name="{{ card.name|default:'' }}"
+                data-card-image="{% if card.front_image %}{{ card.front_image.url }}{% endif %}">
+        Delete
+        </button>
+    </div>
+    {% endif %}
+    </div>
+</div>

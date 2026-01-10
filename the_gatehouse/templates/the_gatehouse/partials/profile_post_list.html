@@ -11,6 +11,10 @@
             <div hx-trigger="revealed" 
             hx-get="{% url 'artist-components' player.slug %}?page={{ posts.number|add:1 }}"
             hx-swap="afterend">
+        {% elif submitted_page %}
+            <div hx-trigger="revealed" 
+            hx-get="{% url 'submitted-components' player.slug %}?page={{ posts.number|add:1 }}"
+            hx-swap="afterend">
         {% else %}
             <div hx-trigger="revealed" 
             hx-get="{% url 'designer-components' player.slug %}?page={{ posts.number|add:1 }}"

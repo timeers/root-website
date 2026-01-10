@@ -12,7 +12,9 @@
             {% endif %}
             <th style="text-align: center;">{% trans 'Turn Total' %}</th>
             {% if object.dominance %}
-                <th style="text-align: center;">{% trans 'Dom' %}</th>
+                <th style="text-align: center;">
+                    {% trans 'Dominance' %}
+                </th>
             {% endif %}
         </tr>
     </thead>
@@ -56,7 +58,10 @@
                     src="{{ object.effort.coalition_with.small_icon.url }}"
                     alt="{{ object.effort.coalition_with.title }} Coalition">
                 {% else %}
-                    {% trans 'Dom' %}
+                    {% comment %} {% trans 'Dom' %} {% endcomment %}
+                    <img class="lg-faction-icon"  
+                    src="{% static 'images/tags/' %}Dominance_Tag.png" 
+                    alt="Dominance">
                 {% endif %}
             {% endif %}
         </td>

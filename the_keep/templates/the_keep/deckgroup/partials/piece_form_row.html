@@ -1,0 +1,90 @@
+{% load i18n %}
+
+<tr class="piece-form-row" data-form-id="add-piece-form">
+  <!-- Column 1: Image -->
+  <td>
+    <div class="image-preview-container mt-1" style="display:none;">
+      <img
+        class="image-preview"
+        src=""
+        alt="{% trans 'Image Preview' %}"
+        style="max-width:40px; max-height:40px;"
+      >
+    </div>
+    <label class="file-input-button">
+      {% trans "Card Back" %}
+      <input
+        type="file"
+        class="compact-file-input"
+        name="small_icon"
+        form="add-piece-form"
+      >
+    </label>
+
+  </td>
+  
+  <!-- Column 2: Name -->
+  <td>
+    <input type="text" name="name" form="add-piece-form" class="form-control">
+  </td>
+  
+  <!-- Column 3: Quantity + Actions -->
+  <td>
+    <div class="d-flex align-items-center">
+      <input type="number" name="quantity" form="add-piece-form" class="form-control mr-2" style="width: 80px;">
+      <button
+        type="submit"
+        form="add-piece-form"
+        class="btn btn-outline-success btn-sm ml-auto"
+        title="{% trans 'Save' %}"
+      >
+        <i class="bi bi-check2"></i>
+      </button>
+      <button
+        type="button"
+        class="btn btn-outline-danger btn-sm ml-2"
+        onclick="
+        let row = this.closest('.piece-form-row');
+        let next = row.nextElementSibling;
+        if (next && next.id === 'piece-form-errors') next.remove();
+        row.remove();
+        "
+        title="{% trans 'Cancel' %}"
+      >
+        <i class="bi bi-trash3"></i>
+      </button>
+    </div>
+  </td>
+</tr>
+
+<tr id="piece-form-errors" {% if not form.errors %}style="display: none;"{% endif %}>
+  <td colspan="3">
+    <div class="alert alert-danger mb-0" role="alert">
+      <strong>{% trans "Error:" %}</strong>
+      <ul class="mb-0 mt-1">
+        {% for field, errors in form.errors.items %}
+            {% for error in errors %}
+                <li>{{ field }}: {{ error }}</li>
+            {% endfor %}
+        {% endfor %}
+      </ul>
+    </div>
+  </td>
+</tr>
+
+
+<form
+  id="add-piece-form"
+  hx-post="{% url 'add-piece' %}?piece=C&slug={{ object.slug }}&type=row&language_code={{ language_code }}"
+  hx-target="#asset-table"
+  hx-swap="beforeend"
+  hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+  hx-on="htmx:afterRequest: document.querySelector('.piece-form-row').remove()"
+  method="post"
+  enctype="multipart/form-data"
+  style="display: none;"
+>
+  {{ form.id }}
+</form>
+
+

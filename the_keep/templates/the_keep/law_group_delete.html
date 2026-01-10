@@ -13,7 +13,7 @@
   <form method="post">
     {% csrf_token %}
     <button type="submit" class="btn btn-danger">{% trans "Delete All" %}</button>
-    <a href="{% url 'edit-law-view' slug=slug lang_code=lang_code %}" class="btn btn-secondary">{% trans "Cancel" %}</a>
+    <a href="{% url 'edit-law-view' slug=slug language_code=language_code %}" class="btn btn-secondary">{% trans "Cancel" %}</a>
   </form>
 </article>
 {% endblock %}

@@ -5,6 +5,14 @@ from the_keep.models import Faction, Deck, Map, Vagabond
 from the_gatehouse.models import Profile
 from django import forms
 
+def filter_official(self, queryset, name, value):
+    if value == 'true':
+        return queryset.filter(official=True)
+    elif value == 'false':
+        return queryset.filter(official=False)
+    # If empty string, return all
+    return queryset
+
 class GameFilter(django_filters.FilterSet):
 
     map = django_filters.ModelChoiceFilter(
@@ -45,6 +53,7 @@ class GameFilter(django_filters.FilterSet):
 
 
     def __init__(self, *args, user=None, **kwargs):
+    
         super().__init__(*args, **kwargs)
 
         official_only = False

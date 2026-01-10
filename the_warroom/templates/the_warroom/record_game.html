@@ -1,35 +1,52 @@
 {% extends 'the_keep/base.html' %}
-{% block title %} - New Game{% endblock %}
+{% block title %}New Game | {% endblock %}
 {% load crispy_forms_tags i18n %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
         <legend>{% if object.id %}{% trans 'Update Game Data' %}{% else %}{% trans 'Record New Game' %}{% endif %}</legend>
        
-                <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                {% comment %} <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-person-plus-fill"></i>
+                </button> {% endcomment %}
+                <button class="btn btn-success btn-sm ml-2 ms-2" type="button" id="open-register-modal">
+                        <i class="bi bi-person-plus-fill"></i> {% trans "Register Player" %}
                 </button>
                 <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
                         <i class="bi bi-info-circle"></i>
                 </button>
        
 </div>
-<div class="collapse mb-1" id="collapseRegister">
+{% comment %} <div class="collapse mb-1" id="collapseRegister">
         <div class="card card-body">
                 <h5>{% trans 'Register New Player' %}</h5>
                 <div id="player-form-container" style="display: block;">
-                        <form id="register-form" hx-post="{% url 'add-discord-player' %}" hx-trigger="submit" hx-target="#player-form-errors" hx-swap="none">
+                        <form id="register-form" 
+                                class="d-flex flex-wrap align-items-center"
+                                hx-post="{% url 'add-discord-player' %}" 
+                                hx-trigger="submit" 
+                                hx-target="#player-form-errors" 
+                                hx-swap="none">
                                 {% csrf_token %}
 
+                                <div class="mr-2 mb-2">
                                         {{ player_form.discord }}
+                                </div>
+
+                                <div class="mr-2 mb-2">
                                         {{ player_form.display_name }}
-                               
-                                <button type="submit" class="btn btn-primary btn-sm mb-1">{% trans 'Register Player' %}</button>
+                                </div>
+
+                                <div class="mb-2">
+                                        <button type="submit" class="btn btn-primary btn-sm">
+                                                {% trans 'Register Player' %}
+                                        </button>
+                                </div>
                         </form>
                 </div>
                 
                 <div id="player-form-errors"><small>{% trans 'If a player is missing you can add them here (if they do not have Discord choose a unique name for them).' %}</small></div>        
         </div>
-</div>
+</div> {% endcomment %}
 
 
 
@@ -46,7 +63,7 @@
                 Special Games:<br>
                 If you are running a multihanded playtest you should select yourself as the Player for each Faction (Playtests will not affect player Leaderboards).<br>
                 Do not select a Player for Clockwork Factions.<br>
-                If you are playing a co-op game against Clockwork opponents select either all Players or all Clockwork Factions as winners.
+                If you are playing a co-op game against Clockwork opponents, select either all Players or all Clockwork Factions as winners.
             </small></div>        
     </div>
   </div>
@@ -79,12 +96,77 @@
         </div>
 
 
-        
+{% include 'the_warroom/partials/register_player_modal.html' %}
+
 
 {% endblock content %}
 
 {% block scripts %}
 <script>
+
+// Open register player modal when clicking the register button
+document.getElementById("open-register-modal").addEventListener("click", function() {
+  // Clear the form
+  document.getElementById("modal-discord").value = "";
+  document.getElementById("modal-display-name").value = "";
+  document.getElementById("player-modal-errors").innerHTML = "";
+  
+  new bootstrap.Modal(document.getElementById("registerPlayerModal")).show();
+});
+
+// Blur active element when register modal closes to prevent aria-hidden warning
+document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
+  document.activeElement.blur();
+  // Also clear the stored source select ID
+  $(this).data('source-select-id', null);
+});
+
+
+// Reusable function to add register button listener to a select element
+function addRegisterButtonListener(selectElement) {
+  selectElement.on('select2:open', function(e) {
+    const select2 = selectElement.data('select2');
+    const searchField = select2.$dropdown.find('.select2-search__field');
+    
+    searchField.on('input', function() {
+      const searchTerm = $(this).val();
+      
+      setTimeout(() => {
+        // Remove existing register button
+        $('.register-player-btn-container').remove();
+        
+        if (searchTerm.length > 0) {
+          // Check if there's an exact match in the results
+          const results = select2.$results.find('.select2-results__option:not(.select2-results__message)');
+          let hasExactMatch = false;
+          
+          results.each(function() {
+            const resultText = $(this).text().trim().toLowerCase();
+            if (resultText === searchTerm.toLowerCase()) {
+              hasExactMatch = true;
+              return false;
+            }
+          });
+          
+          // Show register button if no exact match
+          if (!hasExactMatch) {
+            const registerBtn = $(`
+              <div class="register-player-btn-container p-2 border-top">
+                <button type="button" class="btn btn-success btn-sm btn-block register-new-player" 
+                        data-search-term="${searchTerm}"
+                        data-select-id="${selectElement.attr('id')}">
+                  <i class="bi bi-person-plus-fill"></i> Register "${searchTerm}"
+                </button>
+              </div>
+            `);
+            
+            select2.$results.append(registerBtn);
+          }
+        }
+      }, 100);
+    });
+  });
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     const platformSelect = document.getElementById('id_platform');
@@ -399,8 +481,8 @@ document.addEventListener('DOMContentLoaded', function() {
         tournamentSelect.addEventListener('change', function() {
         const tournamentValue = tournamentSelect.value;
         const platformValue = platformSelect.value;
-        console.log('testing')
-        console.log(platformSelect.value)
+
+        //console.log(platformSelect.value)
         if (tournamentValue){
                 // Filter by tournament
                 // Update all fields with one API call, but wait for the API response
@@ -595,102 +677,197 @@ function updateSelectOptions(selectElement, optionsData, placeholderText = '') {
 
                 // Initialize Select2 for other fields
                 $("#id_form-" + index.toString() + "-faction").select2();
-                $("#id_form-" + index.toString() + "-player").select2();
+                $("#id_form-" + index.toString() + "-player").select2({
+                        placeholder: "Search for a player...",
+                        allowClear: true,
+                        language: {
+                        noResults: function(params) {
+                        return "No player found";
+                        }
+                        },
+                        // Customize the dropdown to show register button when no results
+                        templateResult: function(data) {
+                        return data.text;
+                        },
+                        // Add custom handler for no results
+                        escapeMarkup: function(markup) {
+                        return markup;
+                        }
+                        });
 
                 });
 
 
 
+// Initialize all existing player select fields on page load
+$(document).ready(function() {
+  $('[id$="-player"]:not(#empty-form [id$="-player"])').each(function() {
+    $(this).select2({
+      placeholder: "Search for a player...",
+      allowClear: true,
+      language: {
+        noResults: function(params) {
+          return "No player found";
+        }
+      }
+    });
+    
+    // Add register button listener
+    addRegisterButtonListener($(this));
+  });
+});
 
-       
+// Handle clicking the register button - open modal
+$(document).on('click', '.register-new-player', function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const searchTerm = $(this).data('search-term');
+  const selectId = $(this).data('select-id');
+  
+  // Store which select triggered this modal
+  $('#registerPlayerModal').data('source-select-id', selectId);
+  
+  // Close only the specific select2 that's open (the one that triggered this)
+  const selectElement = $(`#${selectId}`);
+  if (selectElement.hasClass('select2-hidden-accessible')) {
+    selectElement.select2('close');
+  }
+  
+  
+  // Pre-fill the modal form
+  $('#modal-discord').val(searchTerm);
+
+  
+  // Clear any previous errors
+  $('#player-modal-errors').html('');
+  
+  // Open the modal
+  new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+  
+  // Focus on the discord field after modal is shown
+  $('#registerPlayerModal').on('shown.bs.modal', function() {
+    $('#modal-discord').focus();
+  });
+});
 
 
-
-
-
+// Handle register player form responses (works for both modal and regular form)
 document.addEventListener('htmx:afterRequest', function(event) {
-    // Clear all previous error or success messages before handling the response
-    const errorContainer = document.getElementById('player-form-errors');
-    errorContainer.innerHTML = '';  // Clear all content in the error container
-
+    // Handle both register-form and register-player-modal-form
+    if (event.target.id !== 'register-form' && event.target.id !== 'register-player-modal-form') {
+        return;
+    }
+    
+    const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+    if (!contentType || !contentType.includes('application/json')) {
+        return;
+    }
+    
+    // Determine which error container to use based on which form submitted
+    const isModal = event.target.id === 'register-player-modal-form';
+    const errorContainer = document.getElementById(isModal ? 'player-modal-errors' : 'player-form-errors');
+    
+    // Clear all previous error or success messages
+    errorContainer.innerHTML = '';
+    
     // Remove all error messages for each field before processing the new response
     const existingErrorDivs = document.querySelectorAll('.error-message');
-    existingErrorDivs.forEach(div => div.remove());  // Remove any previous error messages
-
+    existingErrorDivs.forEach(div => div.remove());
+    
     // Handle error response (400)
     if (event.detail.xhr.status === 400) {
-        const response = JSON.parse(event.detail.xhr.responseText);  // Parse the response text into a JSON object
-        const errors = JSON.parse(response.error);  // Parse the 'error' string to JSON
-
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const errors = JSON.parse(response.error);
+        
         if (errors) {
+            // Create a consolidated error message
+            let errorHtml = '<div class="alert alert-danger"><strong>Registration Failed:</strong><ul class="mb-0">';
+            
             // Iterate through each error for the fields
             for (const fieldName in errors) {
                 if (errors.hasOwnProperty(fieldName)) {
                     const fieldErrors = errors[fieldName];
-                    const field = document.querySelector(`[name="${fieldName}"]`);
                     
-                    if (field) {
-                        const errorDiv = document.createElement('div');
-                        errorDiv.classList.add('error-message', 'alert', 'alert-warning');
-
-                        // Display all error messages for this field
-                        errorDiv.innerHTML = fieldErrors.map(error => `<p>${error.message}</p>`).join('');
-                        field.parentElement.appendChild(errorDiv);  // Add errors below the field
+                    // Add to consolidated error message
+                    fieldErrors.forEach(error => {
+                        errorHtml += `<li>${error.message}</li>`;
+                    });
+                    
+                    // Also add to individual fields (for non-modal form)
+                    if (!isModal) {
+                        const field = document.querySelector(`[name="${fieldName}"]`);
+                        if (field) {
+                            const errorDiv = document.createElement('div');
+                            errorDiv.classList.add('error-message', 'alert', 'alert-warning');
+                            errorDiv.innerHTML = fieldErrors.map(error => `<p>${error.message}</p>`).join('');
+                            field.parentElement.appendChild(errorDiv);
+                        }
                     }
                 }
             }
+            
+            errorHtml += '</ul></div>';
+            errorContainer.innerHTML = errorHtml;
         }
     }
+    
     // Handle success response (200)
     if (event.detail.xhr.status === 200) {
-        const response = JSON.parse(event.detail.xhr.responseText);  // Parse the JSON response
-
-
+        const response = JSON.parse(event.detail.xhr.responseText);
+        
         if (response.id && response.discord) {
             // Clear the form fields
-            const form = document.querySelector('[id="register-form"]');
-            form.reset();  // This will reset all form fields to their default values
-
-            // Optionally, show a success message in the 'player-form-errors' div
+            const form = document.getElementById(event.target.id);
+            form.reset();
+            
+            // Show success message
             const successMessage = response.message || "Player registered successfully!";
-            
-            // Create a success message div
             const successDiv = document.createElement('div');
-            successDiv.classList.add('success-message', 'alert', 'alert-success');  // Add classes for styling
-            successDiv.innerHTML = `<p>${successMessage}</p>`;
-            
-            // Append the success message to the player-form-errors div
+            successDiv.classList.add('success-message', 'alert', 'alert-success');
+            successDiv.innerHTML = `<p><i class="bi bi-check-circle"></i> ${successMessage}</p>`;
             errorContainer.appendChild(successDiv);
-
+            
             const tournamentSelect = document.getElementById('id_round');
-            const tournamentValue = tournamentSelect.value;
-            // Add players to list only if tournament not selected
-            if (!tournamentValue){
-                // Find all fields whose ID ends with '-player' and update their options
+            const tournamentValue = tournamentSelect ? tournamentSelect.value : null;
+            
+            // Add players to all player select fields (if tournament not selected)
+            //if (!tournamentValue) {
                 const playerFields = document.querySelectorAll('[id$="-player"]');
                 playerFields.forEach(playerField => {
-                        const newPlayerOption = document.createElement('option');
-                                newPlayerOption.value = response.id;
-                                newPlayerOption.text = response.discord + " (New)";
-                                playerField.appendChild(newPlayerOption);
-
-                        // Trigger a change event to update the select field
-                        $(playerField).trigger('change');
-                        
+                    const newPlayerOption = document.createElement('option');
+                    newPlayerOption.value = response.id;
+                    newPlayerOption.text = response.discord;
+                    playerField.appendChild(newPlayerOption);
+                    
+                    // Trigger a change event to update the select field
+                    $(playerField).trigger('change');
                 });
+            //}
+            
+            // If modal, handle modal-specific behavior
+            if (isModal) {
+                // Get the select that triggered this modal (if any)
+                const sourceSelectId = $('#registerPlayerModal').data('source-select-id');
+                
+                // If opened from a specific select via Select2, select the new player
+                if (sourceSelectId) {
+                    const sourceSelect = $(`#${sourceSelectId}`);
+                    sourceSelect.val(response.id).trigger('change');
+                    
+                    // Clear the stored source
+                    $('#registerPlayerModal').data('source-select-id', null);
+                }
+                
+                // Close modal after short delay to show success message
+                setTimeout(() => {
+                    bootstrap.Modal.getInstance(document.getElementById("registerPlayerModal")).hide();
+                }, 750);
             }
         }
     }
 });
-
-
        
-
-
-
-
-
-
 
 
         function updatePlatformField(platform=null){
@@ -853,8 +1030,25 @@ document.addEventListener('htmx:afterRequest', function(event) {
 
                 formCopyTarget.append(copyEmptyFormEl)
                 setupSelector(nextFormIndex, formCopyTarget)
-                // console.log('#id_form-'+nextFormIndex+'-player')
-                $('#id_form-'+nextFormIndex+'-player').select2();
+                // Initialize Select2 for player field
+                const playerSelect = $(`#id_form-${nextFormIndex}-player`);
+                playerSelect.select2({
+                        placeholder: "Search for a player...",
+                        allowClear: true,
+                        language: {
+                        noResults: function(params) {
+                                return "No player found";
+                        }
+                        },
+                        templateResult: function(data) {
+                        return data.text;
+                        },
+                        escapeMarkup: function(markup) {
+                        return markup;
+                        }
+                        });
+                // Add the register button event listener for this new select
+                addRegisterButtonListener(playerSelect);
                 $('#id_form-'+nextFormIndex+'-faction').select2();
                 $('#id_form-'+nextFormIndex+'-vagabond').select2();
                 $('#id_form-'+nextFormIndex+'-captains').select2();

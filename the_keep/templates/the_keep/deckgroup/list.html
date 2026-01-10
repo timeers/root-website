@@ -1,0 +1,152 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block content %}
+
+<div class='mb-2 d-flex justify-content-between'>
+
+  <a href="{{ post.get_absolute_url }}?lang={{language_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
+    <div class='d-flex align-items-center mr-1'>
+      <i class="bi bi-chevron-left"></i> 
+      </div>
+      <div class='d-flex mx-auto'>
+        {{post.title}}
+      </div>
+  </a>
+
+
+{% if other_languages %}
+                
+    <div class="dropdown d-inline">
+        <button class="btn btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+        <small><i class="bi bi-translate"></i> {{ selected_language.name }}</small>
+        </button>
+        
+        <ul class="dropdown-menu" aria-labelledby="languageDropdown">
+        
+                {% for lang in other_languages %}
+                    <li>
+                    <a class="dropdown-item" href="{% url 'select-deckgroups' post_slug=post.slug language_code=lang.code %}"><small>{{ lang.name }}</small></a> 
+                    </li>
+                {% endfor %}
+
+        </ul>
+    </div>
+
+{% else %}
+        <small>
+            {{ selected_language }}
+        </small>
+{% endif %}
+
+</div>
+
+
+
+
+
+
+<div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>{% trans 'Card Back' %}</th>
+                    <th>{% trans 'Deck Name' %}</th>
+                    <th>{% trans 'Card Count' %}</th>
+                </tr>
+            </thead>
+            <tbody id="asset-table" class="effort-rows">
+                {% for piece in card_pieces %}
+                    {% if piece.existing_deck %}
+                        <tr data-href="{{ piece.existing_deck.get_absolute_url }}" class="clickable-row">
+                            <td>
+                                <img class="lg-faction-icon" src="{{ piece.existing_deck.back_image.url }}" alt="{{ piece.existing_deck.name }} Card Back">
+                            </td>
+                            <td>{{ piece.existing_deck.name }}</td>
+                            <td>{{ piece.existing_deck.card_count }}</td>
+                        </tr>
+                    {% else %}
+                        {% include 'the_keep/deckgroup/partials/piece_row.html' %}
+                    {% endif %}
+                {% empty %}
+                <tr>
+                    <td>
+                        No Cards to Display for {{ post }}
+                    </td>
+                    <td>
+                        ---
+                    </td>
+                    <td>
+                        ---
+                    </td>
+                </tr>
+                {% endfor %}
+
+            </tbody>
+        </table>
+</div>
+
+{% if can_edit %}
+<button
+  class="btn btn-primary btn-sm my-2"
+  hx-get="{% url 'add-piece' %}?piece=C&slug={{ post.slug }}&type=row&language_code={{ language_code }}"
+  hx-target="#asset-table"
+  hx-swap="beforeend"
+>
+  <i class="bi bi-plus-circle"></i> {% trans "Add Deck" %}
+</button>
+{% endif %}
+
+
+{% endblock %}
+
+{% block scripts %}
+{% if can_edit %}
+<script>
+function updateFileName(event) {
+  const input = event.target;
+  const file = input.files[0];
+  
+  // Look for preview container in the closest table row (works for both approaches)
+  const row = input.closest('tr');
+  if (!row) return;
+  
+  const imagePreviewContainer = row.querySelector('.image-preview-container');
+  const imagePreview = row.querySelector('.image-preview');
+  
+  if (!imagePreviewContainer || !imagePreview) return;
+  
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      imagePreview.src = e.target.result;
+      imagePreviewContainer.style.display = "inline-block";
+    };
+    reader.readAsDataURL(file);
+  } else {
+    imagePreviewContainer.style.display = "none";
+  }
+}
+
+// Attach listeners safely
+function attachFileInputListeners(root = document) {
+  root.querySelectorAll('.compact-file-input').forEach(input => {
+    if (!input.dataset.previewBound) {
+      input.addEventListener('change', updateFileName);
+      input.dataset.previewBound = "true";
+    }
+  });
+}
+
+// Initial load
+attachFileInputListeners();
+
+// HTMX: rebind after new content is swapped in
+document.body.addEventListener('htmx:afterSwap', function (event) {
+  attachFileInputListeners(event.target);
+});
+</script>
+
+
+{% endif %}
+{% endblock scripts %}

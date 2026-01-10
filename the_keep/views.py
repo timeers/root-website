@@ -1,32 +1,33 @@
 import random
 import yaml
-import re
 import markdown
-import difflib
 import os
+import json
 
 from collections import defaultdict
 
 from django.utils import timezone 
 from django.utils.translation import gettext as _
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest, FileResponse
+from django.http import Http404, HttpResponse, JsonResponse, HttpResponseBadRequest, FileResponse, HttpResponseForbidden
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import (Count, F, Q, Value, Sum, ProtectedError, Count, 
                                 CharField, IntegerField, FloatField, ExpressionWrapper,
-                                Case, When)
+                                Case, When, Prefetch)
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
 from django.conf import settings
 from django.db import IntegrityError
+from django.templatetags.static import static
 from django.urls import reverse, reverse_lazy
 from django.contrib import messages
 from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from django.utils.translation import get_language
 
 from the_warroom.filters import GameFilter
-from django.views import View
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from django.views.generic import (
     ListView, 
     DetailView, 
@@ -52,6 +53,7 @@ from .models import (
     PNPAsset, ColorChoices, PostTranslation,
     FAQ, LawGroup, Law, duplicate_laws_for_language, RulesFile,
     StatusChoices,
+    DeckGroup, Card, CardTag
     )
 from .forms import (MapCreateForm, 
                     DeckCreateForm, LandmarkCreateForm,
@@ -62,11 +64,16 @@ from .forms import (MapCreateForm,
                     PNPAssetCreateForm, TranslationCreateForm,
                     AddLawForm, EditLawForm, EditLawDescriptionForm,
                     FAQForm, CopyLawGroupForm, LanguageSelectionForm, EditLawGroupForm,
-                    YAMLUploadForm
+                    YAMLUploadForm,
+                    DeckGroupForm, CardForm
 )
-from .utils import clean_meta_description, generate_comparison_markdown
+from .utils import clean_meta_description, generate_comparison_markdown, get_fresh_image_url, user_can_edit
 from .services.law_update import (compare_structure_strict, update_laws_by_structure, get_translated_title, 
                                           serialize_group, update_laws_from_yaml, NoPrimeLawError, load_uploaded_yaml)
+from .services.tts import TTSSingleCardDeck, TTSBoard, TTSDeckGroup, wrap_tts_save
+from .services.faq_helpers import faq_queryset2
+from .services.slugify_titles import slugify_deck_group_title
+from .services.upload_paths import deck_back_upload_path
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
 
@@ -75,6 +82,30 @@ from django.db.models import OuterRef, Subquery, F, Value, Exists
 from django.db.models.functions import Coalesce
 
 from yaml.representer import SafeRepresenter
+
+COMPONENT_MAPPING = {
+    "post": Post,
+    "map": Map,
+    "deck": Deck,
+    "landmark": Landmark,
+    "tweak": Tweak,
+    "houserule": Tweak,
+    "hireling": Hireling,
+    "vagabond": Vagabond,
+    "captain": Vagabond,
+    "faction": Faction,
+    "clockwork": Faction,
+    "Map": Map,
+    "Deck": Deck,
+    "Landmark": Landmark,
+    "Tweak": Tweak,
+    "Hireling": Hireling,
+    "Vagabond": Vagabond,
+    "Captain": Vagabond,
+    "Faction": Faction,
+    "Clockwork": Faction,
+}
+
 
 class DoubleQuoted(str):
     pass
@@ -198,6 +229,7 @@ def expansion_detail_view(request, slug):
     else:
         col_class = 'w-50'
 
+    can_edit = user_can_edit(request, expansion)
 
     context = {
         'expansion': expansion,
@@ -223,19 +255,26 @@ def expansion_detail_view(request, slug):
 
         'selected_language': language,
         'available_languages': available_languages,
+
+        'can_edit': can_edit,
     }
 
     return render(request, 'the_keep/expansion_detail.html', context)
 
 @designer_required_class_based_view
-class ExpansionCreateView(LoginRequiredMixin, CreateView):
+class ExpansionCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     model = Expansion
     form_class = ExpansionCreateForm
 
     def form_valid(self, form):
-        form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
+        # form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
         return super().form_valid(form)
-    
+
+    def test_func(self):
+
+        return self.request.user.profile.admin  # Ensure only the designer and admin can delete
+
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['user'] = self.request.user  # Pass the current user to the form
@@ -246,13 +285,13 @@ class ExpansionUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Expansion
     form_class = ExpansionCreateForm
     def form_valid(self, form):
-        form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
+        # form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
         return super().form_valid(form)
     
     def test_func(self):
         obj = self.get_object()
         # Only allow access if the logged-in user is the designer of the object
-        return self.request.user.profile == obj.designer
+        return self.request.user.profile == obj.designer or self.request.user.profile.admin
     
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -264,7 +303,7 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
     def test_func(self):
         expansion = self.get_object()
-        return self.request.user.profile == expansion.designer  # Ensure only the designer can delete
+        return self.request.user.profile == expansion.designer or self.request.user.profile.admin  # Ensure only the designer and admin can delete
 
     def post(self, request, *args, **kwargs):
         expansion = self.get_object()
@@ -290,34 +329,54 @@ class ExpansionDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 
 # START CREATE VIEWS
-@designer_required
+@player_required
 def new_components(request):
+    admin_view = request.user.profile.admin
     context = {
-
+        'title': 'New Post',
+        'admin_view': admin_view,
     }
     return render(request, 'the_keep/new.html', context=context)
 
 
-
+@player_required_class_based_view
 class PostCreateView(LoginRequiredMixin, CreateView):
     """
     A base class for all CreateViews that require a designer field to be set to
     the current logged-in user's profile and also pass the user to the form.
     """
     def form_valid(self, form):
+        profile = self.request.user.profile
+
         if not form.instance.designer:
             form.instance.designer = self.request.user.profile  # Set the designer to the logged-in user
 
+        # If user is NOT in admin group, force status = 9
+        if not profile.admin:
+            form.instance.status = '9'
+        form.instance.submitted_by = profile
         response = super().form_valid(form)
 
-        post = self.object
-        fields = []
-        fields.append({
-                'name': 'Posted by:',
-                'value': self.request.user.profile.name
-            })
-        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
-
+        if response:
+            post = self.object
+            fields = []
+            if post.status == '9':
+                fields.append({
+                        'name': 'Submitted by:',
+                        'value': profile.name
+                    })
+                fields.append({
+                        'name': 'Designer:',
+                        'value': post.designer.name
+                    })
+                send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
+            else:
+                fields.append({
+                        'name': 'Posted by:',
+                        'value': self.request.user.profile.name
+                    })
+                send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
+                
         return response
 
     def get_form_kwargs(self):
@@ -325,31 +384,31 @@ class PostCreateView(LoginRequiredMixin, CreateView):
         kwargs['user'] = self.request.user  # Pass the current user to the form
         return kwargs
 
-@designer_required_class_based_view
+
 class MapCreateView(PostCreateView):
     model = Map
     form_class = MapCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class DeckCreateView(PostCreateView):
     model = Deck
     form_class = DeckCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class LandmarkCreateView(PostCreateView):
     model = Landmark
     form_class = LandmarkCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class TweakCreateView(PostCreateView):
     model = Tweak
     form_class = TweakCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class HirelingCreateView(PostCreateView):
     model = Hireling
     form_class = HirelingCreateForm
@@ -362,19 +421,19 @@ class HirelingCreateView(PostCreateView):
         kwargs['designer'] = self.request.user.profile
         return kwargs
 
-@designer_required_class_based_view
+
 class VagabondCreateView(PostCreateView):
     model = Vagabond
     form_class = VagabondCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class FactionCreateView(PostCreateView):
     model = Faction
     form_class = FactionCreateForm
     template_name = 'the_keep/post_form.html'
 
-@designer_required_class_based_view
+
 class ClockworkCreateView(PostCreateView):
     model = Faction
     form_class = ClockworkCreateForm
@@ -411,16 +470,15 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 
     def test_func(self):
         obj = self.get_object()
-        if self.request.user.profile.admin:
-            if not obj.designer.designer:
-                if obj.designer.editor_onboard and self.request.method != "POST":
-                    messages.warning(self.request, f'{obj.designer} is authorized to edit {obj.title}. Ensure you have their permission to edit before making any changes.')
-                return True
-            elif self.request.user.profile != obj.designer:
+        can_edit = user_can_edit(self.request, obj)
+        if not can_edit:
+            if obj.co_designers_can_edit:
+                messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designers_list}.')
+            else:
                 messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designer}.')
 
         # Only allow access if the logged-in user is the designer of the object
-        return self.request.user.profile == obj.designer
+        return can_edit
 
     def get_object(self, queryset=None):
         obj = super().get_object(queryset)
@@ -508,18 +566,8 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         post = self.get_object()
         name = post.title
 
-        component_mapping = {
-                "Map": Map,
-                "Deck": Deck,
-                "Landmark": Landmark,
-                "Tweak": Tweak,
-                "Hireling": Hireling,
-                "Vagabond": Vagabond,
-                "Faction": Faction,
-                "Clockwork": Faction,
-            }
-        Klass = component_mapping.get(post.component)
-        object = get_object_or_404(Klass, slug=post.slug)
+        Klass = COMPONENT_MAPPING.get(post.component)
+        obj = get_object_or_404(Klass, slug=post.slug)
 
         try:
             # # Attempt to delete the post
@@ -527,7 +575,7 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             # # Add success message upon successful deletion
             # messages.success(request, f"The {post.component} '{name}' was successfully deleted.")
             # return response
-            games = object.get_games_queryset()
+            games = obj.get_games_queryset()
             if not games.exists():
                 # Abandon the post without deleting
                 post.status = 100  # Set the status to abandoned
@@ -551,18 +599,18 @@ class PostDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
                 post.save()
                 messages.error(request, f'The {post.component} "{name}" cannot be deleted because it has been used in a game. Status has been set to "Inactive".')
                 # Redirect back to the post detail page
-                return redirect(object.get_absolute_url())
+                return redirect(obj.get_absolute_url())
             
 
         except ProtectedError:
             # Handle the case where the deletion fails due to foreign key protection
             messages.error(request, f"The {post.component} '{name}' cannot be deleted because it has been used in a game.")
             # Redirect back to the post detail page
-            return redirect(object.get_absolute_url())
+            return redirect(obj.get_absolute_url())
         except IntegrityError:
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this post.")
-            return redirect(object.get_absolute_url()) 
+            return redirect(obj.get_absolute_url()) 
 
 
 
@@ -611,20 +659,11 @@ def home(request, *args, **kwargs):
 def translations_view(request, slug):
 
     post = get_object_or_404(Post, slug=slug)
-    component_mapping = {
-            "Map": Map,
-            "Deck": Deck,
-            "Landmark": Landmark,
-            "Tweak": Tweak,
-            "Hireling": Hireling,
-            "Vagabond": Vagabond,
-            "Faction": Faction,
-            "Clockwork": Faction,
-        }
-    Klass = component_mapping.get(post.component)
-    object = get_object_or_404(Klass, slug=slug)
+
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
     # Get a list of other available translations
-    other_translations = object.translations.all()
+    other_translations = obj.translations.all()
     languages_count = Language.objects.all().count() - 1
     # print(languages_count)
     if languages_count > other_translations.count():
@@ -633,7 +672,7 @@ def translations_view(request, slug):
         available_languages = False
     # print(available_languages)
     context = {
-        'object': object,
+        'object': obj,
         'other_translations': other_translations,
         'available_languages': available_languages,
     }
@@ -705,38 +744,201 @@ def create_post_translation(request, slug, lang=None):
 
     return render(request, 'the_keep/translation_form.html', context)
 
+# def captain_detail_view(request, slug):
+
+#     language_code = request.GET.get('lang') or get_language()
+#     language = Language.objects.filter(code=language_code).first()
+
+#     obj = get_object_or_404(Vagabond, slug=slug, captain=True)
+
+#     # Get fresh urls for each piece
+#     warriors = []
+#     for piece in obj.warriors():
+#         if piece.small_icon:
+#             piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+#         warriors.append(piece)
+
+#     buildings = []
+#     for piece in obj.buildings():
+#         if piece.small_icon:
+#             piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+#         buildings.append(piece)
+
+#     tokens = []
+#     for piece in obj.tokens():
+#         if piece.small_icon:
+#             piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+#         tokens.append(piece)
+
+#     cards = []
+#     for piece in obj.cards():
+#         if piece.small_icon:
+#             piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+#         cards.append(piece)
+
+#     otherpieces = []
+#     for piece in obj.otherpieces():
+#         if piece.small_icon:
+#             piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+#         otherpieces.append(piece)
+
+#     # Get the translation if available, fallback to default
+#     object_translation = obj.translations.filter(language=language).first()
+
+#     available_translations = obj.translations.all().count()
 
 
-def ultimate_component_view(request, slug):
+#     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.title
+#     object_lore = object_translation.translated_lore if object_translation and object_translation.translated_lore else obj.lore
+#     object_description = object_translation.translated_description if object_translation and object_translation.translated_description else obj.description
+
+#     object_animal = object_translation.translated_animal if object_translation and object_translation.translated_animal else obj.animal
+
+#     captain_ability = object_translation.ability if object_translation and object_translation.captain_ability else obj.captain_ability
+    
+#     object_card_2_image = (
+#         object_translation.translated_card_2_image
+#         if object_translation and object_translation.translated_card_2_image
+#         else obj.card_2_image
+#     )
+#     object_card_2_image_url = get_fresh_image_url(object_card_2_image)
+
+#     if obj.based_on:
+#         translation = PostTranslation.objects.filter(
+#             post=obj.based_on,
+#             language=language
+#         ).values_list('translated_title', flat=True).first()
+
+#         based_on_title = translation or obj.based_on.title
+#     else:
+#         based_on_title = None
+
+#     view_status = 4
+#     if request.user.is_authenticated:
+#         view_status = request.user.profile.view_status
+
+#     related_posts = Post.objects.filter(based_on=obj, status__lte=view_status)
+
+#     if obj.color_group:
+#         color_group = ColorChoices.get_color_group_by_hex(obj.color_group)
+#         color_label = ColorChoices.get_color_label_by_hex(obj.color_group)
+#         object_color = obj.color_group
+#     else:
+#         if obj.based_on and obj.based_on.color_group:
+#             color_group = ColorChoices.get_color_group_by_hex(obj.based_on.color_group)
+#             color_label = ColorChoices.get_color_label_by_hex(obj.based_on.color_group)
+#             object_color = obj.based_on.color_group
+#         else:
+#             color_group = None
+#             color_label = None
+#             object_color = None
+
+#     absolute_uri = build_absolute_uri(request, obj.get_absolute_url())
+
+#     # Meta Tags
+#     meta_description = obj.get_meta_description(language)
+#     meta_image_url = obj.get_meta_image_url(language)
+
+#     can_edit = user_can_edit(request, obj)
+
+#     context = {
+#         'object': obj,
+
+#         'related_posts': related_posts,
+
+#         'color_group': color_group,
+#         'color_label': color_label,
+#         'object_color': object_color,
+#         'object_title': object_title,
+#         'object_lore': object_lore,
+#         'object_description': object_description,
+#         'object_animal': object_animal,
+#         'captain_ability': captain_ability,
+
+#         'object_card_2_image_url': object_card_2_image_url,
+
+
+#         'object_translation': object_translation,
+#         'available_translations': available_translations,
+#         'language_code': language_code,
+#         'language': language,
+
+#         'based_on_title': based_on_title,
+
+#         'absolute_uri': absolute_uri,
+
+#         'can_edit': can_edit,
+
+#         'meta_description': meta_description,
+#         'meta_image_url': meta_image_url,
+
+#         # pieces
+#         'warriors': warriors,
+#         'buildings': buildings,
+#         'tokens': tokens,
+#         'cards': cards,
+#         'otherpieces': otherpieces,
+#     }
+
+#     return render(request, 'the_keep/captain_detail.html', context)
+
+def ultimate_component_view(request, slug, component):
     
     language_code = request.GET.get('lang') or get_language()
     language = Language.objects.filter(code=language_code).first()
 
 
     post = get_object_or_404(Post, slug=slug)
-    component_mapping = {
-            "Map": Map,
-            "Deck": Deck,
-            "Landmark": Landmark,
-            "Tweak": Tweak,
-            "Hireling": Hireling,
-            "Vagabond": Vagabond,
-            "Faction": Faction,
-            "Clockwork": Faction,
-        }
-    Klass = component_mapping.get(post.component)
-    object = get_object_or_404(Klass, slug=slug)
+
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug, component=COMPONENT_TYPE_MAP.get(component.lower()))
+
+    # Get fresh urls for each piece
+    warriors = []
+    for piece in obj.warriors():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        warriors.append(piece)
+
+    buildings = []
+    for piece in obj.buildings():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        buildings.append(piece)
+
+    tokens = []
+    for piece in obj.tokens():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        tokens.append(piece)
+
+    cards = []
+    for piece in obj.cards():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        cards.append(piece)
+
+    otherpieces = []
+    for piece in obj.otherpieces():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        otherpieces.append(piece)
+
+    has_decks = obj.decks.exists()
 
     # Get the translation if available, fallback to default
-    object_translation = object.translations.filter(language=language).first()
+    object_translation = obj.translations.filter(language=language).first()
 
     existing_law = Law.objects.filter(group__post=post).first()
     if existing_law:
         editable_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
         available_law = Law.objects.filter(group__post=post, language=language, prime_law=True, group__public=True).first()
-    else:  
+    elif component == "Captain":
         editable_law = None
-        available_law = None
+        available_law = obj.get_captain_law(language)
+    else:
+        editable_law = None
+        available_law = post.get_linked_law(language)
 
     existing_faq = FAQ.objects.filter(post=post).first()
     if existing_faq:
@@ -750,81 +952,90 @@ def ultimate_component_view(request, slug):
         col_class = 'w-50'
 
 
-    available_translations = object.translations.all().count()
+    available_translations = obj.translations.all().count()
 
 
-    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else object.title
-    object_lore = object_translation.translated_lore if object_translation and object_translation.translated_lore else object.lore
-    object_description = object_translation.translated_description if object_translation and object_translation.translated_description else object.description
+    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.title
+    object_lore = object_translation.translated_lore if object_translation and object_translation.translated_lore else obj.lore
+    object_description = object_translation.translated_description if object_translation and object_translation.translated_description else obj.description
 
-    object_animal = object_translation.translated_animal if object_translation and object_translation.translated_animal else object.animal
+    object_animal = object_translation.translated_animal if object_translation and object_translation.translated_animal else obj.animal
 
     object_ability = None
     object_ability_description = None
-    if object.component == 'Vagabond':
-            object_ability = object_translation.ability if object_translation and object_translation.ability else object.ability
-            object_ability_description = object_translation.ability_description if object_translation and object_translation.ability_description else object.ability_description
+    if obj.component == 'Vagabond':
+            if component == 'Vagabond':
+                object_ability = object_translation.ability if object_translation and object_translation.ability else obj.ability
+                object_ability_description = object_translation.ability_description if object_translation and object_translation.ability_description else obj.ability_description
+            else:
+                object_ability_description = object_translation.captain_ability if object_translation and object_translation.captain_ability else obj.captain_ability
 
-    object_board_image = object_translation.translated_board_image if object_translation and object_translation.translated_board_image else object.board_image
-    if object_board_image:
-        object_board_image_url = object_board_image.url
-    else:
-        object_board_image_url = None
+    # Timestamped and translated images
+    object_board_image = (
+        object_translation.translated_board_image
+        if object_translation and object_translation.translated_board_image
+        else obj.board_image
+    )
+    object_board_image_url = get_fresh_image_url(object_board_image)
 
-    object_board_2_image = object_translation.translated_board_2_image if object_translation and object_translation.translated_board_2_image else object.board_2_image
-    if object_board_2_image:
-        object_board_2_image_url = object_board_2_image.url
-    else:
-        object_board_2_image_url = None
+    object_board_2_image = (
+        object_translation.translated_board_2_image
+        if object_translation and object_translation.translated_board_2_image
+        else obj.board_2_image
+    )
+    object_board_2_image_url = get_fresh_image_url(object_board_2_image)
 
+    small_board_image = (
+        object_translation.small_board_image
+        if object_translation and object_translation.translated_board_image
+        else obj.small_board_image
+    )
+    small_board_image_url = get_fresh_image_url(small_board_image)
 
-    small_board_image = object_translation.small_board_image if object_translation and object_translation.translated_board_image else object.small_board_image
-    small_board_2_image = object_translation.small_board_2_image if object_translation and object_translation.translated_board_2_image else object.small_board_2_image
-    if small_board_image:
-        small_board_image_url = small_board_image.url
-    else:
-        small_board_image_url = None
+    small_board_2_image = (
+        object_translation.small_board_2_image
+        if object_translation and object_translation.translated_board_2_image
+        else obj.small_board_2_image
+    )
+    small_board_2_image_url = get_fresh_image_url(small_board_2_image)
 
-    if small_board_2_image:
-        small_board_2_image_url = small_board_2_image.url
-    else:
-        small_board_2_image_url = None
-    
+    object_card_image = (
+        object_translation.translated_card_image
+        if object_translation and object_translation.translated_card_image
+        else obj.card_image
+    )
+    object_card_image_url = get_fresh_image_url(object_card_image)
 
-    object_card_image = object_translation.translated_card_image if object_translation and object_translation.translated_card_image else object.card_image
-    if object_card_image:
-        object_card_image_url = object_card_image.url
-    else:
-        object_card_image_url = None
+    object_card_2_image = (
+        object_translation.translated_card_2_image
+        if object_translation and object_translation.translated_card_2_image
+        else obj.card_2_image
+    )
+    object_card_2_image_url = get_fresh_image_url(object_card_2_image)
 
-    object_card_2_image = object_translation.translated_card_2_image if object_translation and object_translation.translated_card_2_image else object.card_2_image
-    if object_card_2_image:
-        object_card_2_image_url = object_card_2_image.url
-    else:
-        object_card_2_image_url = None
 
     # Links
-    tts_link = object_translation.tts_link if object_translation and object_translation.tts_link else object.tts_link
-    bgg_link = object_translation.bgg_link if object_translation and object_translation.bgg_link else object.bgg_link
-    pnp_link = object_translation.pnp_link if object_translation and object_translation.pnp_link else object.pnp_link
+    tts_link = object_translation.tts_link if object_translation and object_translation.tts_link else obj.tts_link
+    bgg_link = object_translation.bgg_link if object_translation and object_translation.bgg_link else obj.bgg_link
+    pnp_link = object_translation.pnp_link if object_translation and object_translation.pnp_link else obj.pnp_link
 
 
-    if object.based_on:
+    if obj.based_on:
         translation = PostTranslation.objects.filter(
-            post=object.based_on,
+            post=obj.based_on,
             language=language
         ).values_list('translated_title', flat=True).first()
 
-        based_on_title = translation or object.based_on.title
+        based_on_title = translation or obj.based_on.title
     else:
         based_on_title = None
 
 
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {object.component}: {object.title} ({language_code})')
-    else:
-        send_discord_message(f'{get_uuid(request)} viewed {object.component}: {object.title} ({language_code})')
+        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {obj.component}: {obj.title} ({language_code})')
+    # else:
+    #     send_discord_message(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
 
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
@@ -832,16 +1043,16 @@ def ultimate_component_view(request, slug):
         view_status = request.user.profile.view_status
 
         
-    related_posts = Post.objects.filter(based_on=object, status__lte=view_status)
+    related_posts = Post.objects.filter(based_on=obj, status__lte=view_status)
 
 
 
     # Add the post that the current object is based on (if it exists)
-    if object.based_on:
-        related_posts |= Post.objects.filter(id=object.based_on.id, status__lte=view_status)
-        related_posts |= Post.objects.filter(based_on=object.based_on, status__lte=view_status).exclude(id=object.id)
+    if obj.based_on:
+        related_posts |= Post.objects.filter(id=obj.based_on.id, status__lte=view_status)
+        related_posts |= Post.objects.filter(based_on=obj.based_on, status__lte=view_status).exclude(id=obj.id)
 
-    if object.component == 'Vagabond':
+    if obj.component == 'Vagabond':
         related_posts |= Post.objects.filter(title='Vagabond')
 
     related_posts = related_posts.annotate(
@@ -858,15 +1069,15 @@ def ultimate_component_view(request, slug):
         ).distinct()
     
     # Start with the base queryset
-    games = object.get_games_queryset()
+    games = obj.get_games_queryset()
 
     stable_ready = None
     testing_ready = None
     if request.user.is_authenticated:
-        if object.designer == request.user.profile:
-            stable_ready_result = object.stable_check()
+        if obj.designer == request.user.profile:
+            stable_ready_result = obj.stable_check()
             stable_ready = stable_ready_result.stable_ready
-            if object.status == '3' and games.count() > 0:
+            if obj.status == '3' and games.count() > 0:
                 testing_ready = True
 
     # Apply the conditional filter if needed
@@ -875,8 +1086,10 @@ def ultimate_component_view(request, slug):
             games = games.filter(official=True)
 
     playtests = games.filter(test_match=True).count()
-
-    games_total = games.count()
+    if component != 'Captain':
+        games_total = games.count()
+    else:
+        games_total = 0
 
     if games_total == 1:
         if playtests:
@@ -938,11 +1151,11 @@ def ultimate_component_view(request, slug):
             "N": '2%',
         }
 
-    if object.component == 'Faction':
-        complexity_value = attribute_map.get(object.complexity, 1)
-        aggression_value = attribute_map.get(object.aggression, 1)
-        card_wealth_value = attribute_map.get(object.card_wealth, 1)
-        crafting_ability_value = attribute_map.get(object.crafting_ability, 1)
+    if obj.component == 'Faction':
+        complexity_value = attribute_map.get(obj.complexity, 1)
+        aggression_value = attribute_map.get(obj.aggression, 1)
+        card_wealth_value = attribute_map.get(obj.card_wealth, 1)
+        crafting_ability_value = attribute_map.get(obj.crafting_ability, 1)
     else:
         complexity_value = None
         aggression_value = None
@@ -956,39 +1169,43 @@ def ultimate_component_view(request, slug):
     scorecard_count = None
     detail_scorecard_count = None
 
-    if object.component == "Faction":
+    if obj.component == "Faction":
         top_players = Profile.leaderboard(effort_qs=efforts, limit=10, game_threshold=5)
         most_players = Profile.leaderboard(effort_qs=efforts, limit=10, top_quantity=True, game_threshold=1)
 
-        scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False).count()
-        detail_scorecard_count = ScoreCard.objects.filter(faction__slug=object.slug, effort__isnull=False, total_generic_points=0).count()
+        scorecard_count = ScoreCard.objects.filter(faction__slug=obj.slug, effort__isnull=False).count()
+        detail_scorecard_count = ScoreCard.objects.filter(faction__slug=obj.slug, effort__isnull=False, total_generic_points=0).count()
 
 
-    links_count = object.count_links(request.user)
+    links_count = obj.count_links(request.user)
+    if has_decks:
+        links_count += 1
 
-    if object.color_group:
-        color_group = ColorChoices.get_color_group_by_hex(object.color_group)
-        color_label = ColorChoices.get_color_label_by_hex(object.color_group)
-        object_color = object.color_group
+    if obj.color_group:
+        color_group = ColorChoices.get_color_group_by_hex(obj.color_group)
+        color_label = ColorChoices.get_color_label_by_hex(obj.color_group)
+        object_color = obj.color_group
     else:
-        if object.based_on and object.based_on.color_group:
-            color_group = ColorChoices.get_color_group_by_hex(object.based_on.color_group)
-            color_label = ColorChoices.get_color_label_by_hex(object.based_on.color_group)
-            object_color = object.based_on.color_group
+        if obj.based_on and obj.based_on.color_group:
+            color_group = ColorChoices.get_color_group_by_hex(obj.based_on.color_group)
+            color_label = ColorChoices.get_color_label_by_hex(obj.based_on.color_group)
+            object_color = obj.based_on.color_group
         else:
             color_group = None
             color_label = None
             object_color = None
 
-    absolute_uri = build_absolute_uri(request, object.get_absolute_url())
+    absolute_uri = build_absolute_uri(request, obj.get_absolute_url())
 
     # Meta Tags
-    meta_description = object.get_meta_description(language)
-    meta_image_url = object.get_meta_image_url(language)
+    meta_description = obj.get_meta_description(language)
+    meta_image_url = obj.get_meta_image_url(language)
 
+    can_edit = user_can_edit(request, obj)
 
     context = {
-        'object': object,
+        'object': obj,
+        'component': component,
         'games_total': games_total,
         'games_label': games_label,
         'top_players': top_players,
@@ -1038,6 +1255,8 @@ def ultimate_component_view(request, slug):
         'available_faq': available_faq,
         'existing_faq': existing_faq,
 
+        'can_edit': can_edit,
+
         'col_class': col_class,
 
         'tts_link': tts_link,
@@ -1046,6 +1265,14 @@ def ultimate_component_view(request, slug):
 
         'meta_description': meta_description,
         'meta_image_url': meta_image_url,
+
+        # pieces
+        'warriors': warriors,
+        'buildings': buildings,
+        'tokens': tokens,
+        'cards': cards,
+        'otherpieces': otherpieces,
+        'has_decks': has_decks,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -1209,24 +1436,15 @@ def animal_match_view(request, slug):
 
 
 
-def component_games(request, slug):
+def component_games(request, slug, component):
     
     post = get_object_or_404(Post, slug=slug)
-    component_mapping = {
-            "Map": Map,
-            "Deck": Deck,
-            "Landmark": Landmark,
-            "Tweak": Tweak,
-            "Hireling": Hireling,
-            "Vagabond": Vagabond,
-            "Faction": Faction,
-            "Clockwork": Faction,
-        }
-    Klass = component_mapping.get(post.component)
-    object = get_object_or_404(Klass, slug=slug)
+
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug, component=component)
 
     # Start with the base queryset
-    games = object.get_games_queryset()
+    games = obj.get_games_queryset()
 
     # Apply the conditional filter if needed
     if request.user.is_authenticated:
@@ -1244,14 +1462,6 @@ def component_games(request, slug):
 
     # Get the filtered queryset
     filtered_games = game_filter.qs.distinct()
-
-
-    # if post.component == "Faction" or post.component == "Clockwork":
-    #     efforts = Effort.objects.filter(game__in=filtered_games, faction=post)
-    # elif post.component == "Vagabond":
-    #     efforts = Effort.objects.filter(game__in=filtered_games, vagabond=post)
-    # else:
-    #     efforts = Effort.objects.filter(game__in=filtered_games)
     
     # Get top players for factions
     win_count = 0
@@ -1264,10 +1474,10 @@ def component_games(request, slug):
     # print(page_number)
     if not page_number:
         
-        if object.component == "Faction":
-            efforts = Effort.objects.filter(game__in=filtered_games, faction=object)
-        elif object.component == "Vagabond":
-            efforts = Effort.objects.filter(game__in=filtered_games, vagabond=object)
+        if obj.component == "Faction":
+            efforts = Effort.objects.filter(game__in=filtered_games, faction=obj)
+        elif obj.component == "Vagabond":
+            efforts = Effort.objects.filter(game__in=filtered_games, vagabond=obj)
         else:
             efforts = Effort.objects.filter(game__in=filtered_games)
 
@@ -1277,7 +1487,7 @@ def component_games(request, slug):
             coalition_count=Count('id', filter=Q(win=True, game__coalition_win=True))
         )
 
-        if object.component == "Faction" or object.component == "Vagabond":
+        if obj.component == "Faction" or obj.component == "Vagabond":
             # Access the aggregated values from the dictionary returned by .aggregate()
             total_efforts = game_values['total_efforts']
             win_count = game_values['win_count']
@@ -1299,7 +1509,7 @@ def component_games(request, slug):
 
 
     context = {
-        'object': object,
+        'object': obj,
         'games_total': games.count(),
         'filtered_games': filtered_games.count(),
         'games': page_obj,  # Pagination applied here
@@ -1342,25 +1552,6 @@ def list_view(request, slug=None):
         view_status = request.user.profile.view_status
     else:
         view_status = 4
-
-    # if request.user.is_authenticated:
-    #     if request.user.profile.weird:
-    #         # Filter designers who have at least one post with a status less than or equal to the user's view_status
-    #         designers = Profile.objects.annotate(
-    #             posts_count=Count('posts'),
-    #             valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
-    #         ).filter(posts_count__gt=0, valid_posts_count__gt=0)
-    #     else:
-    #         # Filter designers who have at least one post with 'official' property set to True
-    #         designers = Profile.objects.annotate(
-    #             official_posts_count=Count('posts', filter=Q(posts__official=True)),
-    #             valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
-    #             ).filter(official_posts_count__gt=0, valid_posts_count__gt=0)
-    # else:
-    #     designers = Profile.objects.annotate(
-    #         posts_count=Count('posts'),
-    #         valid_posts_count=Count('posts', filter=Q(posts__status__lte=view_status))
-    #         ).filter(posts_count__gt=0, valid_posts_count__gt=0)
         
     designer_annotations = {
         "posts_count": Count("posts", distinct=True) + Count("co_designed_posts", distinct=True),
@@ -1672,20 +1863,9 @@ def get_artists(user, view_status, component, selected_id):
 
 def build_post_queryset(user, view_status, component):
 
-    component_mapping = {
-        "Post": Post,
-        "Map": Map,
-        "Deck": Deck,
-        "Landmark": Landmark,
-        "Tweak": Tweak,
-        "Hireling": Hireling,
-        "Vagabond": Vagabond,
-        "Faction": Faction,
-        "Clockwork": Faction,
-    }
-    Klass = component_mapping.get(component)
+    Klass = COMPONENT_MAPPING.get(component)
 
-    qs = Klass.objects.prefetch_related('designer').filter(status__lte=view_status, component=component)
+    qs = Klass.objects.prefetch_related('designer').filter(status__lte=view_status, component=COMPONENT_TYPE_MAP.get(component.lower()))
 
     if user.is_authenticated and not user.profile.weird:
         qs = qs.filter(official=True)
@@ -1727,7 +1907,7 @@ def apply_filters(qs, filters, component):
             Q(translations__language__code=filters['language_code'])
         )
 
-    if component in ["Faction", "Hireling", "Vagabond", "Clockwork"]:
+    if component in ["faction", "hireling", "vagabond", "clockwork", "captain"]:
         if filters.get('color'):
             qs = qs.filter(color_group=filters['color'])
         if filters.get('animal'):
@@ -1738,7 +1918,7 @@ def apply_filters(qs, filters, component):
             )
     
     # Map specific filters
-    if component == "Map":
+    if component == "map":
         if filters.get('clearings_qty'):
             qs = filter_by_field_quantity(queryset=qs, field_type="clearings", quantity=filters['clearings_qty'], comparator=filters['clearings_op'])
         if filters.get('forests_qty'):
@@ -1751,7 +1931,7 @@ def apply_filters(qs, filters, component):
             qs = filter_by_field_quantity(queryset=qs, field_type="ruins", quantity=filters['ruins_qty'], comparator=filters['ruins_op'])
 
     # Vagabond specific filters
-    if component == "Vagabond":
+    if component == "vagabond":
         if filters.get('ability'):
             qs = qs.filter(ability__icontains=filters['ability'])
         if filters.get('ability_description'):
@@ -1775,8 +1955,29 @@ def apply_filters(qs, filters, component):
         if filters.get('torch_qty'):
             qs = filter_by_field_quantity(queryset=qs, field_type="starting_torch", quantity=filters['torch_qty'], comparator=filters['torch_op'])
 
+
+    # Captain specific filters
+    if component == "captain":
+        qs = qs.filter(captain=True)
+        if filters.get('ability'):
+            qs = qs.filter(captain_ability__icontains=filters['ability'])
+        if filters.get('coin_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_coins", quantity=filters['coin_qty'], comparator=filters['coin_op'])
+        if filters.get('boot_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_boots", quantity=filters['boot_qty'], comparator=filters['boot_op'])
+        if filters.get('bag_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_bag", quantity=filters['bag_qty'], comparator=filters['bag_op'])
+        if filters.get('tea_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_tea", quantity=filters['tea_qty'], comparator=filters['tea_op'])
+        if filters.get('hammer_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_hammer", quantity=filters['hammer_qty'], comparator=filters['hammer_op'])
+        if filters.get('crossbow_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_crossbow", quantity=filters['crossbow_qty'], comparator=filters['crossbow_op'])
+        if filters.get('sword_qty'):
+            qs = filter_by_field_quantity(queryset=qs, field_type="captain_sword", quantity=filters['sword_qty'], comparator=filters['sword_op'])
+
     # Faction specific filters
-    if component == "Faction":
+    if component == "faction":
         if filters.get('aggression'):
             qs = qs.filter(aggression=filters['aggression'])
         if filters.get('complexity'):
@@ -1793,12 +1994,12 @@ def apply_filters(qs, filters, component):
 
 
     # Hireling specific filters
-    if component == "Hireling":
+    if component == "hireling":
         if filters.get('hireling_type'):
             qs = qs.filter(type=filters['hireling_type'])
 
     # Deck specific filters
-    if component == "Deck":
+    if component == "deck":
         if filters.get('card_total_qty'):
             qs = filter_by_field_quantity(queryset=qs, field_type="card_total", quantity=filters['card_total_qty'], comparator=filters['card_total_op'])
         
@@ -1815,7 +2016,7 @@ def apply_filters(qs, filters, component):
         qs = filter_by_piece_quantity(queryset=qs, piece_type="O", quantity=filters['other_qty'], comparator=filters['other_op'])
 
     if filters.get('games_qty'):
-        if component in ["Faction", "Clockwork", "Vagabond"]:
+        if component in ["faction", "clockwork", "vagabond"]:
             qs = qs.annotate(
                     total_games=Count(
                         'efforts__game',
@@ -1844,7 +2045,7 @@ def apply_filters(qs, filters, component):
         qs = filter_by_field_quantity(queryset=qs, field_type="total_games", quantity=games_qty, comparator=games_op)
 
     # Winrate
-    if component in ["Faction", "Vagabond", "Clockwork"]:
+    if component in ["faction", "vagabond", "clockwork"]:
         try:
             winrate_min = float(filters.get('winrate_min', 0))
             winrate_max = float(filters.get('winrate_max', 100))
@@ -2233,6 +2434,7 @@ COMPONENT_TYPE_MAP = {
     "deck": Post.ComponentChoices.DECK,
     "faction": Post.ComponentChoices.FACTION,
     "vagabond": Post.ComponentChoices.VAGABOND,
+    "captain": Post.ComponentChoices.VAGABOND,
     "landmark": Post.ComponentChoices.LANDMARK,
     "hireling": Post.ComponentChoices.HIRELING,
     "clockwork": Post.ComponentChoices.CLOCKWORK,
@@ -2242,6 +2444,7 @@ COMPONENT_TYPE_MAP = {
 }
 
 def advanced_search(request, component_type='faction'):
+
     component = COMPONENT_TYPE_MAP.get(component_type.lower())
     
     if not component:
@@ -2261,9 +2464,6 @@ def advanced_search(request, component_type='faction'):
     else:
         expansions = Expansion.objects.all()
 
-    posts = build_post_queryset(request.user, view_status, component)
-    posts = apply_filters(posts, filters, component)
-
     # Language logic
     used_languages = Language.objects.filter(
         Q(post__component=component) |
@@ -2272,10 +2472,13 @@ def advanced_search(request, component_type='faction'):
     language_code = filters.get('language_code') or get_language()
     language_object = Language.objects.filter(code=language_code).first() or Language.objects.get(code='en')
 
+    posts = build_post_queryset(request.user, view_status, component_type)
+    posts = apply_filters(posts, filters, component_type)
+
     post_count = posts.count()
     posts = annotate_with_translations(posts, language_object)
     posts = paginate(posts, page)
-    tabs = ["Faction", "Map", "Deck", "Vagabond", "Landmark", "Hireling", "Clockwork", "Tweak"]
+    tabs = ["Faction", "Map", "Deck", "Vagabond", "Landmark", "Hireling", "Clockwork", "Houserule", "Captain"]
     
     # Meta data
     if component == "Tweak":
@@ -2286,10 +2489,12 @@ def advanced_search(request, component_type='faction'):
     if filter_description:
         meta_description = f'Results: {post_count}, {filter_description}.'
     else:
-        if component == "Clockwork":
+        if component_type == "clockwork":
             meta_description = f'Search {post_count} Root Clockwork Fan Factions using advanced filters.'
-        elif component == "Tweak":
+        elif component_type == "houserule":
             meta_description = f'Search {post_count} Root House Rules using advanced filters.'
+        elif component_type == "captain":
+            meta_description = f'Search {post_count} Root Knave Captains using advanced filters.'
         else:
             meta_description = f'Search {post_count} Root Fan {component}s using advanced filters.'
 
@@ -2304,13 +2509,23 @@ def advanced_search(request, component_type='faction'):
 
     # Selected status and available statuses
     selected_status = filters.get('status', "")
-    has_status = {
-        status_choice.name.lower(): Post.objects.filter(
-            component=component,
-            status=status_choice.value
-        ).exists()
-        for status_choice in StatusChoices
-    }
+    if component_type == "captain":
+        has_status = {
+            status_choice.name.lower(): Vagabond.objects.filter(
+                component=component,
+                status=status_choice.value,
+                captain=True,
+            ).exists()
+            for status_choice in StatusChoices
+        }
+    else:
+        has_status = {
+            status_choice.name.lower(): Post.objects.filter(
+                component=component,
+                status=status_choice.value
+            ).exists()
+            for status_choice in StatusChoices
+        }
     # Add the selected status if it's valid
     if selected_status:
         try:
@@ -2339,7 +2554,7 @@ def advanced_search(request, component_type='faction'):
         if Post.objects.filter(component=component, color_group=color_choice.value).exists()
     ]
 
-    if component in ["Faction", "Hireling", "Vagabond", "Clockwork"]:
+    if component_type in ["faction", "hireling", "vagabond", "clockwork", "captain"]:
         # If the selected color is valid but not in the list, add it
         if selected_color and selected_color not in [c["value"] for c in used_color_choices]:
             try:
@@ -2367,7 +2582,7 @@ def advanced_search(request, component_type='faction'):
         "language_code": language_code,
         "tabs": tabs,
         "is_search_view": True,
-        "component_type": component,
+        "component_type": component_type,
         "meta_title": meta_title,
         "meta_description": meta_description,
         "has_piece_type": has_piece_type,
@@ -2465,51 +2680,78 @@ def advanced_search(request, component_type='faction'):
 
 @editor_required
 def add_piece(request, id=None):
-    if not request.htmx:
-        raise Http404("Not an HTMX request")
-    if id:
-        obj = get_object_or_404(Piece, id=id)
-        #Check if user owns this object
-        if obj.parent.designer!=request.user.profile and not request.user.profile.admin:
-            raise PermissionDenied() 
-    else:
-        obj = Piece()  # Create a new Piece instance but do not save it yet
+    if request.headers.get("HX-Request") != "true":
+        raise Http404()
 
-    form = PieceForm(request.POST or None, request.FILES or None, instance=obj)
+    piece = get_object_or_404(Piece, id=id) if id else Piece()
 
-    piece_type = request.GET.get('piece')
-    slug = request.GET.get('slug')
+    piece_type = request.GET.get("piece")
+    slug = request.GET.get("slug")
+    form_type = request.GET.get("type")
+    language_code = request.GET.get("language_code")
 
-    # parent = Post.objects.get(slug=slug)
     parent = get_object_or_404(Post, slug=slug)
+    can_edit = user_can_edit(request, parent)
+    if not can_edit:
+        raise PermissionDenied()
+
+    if piece_type not in Piece.TypeChoices.values:
+        return HttpResponseBadRequest("Invalid piece type")
+
+    form = PieceForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=piece,
+    )
 
     context = {
-        'form': form,
-        'object': parent,
-        'piece_type': piece_type,
-        'piece': obj,
+        "form": form,
+        "object": parent,
+        "post": parent,
+        "piece_type": piece_type,
+        "piece": piece,
+        "can_edit": can_edit,
+        "language_code": language_code,
     }
 
-    if request.method == 'POST':
+    if request.method == "POST":
         if form.is_valid():
-            # Form is valid, save the piece
-            child = form.save(commit=False)
-            child.parent = parent
-            child.type = piece_type
-            child.save()
+            piece = form.save(commit=False)
+            piece.parent = parent
+            piece.type = piece_type
+            piece.save()
 
-            # Return a partial to indicate the piece has been updated
-            return render(request, 'the_keep/partials/piece_line.html', context)
-        else:
-            # If form is not valid, it will still return the form with error messages
-            return render(request, 'the_keep/partials/piece_add.html', context)  # Render the form with error messages
-    
-    # If GET request, render the form without errors (initial state)
+            piece.fresh_small_icon_url = (
+                get_fresh_image_url(piece.small_icon)
+                if piece.small_icon else None
+            )
 
-    if id:
-        return render(request, 'the_keep/partials/piece_update.html', context)
-    else:
-        return render(request, 'the_keep/partials/piece_add.html', context)
+            context["piece"] = piece
+
+            template = (
+                "the_keep/deckgroup/partials/piece_row.html"
+                if form_type == "row"
+                else "the_keep/partials/piece_line.html"
+            )
+            return render(request, template, context)            
+
+        template = (
+            "the_keep/deckgroup/partials/piece_form_row.html"
+            if form_type == "row"
+            else "the_keep/partials/piece_add.html"
+        )
+        return render(request, template, context)
+
+    # GET
+    template = (
+        "the_keep/deckgroup/partials/piece_form_row.html"
+        if form_type == "row"
+        else "the_keep/partials/piece_update.html"
+        if id
+        else "the_keep/partials/piece_add.html"
+    )
+
+    return render(request, template, context)
 
 @editor_required
 def delete_piece(request, id):
@@ -2529,27 +2771,18 @@ def delete_piece(request, id):
 def status_check(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
-    component_mapping = {
-            "Map": Map,
-            "Deck": Deck,
-            "Landmark": Landmark,
-            "Tweak": Tweak,
-            "Hireling": Hireling,
-            "Vagabond": Vagabond,
-            "Faction": Faction,
-            "Clockwork": Faction,
-        }
-    Klass = component_mapping.get(post.component)
-    object = get_object_or_404(Klass, slug=slug)
+
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
 
     language = get_language()
     language_object = Language.objects.filter(code=language).first()
-    object_translation = object.translations.filter(language=language_object).first()
-    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else object.title
+    object_translation = obj.translations.filter(language=language_object).first()
+    object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.title
 
 
 
-    stable = object.stable_check()
+    stable = obj.stable_check()
 
     stable_ready = stable.stable_ready
     play_count = stable.play_count
@@ -2570,7 +2803,7 @@ def status_check(request, slug):
     unplayed_deck_queryset = stable.unplayed_deck_queryset
 
     
-    if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
+    if obj.component == 'Faction' or obj.component == 'Vagabond' or obj.component == 'Clockwork':
         win_count = stable.win_count
         loss_count = stable.loss_count
         if win_count != 0:
@@ -2631,7 +2864,7 @@ def status_check(request, slug):
         deck_icon_width = '100%'
 
     total_threshold = play_threshold + player_threshold + official_deck_threshold + official_faction_threshold + official_map_threshold
-    if object.component == 'Faction' or object.component == 'Vagabond' or object.component == 'Clockwork':
+    if obj.component == 'Faction' or obj.component == 'Vagabond' or obj.component == 'Clockwork':
         total_threshold += 2
     total_count = min(play_count,play_threshold) + min(player_count,player_threshold) + min(official_deck_count,official_deck_threshold) + min(official_faction_count,official_faction_threshold) + min(official_map_count,official_map_threshold) + min(win_count,1) + min(loss_count,1)
     total_completion = max(min(100, total_count / total_threshold * 100),1)
@@ -2639,8 +2872,8 @@ def status_check(request, slug):
         total_completion = max(total_completion,16)
     total_completion = f'{total_completion}%'
 
-    if object.color:
-        object_color = object.color
+    if obj.color:
+        object_color = obj.color
     else:
         if request.user.is_authenticated:
             if request.user.profile.theme:
@@ -2650,12 +2883,10 @@ def status_check(request, slug):
         else:
             object_color = "#5f788a"
 
-    status_message = ''
-
     context = {
-        'object': object,
+        'object': obj,
         'object_color': object_color,
-        'object_component': object.component,
+        'object_component': obj.component,
         'object_title': object_title,
         'stable_ready': stable_ready,
 
@@ -2707,47 +2938,38 @@ def status_check(request, slug):
 def confirm_stable(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
-    component_mapping = {
-            "Map": Map,
-            "Deck": Deck,
-            "Landmark": Landmark,
-            "Tweak": Tweak,
-            "Hireling": Hireling,
-            "Vagabond": Vagabond,
-            "Faction": Faction,
-            "Clockwork": Faction,
-        }
-    Klass = component_mapping.get(post.component)
-    object = get_object_or_404(Klass, slug=slug)
 
-    stable = object.stable_check()
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
+
+    stable = obj.stable_check()
     # print(stable)
     # if stable[0] == False:
     if stable.stable_ready == False:
         messages.info(request, _('{} has not yet met the stability requirements.').format(object))
-        return redirect('status-check', slug=object.slug)
+        return redirect('status-check', slug=obj.slug)
     
     # Check if the current user is the designer
-    if object.designer != request.user.profile:
+    if obj.designer != request.user.profile:
         messages.error(request, _("You are not authorized to make this change."))
-        return redirect('status-check', slug=object.slug)
+        return redirect('status-check', slug=obj.slug)
     
 
     # If form is submitted (POST request)
     if request.method == 'POST':
         # Update the `stable` property to True
-        object.status = 1
-        object.save()
+        obj.status = 1
+        obj.save()
 
         # Redirect to a success page or back to the post detail page
-        messages.success(request, _('{} has been marked as "Stable".').format(object.title))
-        return redirect(object.get_absolute_url())
+        messages.success(request, _('{} has been marked as "Stable".').format(obj.title))
+        return redirect(obj.get_absolute_url())
 
     # If GET request, render the confirmation form
     form = StatusConfirmForm()
     context = {
         'form': form, 
-        'post': object,
+        'post': obj,
         'post_title': post.title,
         'post_component': post.component,
     }
@@ -2758,47 +2980,38 @@ def confirm_stable(request, slug):
 def confirm_testing(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
-    component_mapping = {
-            "Map": Map,
-            "Deck": Deck,
-            "Landmark": Landmark,
-            "Tweak": Tweak,
-            "Hireling": Hireling,
-            "Vagabond": Vagabond,
-            "Faction": Faction,
-            "Clockwork": Faction,
-        }
-    Klass = component_mapping.get(post.component)
-    object = get_object_or_404(Klass, slug=slug)
 
-    testing = object.get_games_queryset().count() > 0
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
+
+    testing = obj.get_games_queryset().count() > 0
 
     # print(stable)
 
     if testing == False:
         messages.info(request, _('{} has not yet recorded a playtest.').format(object))
-        return redirect('status-check', slug=object.slug)
+        return redirect('status-check', slug=obj.slug)
     
     # Check if the current user is the designer
-    if object.designer != request.user.profile:
+    if obj.designer != request.user.profile:
         messages.error(request, _("You are not authorized to make this change."))
-        return redirect('status-check', slug=object.slug)
+        return redirect('status-check', slug=obj.slug)
 
     # If form is submitted (POST request)
     if request.method == 'POST':
         # Update the `testing` property to True
-        object.status = 2
-        object.save()
+        obj.status = 2
+        obj.save()
 
         # Redirect to a success page or back to the post detail page
-        messages.success(request, _('{} has been marked as "Testing".').format(object.title))
-        return redirect(object.get_absolute_url())
+        messages.success(request, _('{} has been marked as "Testing".').format(obj.title))
+        return redirect(obj.get_absolute_url())
 
     # If GET request, render the confirmation form
     form = StatusConfirmForm()
     context = {
         'form': form, 
-        'post': object,
+        'post': obj,
         'post_title': post.title,
         'post_component': post.component,
     }
@@ -2989,8 +3202,8 @@ class PNPAssetListView(ListView):
 
         if self.request.user.is_authenticated:
             send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')
-        else:
-            send_discord_message(f'{get_uuid(self.request)} viewing The Workshop')
+        # else:
+        #     send_discord_message(f'{get_uuid(self.request)} viewing The Workshop')
 
         return super().render_to_response(context, **response_kwargs)
     
@@ -3029,13 +3242,13 @@ class PNPAssetDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 @admin_required
 def pin_asset(request, id):
 
-    object = get_object_or_404(PNPAsset, id=id)
-    asset_pinned = object.pinned
+    obj = get_object_or_404(PNPAsset, id=id)
+    asset_pinned = obj.pinned
     if asset_pinned:
-        object.pinned = False
+        obj.pinned = False
     else:
-        object.pinned = True
-    object.save()
+        obj.pinned = True
+    obj.save()
 
     return render(request, 'the_keep/partials/asset_pins.html', {'obj': object })
 
@@ -3451,7 +3664,7 @@ def create_law_group(request, slug):
     if existing_group:
         existing_law = Law.objects.filter(group=existing_group).first()
         if existing_law:
-            return redirect('law-view', slug=existing_law.group.slug, lang_code=existing_law.language.code)
+            return redirect('law-view', slug=existing_law.group.slug, language_code=existing_law.language.code)
 
     available_languages = Language.objects.all()
 
@@ -3463,17 +3676,8 @@ def create_law_group(request, slug):
             language = form.cleaned_data['language']
 
             # Determine related model
-            component_mapping = {
-                "Map": Map,
-                "Deck": Deck,
-                "Landmark": Landmark,
-                "Tweak": Tweak,
-                "Hireling": Hireling,
-                "Vagabond": Vagabond,
-                "Faction": Faction,
-                "Clockwork": Faction,
-            }
-            Klass = component_mapping.get(post.component)
+
+            Klass = COMPONENT_MAPPING.get(post.component)
             obj = get_object_or_404(Klass, slug=post.slug)
 
             translation = PostTranslation.objects.filter(post=post, language=language).first()
@@ -3485,7 +3689,7 @@ def create_law_group(request, slug):
                 defaults={'title': new_title}
             )
             if not created and group.laws.exists():
-                return redirect('law-view', slug=group.slug, lang_code=language.code)
+                return redirect('law-view', slug=group.slug, language_code=language.code)
 
             # Prime law
             Law.objects.create(
@@ -3597,7 +3801,7 @@ def create_law_group(request, slug):
             }]
             send_rich_discord_message(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
 
-            return redirect('law-view', slug=group.slug, lang_code=language.code)
+            return redirect('law-view', slug=group.slug, language_code=language.code)
     else:
         form = LanguageSelectionForm()
         form.fields['language'].queryset = available_languages
@@ -3608,9 +3812,9 @@ def create_law_group(request, slug):
     })
 
 @editor_onboard_required
-def update_law_group(request, slug, lang_code):
+def update_law_group(request, slug, language_code):
 
-    language = Language.objects.filter(code=lang_code).first()
+    language = Language.objects.filter(code=language_code).first()
     if not language:
         language = Language.objects.filter(code='en').first()
 
@@ -3618,7 +3822,7 @@ def update_law_group(request, slug, lang_code):
     source_group = get_object_or_404(LawGroup, slug=slug)
     first_law = Law.objects.filter(group=source_group, language=language).first()
     if first_law:
-        lang_code = first_law.language.code
+        language_code = first_law.language.code
     else:
         raise Http404(f"No laws found in {source_group}.")
     # Authorization
@@ -3636,22 +3840,22 @@ def update_law_group(request, slug, lang_code):
         if form.is_valid():
             form.save()
             messages.success(request, f"{source_group} Law Updated.")
-            return redirect('edit-law-view', slug=source_group.slug, lang_code=lang_code)
+            return redirect('edit-law-view', slug=source_group.slug, language_code=language_code)
     else:
         form = EditLawGroupForm(instance=source_group, user=request.user)
 
     return render(request, 'the_keep/law_group_edit.html', {
         'form': form,
         'source_group': source_group,
-        'lang_code': lang_code,
+        'language_code': language_code,
     })
 
 
 @editor_onboard_required
-def delete_law_group(request, slug, lang_code):
+def delete_law_group(request, slug, language_code):
     user_profile = request.user.profile
     source_group = get_object_or_404(LawGroup, slug=slug)
-    source_language = get_object_or_404(Language, code=lang_code)
+    source_language = get_object_or_404(Language, code=language_code)
 
     # Authorization
     if source_group.post:
@@ -3672,7 +3876,7 @@ def delete_law_group(request, slug, lang_code):
         if source_group.post:
             return redirect(source_group.post.get_absolute_url()) 
         else:
-            return redirect('law-of-root', lang_code=lang_code) 
+            return redirect('law-of-root', language_code=language_code) 
 
     # GET: Show confirmation page
     laws_count = Law.objects.filter(group=source_group, language=source_language).count()
@@ -3682,17 +3886,17 @@ def delete_law_group(request, slug, lang_code):
         "source_language": source_language,
         "laws_count": laws_count,
         'slug': slug,
-        'lang_code': lang_code,
+        'language_code': language_code,
     }
 
     return render(request, "the_keep/law_group_delete.html", context)
 
 @editor_onboard_required
-def copy_law_group_view(request, slug, lang_code=None):
+def copy_law_group_view(request, slug, language_code=None):
     user_profile = request.user.profile
     source_group = get_object_or_404(LawGroup, slug=slug)
-    if lang_code:
-        source_language = get_object_or_404(Language, code=lang_code)
+    if language_code:
+        source_language = get_object_or_404(Language, code=language_code)
     else:
         first_law = Law.objects.filter(group=source_group).order_by('id').first()
         if not first_law:
@@ -3702,7 +3906,7 @@ def copy_law_group_view(request, slug, lang_code=None):
 
     existing_laws = Law.objects.filter(group=source_group, language=source_language)
     if not existing_laws:
-        return redirect('law-view', slug=slug, lang_code=lang_code)
+        return redirect('law-view', slug=slug, language_code=language_code)
 
     post = source_group.post
     # Admins are always allowed
@@ -3727,7 +3931,7 @@ def copy_law_group_view(request, slug, lang_code=None):
         if form.is_valid():
             target_language = form.cleaned_data['language']
             duplicate_laws_for_language(source_group, source_language, target_language)
-            return redirect('law-view', slug=slug, lang_code=target_language.code)
+            return redirect('law-view', slug=slug, language_code=target_language.code)
     else:
         form = CopyLawGroupForm(source_group=source_group)
 
@@ -3735,19 +3939,19 @@ def copy_law_group_view(request, slug, lang_code=None):
         'law_group': source_group,
         'form': form,
         'post': post,
-        'lang_code': lang_code,
+        'language_code': language_code,
         'source_language': source_language,
     })
 
 
-def law_table_of_contents(request, lang_code=''):
+def law_table_of_contents(request, language_code=''):
 
     query = request.GET.get("q", "")
     filter_type = request.GET.get('type', 'all')
 
-    if not lang_code:
-        lang_code = get_language()
-    language = Language.objects.filter(code=lang_code, law__isnull=False).first()
+    if not language_code:
+        language_code = get_language()
+    language = Language.objects.filter(code=language_code, law__isnull=False).first()
     if not language:
         language = Language.objects.first()
     available_languages_qs = Law.objects.filter(group__public=True).exclude(language=language)
@@ -3844,7 +4048,7 @@ def law_table_of_contents(request, lang_code=''):
         'official_laws': official_laws,
         'bot_laws': bot_laws,
         'fan_laws': fan_laws,
-        'lang_code': language.code,
+        'language_code': language.code,
         'available_languages': available_languages,
         'selected_language': language,
         'query': query,
@@ -3857,9 +4061,9 @@ def law_table_of_contents(request, lang_code=''):
     return render(request, "the_keep/law_table.html", context)
 
 
-def get_law_group_context(request, slug, lang_code, edit_mode):
+def get_law_group_context(request, slug, language_code, edit_mode):
 
-    language = Language.objects.filter(code=lang_code).first()
+    language = Language.objects.filter(code=language_code).first()
     if not language:
         language = Language.objects.filter(code='en').first()
 
@@ -3911,15 +4115,7 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
             law__in=available_languages_qs
         ).exclude(id=language.id).distinct()
 
-
-    edit_authorized = False
-    if request.user.is_authenticated:
-        if request.user.profile.admin:
-            edit_authorized = True
-        elif request.user.profile.editor and group.post:
-            if request.user.profile == group.post.designer:
-                edit_authorized = True
-
+    can_edit = user_can_edit(request, group.post)
 
     raw_top_level = (
         Law.objects
@@ -3960,13 +4156,13 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
 
     return {
         'post': group.post,
-        'lang_code': lang_code,
+        'language_code': language_code,
         'highlight_id': highlight_id,
         'highlight_group_id': highlight_group_id,
         'law_meta_description': law_meta_description,
         'law_meta_title': law_meta_title,
         'title': law_title,
-        'edit_authorized': edit_authorized,
+        'edit_authorized': can_edit,
         'selected_language': language,
         'available_languages': available_languages,
         'previous_group': previous_group,
@@ -3981,7 +4177,7 @@ def get_law_group_context(request, slug, lang_code, edit_mode):
         'law_link': law_link,
     }
 
-def law_group_view(request, slug, lang_code):
+def law_group_view(request, slug, language_code):
 
     if request.user.is_authenticated:
         user_profile = request.user.profile
@@ -4004,29 +4200,29 @@ def law_group_view(request, slug, lang_code):
         messages.error(request, f"You are not authorized to view the Law of { group.title }.")
         raise PermissionDenied() 
     
-    context = get_law_group_context(request, slug=slug, edit_mode=False, lang_code=lang_code)
+    context = get_law_group_context(request, slug=slug, edit_mode=False, language_code=language_code)
     
     return render(request, 'the_keep/law_of_root.html', context)
 
 @editor_onboard_required
-def law_group_edit_view(request, slug, lang_code):
+def law_group_edit_view(request, slug, language_code):
 
     user_profile = request.user.profile
 
 
-    language = Language.objects.filter(code=lang_code).first()
+    language = Language.objects.filter(code=language_code).first()
     if not language:
         language = Language.objects.filter(code='en').first()
 
     group = get_object_or_404(LawGroup, slug=slug)
-    if group.post:
-        edit_authorized = user_profile.editor and group.post.designer == user_profile
-        if not user_profile.admin and not edit_authorized:
+
+    can_edit = user_can_edit(request, group.post)
+    if not can_edit:
+        if group.post:
             messages.error(request, f"You are not authorized to edit { group.post.title }'s Law.")
-            raise PermissionDenied() 
-    elif not user_profile.admin:
-        messages.error(request, f'You are not authorized to edit the Law of Root.')
-        raise PermissionDenied() 
+        else:
+            messages.error(request, f'You are not authorized to edit the Law of Root.')
+        raise PermissionDenied()        
     
     if user_profile.admin:
         all_laws = Law.objects.filter(language=language).prefetch_related('group__post')
@@ -4036,15 +4232,15 @@ def law_group_edit_view(request, slug, lang_code):
             language=language
                 ).prefetch_related('group__post')
 
-    context = get_law_group_context(request, slug=slug, edit_mode=True, lang_code=lang_code)
+    context = get_law_group_context(request, slug=slug, edit_mode=True, language_code=language_code)
     context['all_laws'] = all_laws
 
     return render(request, 'the_keep/law_of_root.html', context)
 
 
-def expansion_law_group(request, expansion_slug, lang_code):
+def expansion_law_group(request, expansion_slug, language_code):
 
-    language = Language.objects.filter(code=lang_code).first()
+    language = Language.objects.filter(code=language_code).first()
     if not language:
         language = Language.objects.filter(code='en').first()
 
@@ -4065,7 +4261,7 @@ def expansion_law_group(request, expansion_slug, lang_code):
             request,
             slug=group.slug,
             edit_mode=False,
-            lang_code=lang_code
+            language_code=language_code
         )
         all_groups_context.append(group_context)
     law_title = f'Law of Root: {expansion.title}'
@@ -4075,17 +4271,17 @@ def expansion_law_group(request, expansion_slug, lang_code):
         "groups": all_groups_context,
         'law_title': law_title,
         'law_description': law_description,
-        'lang_code': lang_code,
+        'language_code': language_code,
         'selected_language': language,
         'available_languages': available_languages,
     }
 
     return render(request, 'the_keep/expansion_law.html', context)
 
-def export_laws_yaml_view(request, group_slug, lang_code):
+def export_laws_yaml_view(request, group_slug, language_code):
     try:
         group = LawGroup.objects.get(slug=group_slug)
-        language = Language.objects.get(code=lang_code)
+        language = Language.objects.get(code=language_code)
         prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
         if not prime_law:
             raise Http404("No prime law found.")
@@ -4109,7 +4305,7 @@ def export_laws_yaml_view(request, group_slug, lang_code):
         )
 
         response = HttpResponse(yml_data, content_type='application/x-yaml')
-        filename = f"{group.slug}_{lang_code}.yml"
+        filename = f"{group.slug}_{language_code}.yml"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
@@ -4136,7 +4332,7 @@ def download_rule(request, rule_id):
 
 
 @admin_required
-def upload_and_compare_yaml_view(request, group_slug, lang_code):
+def upload_and_compare_yaml_view(request, group_slug, language_code):
     if request.method == 'POST':
         form = YAMLUploadForm(request.POST, request.FILES)
         if form.is_valid():
@@ -4145,7 +4341,7 @@ def upload_and_compare_yaml_view(request, group_slug, lang_code):
 
             try:
                 group = LawGroup.objects.get(slug=group_slug)
-                language = Language.objects.get(code=lang_code)
+                language = Language.objects.get(code=language_code)
                 prime_law = Law.objects.filter(group=group, language=language, prime_law=True).first()
                 if not prime_law:
                     return HttpResponse("No prime law found.", status=404)
@@ -4156,7 +4352,7 @@ def upload_and_compare_yaml_view(request, group_slug, lang_code):
                 mismatches = compare_structure_strict(generated_yaml, uploaded_yaml)
 
                 if not mismatches:
-                    update_laws_by_structure(generated_yaml, uploaded_yaml, lang_code)
+                    update_laws_by_structure(generated_yaml, uploaded_yaml, language_code)
                     messages.success(request, f'Law for {prime_law.group} successfully updated!')
                     return redirect(prime_law.get_absolute_url())
 
@@ -4175,8 +4371,8 @@ def upload_and_compare_yaml_view(request, group_slug, lang_code):
 
 
 @admin_required
-def update_official_laws(request, lang_code):
-    language = Language.objects.get(code=lang_code)
+def update_official_laws(request, language_code):
+    language = Language.objects.get(code=language_code)
     if request.method == 'POST':
         form = YAMLUploadForm(request.POST, request.FILES)
         if form.is_valid():
@@ -4210,7 +4406,7 @@ def update_official_laws(request, lang_code):
                     if parts:
                         messages.success(request, ". ".join(parts) + ".")
 
-                return redirect('law-of-root', lang_code=lang_code)
+                return redirect('law-of-root', language_code=language_code)
 
             except Exception as e:
                 return HttpResponse(f"Error processing YAML: {str(e)}", status=500)
@@ -4325,12 +4521,55 @@ def law_preview(request, rule_id):
 
 # FAQs FAQ Views
 
-def faq_search(request, slug=None, lang_code=None):
+def faq_queryset(*, language, require_post=True):
+    """
+    Base FAQ queryset with optimized joins.
+
+    - If require_post=True:
+        - filters post__isnull=False
+        - select_related post + expansion
+        - prefetch post translations
+    - Always prefetch reference laws
+    """
+
+    qs = FAQ.objects.filter(language=language)
+
+    if require_post:
+        qs = qs.filter(post__isnull=False).select_related(
+            'post',
+            'post__expansion',
+        )
+    else:
+        qs = qs.filter(post__isnull=True)
+
+    prefetches = [
+        Prefetch(
+            'reference_laws',
+            queryset=Law.objects.select_related(
+                'group',
+                'language',
+            )
+        )
+    ]
+
+    if require_post:
+        prefetches.append(
+            Prefetch(
+                'post__translations',
+                queryset=PostTranslation.objects.filter(language=language),
+                to_attr='filtered_translations'
+            )
+        )
+
+    return qs.prefetch_related(*prefetches)
+
+
+def faq_search(request, slug=None, language_code=None):
     query = request.GET.get("q", "")
 
-    if not lang_code:
-        lang_code = get_language()
-    language = get_object_or_404(Language, code=lang_code)
+    if not language_code:
+        language_code = get_language()
+    language = get_object_or_404(Language, code=language_code)
     if not language:
         language = Language.objects.first()
 
@@ -4338,20 +4577,60 @@ def faq_search(request, slug=None, lang_code=None):
     user_profile = Profile.objects.none()
     if request.user.is_authenticated:
         user_profile = request.user.profile
+
     if slug:
-        post = get_object_or_404(Post, slug=slug)
-        faqs = FAQ.objects.filter(post=post, language=language)
-        if user_profile:
-            if user_profile.admin or user_profile == post.designer and user_profile.editor:
-                faq_editable = True
-    else:
-        post = None
-        faqs = FAQ.objects.filter(post=None, language=language)
-        if user_profile.admin:
+        post = get_object_or_404(
+            Post.objects.select_related('designer', 'expansion'),
+            slug=slug
+        )
+        faqs = faq_queryset(
+            language=language,
+            require_post=True,
+        ).filter(post=post)
+
+        # faqs = FAQ.objects.filter(
+        #     post=post,
+        #     language=language
+        # ).select_related(
+        #     'post',
+        #     'post__expansion',
+        # ).prefetch_related(
+        #     Prefetch(
+        #         'post__translations',
+        #         queryset=PostTranslation.objects.filter(language=language),
+        #         to_attr='filtered_translations'
+        #     ),
+        #     Prefetch(
+        #         'reference_laws',
+        #         queryset=Law.objects.select_related(
+        #             'group',
+        #             'language',
+        #         )
+        #     )
+        # )
+
+        if user_profile and (
+            user_profile.admin or
+            (user_profile == post.designer and user_profile.editor)
+        ):
             faq_editable = True
 
+    else:
+        post = None
+
+        faqs = faq_queryset(
+            language=language,
+            require_post=False,
+        )
+
+        if user_profile and user_profile.admin:
+            faq_editable = True
+
+
     if query:
-        faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query))
+        faqs = faqs.filter(
+            Q(question__icontains=query)|Q(answer__icontains=query)
+            )
 
     # Determine other available languages for this context
     if slug:
@@ -4369,24 +4648,17 @@ def faq_search(request, slug=None, lang_code=None):
         faq__in=available_languages_qs
     ).exclude(id=language.id).distinct()
 
-    edit_authorized = False
-
-    if request.user.is_staff:
-        edit_authorized = True
-    elif request.user.is_authenticated and post and request.user.profile.editor:
-        if request.user.profile == post.designer:
-            edit_authorized = True
-
+    can_edit = user_can_edit(request, post)
 
     context = {
         "faqs": faqs,
         "post": post,
         'faq_editable': faq_editable,
-        'lang_code': lang_code,
+        'language_code': language_code,
         'selected_language': language,
         'available_languages': available_languages,
         'unavailable_languages': unavailable_languages,
-        'edit_authorized': edit_authorized,
+        'edit_authorized': can_edit,
         }
 
     if request.htmx:
@@ -4394,16 +4666,38 @@ def faq_search(request, slug=None, lang_code=None):
     return render(request, "the_keep/faq/website_faq.html", context)
 
 
-def faq_home(request, lang_code=None, expansion_slug=None):
+def faq_home(request, language_code=None, expansion_slug=None):
     query = request.GET.get("q", "")
     filter_type = request.GET.get('type', 'all')
 
-    if not lang_code:
-        lang_code = get_language()
-    language = get_object_or_404(Language, code=lang_code)
-    if not language:
-        language = Language.objects.first()
-    faqs = FAQ.objects.filter(post__isnull=False, language=language)
+    if not language_code:
+        language_code = get_language()
+    language = get_object_or_404(Language, code=language_code)
+    faqs = faq_queryset(
+        language=language,
+        require_post=True,
+    )
+
+    # faqs = FAQ.objects.filter(
+    #     post__isnull=False,
+    #     language=language
+    # ).select_related(
+    #     'post',
+    #     'post__expansion',
+    # ).prefetch_related(
+    #     Prefetch(
+    #         'post__translations',
+    #         queryset=PostTranslation.objects.filter(language=language),
+    #         to_attr='filtered_translations'
+    #     ),
+    #     Prefetch(
+    #         'reference_laws',
+    #         queryset=Law.objects.select_related(
+    #             'group',
+    #             'language'
+    #         )
+    #     )
+    # )
 
     faq_title = "Root FAQ"
     faq_description = "Frequently asked questions for Root and its Fan Factions."
@@ -4420,52 +4714,35 @@ def faq_home(request, lang_code=None, expansion_slug=None):
     elif filter_type == 'fan':
         faqs = faqs.filter(post__official=False)
 
-    faqs = faqs.annotate(
-        post_title=Coalesce(
-            Subquery(
-                PostTranslation.objects.filter(
-                    post=OuterRef('post_id'),  # reference the related post
-                    language=language
-                ).values('translated_title')[:1],
-                output_field=CharField()
-            ),
-            F('post__title')  # fallback to the original post title
-        )
-    )
-
     if query:
         faqs = faqs.filter(Q(question__icontains=query)|Q(answer__icontains=query)|Q(post__title__icontains=query))
 
     # Determine other available languages for this context
-    available_languages_qs = FAQ.objects.filter(
-        Q(post__isnull=False)
-    ).exclude(language=language)
+    faq_language_ids = FAQ.objects.filter(
+        post__isnull=False
+    ).values_list('language_id', flat=True).distinct()
+
     if expansion:
-        available_languages_qs = available_languages_qs.filter(post__expansion=expansion)
+        faq_language_ids = FAQ.objects.filter(
+            post__expansion=expansion
+        ).values_list('language_id', flat=True).distinct()
 
     available_languages = Language.objects.filter(
-            faq__in=available_languages_qs
-        ).exclude(id=language.id).distinct()
+        id__in=faq_language_ids
+    ).exclude(id=language.id)
 
     unavailable_languages = Language.objects.exclude(
-        faq__in=available_languages_qs
-    ).exclude(id=language.id).distinct()
+        id__in=faq_language_ids
+    ).exclude(id=language.id)
 
-    # Check if the FAQ can be edited
-    faq_editable = False
-    user_profile = Profile.objects.none()
-    if request.user.is_authenticated:
-        user_profile = request.user.profile
-    if expansion and user_profile:
-        if user_profile.admin or user_profile == expansion.designer and user_profile.editor:
-            faq_editable = True
-    else:
-        if user_profile.admin:
-            faq_editable = True
+
+
+    # Check if the FAQ can be edited    
+    can_edit = user_can_edit(request, expansion)
 
     context = {
         "faqs": faqs,
-        'lang_code': lang_code,
+        'language_code': language_code,
         'selected_language': language,
         'available_languages': available_languages,
         'unavailable_languages': unavailable_languages,
@@ -4473,7 +4750,7 @@ def faq_home(request, lang_code=None, expansion_slug=None):
         'faq_description': faq_description,
         'expansion_slug': expansion_slug,
         'expansion': expansion,
-        'faq_editable': faq_editable,
+        'faq_editable': can_edit,
         }
 
     if request.htmx:
@@ -4499,8 +4776,8 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
         form = super().get_form(form_class)
 
         post = self.get_post()
-        lang_code = self.kwargs.get('lang_code')
-        language = Language.objects.filter(code=lang_code).first() if lang_code else None
+        language_code = self.kwargs.get('language_code')
+        language = Language.objects.filter(code=language_code).first() if language_code else None
         laws_qs = Law.objects.filter(language=language)
         if post:
             laws_qs = laws_qs.filter(
@@ -4522,18 +4799,18 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['post'] = self.get_post()
-        context['lang_code'] = self.kwargs.get('lang_code')
+        context['language_code'] = self.kwargs.get('language_code')
         return context
 
     def form_valid(self, form):
         post = self.get_post()
-        lang_code = self.kwargs.get('lang_code')
+        language_code = self.kwargs.get('language_code')
 
         if post:
             form.instance.post = post
 
-        if lang_code:
-            language = Language.objects.filter(code=lang_code).first()
+        if language_code:
+            language = Language.objects.filter(code=language_code).first()
             if language:
                 form.instance.language = language
 
@@ -4541,7 +4818,7 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
 
     def get_success_url(self):
         answer_preview = self.object.answer
-        lang_code = self.kwargs.get('lang_code')
+        language_code = self.kwargs.get('language_code')
         if answer_preview and len(answer_preview) > 100:
             answer_preview = answer_preview[:100] + "..."
 
@@ -4554,8 +4831,8 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
         post = self.get_post()
         if post:
             send_rich_discord_message(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
-            return reverse('faq-view', kwargs={'slug': post.slug, 'lang_code': lang_code})
-        return reverse('lang-faq', kwargs={'lang_code': lang_code})
+            return reverse('faq-view', kwargs={'slug': post.slug, 'language_code': language_code})
+        return reverse('lang-faq', kwargs={'language_code': language_code})
 
 @editor_required_class_based_view
 class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
@@ -4578,16 +4855,16 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         context = super().get_context_data(**kwargs)
         faq = self.get_object()
         context['post'] = faq.post
-        context['lang_code'] = faq.language.code
+        context['language_code'] = faq.language.code
         return context
 
 
     def get_success_url(self):
         faq = self.get_object()
-        lang_code = faq.language.code
+        language_code = faq.language.code
         if faq.post:
-            return reverse('faq-view', kwargs={'slug': faq.post.slug, 'lang_code': lang_code})
-        return reverse('lang-faq', kwargs={'lang_code': lang_code})
+            return reverse('faq-view', kwargs={'slug': faq.post.slug, 'language_code': language_code})
+        return reverse('lang-faq', kwargs={'language_code': language_code})
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
@@ -4624,8 +4901,356 @@ class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     def get_success_url(self):
         faq = self.get_object()
         if faq.post:
-            return reverse('faq-view', kwargs={'slug': faq.post.slug, 'lang_code': faq.language.code})
-        return reverse('lang-faq', kwargs={'lang_code': faq.language.code})
+            return reverse('faq-view', kwargs={'slug': faq.post.slug, 'language_code': faq.language.code})
+        return reverse('lang-faq', kwargs={'language_code': faq.language.code})
 
 
+# TTS Json views
 
+# def download_tts_board(request, slug):
+#     post = get_object_or_404(
+#         Post.objects.prefetch_related("snap_points"),
+#         slug=slug,
+#     )
+
+#     board = TTSBoard(post, request=request)
+#     data = board.to_dict()
+
+#     response = HttpResponse(
+#         json.dumps(data, indent=2),
+#         content_type="application/json",
+#     )
+
+#     filename = f"{post.slug if hasattr(post, 'slug') else post.id}_board.json"
+#     response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+#     return response
+
+# def download_tts_file(request, slug):
+#     post = get_object_or_404(
+#         Post.objects.prefetch_related("snap_points"),
+#         slug=slug,
+#     )
+
+#     # Generate faction board object
+#     if post.component == "Faction" or post.component == "Clockwork":
+#         board = TTSBoard(post, request=request)
+#         board_object = board.to_dict()
+#     else:
+#         board_object = {}
+
+#     # Wrap it into a full save file
+#     save_file = wrap_tts_save([board_object], save_name=post.title or "Custom Board")
+
+#     response = HttpResponse(
+#         json.dumps(save_file, indent=2),
+#         content_type="application/json",
+#     )
+#     filename = f"{post.slug if hasattr(post, 'slug') else post.id}.json"
+#     response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+#     return response
+@admin_required
+def download_tts_file(request, slug):
+    post = get_object_or_404(
+        Post.objects.prefetch_related("snap_points"),
+        slug=slug,
+    )
+
+    all_objects = []
+    next_deck_id = 1
+
+    # Generate faction board object
+    if post.component in ["Faction", "Clockwork"]:
+        board = TTSBoard(post, request=request)
+        all_objects.append(board.to_dict())
+    
+    if post.component == "Faction":
+        adset_card = TTSSingleCardDeck(post.card_image, static("images/adset.png"), deck_id=next_deck_id, request=request, card_name=f"Adset Card")
+        all_objects.append(adset_card.to_object())
+        next_deck_id += 1
+
+    if post.component == "Vagabond" and post.card_image:
+        vb_card = TTSSingleCardDeck(post.card_image, static("images/Vagabond Card Back.png"), deck_id=next_deck_id, request=request, card_name=f"VB Card")
+        all_objects.append(vb_card.to_object())
+        next_deck_id += 1
+
+    # Include DeckGroups
+    for deck_group in post.decks.filter(language=post.language):
+        print(deck_group)
+        tts_group = TTSDeckGroup(deck_group, request=request)
+        decks = tts_group.build(starting_deck_id=next_deck_id)
+
+        for deck in decks:
+            all_objects.append(deck.to_object())
+            next_deck_id += 1
+
+
+    # Add a note if there are no objects
+    note = ""
+    if not all_objects:
+        note = "No objects available for this save."
+
+    # Wrap it into a full save file
+    save_file = wrap_tts_save(all_objects, save_name=post.title or "Custom Save")
+    if note:
+        save_file["Note"] = note
+
+    response = HttpResponse(
+        json.dumps(save_file, indent=2),
+        content_type="application/json",
+    )
+    filename = f"{post.slug if hasattr(post, 'slug') else post.id}.json"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    return response
+
+
+def post_cards_router(request, post_slug, language_code):
+    post = get_object_or_404(Post, slug=post_slug)
+    language = get_object_or_404(Language, code=language_code)
+    deckgroups = list(
+        DeckGroup.objects.filter(post=post, language=language)[:2]
+    )
+    if post.has_only_one_card() and len(deckgroups) == 1:
+        deckgroup = deckgroups[0]
+        return redirect("deckgroup-detail", post_slug=post_slug, language_code=language_code, deckgroup_slug=deckgroup.slug)
+    else:
+        return redirect("select-deckgroups", post_slug=post_slug, language_code=language_code)
+
+
+def select_deckgroups(request, post_slug, language_code):
+    post = get_object_or_404(Post, slug=post_slug)
+    language = get_object_or_404(Language, code=language_code)
+    can_edit = user_can_edit(request, post)
+    # Annotate card pieces with existing deckgroup for this language
+    card_pieces = Piece.objects.filter(
+        parent=post, 
+        type="C"
+    ).prefetch_related(
+        Prefetch(
+            'decks',  # This is the related_name from DeckGroup.piece
+            queryset=DeckGroup.objects.filter(language=language),
+            to_attr='existing_deck_list'
+        )
+    )
+
+    # Convert list to single object for easier template access
+    for piece in card_pieces:
+        piece.existing_deck = piece.existing_deck_list[0] if piece.existing_deck_list else None
+    
+
+    # Get other languages: post's language + translation languages, excluding current
+    post_languages = [post.language.id]
+    translation_languages = list(post.translations.values_list('language_id', flat=True))
+    all_language_ids = set(post_languages + translation_languages)
+    
+    other_languages = Language.objects.filter(
+        id__in=all_language_ids
+    ).exclude(
+        code=language_code
+    )
+    title = f"{post} Cards"
+    return render(request, "the_keep/deckgroup/list.html", {
+        "card_pieces": card_pieces,
+        "post": post,
+        "selected_language": language,
+        "language_code": language_code,
+        "other_languages": other_languages,
+        "language_code": language_code,
+        "can_edit": can_edit,
+        "title": title,
+    })
+
+def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
+    post = get_object_or_404(Post, slug=post_slug)
+    language = get_object_or_404(Language, code=language_code)
+    has_only_one_card = post.has_only_one_card()
+    deckgroup = get_object_or_404(
+        DeckGroup, 
+        slug=deckgroup_slug, 
+        post=post, 
+        language=language
+    )
+ 
+    can_edit = user_can_edit(request, post)
+    title = deckgroup.name
+    context = {
+        "deckgroup": deckgroup,
+        "post": post,
+        "cards": deckgroup.cards.all().order_by("order"),
+        'can_edit': can_edit,
+        'language_code': language_code,
+        "title": title,
+        "has_only_one_card": has_only_one_card,
+        }
+    return render(request, "the_keep/deckgroup/detail.html", context)
+
+
+@editor_required
+def add_deckgroup(request, post_slug, language_code, piece_id):
+    post = get_object_or_404(Post, slug=post_slug)
+
+    can_edit = user_can_edit(request, post)
+    if not can_edit:
+        messages.error(request, f'You are not authorized to edit { post.title }.')
+        raise PermissionDenied() 
+    language = get_object_or_404(Language, code=language_code)
+    piece = get_object_or_404(Piece, id=piece_id, parent=post)
+    title = piece.name
+    # DeckGroup must be unique for each post, piece and language combo
+    existing = DeckGroup.objects.filter(
+            post=post,
+            piece=piece,
+            language=language,
+        ).first()
+    if existing:
+        return redirect(existing.get_edit_url())
+
+    deckgroup = DeckGroup(
+        post=post, 
+        piece=piece, 
+        language=language)
+
+    suggested_name = piece.name
+
+
+    if request.method == "POST":
+        form = DeckGroupForm(
+            request.POST, 
+            request.FILES, 
+            instance=deckgroup,
+            )
+        if form.is_valid():        
+            deckgroup.save()
+            return redirect("edit-deckgroup", post_slug=post_slug, language_code=language_code, deckgroup_slug=deckgroup.slug)
+    else:
+        form = DeckGroupForm(
+            instance=deckgroup,
+            initial={'name': suggested_name}
+        )
+    
+    return render(request, "the_keep/deckgroup/editor.html", {
+        "deckgroup": deckgroup,
+        "form": form,
+        "post": post,
+        "piece": piece,
+        "cards": [],
+        "card_tags": CardTag.choices,
+        "is_create": True,
+        "language_code": language_code,
+        "stated_card_count": piece.quantity,
+        "title": title,
+    })
+
+
+@editor_required
+def edit_deckgroup(request, post_slug, language_code, deckgroup_slug):
+    post = get_object_or_404(Post, slug=post_slug)
+    language = get_object_or_404(Language, code=language_code)
+
+    can_edit = user_can_edit(request, post)
+    if not can_edit:
+        messages.error(request, f'You are not authorized to edit { post.title }.')
+        raise PermissionDenied() 
+
+    deckgroup = get_object_or_404(
+        DeckGroup, 
+        slug=deckgroup_slug, 
+        post=post, 
+        language=language
+    )
+
+    form = DeckGroupForm(
+        request.POST or None, 
+        request.FILES or None, 
+        instance=deckgroup
+        )
+
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        return redirect(
+            "edit-deckgroup", 
+            post_slug=post_slug, 
+            language_code=language_code, 
+            deckgroup_slug=deckgroup_slug
+        )
+    title = deckgroup.name
+    return render(request, "the_keep/deckgroup/editor.html", {
+        "form": form,
+        "deckgroup": deckgroup,
+        "post": deckgroup.post,
+        "cards": deckgroup.cards.all().order_by("order"),
+        "card_tags": CardTag.choices,
+        "is_create": False,
+        "is_edit": True,
+        "language_code": language_code,
+        "title": title,
+    })
+
+@editor_required
+def add_card(request, deckgroup_id):
+    deckgroup = get_object_or_404(DeckGroup, id=deckgroup_id)
+    can_edit = user_can_edit(request, deckgroup.post)
+    if not can_edit:
+        return HttpResponseForbidden("You do not have permission to add cards.")
+
+    if request.method == "POST":
+        form = CardForm(request.POST, request.FILES)
+        if form.is_valid():
+            card = form.save(commit=False)
+            card.group = deckgroup
+            card.tags = json.loads(request.POST.get("tags", "[]"))
+            card.save()
+            return render(request, "the_keep/deckgroup/partials/card_row.html", {
+                "card": card,
+                "is_edit": True,
+            })
+        else:
+            return HttpResponse(f"Invalid form data: {form.errors}", status=400)
+    return HttpResponse("Method not allowed", status=405)
+
+
+@editor_required
+@require_http_methods(["DELETE"])
+def delete_card(request, card_id):
+    card = get_object_or_404(Card, id=card_id)
+    can_edit = user_can_edit(request, card.group.post)
+    if not can_edit:
+        return HttpResponseForbidden("You do not have permission to delete cards.")
+    card.delete()
+    return HttpResponse(status=204)
+
+
+@editor_required
+def edit_card(request, card_id):
+    card = get_object_or_404(Card, id=card_id)
+    can_edit = user_can_edit(request, card.group.post)
+    if not can_edit:
+        return HttpResponseForbidden("You do not have permission to edit cards.")
+    if request.method == "POST":
+        form = CardForm(request.POST, request.FILES, instance=card)
+        if form.is_valid():
+            card = form.save(commit=False)
+            card.tags = json.loads(request.POST.get("tags", "[]"))
+            card.save()
+            return render(request, "the_keep/deckgroup/partials/card_row.html", {
+                "card": card,
+                "is_edit": True,
+            })
+        else:
+            return HttpResponse(f"Invalid form data: {form.errors}", status=400)
+    return HttpResponse("Method not allowed", status=405)
+
+@csrf_exempt
+@editor_required
+def reorder_cards(request, deckgroup_id):
+    if request.method == "POST":
+        deckgroup = get_object_or_404(DeckGroup, id=deckgroup_id)
+        can_edit = user_can_edit(request, deckgroup.post)
+        if not can_edit:
+            return HttpResponseForbidden("You do not have permission to reorder cards.")
+        data = json.loads(request.body)
+        for index, card_id in enumerate(data.get("order", [])):
+            Card.objects.filter(id=card_id, group=deckgroup).update(order=index)
+        return HttpResponse(status=204)

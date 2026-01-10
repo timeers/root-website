@@ -14,18 +14,18 @@ urlpatterns = [
     path('law-of-root/preview/<int:rule_id>/', views.law_preview, name='law-preview'),
     path("activate-rule/", views.activate_rule, name="activate-rule"),
     path("archive-rule/", views.archive_rule, name="archive-rule"),
-    path('law-of-root/<str:lang_code>/', views.law_table_of_contents, name='law-of-root'),
-    path('law-of-root/<str:lang_code>/update/', views.update_official_laws, name='update-law-of-root'),
+    path('law-of-root/<str:language_code>/', views.law_table_of_contents, name='law-of-root'),
+    path('law-of-root/<str:language_code>/update/', views.update_official_laws, name='update-law-of-root'),
     path('law/<slug:slug>/add/', views.create_law_group, name='post-law-group-create'),
     path('law/<slug:slug>/copy/', views.copy_law_group_view, name='copy-first-law'),
-    path('law/<slug:slug>/<str:lang_code>/', views.law_group_view, name='law-view'),
-    path('law/<slug:slug>/<str:lang_code>/update/', views.update_law_group, name='update-law-group'),
-    path('law/<slug:slug>/<str:lang_code>/edit/', views.law_group_edit_view, name='edit-law-view'),
-    path('law/<slug:slug>/<str:lang_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
-    path('law/<slug:slug>/<str:lang_code>/delete/', views.delete_law_group, name='delete-law-group'),
-    path('law/<slug:group_slug>/<str:lang_code>/compare/', views.upload_and_compare_yaml_view, name='compare-law-group'),
+    path('law/<slug:slug>/<str:language_code>/', views.law_group_view, name='law-view'),
+    path('law/<slug:slug>/<str:language_code>/update/', views.update_law_group, name='update-law-group'),
+    path('law/<slug:slug>/<str:language_code>/edit/', views.law_group_edit_view, name='edit-law-view'),
+    path('law/<slug:slug>/<str:language_code>/copy/', views.copy_law_group_view, name='copy-law-group'),
+    path('law/<slug:slug>/<str:language_code>/delete/', views.delete_law_group, name='delete-law-group'),
+    path('law/<slug:group_slug>/<str:language_code>/compare/', views.upload_and_compare_yaml_view, name='compare-law-group'),
 
-    path('export-laws/<slug:group_slug>/<str:lang_code>/', views.export_laws_yaml_view, name='export-laws-yaml'),
+    path('export-laws/<slug:group_slug>/<str:language_code>/', views.export_laws_yaml_view, name='export-laws-yaml'),
     path('download-laws/<int:rule_id>/', views.download_rule, name='download-rule'),
 
 
@@ -38,12 +38,12 @@ urlpatterns = [
 
     # FAQs
     path('faq/', views.faq_home, name='faq-home'),
-    path('faq/<str:lang_code>/', views.faq_home, name='faq-home-lang'),
+    path('faq/<str:language_code>/', views.faq_home, name='faq-home-lang'),
     path('website/faq/', views.faq_search, name='website-faq'),
-    path('website/faq/<str:lang_code>/', views.faq_search, name='lang-faq'),
-    path('website/faq/add/<str:lang_code>/', views.FAQCreateView.as_view(), name='faq-add'),
-    path('faq/<slug:slug>/<str:lang_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
-    path('faq/<slug:slug>/<str:lang_code>/', views.faq_search, name='faq-view'),
+    path('website/faq/<str:language_code>/', views.faq_search, name='lang-faq'),
+    path('website/faq/add/<str:language_code>/', views.FAQCreateView.as_view(), name='faq-add'),
+    path('faq/<slug:slug>/<str:language_code>/add/', views.FAQCreateView.as_view(), name='post-faq-add'),
+    path('faq/<slug:slug>/<str:language_code>/', views.faq_search, name='faq-view'),
     path('edit/faq/<int:pk>/', views.FAQUpdateView.as_view(), name='faq-edit'),
     path('delete/faq/<int:pk>/', views.FAQDeleteView.as_view(), name='faq-delete'),
 
@@ -69,31 +69,49 @@ urlpatterns = [
     
 
     path('expansion/<slug:slug>/', views.expansion_detail_view, name='expansion-detail'),
-    path('expansion/<slug:expansion_slug>/faq/<str:lang_code>/', views.faq_home, name='expansion-faq'),
-    path('expansion/<slug:expansion_slug>/law/<str:lang_code>/', views.expansion_law_group, name='expansion-law'),
+    path('expansion/<slug:expansion_slug>/faq/<str:language_code>/', views.faq_home, name='expansion-faq'),
+    path('expansion/<slug:expansion_slug>/law/<str:language_code>/', views.expansion_law_group, name='expansion-law'),
     path('expansion/<slug:slug>/update/', views.ExpansionUpdateView.as_view(), name='expansion-update'),
     path('expansion/<slug:slug>/delete/', views.ExpansionDeleteView.as_view(), name='expansion-delete'),
     # path('expansion/<slug:expansion_slug>/law/', views.law_hierarchy_view, name='expansion-law'),
 
 
     
-    path('map/<slug:slug>/', views.ultimate_component_view, name='map-detail'),
-    path('deck/<slug:slug>/', views.ultimate_component_view, name='deck-detail'),
-    path('hireling/<slug:slug>/', views.ultimate_component_view, name='hireling-detail'),
-    path('landmark/<slug:slug>/', views.ultimate_component_view, name='landmark-detail'),
-    path('tweak/<slug:slug>/', views.ultimate_component_view, name='tweak-detail'),
-    path('vagabond/<slug:slug>/', views.ultimate_component_view, name='vagabond-detail'),
-    path('faction/<slug:slug>/', views.ultimate_component_view, name='faction-detail'),
-    path('clockwork/<slug:slug>/', views.ultimate_component_view, name='clockwork-detail'),
+    path('map/<slug:slug>/', views.ultimate_component_view, {'component': "Map"}, name='map-detail'),
+    path('deck/<slug:slug>/', views.ultimate_component_view, {'component': "Deck"}, name='deck-detail'),
+    path('hireling/<slug:slug>/', views.ultimate_component_view, {'component': "Hireling"}, name='hireling-detail'),
+    path('landmark/<slug:slug>/', views.ultimate_component_view, {'component': "Landmark"}, name='landmark-detail'),
+    path('tweak/<slug:slug>/', views.ultimate_component_view, {'component': "Tweak"}, name='tweak-detail'),
+    path('vagabond/<slug:slug>/', views.ultimate_component_view, {'component': "Vagabond"}, name='vagabond-detail'),
+    path('vagabond/<slug:slug>/captain/', views.ultimate_component_view, {'component': "Captain"}, name='captain-detail'),
+    path('faction/<slug:slug>/', views.ultimate_component_view, {'component': "Faction"}, name='faction-detail'),
+    path('clockwork/<slug:slug>/', views.ultimate_component_view, {'component': "Clockwork"}, name='clockwork-detail'),
+    # TTS Objects    
+    path('faction/<slug:slug>/tts/', views.download_tts_file, name='faction-tts'),
+
+    # Decks
+    path('post/<slug:post_slug>/<str:language_code>/cards/', views.post_cards_router, name='post-cards-router'),
+    path('post/<slug:post_slug>/<str:language_code>/decks/', views.select_deckgroups, name='select-deckgroups'),
+    path('post/<slug:post_slug>/<str:language_code>/decks/add/<int:piece_id>/', views.add_deckgroup, name='add-deckgroup'),
+    path('post/<slug:post_slug>/<str:language_code>/decks/<slug:deckgroup_slug>/', views.view_deckgroup, name='deckgroup-detail'),
+    path('post/<slug:post_slug>/<str:language_code>/decks/<slug:deckgroup_slug>/edit/', views.edit_deckgroup, name='edit-deckgroup'),
+    
+    # Decks and Cards
+    path('cards/<int:card_id>/delete/', views.delete_card, name='delete-card'),
+    path('cards/<int:card_id>/edit/', views.edit_card, name='edit-card'),
+    path('decks/<int:deckgroup_id>/add-card/', views.add_card, name='add-card'),
+    path('decks/<int:deckgroup_id>/reorder/', views.reorder_cards, name='reorder-cards'),
+
+
     # Games
-    path('map/<slug:slug>/games/', views.component_games, name='map-games'),
-    path('deck/<slug:slug>/games/', views.component_games, name='deck-games'),
-    path('hireling/<slug:slug>/games/', views.component_games, name='hireling-games'),
-    path('landmark/<slug:slug>/games/', views.component_games, name='landmark-games'),
-    path('tweak/<slug:slug>/games/', views.component_games, name='tweak-games'),
-    path('vagabond/<slug:slug>/games/', views.component_games, name='vagabond-games'),
-    path('faction/<slug:slug>/games/', views.component_games, name='faction-games'),
-    path('clockwork/<slug:slug>/games/', views.component_games, name='clockwork-games'),
+    path('map/<slug:slug>/games/', views.component_games, {'component': "Map"}, name='map-games'),
+    path('deck/<slug:slug>/games/', views.component_games, {'component': "Deck"}, name='deck-games'),
+    path('hireling/<slug:slug>/games/', views.component_games, {'component': "Hireling"}, name='hireling-games'),
+    path('landmark/<slug:slug>/games/', views.component_games, {'component': "Landmark"}, name='landmark-games'),
+    path('tweak/<slug:slug>/games/', views.component_games, {'component': "Tweak"}, name='tweak-games'),
+    path('vagabond/<slug:slug>/games/', views.component_games, {'component': "Vagabond"}, name='vagabond-games'),
+    path('faction/<slug:slug>/games/', views.component_games, {'component': "Faction"}, name='faction-games'),
+    path('clockwork/<slug:slug>/games/', views.component_games, {'component': "Clockwork"}, name='clockwork-games'),
 
     path('map/<slug:slug>/update/', views.MapUpdateView.as_view(), name='map-update'),
     path('deck/<slug:slug>/update/', views.DeckUpdateView.as_view(), name='deck-update'),

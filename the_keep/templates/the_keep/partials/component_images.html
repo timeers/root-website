@@ -1,7 +1,7 @@
 <!-- Component Images-->
 {% if object_card_image_url or object_card_2_image_url %}
 <div class='d-flex flex-wrap justify-content-around align-items-center gap-3'>
-    {% if object_card_image_url %}
+    {% if object_card_image_url and component != "Captain" %}
     <div>
         {% comment %} <img class="mb-1 adset-img" src="{{ object_card_image_url }}"> {% endcomment %}
         <picture>
@@ -17,7 +17,7 @@
 
     </div>
     {% endif %}
-    {% if object_card_2_image_url %}
+    {% if object_card_2_image_url and component != "Vagabond"  %}
     <div>
         {% comment %} <img class="mb-1 adset-img" src="{{ object_card_2_image_url }}"> {% endcomment %}
         <picture>

@@ -6,7 +6,7 @@
 <article class="media content-section">
     <div class="media-body">
     <h2 class='root-title'>{% if links_count != 1 %}{% trans 'Links' %}{% else %}{% trans 'Link' %}{% endif %}</h2>
-    <div class="d-flex flex-wrap justify-content-between">
+    <div class="d-flex flex-wrap justify-content-around">
     {% if object.leder_games_link %}
         <a class="mr-2 mt-1" href="{{ object.leder_games_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/LG.webp' %}" alt="Leder Games">
@@ -120,6 +120,12 @@
         <a class="mr-2 mt-1" href="{{ object.rootjam_link }}" style="display: inline-flex; align-items: center;">
             <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/RootJam.webp' %}" alt="RootJam Link">
             {% trans 'RootJam Page' %}
+        </a>
+    {% endif %}
+    {% if has_decks %}
+        <a class="mr-2 mt-1" href="{% url 'post-cards-router' language_code=language_code post_slug=object.slug %}" style="display: inline-flex; align-items: center;">
+            <img class="user-icon mr-2 mt-1" src="{% static 'images/tags/Dominance_Tag.png' %}" alt="Cards Link">
+            {% trans 'View Cards' %}
         </a>
     {% endif %}
     </div>

@@ -1,5 +1,5 @@
 from dateutil import parser, relativedelta
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from django.utils import timezone
 
@@ -31,6 +31,20 @@ FACTION_MAP = {
     'frogs': 'Lilypad Diaspora',
     'bats': 'Twilight Council',
     'skunks': 'Knaves of the Deepwood',
+
+    # Vagabonds
+    'vb_ranger': 'Vagabond',
+    'vb_thief': 'Vagabond',
+    'vb_tinker': 'Vagabond',
+    'vb_vagrant': 'Vagabond',
+    'vb_arbiter': 'Vagabond',
+    'vb_scoundrel': 'Vagabond',
+    'vb_adventurer': 'Vagabond',
+    'vb_ronin': 'Vagabond',
+    'vb_harrier': 'Vagabond',
+    'vb_jailor': 'Vagabond',
+    'vb_cheat': 'Vagabond',
+    'vb_gladiator': 'Vagabond',
 }
 
 VAGABOND_MAP = {
@@ -139,24 +153,7 @@ def create_game_from_api(match_data):
     round_name = match_data.get('tournament', '')
     game_round = None
     if round_name:
-
-        # Start day of League
-        first_of_month = date_registered.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # Add 3 months
-        three_months_later = first_of_month + relativedelta.relativedelta(months=3)
-        # Subtract one day to get the last day of the second month
-        end_of_target_month = three_months_later - timedelta(days=1)
-
-        game_round, created = Round.objects.get_or_create(
-            name=round_name,
-            tournament=tournament,
-            defaults={
-                'round_number': tournament.rounds.count() + 1,
-                'start_date': first_of_month,
-                'end_date': end_of_target_month,
-                'game_threshold': 25,
-            }
-        )
+        game_round = get_game_round(date_registered=date_registered, round_name=round_name, tournament=tournament)
 
     # Get deck
     deck_name = DECK_MAP.get(match_data.get('deck'))
@@ -216,30 +213,57 @@ def create_game_from_api(match_data):
         notes=notes,
     )
     
+    hireling_keys = match_data.get('hirelings', []) or []
+    landmark_keys = match_data.get('landmarks', []) or []
+
     # Add hirelings
-    hireling_fields = ['hirelings_a', 'hirelings_b', 'hirelings_c']
-    for field in hireling_fields:
-        key = match_data.get(field)
-        if key:
-            title = HIRELING_MAP.get(key)
-            if title:
-                hireling = Hireling.objects.filter(title__iexact=title).first()
-                if hireling:
-                    game.hirelings.add(hireling)
+    hirelings_to_add = []
+    for key in hireling_keys:
+        title = HIRELING_MAP.get(key) if key else None
+        if title:
+            hireling = Hireling.objects.filter(title__iexact=title).first()
+            if hireling:
+                hirelings_to_add.append(hireling)
+
+    if hirelings_to_add:
+        game.hirelings.add(*hirelings_to_add)
 
     # Add landmarks
-    landmark_fields = ['landmark_a', 'landmark_b']
-    for field in landmark_fields:
-        key = match_data.get(field)
+    landmarks_to_add = []
+    for key in landmark_keys:
         if key:
             title = LANDMARK_MAP.get(key)
             if title:
                 landmark = Landmark.objects.filter(title__iexact=title).first()
                 if landmark:
-                    game.landmarks.add(landmark)
+                    landmarks_to_add.append(landmark)
+                    
+    if landmarks_to_add:
+        game.landmarks.add(*landmarks_to_add)
 
     return game
 
+def get_game_round(date_registered: datetime, round_name: str, tournament: Tournament):
+     # Add 1 day to avoid edge-case month rollover issues if the first game is showing on the previous month
+    adjusted_date = date_registered + timedelta(days=1)
+    # Start day of League
+    first_of_month = adjusted_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Add 3 months
+    three_months_later = first_of_month + relativedelta.relativedelta(months=3)
+    # Subtract one day to get the last day of the second month
+    end_of_target_month = three_months_later - timedelta(days=1)
+
+    game_round, created = Round.objects.get_or_create(
+        name=round_name,
+        tournament=tournament,
+        defaults={
+            'round_number': tournament.rounds.count() + 1,
+            'start_date': first_of_month,
+            'end_date': end_of_target_month,
+            'game_threshold': 25,
+        }
+    )
+    return game_round
 
 def update_game_from_api(game, match_data):
     """Update an existing Game object with new data from API."""
@@ -255,24 +279,7 @@ def update_game_from_api(game, match_data):
     round_name = match_data.get('tournament', '')
     game_round = None
     if round_name:
-
-        # Start day of League
-        first_of_month = date_registered.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # Add 3 months
-        three_months_later = first_of_month + relativedelta.relativedelta(months=3)
-        # Subtract one day to get the last day of the second month
-        end_of_target_month = three_months_later - timedelta(days=1)
-
-        game_round, created = Round.objects.get_or_create(
-            name=round_name,
-            tournament=tournament,
-            defaults={
-                'round_number': tournament.rounds.count() + 1,
-                'start_date': first_of_month,
-                'end_date': end_of_target_month,
-                'game_threshold': 25,
-            }
-        )
+        game_round = get_game_round(date_registered=date_registered, round_name=round_name, tournament=tournament)
     
     # Get deck
     deck_name = DECK_MAP.get(match_data.get('deck'))
@@ -375,23 +382,36 @@ def create_efforts_from_api(game, participants):
     for participant in participants:
         # Get player identifier from API
         full_player_string = participant['player']  # e.g., "MrMirz+1445"
-        player_without_number = full_player_string.split('+')[0]  # e.g., "MrMirz"
+
+
+        parts = full_player_string.split('+', 1)
+
+        player_without_number = parts[0] # e.g., "MrMirz"
+        player_number = parts[1] if len(parts) > 1 else "0000"
+        standard_player_number = str(player_number).zfill(4)
+        standard_player_string = f'{full_player_string}+{standard_player_number}'
         
-        # 1. Exact match on dwd field
-        player = Profile.objects.filter(dwd__iexact=full_player_string).first()
-        
+        player = Profile.objects.filter(dwd__iexact=standard_player_string).first()
+
+        # 1. Non-standardized match on dwd field
+        if not player:
+            player = Profile.objects.filter(dwd__iexact=full_player_string).first()
+            if player:
+                player.dwd = standard_player_string
+                player.save()
+
         # 2. Match dwd without the +number and update
         if not player:
             player = Profile.objects.filter(dwd__iexact=player_without_number).first()
             if player:
-                player.dwd = full_player_string
+                player.dwd = standard_player_string
                 player.save()
     
         # 3. Match discord without the +number and update
         if not player:
             player = Profile.objects.filter(discord__iexact=player_without_number, dwd__isnull=True).first()
             if player:
-                player.dwd = full_player_string
+                player.dwd = standard_player_string
                 player.save()
         
         # 4. Create new profile if no match found
@@ -400,15 +420,15 @@ def create_efforts_from_api(game, participants):
                 player, created = Profile.objects.get_or_create(
                     discord=full_player_string.lower(),
                     defaults={
-                        'dwd': full_player_string
+                        'dwd': standard_player_string
                     }
                 ) 
-                send_discord_message(f'Duplicate user {player} added.', 'report')
+                send_discord_message(f'Duplicate user {player} added.', 'user_updates')
             else:
                 player, created = Profile.objects.get_or_create(
                     discord=player_without_number.lower(),
                     defaults={
-                        'dwd': full_player_string
+                        'dwd': standard_player_string
                     }
                 )
         # Determine if this is a faction or vagabond

@@ -1,4 +1,5 @@
 from django import template
+import json
 
 register = template.Library()
 
@@ -8,3 +9,7 @@ def times(number):
     except:  return []
     
 
+
+@register.filter(name='json_encode')
+def json_encode(value):
+    return json.dumps(value)

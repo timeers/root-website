@@ -3,21 +3,20 @@
 
     <div class="d-flex flex-nowrap ml-auto">
 
-    
-        {% if stable_ready %}
+        {% if stable_ready and object.status != "1" %}
             <!-- Show option to Mark Stable -->
             <div>
                 <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> {% trans 'Stable' %}</a>
             </div>
             
         {% endif %}
-        {% if testing_ready %}
+        {% if testing_ready and object.status != "2" and object.status != "1"  %}
         <!-- Show option to Mark Testing -->
             <div>
                 <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> {% trans 'Testing' %}</a>
             </div>
         {% endif %}
-        {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
+        {% if can_edit %}
                 {% if not existing_law %}
                     <div>
                         <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create' slug=object.slug %}">
@@ -26,7 +25,7 @@
                     </div>
                 {% elif not editable_law %}
                     <div>
-                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'copy-law-group' slug=existing_law.group.slug lang_code=existing_law.language.code %}">
+                        <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'copy-law-group' slug=existing_law.group.slug language_code=existing_law.language.code %}">
                             {% trans 'Copy Law' %} <i class="bi bi-book"></i>
                         </a>
                     </div>
@@ -38,7 +37,7 @@
                     </div>
                 {% endif %}
                 <div>
-                    <a class="btn btn-info btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-view' slug=object.slug lang_code=language_code %}">
+                    <a class="btn btn-info btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-view' slug=object.slug language_code=language_code %}">
                         {% if available_faq %}
                             {% trans 'Edit FAQ' %} <i class="bi bi-info-circle"></i>
                         {% else %}
@@ -205,6 +204,11 @@
                         <a class="btn btn-outline-secondary btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
                             {% trans 'Inactive' %}
                             <i class="bi bi-dash-circle-fill"></i>
+                        </a>
+                    {% elif object.status == '9' %}
+                        <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Submitted' %}
+                            <i class="bi bi-hourglass-split"></i>
                         </a>
                     {% else %}
                         <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>

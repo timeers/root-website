@@ -31,8 +31,8 @@
                 <a class="btn btn-sm btn-success ml-1 mb-1" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
 
                 <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary ml-1 mb-1">
-                    {% if user.profile.designer %}
-                        {% trans 'New Post' %}
+                    {% if user.profile.player %}
+                        {% trans 'New Post' %} +
                     {% else %}
                         {% trans 'Request Post' %}
                     {% endif %}
@@ -94,6 +94,7 @@
                                     <option value="doc" {% if search_type == 'doc' %}selected{% endif %}>DOC (Word)</option>
                                     <option value="psd" {% if search_type == 'psd' %}selected{% endif %}>PSD (Photoshop)</option>
                                     <option value="sai2" {% if search_type == 'sai2' %}selected{% endif %}>Sai2 (Paint Tool)</option>
+                                    <option value="svg" {% if search_type == 'svg' %}selected{% endif %}>SVG (Vector Graphic)</option>
                                     <option value="video" {% if search_type == 'video' %}selected{% endif %}>{% trans 'Video' %}</option>
                                     <option value="other" {% if search_type == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
                                 </select>

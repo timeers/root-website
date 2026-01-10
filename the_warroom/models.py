@@ -37,7 +37,7 @@ class Tournament(models.Model):
         ONE = "One"
         ALL = "All"
     class ClassificationTypes(models.TextChoices):
-        LEAGUE = "Leaugue"
+        LEAGUE = "League"
         TOURNAMENT = "Tournament"
         GROUP = "Game Group"
     type = "Tournament"
@@ -184,7 +184,7 @@ class Round(models.Model):
 
     def all_player_queryset(self):
         # Use union to combine the two querysets (must be the same model)
-        players = self.current_player_queryset.all()
+        players = self.current_player_queryset().all()
         eliminated_players = self.tournament.eliminated_players.all()
         # Combine the two querysets and return as a QuerySet
         all_players = players.union(eliminated_players)

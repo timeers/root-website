@@ -2,7 +2,7 @@ from functools import wraps
 from datetime import timedelta
 
 from django.apps import apps
-from django.core.paginator import Paginator
+from django.core.paginator import Paginator, EmptyPage
 from django.core.exceptions import PermissionDenied
 from django.core.cache import cache
 from django.conf import settings
@@ -24,7 +24,7 @@ from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm
-from .models import Profile, Language, Website
+from .models import Profile, Language, Website, Changelog, ChangelogEntry
 from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri
@@ -291,7 +291,7 @@ def add_player(request):
             player.save()
             response_data = {
                 'id': player.id,
-                'discord': player.discord,  # Include the new player's details
+                'discord': str(player),  # Include the new player's details
                 'message': f"Player '{player}' registered successfully!",
             }
             return JsonResponse(response_data)  # Return a success JSON response
@@ -315,11 +315,13 @@ def player_page_view(request, slug=None):
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
     components = player.posts.filter(status__lte=view_status)
+    submissions = player.submissions.filter(status='9')
     posts_count = components.count()
     context = {
         'player': player,
         'games_played': games_played,
         'posts_count': posts_count,
+        'submissions': submissions,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
@@ -410,6 +412,46 @@ def artist_component_view(request, slug):
     # return render(request, "the_gatehouse/partials/profile_post_list.html", context) 
     # return redirect('player-detail', slug=slug)
 
+
+
+@login_required
+def submitted_component_view(request, slug):
+    # Get the artist object using the slug from the URL path
+    profile = get_object_or_404(Profile, slug=slug.lower())
+
+    # Get the component from the query parameters
+    component = request.GET.get('component')  # e.g., /artist/john-doe/component/?component=some_component
+    # Filter posts based on the artist and the component (if provided)
+    if component:
+        components = profile.submissions.filter(component__icontains=component, status='9')
+    else:
+        components = profile.submissions.filter(status='9')
+    # print(f'Components: {components.count()}')
+    # Get the total count of components (total posts matching the filter)
+    total_count = components.count()
+ 
+    # Pagination
+    paginator = Paginator(components, settings.PAGE_SIZE)  # Show 10 posts per page
+ 
+    # Get the current page number from the request (default to 1)
+    page_number = request.GET.get('page')  # e.g., ?page=2
+    # print("Page", page_number)
+    page_obj = paginator.get_page(page_number)  # Get the page object for the current page
+
+    # print(f'Page: {page_number}')
+    context = {
+        'posts': page_obj,
+        'total_count': total_count,  # Pass the total count to the template
+        'submitted_page': True,
+        'player': profile,
+    }
+
+
+    if request.htmx:
+        return render(request, "the_gatehouse/partials/profile_post_list.html", context)  
+    raise Http404("Object not found")
+    # return render(request, "the_gatehouse/partials/profile_post_list.html", context) 
+    # return redirect('player-detail', slug=slug)
 
 
 @login_required
@@ -1015,7 +1057,7 @@ def post_feedback(request, slug):
 @player_required
 def post_request(request):
 
-    if request.user.profile.designer:
+    if request.user.profile.player:
         return redirect('new-components')
 
     message_category = 'request'
@@ -1062,14 +1104,14 @@ def game_feedback(request, id):
 
 
 
-def law_feedback(request, slug, lang_code):
+def law_feedback(request, slug, language_code):
 
-    language = Language.objects.filter(code=lang_code).first()
+    language = Language.objects.filter(code=language_code).first()
     law_group = get_object_or_404(LawGroup, slug=slug)
     prime_law = law_group.get_prime_law(language=language)
 
     message_category = 'report'
-    feedback_subject = f'Law: {law_group} ({lang_code})'
+    feedback_subject = f'Law: {law_group} ({language_code})'
 
     context = get_feedback_context(request, message_category=message_category, feedback_subject=feedback_subject)
 
@@ -1210,24 +1252,24 @@ def status_check(request):
 
 
 def set_language_custom(request):
-    lang_code = request.POST.get('language')
+    language_code = request.POST.get('language')
 
     # Validate language code
-    if lang_code not in dict(settings.LANGUAGES):
+    if language_code not in dict(settings.LANGUAGES):
         return HttpResponseBadRequest("Invalid language code")
 
     # Activate it for the current request
-    activate(lang_code)
+    activate(language_code)
 
     # Save it to the session
-    request.session['language'] = lang_code
-    request.session['django_language'] = lang_code
+    request.session['language'] = language_code
+    request.session['django_language'] = language_code
 
     # Optional: Save it to the user's profile
     if request.user.is_authenticated:
         profile = getattr(request.user, 'profile', None)
         if profile and hasattr(profile, 'language'):
-            lang_obj = Language.objects.filter(code=lang_code).first()
+            lang_obj = Language.objects.filter(code=language_code).first()
             if lang_obj:
                 profile.language = lang_obj
                 profile.save()
@@ -1368,3 +1410,42 @@ def sync_discord_avatar(request):
         messages.warning(request, "Could not sync avatar. Make sure your Discord account is connected.")
 
     return redirect(request.META.get('HTTP_REFERER', '/'))
+
+def changelog_list_view(request):
+    
+    latest_changelog = Changelog.objects.first()
+    older_changelogs = Changelog.objects.exclude(pk=latest_changelog.pk)
+    title = "Updates"
+    meta_title = f'Update {latest_changelog.version} - {latest_changelog.title} ({latest_changelog.date.strftime("%B %Y")})'
+    if latest_changelog.description:
+        meta_description = f"{latest_changelog.description}"
+    else:
+        meta_description = ''
+
+    if hasattr(request, 'htmx') and request.htmx:
+        template_name = 'the_gatehouse/partials/changelog_list.html'
+    else:
+        template_name = 'the_gatehouse/changelog.html'
+
+
+    # Pagination
+    paginate_by = settings.PAGE_SIZE
+    paginator = Paginator(older_changelogs, paginate_by)
+    page_number = request.GET.get('page')
+    
+    try:
+        page_obj = paginator.get_page(page_number)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+    
+    context = {
+        "meta_description": meta_description,
+        'meta_title': meta_title,
+        "title": title,
+        'latest_changelog': latest_changelog,
+        'changelogs': page_obj,
+        'is_paginated': paginator.num_pages > 1,
+        'page_obj': page_obj,
+    }
+
+    return render(request, template_name, context)

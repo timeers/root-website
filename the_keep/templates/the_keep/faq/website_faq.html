@@ -24,7 +24,7 @@
 {% if post %}
 <div class='mb-2 d-flex justify-content-between'>
 
-  <a href="{{ post.get_absolute_url }}?lang={{lang_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
+  <a href="{{ post.get_absolute_url }}?lang={{language_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
     <div class='d-flex align-items-center mr-1'>
       <i class="bi bi-chevron-left"></i> 
       </div>
@@ -62,7 +62,7 @@
                     {% if available_languages %}
                         {% for lang in available_languages %}
                           <li>
-                            <a class="dropdown-item" href="{% url 'faq-view' slug=post.slug lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                            <a class="dropdown-item" href="{% url 'faq-view' slug=post.slug language_code=lang.code %}"><small>{{ lang.name }}</small></a>
                           </li>
                         {% endfor %}
                     {% endif %}
@@ -73,7 +73,7 @@
                         {% if unavailable_languages %}
                             {% for lang in unavailable_languages %}
                               <li>
-                                <a class="dropdown-item" href="{% url 'faq-view' slug=post.slug lang_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
+                                <a class="dropdown-item" href="{% url 'faq-view' slug=post.slug language_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
                               </li>
                             {% endfor %}
                         {% endif %}
@@ -81,7 +81,7 @@
                 {% else %}
                         {% for lang in available_languages %}
                           <li>
-                            <a class="dropdown-item" href="{% url 'lang-faq' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                            <a class="dropdown-item" href="{% url 'lang-faq' language_code=lang.code %}"><small>{{ lang.name }}</small></a>
                           </li>
                         {% endfor %}
 
@@ -93,7 +93,7 @@
                             {% if unavailable_languages %}
                                 {% for lang in unavailable_languages %}
                                   <li>
-                                    <a class="dropdown-item" href="{% url 'lang-faq' lang_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
+                                    <a class="dropdown-item" href="{% url 'lang-faq' language_code=lang.code %}"><small><i class="bi bi-plus"></i> {{ lang.name }}</small></a>
                                   </li>
                                 {% endfor %}
                             {% endif %}
@@ -114,13 +114,13 @@
 
     {% if not post and user.is_staff %}
         <div class="d-flex flex-wrap justify-content-end">
-            <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-add' lang_code=lang_code %}">
+            <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'faq-add' language_code=language_code %}">
                 {% trans 'FAQ' %} <i class="bi bi-plus"></i>
             </a>
         </div>
     {% elif post and user.profile.admin or user.profile == post.designer and user.profile.editor %}
       <div class="d-flex flex-wrap justify-content-end">
-          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-faq-add' slug=post.slug lang_code=lang_code %}">
+          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-faq-add' slug=post.slug language_code=language_code %}">
               {% trans 'FAQ' %} <i class="bi bi-plus"></i>
           </a>
       </div>
@@ -130,7 +130,7 @@
 
 
 <form id="faq-search-form" 
-hx-get="{% if post %}{% url 'faq-view' slug=post.slug lang_code=lang_code %}{% else %}{% url 'lang-faq' lang_code=lang_code  %}{% endif %}" 
+hx-get="{% if post %}{% url 'faq-view' slug=post.slug language_code=language_code %}{% else %}{% url 'lang-faq' language_code=language_code  %}{% endif %}" 
 hx-target="#faq-results" 
 hx-swap="innerHTML"
 hx-trigger="submit, input delay:300ms" 

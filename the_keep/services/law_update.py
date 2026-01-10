@@ -28,10 +28,10 @@ REFERENCE_NAME_MAP = {
 }
 
 
-def get_translated_title(key, target_lang_code):
+def get_translated_title(key, target_language_code):
     translations = DEFAULT_TITLES_TRANSLATIONS.get(key)
     if translations:
-        return translations.get(target_lang_code, key)  # fallback to English key
+        return translations.get(target_language_code, key)  # fallback to English key
     return key
 
 
@@ -186,7 +186,7 @@ def compare_structure_strict(generated, uploaded, path="'Law'"):
 
 
 
-def update_laws_by_structure(generated_data, uploaded_data, lang_code):
+def update_laws_by_structure(generated_data, uploaded_data, language_code):
     @transaction.atomic
     def recursive_update(generated, uploaded):
         for gen_item, up_item in zip(generated, uploaded):
@@ -200,11 +200,11 @@ def update_laws_by_structure(generated_data, uploaded_data, lang_code):
 
             # Use uploaded text or pretext to update description
             new_desc = up_item.get("text") or up_item.get("pretext")
-            new_title, _ = replace_special_references(up_item.get("name"), lang_code)
+            new_title, _ = replace_special_references(up_item.get("name"), language_code)
             reference_laws = None
             law.title = new_title
             if new_desc:
-                description, reference_laws = replace_special_references(new_desc.strip(), lang_code)
+                description, reference_laws = replace_special_references(new_desc.strip(), language_code)
                 law.description = description
             law.save()
             if reference_laws:
@@ -224,10 +224,10 @@ def update_laws_by_structure(generated_data, uploaded_data, lang_code):
 
 
 
-def replace_special_references(text, lang_code):
+def replace_special_references(text, language_code):
     reference_laws = set()
 
-    def find_law_by_rule_index(rule_index_str, lang_code, second_pass=False):
+    def find_law_by_rule_index(rule_index_str, language_code, second_pass=False):
 
         try:
             group_idx_str, law_idx_str = rule_index_str.split('.', 1)
@@ -239,12 +239,12 @@ def replace_special_references(text, lang_code):
         except ValueError:
             return None
 
-        all_groups = list(LawGroup.objects.filter(laws__language__code=lang_code).distinct())
+        all_groups = list(LawGroup.objects.filter(laws__language__code=language_code).distinct())
         if group_idx - 1 >= len(all_groups) or group_idx <= 0:
             return None
 
         group = all_groups[group_idx - 1]
-        law = Law.objects.filter(group=group, law_index=law_idx_str, language__code=lang_code).first()
+        law = Law.objects.filter(group=group, law_index=law_idx_str, language__code=language_code).first()
 
         return law
 
@@ -254,7 +254,7 @@ def replace_special_references(text, lang_code):
         # Handle rule: still if present and not already matched in previous pass
         if content.startswith("rule:"):
             rule_content = content[5:]
-            law = find_law_by_rule_index(rule_content, lang_code)
+            law = find_law_by_rule_index(rule_content, language_code)
             if law:
                 rule_content=law.law_code
                 reference_laws.add(law)
@@ -302,17 +302,17 @@ def replace_special_references(text, lang_code):
     return text, list(reference_laws)
 
 def create_laws_from_yaml(group, language, yaml_data):
-    lang_code = language.code
+    language_code = language.code
 
-    def create_law(entry, lang_code, parent=None, position=0, is_prime=False):
+    def create_law(entry, language_code, parent=None, position=0, is_prime=False):
         # Prefer 'pretext' if present, otherwise use 'text'
         raw_description = entry.get('pretext') or entry.get('text', '')
         if raw_description:
-            description, reference_laws = replace_special_references(raw_description, lang_code=lang_code)
+            description, reference_laws = replace_special_references(raw_description, language_code=language_code)
         else:
             description, reference_laws = '', []        
         raw_title = entry['name']
-        title, _ = replace_special_references(raw_title, lang_code=lang_code)
+        title, _ = replace_special_references(raw_title, language_code=language_code)
         if parent and parent.prime_law:
             parent=None
 
@@ -331,12 +331,12 @@ def create_laws_from_yaml(group, language, yaml_data):
             law.reference_laws.clear()
         # Handle 'children'
         for i, child in enumerate(entry.get('children', [])):
-            create_law(child, lang_code, parent=law, position=i+1)
+            create_law(child, language_code, parent=law, position=i+1)
 
 
     for i, entry in enumerate(yaml_data):
         is_prime = i == 0  # Treat first item as prime law
-        create_law(entry, lang_code, parent=None, position=i+1, is_prime=is_prime)
+        create_law(entry, language_code, parent=None, position=i+1, is_prime=is_prime)
 
 
 
@@ -457,6 +457,6 @@ def update_laws_from_yaml(uploaded_yaml, language, messages=None):
     
     # Apply updates if no mismatches
     if not all_mismatches and not 'error' in result:
-        for generated_yaml, group_data, lang_code, group_title in laws_to_update:
-            update_laws_by_structure(generated_yaml, group_data, lang_code)
+        for generated_yaml, group_data, language_code, group_title in laws_to_update:
+            update_laws_by_structure(generated_yaml, group_data, language_code)
     return created_laws, updated_laws, mismatch_laws, error_laws, all_mismatches

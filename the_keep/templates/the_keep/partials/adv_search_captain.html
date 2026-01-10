@@ -1,0 +1,69 @@
+{% load i18n static %}
+{% if item_choices %}
+<div class='manifest-box'>
+  <div class="d-flex flex-wrap justify-content-between align-items-center">
+    <label class='manifest-title root-title h3 mx-auto'>{% trans 'Ability' %}</label>
+  </div>
+  <div class="d-flex flex-wrap justify-content-between align-items-center">
+    <input type="text" name="ability" id="ability" placeholder="Search by Ability..." value="{{ ability }}" class="form-control w-auto m-2">
+  </div>
+</div>
+{% endif %}
+
+
+
+<div class='mt-2 mb-2'>
+
+  <div class="manifest-box">
+      <div class="d-flex flex-wrap justify-content-between align-items-center">
+              <h3 class='root-title manifest-title mx-auto'>{% trans 'Starting Items' %}</h3>
+      </div>
+
+      <div class="d-flex flex-wrap justify-content-center w-100">
+
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="coin" label="Coin" op=coin_op qty=coin_qty item_filter=True %}
+            </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="boot" label="Boot" op=boot_op qty=boot_qty item_filter=True %}
+            </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+            <div>
+              {% include "the_keep/partials/adv_quantity_filter.html" with prefix="tea" label="Tea" op=tea_op qty=tea_qty item_filter=True %}
+            </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+          <div>
+            {% include "the_keep/partials/adv_quantity_filter.html" with prefix="bag" label="Bag" op=bag_op qty=bag_qty item_filter=True %}
+        </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+          <div>
+            {% include "the_keep/partials/adv_quantity_filter.html" with prefix="hammer" label="Hammer" op=hammer_op qty=hammer_qty item_filter=True %}
+          </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+          <div>
+            {% include "the_keep/partials/adv_quantity_filter.html" with prefix="sword" label="Sword" op=sword_op qty=sword_qty item_filter=True %}
+          </div>
+        </div>
+        <div class="p-2 flex-fill piece-box text-center">
+          <div>
+            {% include "the_keep/partials/adv_quantity_filter.html" with prefix="crossbow" label="Crossbow" op=crossbow_op qty=crossbow_qty item_filter=True %}
+          </div>
+        </div>
+
+      </div>
+  </div>
+
+
+
+
+
+
+
+</div>

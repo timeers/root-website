@@ -89,7 +89,7 @@ function contrastRatio(colorHex) {
 function isWhiteTextLegible(colorHex, isLargeText = true) {
     // Calculate the contrast ratio for white text
     const ratio = contrastRatio(colorHex);
-    console.log(ratio)
+    //console.log(ratio)
     // Use 4.5:1 for normal text and 3:1 for large text
     // Using 2 for a little less contrast required
     return ratio >= (isLargeText ? 1.9 : 4.5);

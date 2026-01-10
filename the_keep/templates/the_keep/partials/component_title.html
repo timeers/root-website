@@ -24,6 +24,10 @@
     <h2 class='root-title mx-auto'>
         {{ object.card_total }} {% trans 'Card Deck' %}
     </h2>
+{% elif component == 'Captain' %}
+    <h2 class='root-title mx-auto'>{% trans 'Knave Captain' %}</h2>
+{% elif component == 'Vagabond' %}
+    <h2 class='root-title mx-auto'>{{object_animal}} {% trans 'Vagabond' %}</h2>
 {% else %}
     <h2 class='root-title mx-auto'>{{ object.component }}</h2>
 {% endif %}
@@ -36,4 +40,14 @@
             {% endblocktrans %}
         </h4>
     </div>
+{% endif %}
+
+{% if object.captain == True %}
+<div class="d-flex flex-wrap">
+    {% if component == "Captain" %}
+        <a class='mx-auto' href="{% url 'vagabond-detail' slug=object.slug %}">View Vagabond</a>
+    {% else %}
+        <a class='mx-auto' href="{% url 'captain-detail' slug=object.slug %}">View Captain</a>
+    {% endif %}
+</div>
 {% endif %}

@@ -2,11 +2,7 @@
 {% load crispy_forms_tags i18n %}
 
 {% block title %}
-{% if not object.id %}
-     - {% trans 'New Resource' %}
-{% else %}
-     - {% trans 'Edit Resource' %}
-{% endif %}
+{% if not object.id %}{% trans 'New Resource' %} | {% else %}{% trans 'Edit Resource' %} | {% endif %}
 {% endblock %}
 
 {% block content %}

@@ -55,150 +55,6 @@ from the_tavern.views import bookmark_toggle
 
 #  A list of all the games. Most recent update first
 
-# class GameListView(ListView):
-#     # queryset = Game.objects.all().prefetch_related('efforts')
-#     model = Game
-#     # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
-#     context_object_name = 'games'
-#     ordering = ['-date_posted']
-#     paginate_by = settings.PAGE_SIZE
-
-#     def get_template_names(self):
-#         t0 = time.perf_counter()
-#         if self.request.htmx:
-#             return 'the_warroom/partials/game_list_home.html'
-        
-#         if self.request.user.is_authenticated:
-#             send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Battlefield')
-#         else:
-#             send_discord_message(f'{get_uuid(self.request)} viewing The Battlefield')
-
-#         t1 = time.perf_counter()
-#         print(f"[TIMING] template names: {t1 - t0:.4f}s")
-#         return 'the_warroom/games_home.html'
-    
-#     def get_queryset(self):
-#         t0 = time.perf_counter()
-#         if self.request.user.is_authenticated:
-#             if self.request.user.profile.weird:
-#                 queryset = Game.objects.filter(final=True).prefetch_related(
-#                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-#                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-#                     )
-#                 # queryset = super().get_queryset()
-#             else:
-#                 queryset = Game.objects.filter(official=True, final=True).prefetch_related(
-#                     'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-#                     'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-#                     )
-#                 # queryset = super().get_queryset().only_official_components()
-#         else:
-#             queryset = Game.objects.filter(final=True).prefetch_related(
-#                 'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-#                 'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-#                 )
-#             # queryset = super().get_queryset()
-#         self.filterset = GameFilter(self.request.GET, queryset=queryset, user=self.request.user)
-
-#         # # Store the filtered queryset in an instance variable to avoid re-evaluating it
-#         self._cached_queryset = self.filterset.qs
-#         t1 = time.perf_counter()
-#         print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
-#         return self.filterset.qs
-        
-#     def get_context_data(self, **kwargs):
-#         t10 = time.perf_counter()
-#         # context = super().get_context_data(**kwargs)
-#         context = {}
-
-#         # Create a dictionary to collect context values
-#         context_data = {}
-#         t0 = time.perf_counter()
-#         print(f"[TIMING] context start: {t0 - t10:.4f}s")
-#         theme = get_theme(self.request)
-
-#         background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='games')
-
-
-#         context['background_image'] = background_image
-#         context['foreground_images'] = foreground_images
-#         context['background_pattern'] = background_pattern
-#         # context['theme_artists'] = theme_artists
-#         t1 = time.perf_counter()
-#         print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
-#         # Reuse the cached queryset here instead of calling get_queryset again
-#         games = self._cached_queryset  # Use the already-evaluated queryset
-
-#         # Paginate games
-#         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
-#         page_number = self.request.GET.get('page')  # Get the page number from the request
-
-#         try:
-#             page_obj = paginator.get_page(page_number)  # Get the specific page of games
-#         except EmptyPage:
-#             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
-#         # Get the total count of games
-#         games_count = paginator.count
-
-#         t2 = time.perf_counter()
-#         print(f"[TIMING] context games assembly: {t2 - t1:.4f}s")
-
-#         efforts = Effort.objects.filter(game__in=games)
-#         if games_count > 5000:
-#             leaderboard_threshold = 10
-#         elif games_count > 2000:
-#             leaderboard_threshold = 5
-#         elif games_count > 1500:
-#             leaderboard_threshold = 4
-#         elif games_count > 1000:
-#             leaderboard_threshold = 3
-#         elif games_count > 500:
-#             leaderboard_threshold = 2
-#         else:
-#             leaderboard_threshold = 1
-
-#         if games_count > 1500:
-#             faction_threshold = 10
-#         elif games_count > 500:
-#             faction_threshold = 5
-#         else:
-#             faction_threshold = 1
-
-#         # Get leaderboard data
-#         context_data.update({
-#             'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-#             'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-#             'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=faction_threshold),
-#             'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=faction_threshold),
-#             'leaderboard_threshold': leaderboard_threshold,
-#         })
-        
-#         t3 = time.perf_counter()
-#         print(f"[TIMING] context leaderboard assembly: {t3 - t2:.4f}s")
-
-
-#         t4 = time.perf_counter()
-#         print(f"[TIMING] context paginate assembly: {t4 - t3:.4f}s")
-#         # Add paginated data to the context dictionary
-#         context_data.update({
-#             'games': page_obj,  # Pass the paginated page object to the context
-#             'is_paginated': paginator.num_pages > 1,  # Set is_paginated boolean
-#             'page_obj': page_obj,  # Pass the page_obj to the context
-#             'games_count': games_count,
-#             'form': self.filterset.form,
-#             'filterset': self.filterset,
-#         })
-
-#         # Update the main context with the collected context data
-#         context.update(context_data)
-#         t5 = time.perf_counter()
-#         print(f"[TIMING] context update: {t5 - t4:.4f}s")
-
-#         print(f"[TIMING] context total: {t5 - t0:.4f}s")
-#         return context
-
-
 def game_list_view(request):
     
     # Determine template
@@ -210,8 +66,8 @@ def game_list_view(request):
             send_discord_message(
                 f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Battlefield'
             )
-        else:
-            send_discord_message(f'{get_uuid(request)} viewing The Battlefield')
+        # else:
+        #     send_discord_message(f'{get_uuid(request)} viewing The Battlefield')
         template_name = 'the_warroom/games_home.html'
     
     t1 = time.perf_counter()
@@ -515,121 +371,14 @@ def player_game_list_view(request, slug=None):
     return response
 
 
-# @player_required_class_based_view  
-# class PlayerGameListView(ListView):
-#     # queryset = Game.objects.all().prefetch_related('efforts')
-#     model = Game
-#     # template_name = 'the_warroom/games_home.html' # <app>/<model>_<viewtype>.html
-#     context_object_name = 'games'
-#     ordering = ['-date_posted']
-#     paginate_by = settings.PAGE_SIZE
-
-#     def get_template_names(self):
-#         if self.request.htmx:
-#             return 'the_warroom/partials/game_list_home.html'
-        
-#         return 'the_warroom/player_games.html'
-    
-#     def get_queryset(self):
-#         player_slug = self.kwargs.get('slug')
-#         player = get_object_or_404(Profile, slug=player_slug) if player_slug else None
-
-#         queryset = Game.objects.filter(final=True)
-        
-#         if self.request.user.is_authenticated and not self.request.user.profile.weird:
-#             queryset = queryset.filter(official=True)
-
-#         queryset = queryset.prefetch_related(
-#             'efforts__player', 'efforts__faction', 'efforts__vagabond',
-#             'round__tournament', 'hirelings', 'landmarks', 'tweaks',
-#             'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-#         ).distinct()
-
-#         self.filterset = PlayerGameFilter(self.request.GET, queryset=queryset, player=player)
-#         self._cached_queryset = self.filterset.qs
-#         self._player = player
-#         return self.filterset.qs
-
-        
-#     def get_context_data(self, **kwargs):
-#         context = super().get_context_data(**kwargs)
-
-#         # Create a dictionary to collect context values
-#         context_data = {}
-    
-        
-#         # Reuse the cached queryset here instead of calling get_queryset again
-#         games = self._cached_queryset  # Use the already-evaluated queryset
-
-#         # Paginate games
-#         paginator = Paginator(games, self.paginate_by)  # Use the queryset directly
-#         page_number = self.request.GET.get('page')  # Get the page number from the request
-
-#         # Get the total count of games
-#         games_count = paginator.count
-
-#         efforts = Effort.objects.filter(game__in=games)
-#         if games_count > 100:
-#             leaderboard_threshold = 10
-#         elif games_count > 50:
-#             leaderboard_threshold = 5
-#         elif games_count > 20:
-#             leaderboard_threshold = 3
-#         elif games_count > 10:
-#             leaderboard_threshold = 2
-#         else:
-#             leaderboard_threshold = 1
-
-#         # Get leaderboard data
-#         context_data.update({
-#             'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-#             'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-#             'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-#             'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-#             'leaderboard_threshold': leaderboard_threshold,
-#             'player_view': True,
-#             'player_slug': self.kwargs.get('slug'),
-#         })
-        
-#         # Use the player stored in self._player
-#         player = self._player
-#         # Only pass player to context if it exists
-#         if player:
-#             context_data['player'] = player  # Add the player to context
-
-
-
-#         try:
-#             page_obj = paginator.get_page(page_number)  # Get the specific page of games
-#         except EmptyPage:
-#             page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-        
-#         # Add paginated data to the context dictionary
-#         context_data.update({
-#             'games': page_obj,  # Pass the paginated page object to the context
-#             'is_paginated': paginator.num_pages > 1,  # Set is_paginated boolean
-#             'page_obj': page_obj,  # Pass the page_obj to the context
-#             'games_count': games_count,
-#             'form': self.filterset.form,
-#             'filterset': self.filterset,
-#         })
-
-#         # Update the main context with the collected context data
-#         context.update(context_data)
-
-#         return context
-
-
-
-
 # @player_onboard_required
 def game_detail_view(request, id=None, league_id=None):
-    current_lang_code = get_language()
+    current_language_code = get_language()
 
     if id:
-        obj = get_object_or_404(Game, id=id)
+        game = get_object_or_404(Game, id=id)
     elif league_id:
-        obj = get_object_or_404(Game, league_id=league_id)
+        game = get_object_or_404(Game, league_id=league_id)
     else:
         raise Http404('Game not found.')
 
@@ -638,13 +387,13 @@ def game_detail_view(request, id=None, league_id=None):
     scorecard_count = 0
     show_detail = False
 
-    for effort in obj.efforts.all():
+    for effort in game.efforts.all():
         participants.append(effort.player)
-    if obj.recorder:
-        participants.append(obj.recorder)
+    if game.recorder:
+        participants.append(game.recorder)
 
-    translations = PostTranslation.objects.filter(language__code=current_lang_code)
-    efforts = obj.efforts.all().prefetch_related(
+    translations = PostTranslation.objects.filter(language__code=current_language_code)
+    efforts = game.efforts.all().prefetch_related(
         'player', 'vagabond', 'scorecard',
         Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
     )
@@ -655,24 +404,48 @@ def game_detail_view(request, id=None, league_id=None):
         else:
             effort.translated_faction_title = effort.faction.title
 
-    scorecard_count = ScoreCard.objects.filter(final=True, effort__in=obj.efforts.all()).distinct().count()
+    scorecard_count = ScoreCard.objects.filter(final=True, effort__in=game.efforts.all()).distinct().count()
     if scorecard_count != 0:
         show_detail = True
 
     if request.user.is_authenticated:
         for effort in efforts:
             effort.available_scorecard = effort.available_scorecard(request.user)
-        if obj.final and (request.user.profile in participants):
+        if game.final and (request.user.profile in participants):
             show_detail = True
+
+    tournament_round = game.round
+
+    if tournament_round:
+        if tournament_round.tournament.open_roster:
+            # Open roster - all players
+            all_players = Profile.objects.all()
+            open_roster = True
+        else:
+            # Closed roster - use round's player queryset
+            all_players = tournament_round.current_player_queryset()
+            open_roster = False
+    else:
+        # No tournament
+        all_players = Profile.objects.all()
+        open_roster = True
+
+    can_edit = (
+        request.user.is_authenticated and 
+        (request.user.profile.admin or game.recorder == request.user.profile)
+    )
 
     commentform = GameCommentCreateForm()
     context = {
-        'game': obj,
+        'game': game,
         'commentform': commentform,
         'participants': participants,
         'efforts': efforts,
         'scorecard_count': scorecard_count,
         'show_detail': show_detail,
+        'can_edit': can_edit,
+        'all_players': all_players,
+        'open_roster': open_roster,
     }
     return render(request, "the_warroom/game_detail_page.html", context)
 
@@ -820,8 +593,7 @@ def manage_game(request, id=None):
             messages.error(request, "You do not have permission to edit this game.")
             return redirect(obj.get_absolute_url())
 
-    # Don't think the form needs to be initiated here
-    # form = GameCreateForm(request.POST or None, instance=obj, user=user)
+
     player_form = PlayerCreateForm()
 
     # Default to 4 players
@@ -930,15 +702,80 @@ def manage_game(request, id=None):
     
     return render(request, 'the_warroom/record_game.html', context)
 
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+
+
+@player_required
+@require_POST
+def add_player_to_effort(request):
+    effort_id = request.POST.get('effort_id')
+    player_id = request.POST.get('player_id')
+    
+    try:
+        effort = Effort.objects.get(id=effort_id)
+        player = Profile.objects.get(id=player_id)
+        
+
+        if effort.player:
+            return JsonResponse({
+                'success': False,
+                'error': f'{effort.player.discord} is already recorded for seat {effort.seat}.'
+            }, status=400)
+
+        tournament_round = effort.game.round
+        # Check tournament roster restrictions
+        if tournament_round and not tournament_round.tournament.open_roster:
+            allowed_players = tournament_round.current_player_queryset()
+            
+            if not allowed_players.filter(id=player.id).exists():
+                
+                return JsonResponse({
+                    'success': False,
+                    'error': f'{player.name} is not registered for {tournament_round}.'
+                }, status=403)
+
+
+        # Check if user has permission to edit this game
+        if not (request.user.profile.admin or 
+                effort.game.recorder == request.user.profile):
+            return JsonResponse({
+                'success': False,
+                'error': 'You do not have permission to edit this game.'
+            }, status=403)
+        
+        # Update the effort
+        effort.player = player
+        effort.save()
+        
+        return JsonResponse({
+            'success': True,
+            'player_discord': player.discord,
+            'message': f'Player {player.discord} added to effort successfully!'
+        })
+        
+    except Effort.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'Effort not found.'
+        }, status=404)
+    except Profile.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'Player not found.'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
 
 @player_required
 @bookmark_toggle(Game)
 def bookmark_game(request, object):
     return render(request, 'the_warroom/partials/bookmarks.html', {'game': object })
-
-
-
-
 
 
 
@@ -1340,11 +1177,6 @@ def effort_assign_view(request, id):
             scorecard.final = True
             scorecard.save()  # Save the updated Scorecard
             return redirect('game-detail', id=scorecard.effort.game.id)
-        # else:
-        #         print("Form errors:", form.errors)  # Print the errors for debugging
-        #         # You can also print individual field errors if you need to inspect them specifically
-        #         for field, errors in form.errors.items():
-        #             print(f"Errors for {field}: {errors}")
     else:
         form = AssignEffortForm(selected_efforts=available_efforts, user=request.user)
 
@@ -1403,15 +1235,6 @@ def scorecard_list_view(request):
             F('faction__title')  # Fallback to the original faction title
         )
     )
-
-    # QuerySets
-    # unassigned_scorecards = all_scorecards.filter(final=False)
-    # unassigned_count = unassigned_scorecards.count()
-    # if unassigned_count > 10:
-    #     unassigned_scorecards = unassigned_scorecards[:10]
-    # complete_scorecards = all_scorecards.exclude(final=False).prefetch_related(
-    #     'effort__game', 'effort__player', 'effort__faction')
-
     
     # Pagination (the rest of your pagination logic stays the same)
     paginator = Paginator(complete_scorecards, settings.PAGE_SIZE)

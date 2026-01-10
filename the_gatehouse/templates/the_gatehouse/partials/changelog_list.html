@@ -1,0 +1,35 @@
+{% load i18n %}
+<div id="search-contents">
+    {% if changelogs %}
+        {% for release in changelogs %}
+
+
+            {% if forloop.last and changelogs.has_next %}
+                <div hx-trigger="revealed" 
+                hx-get="{% url 'changelog-list-view' %}?page={{ page_obj.number|add:1 }}"
+                hx-target="#search-contents"
+                hx-swap="beforeend"
+                hx-indicator="#spinner">
+            {% else %}
+                <div>
+            {% endif %}
+
+
+            
+            {% include 'the_gatehouse/partials/changelog_entry.html' %}
+            
+
+            </div>
+
+            {% if forloop.last and changelogs.has_next %}
+                {% include 'the_gatehouse/partials/spinner.html' %}
+            {% endif %}
+
+        {% endfor %}
+
+
+
+    {% else %}
+        {% trans 'No updatees to display.' %}
+    {% endif %}
+</div>

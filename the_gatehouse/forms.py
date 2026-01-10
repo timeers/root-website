@@ -194,6 +194,9 @@ class PlayerCreateForm(forms.ModelForm):
         # Convert the input to lowercase (Discord usernames are case insensitive)
         discord = discord.lower()
         
+        if len(discord) < 2:
+            raise forms.ValidationError(_('Player names cannot be shorter than 2 characters.'))
+
         if len(discord) > 32:
             raise forms.ValidationError(_('Player names cannot be longer than 32 characters.'))
 
@@ -206,6 +209,19 @@ class PlayerCreateForm(forms.ModelForm):
             raise forms.ValidationError(_('This Discord username is already registered.'))
         
         return discord
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        discord = cleaned_data.get('discord')
+        display_name = cleaned_data.get('display_name')
+
+        if discord and not display_name:
+            # Use the raw input before .lower()
+            raw_discord = self.data.get('discord', '').strip()
+            cleaned_data['display_name'] = raw_discord
+
+        return cleaned_data
 
 
 class MessageForm(forms.Form):

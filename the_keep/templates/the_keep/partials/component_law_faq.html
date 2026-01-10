@@ -7,9 +7,8 @@
     <div class='d-flex justify-content-center align-items-center'>
       {% if available_law %}
         <div class="d-flex justify-content-center align-items-center {{ col_class }}">
-          <a href="{% url 'law-view' slug=available_law.group.slug lang_code=language_code %}"
-             class="d-flex flex-column align-items-center text-center soft-clickable-segment">
-            {% comment %} <img class="wide-icon mb-1" src="{% static 'images/link_icons/law2.webp' %}" alt="Law of Root"> {% endcomment %}
+            <a href="{{ available_law.get_absolute_url }}"
+              class="d-flex flex-column align-items-center text-center soft-clickable-segment">
             <span><i class="bi bi-book"></i> {% trans 'View Law of Root' %}</span>
           </a>
         </div>
@@ -17,9 +16,8 @@
   
       {% if available_faq %}
         <div class="d-flex justify-content-center align-items-center {{ col_class }}">
-          <a href="{% url 'faq-view' slug=object.slug lang_code=language_code %}"
+          <a href="{% url 'faq-view' slug=object.slug language_code=language_code %}"
              class="d-flex flex-column align-items-center text-center soft-clickable-segment">
-            
             <span><i class="bi bi-info-circle"></i> {% trans 'View FAQ' %}</span>
           </a>
         </div>

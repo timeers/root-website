@@ -1,4 +1,5 @@
 # Context Processors
+from django.db.models import Q
 from the_keep.models import Post
 from the_warroom.models import Game, ScoreCard
 from .models import Website
@@ -28,7 +29,9 @@ def active_user_data(request):
             try:
                 profile = request.user.profile
                 post_count = Post.objects.filter(designer=profile).count()
-                recent_posts = Post.objects.filter(designer=profile).order_by('-date_updated')[:3]
+                recent_posts = Post.objects.filter(
+                    Q(designer=profile) | Q(co_designers=profile, co_designers_can_edit=True)
+                    ).exclude(status='9').order_by('-date_updated')[:3]
                 in_process_games = Game.objects.filter(final=False, recorder=profile).count()
                 game_count = Game.objects.filter(efforts__player=profile).distinct().count()
                 scorecard_count = ScoreCard.objects.filter(recorder=profile, final=True).count()

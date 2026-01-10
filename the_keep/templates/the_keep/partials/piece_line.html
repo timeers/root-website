@@ -1,11 +1,13 @@
 <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
     <div class="d-flex align-items-center component-piece">
-        {% if piece.small_icon %}
+        {% if piece.fresh_small_icon_url %}
+            <img class="lg-faction-icon mr-2" src="{{ piece.fresh_small_icon_url }}">x        
+        {% elif piece.small_icon %}
             <img class="lg-faction-icon mr-2" src="{{ piece.small_icon.url }}">x
         {% endif %}
         {{ piece.quantity }}
         {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}
-        {{ piece }}
+        {{ piece.get_name }}
     </div>
     {% if user.profile.admin or object.designer == user.profile and user.profile.editor %}
         <div class="d-flex">
@@ -19,7 +21,7 @@
             <button class="btn btn-outline-danger btn-sm ml-1 mb-1 hidden-buttons"
                     hx-delete="{% url 'delete-piece' piece.id %}"
                     hx-target="#piece-{{ piece.id }}"
-                    hx-confirm="Are you sure you want to delete {{ piece }}?"
+                    hx-confirm="Are you sure you want to delete {{ piece.quantity }} {{ piece.name }}?"
                     hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
                 <i class="bi bi-trash3"></i>
             </button>

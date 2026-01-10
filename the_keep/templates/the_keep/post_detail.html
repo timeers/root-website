@@ -3,7 +3,7 @@
 
 
 
-{% block title %} - {{ object_title }}{% endblock %}
+{% block title %}{{ object_title }} | {% endblock %}
 
 {% block meta %}
     {% include 'the_keep/partials/component_meta.html' %}
@@ -29,8 +29,6 @@
     {% include 'the_keep/partials/component_data.html' %}
 
 
-
-
     {% include 'the_keep/partials/component_leaderboard.html' %}
 
     {% if object.component == 'Faction' %}
@@ -39,8 +37,6 @@
 
     <!-- Related posts -->
    {% include 'the_keep/partials/related_posts.html' %}
-
-    <!-- /partials/comments.html -->
 
 
     <!-- Option to send Feedback -->

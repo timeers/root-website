@@ -38,7 +38,7 @@
               <ul class="dropdown-menu" aria-labelledby="languageDropdown">
                         {% for lang in available_languages %}
                           <li>
-                            <a class="dropdown-item" href="{% url 'law-of-root' lang_code=lang.code %}"><small>{{ lang.name }}</small></a>
+                            <a class="dropdown-item" href="{% url 'law-of-root' language_code=lang.code %}"><small>{{ lang.name }}</small></a>
                           </li>
                         {% endfor %}
               </ul>
@@ -55,7 +55,7 @@
 
 <form id="law-search-form" 
     class="d-flex align-items-center mb-2 gap-2"
-    hx-get="{% url 'law-of-root' lang_code=lang_code %}" 
+    hx-get="{% url 'law-of-root' language_code=language_code %}" 
     hx-target="#law-results" 
     hx-swap="innerHTML"
     hx-trigger="submit, input delay:300ms, change" 
