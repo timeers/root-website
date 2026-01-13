@@ -1,12 +1,15 @@
 from django.urls import path
 from the_keep.views import list_view
-from .views import (user_settings, player_page_view, 
+from .views import (user_settings, player_page_view,
                     designer_component_view, post_bookmarks, game_bookmarks, submitted_component_view,
                     player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
-                    game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error, 
-                    admin_dashboard, sync_discord_avatar, join_discord_server, changelog_list_view)
+                    game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error,
+                    admin_dashboard, sync_discord_avatar, join_discord_server, changelog_list_view,
+                    guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
+                    approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
+                    approve_post, reject_post, dismiss_notification)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -50,9 +53,22 @@ urlpatterns = [
     path('feedback/french-invite/<slug:slug>/', french_root_invite, name='french-root-invite'),
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),
 
-    path('join-discord-server/', join_discord_server, name='join-discord-server'),
-
     path('updates/', changelog_list_view, name='changelog-list-view'),
+
+    path('guild/', join_discord_server, name='join-discord-server'),
+    path("guild/<int:guild_id>/request/", guild_join_request, name="guild-request",),
+    path("guild/<int:guild_id>/invite/", guild_invite_view, name="guild-invite"),
+    path('guild/<int:guild_id>/mark-invite-clicked/', mark_guild_invite_clicked, name='mark-guild-invite-clicked'),
+    path('guild/pending-invites/', pending_guild_invites, name='pending-guild-invites'),
+    path('guild/invite/<int:invite_id>/approve/', approve_guild_invite, name='approve-guild-invite'),
+    path('guild/invite/<int:invite_id>/reject/', reject_guild_invite, name='reject-guild-invite'),
+
+    path('posts/pending/', pending_posts, name='pending-posts'),
+    path('posts/<int:post_id>/approve/', approve_post, name='approve-post'),
+    path('posts/<int:post_id>/reject/', reject_post, name='reject-post'),
+
+    path('notifications/<int:notification_id>/dismiss/', dismiss_notification, name='dismiss-notification'),
+
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),
 ]

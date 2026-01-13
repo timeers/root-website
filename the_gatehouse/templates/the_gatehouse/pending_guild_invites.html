@@ -1,0 +1,184 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+{% block title %}{{ title }} | {% endblock %}
+{% block content %}
+
+<div class="container">
+    <h1 class='root-title'>{{ title }}</h1>
+
+    {% if pending_invites %}
+        <article class="media content-section">
+            <div class="media-body">
+                <p class="text-muted mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    {{ pending_invites.count }} pending request{{ pending_invites.count|pluralize }}
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Guild</th>
+                                <th>Submitted</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for invite in pending_invites %}
+                                <tr>
+                                    <td>
+                                        <a href="{{ invite.profile.get_absolute_url }}">
+                                            <img class="user-icon mr-2" src="{{ invite.profile.image.url }}" alt="{{ invite.profile.name }}">
+                                            {{ invite.profile.name }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <strong>{{ invite.guild.name }}</strong>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            {{ invite.created_at|timesince }} ago
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="btn btn-primary btn-sm"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#respondModal{{ invite.id }}">
+                                            <i class="bi bi-chat-square-text"></i> Respond
+                                        </button>
+                                    </td>
+                                </tr>
+
+                                <!-- Response Modal -->
+                                <div class="modal fade" id="respondModal{{ invite.id }}" tabindex="-1" aria-labelledby="respondModalLabel{{ invite.id }}" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title" id="respondModalLabel{{ invite.id }}">
+                                                    <i class="bi bi-person-badge"></i>
+                                                    {{ invite.profile.name }}'s Request to Join {{ invite.guild.name }}
+                                                </h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <!-- Request Message -->
+                                                <div class="mb-4">
+                                                    <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
+                                                        <i class="bi bi-chat-left-text mr-1"></i> Request Message
+                                                    </h6>
+                                                    <div class="p-3 bg-light border rounded">
+                                                        {{ invite.request_message|linebreaks }}
+                                                    </div>
+                                                </div>
+
+                                                <!-- Agreement Message -->
+                                                <div class="mb-4">
+                                                    <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
+                                                        <i class="bi bi-check-circle mr-1"></i> Agreement Response
+                                                    </h6>
+                                                    <div class="p-3 bg-light border rounded">
+                                                        {{ invite.agreement_message|linebreaks }}
+                                                    </div>
+                                                </div>
+
+                                                <!-- Moderator Response Form -->
+                                                <form id="respondForm{{ invite.id }}" method="post">
+                                                    {% csrf_token %}
+
+                                                    <!-- User Message -->
+                                                    <div class="mb-3">
+                                                        <label for="moderatorMessage{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
+                                                            <i class="bi bi-chat-dots mr-1"></i> Message to User (Optional)
+                                                        </label>
+                                                        <textarea class="form-control"
+                                                                  id="moderatorMessage{{ invite.id }}"
+                                                                  name="moderator_message"
+                                                                  rows="3"
+                                                                  placeholder="Add a message that will be shown to the user..."></textarea>
+                                                        <small class="form-text text-muted">This message will be visible to the user on their request status page.</small>
+                                                    </div>
+
+                                                    <!-- Internal Note -->
+                                                    <div class="mb-3">
+                                                        <label for="moderatorNote{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
+                                                            <i class="bi bi-pencil-square mr-1"></i> Internal Note (Optional)
+                                                        </label>
+                                                        <textarea class="form-control"
+                                                                  id="moderatorNote{{ invite.id }}"
+                                                                  name="moderator_note"
+                                                                  rows="2"
+                                                                  placeholder="Add an internal note for moderator records..."></textarea>
+                                                        <small class="form-text text-muted">This note is only visible to moderators and will not be sent to the user.</small>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                    Cancel
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-danger"
+                                                        onclick="submitResponse({{ invite.id }}, 'reject')">
+                                                    <i class="bi bi-x-circle"></i> Reject
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-success"
+                                                        onclick="submitResponse({{ invite.id }}, 'approve')">
+                                                    <i class="bi bi-check-circle"></i> Approve
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </article>
+    {% else %}
+        <article class="media content-section">
+            <div class="media-body text-center py-5">
+                <i class="bi bi-inbox" style="font-size: 3rem; color: #999;"></i>
+                <p class="text-muted mt-3">{% trans "No pending guild invites" %}</p>
+            </div>
+        </article>
+    {% endif %}
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+<script>
+function submitResponse(inviteId, action) {
+    const form = document.getElementById(`respondForm${inviteId}`);
+    const moderatorMessage = document.getElementById(`moderatorMessage${inviteId}`).value;
+    const moderatorNote = document.getElementById(`moderatorNote${inviteId}`).value;
+
+    // Create hidden inputs for both fields
+    const messageInput = document.createElement('input');
+    messageInput.type = 'hidden';
+    messageInput.name = 'moderator_message';
+    messageInput.value = moderatorMessage;
+    form.appendChild(messageInput);
+
+    const noteInput = document.createElement('input');
+    noteInput.type = 'hidden';
+    noteInput.name = 'moderator_note';
+    noteInput.value = moderatorNote;
+    form.appendChild(noteInput);
+
+    // Set the form action based on approve/reject
+    if (action === 'approve') {
+        form.action = "{% url 'approve-guild-invite' 0 %}".replace('0', inviteId);
+    } else {
+        form.action = "{% url 'reject-guild-invite' 0 %}".replace('0', inviteId);
+    }
+
+    // Submit the form
+    form.submit();
+}
+</script>
+{% endblock scripts %}

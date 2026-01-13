@@ -23,9 +23,9 @@ from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm
-from .models import Profile, Language, Website, Changelog, ChangelogEntry
-from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm
+from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest
+from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar, get_discord_invite_info
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri
 
@@ -1292,8 +1292,19 @@ def admin_dashboard(request):
     registered_users = Profile.objects.filter(group="P", user__isnull=False).count()
     unregistered_users = Profile.objects.filter(group="O", user__isnull=False).count()
 
+    # Guild invites
+    pending_guild_invites_count = DiscordGuildJoinRequest.objects.filter(
+        status=DiscordGuildJoinRequest.Status.PENDING
+    ).count()
+
+    # Pending posts (submitted status = '9')
+    from the_keep.models import StatusChoices
+    pending_posts_count = Post.objects.filter(status=StatusChoices.SUBMITTED).count()
+
     law_url = reverse('manage-law-updates')
     admin_url = reverse('admin:index')
+    guild_invites_url = reverse('pending-guild-invites')
+    pending_posts_url = reverse('pending-posts')
     
 
         # Example Widget
@@ -1336,10 +1347,40 @@ def admin_dashboard(request):
             ],
             "buttons": [
                 {
-                    "label": "Manage Updates", 
-                    "link": law_url, 
+                    "label": "Manage Updates",
+                    "link": law_url,
                     "class": 'primary',
 
+                 },
+            ],
+        },
+        {
+            "title": "Pending Posts",
+            "subtitle": "Posts Awaiting Review",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Submitted Posts", "content": pending_posts_count},
+            ],
+            "buttons": [
+                {
+                    "label": "View Pending Posts",
+                    "link": pending_posts_url,
+                    "class": 'primary' if pending_posts_count > 0 else 'secondary',
+                 },
+            ],
+        },
+        {
+            "title": "Guild Invites",
+            "subtitle": "Discord Guild Join Requests",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Pending Requests", "content": pending_guild_invites_count},
+            ],
+            "buttons": [
+                {
+                    "label": "Manage Invites",
+                    "link": guild_invites_url,
+                    "class": 'primary' if pending_guild_invites_count > 0 else 'secondary',
                  },
             ],
         },
@@ -1449,3 +1490,424 @@ def changelog_list_view(request):
     }
 
     return render(request, template_name, context)
+
+
+# Discord Server Invites
+
+@player_required
+def guild_join_request(request, guild_id):
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
+    profile = request.user.profile
+
+    # Get the next URL from query parameters and resolve it
+    next_param = request.GET.get('next', '')
+    
+    # Resolve next_url to an actual path
+    if next_param:
+        # If it's already a path (starts with /), use it
+        if next_param.startswith('/'):
+            next_url = next_param
+        else:
+            # Otherwise try to reverse it as a URL name
+            try:
+                next_url = reverse(next_param)
+            except:
+                # If that fails, default to profile
+                next_url = reverse('profile')
+    else:
+        # No next parameter, use default
+        next_url = reverse('profile')
+
+    is_member = profile.guilds.filter(guild_id=guild_id).exists()
+
+    if is_member:
+        messages.info(request, f"You are already a member of {guild.name}.")
+        return redirect(next_url)
+
+    # Check for existing requests
+    existing_request = DiscordGuildJoinRequest.objects.filter(
+        profile=profile,
+        guild=guild,
+    ).first()
+
+    if existing_request:
+        if existing_request.status == DiscordGuildJoinRequest.Status.PENDING:
+            messages.info(request, f"You already have a pending request for {guild.name}.")
+            return redirect(next_url)
+        elif existing_request.status == DiscordGuildJoinRequest.Status.APPROVED:
+            # Redirect to guild invite page where they can join
+            messages.success(request, f"Your request to join {guild.name} has been approved!")
+            return redirect(f"{reverse('guild-invite', kwargs={'guild_id': guild_id})}?next={next_url}")
+        elif existing_request.status == DiscordGuildJoinRequest.Status.REJECTED:
+            # Allow resubmission - delete old rejected request
+            existing_request.delete()
+            messages.warning(request, f"Your previous request was rejected. You may submit a new request.")
+        elif existing_request.status == DiscordGuildJoinRequest.Status.WITHDRAWN:
+            # Allow resubmission - delete old withdrawn request
+            existing_request.delete()
+            messages.info(request, f"You previously withdrew your request. You may submit a new one.")
+        elif existing_request.status == DiscordGuildJoinRequest.Status.COMPLETED:
+            # They completed the join but aren't a member yet?
+            messages.info(request, f"You have a completed request for {guild.name}. Please contact an admin.")
+            return redirect(next_url)
+
+    if request.method == "POST":
+        form = GuildJoinRequestForm(request.POST)
+        if form.is_valid():
+            if guild.auto_approve_invite:
+                DiscordGuildJoinRequest.objects.create(
+                    profile=profile,
+                    guild=guild,
+                    request_message=form.cleaned_data["request_message"],
+                    agreement_message=form.cleaned_data["agreement_message"],
+                    acknowledgement=form.cleaned_data["acknowledgement"],
+                    status=DiscordGuildJoinRequest.Status.APPROVED,
+                )
+                if next_url:
+                    return redirect(f"{reverse('guild-invite', kwargs={'guild_id': guild_id})}?next={next_url}")
+                return redirect("guild-invite", guild_id=guild_id)
+            else:
+                DiscordGuildJoinRequest.objects.create(
+                    profile=profile,
+                    guild=guild,
+                    request_message=form.cleaned_data["request_message"],
+                    agreement_message=form.cleaned_data["agreement_message"],
+                    acknowledgement=form.cleaned_data["acknowledgement"],
+                    status=DiscordGuildJoinRequest.Status.PENDING,
+                )
+                fields = []
+                fields.append({
+                    'name': 'Request', 
+                    'value': form.cleaned_data["request_message"]
+                    })
+                fields.append({
+                    'name': 'Acknowledgement',
+                    'value': form.cleaned_data["agreement_message"]
+                })
+                message = f'{profile.discord} would like to join {guild.name}'
+                send_rich_discord_message(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields)
+                messages.info(request, "Your request has been submitted. Please check back here later.")
+                return redirect(next_url)
+    else:
+        form = GuildJoinRequestForm()
+
+    title = f'{guild.name} Invite'
+
+    return render(request, "the_gatehouse/join_guild.html", {
+        "guild": guild,
+        "form": form,
+        "next_url": next_url,
+        "title": title,
+    })
+
+@player_required
+def guild_invite_view(request, guild_id):
+    """Display Discord-style invite card for approved guild"""
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
+    next_url = request.GET.get('next')
+
+    if not DiscordGuildJoinRequest.objects.filter(
+            profile=request.user.profile,
+            guild=guild,
+            status=DiscordGuildJoinRequest.Status.APPROVED,
+        ).exists():
+        
+        if next_url:
+            return redirect(f"{reverse('guild-request', kwargs={'guild_id': guild_id})}?next={next_url}")
+        return redirect("guild-request", guild_id=guild_id)
+
+    # Extract invite code from URL
+    invite_code = guild.get_invite_code()
+    
+    discord_info = None
+    if invite_code:
+        discord_info = get_discord_invite_info(invite_code)
+        
+        # Update guild info in database if successful
+        if discord_info.get('success'):
+            guild.actual_name = discord_info['name']
+            guild.description = discord_info.get('description', '')
+            guild.icon_hash = discord_info.get('icon_hash', '')
+            guild.banner_hash = discord_info.get('banner_hash') or discord_info.get('splash_hash', '')
+            guild.member_count = discord_info['member_count']
+            guild.online_count = discord_info['online_count']
+            guild.save()
+
+            # Add computed URLs to discord_info for template
+            discord_info['icon_url'] = guild.get_icon_url()
+            discord_info['banner_url'] = guild.get_banner_url()
+
+    title = f'Join {guild.name}'
+
+    context = {
+        'guild': guild,
+        'discord_info': discord_info,
+        'next_url': next_url,
+        'title': title,
+    }
+
+    return render(request, 'the_gatehouse/guild_invite.html', context)
+
+
+@login_required
+@admin_required
+def pending_guild_invites(request):
+    """Admin view to manage pending guild join requests."""
+    pending_invites = DiscordGuildJoinRequest.objects.filter(
+        status=DiscordGuildJoinRequest.Status.PENDING
+    ).select_related('profile', 'guild').order_by('-created_at')
+
+    title = "Pending Guild Invites"
+
+    context = {
+        'pending_invites': pending_invites,
+        'title': title,
+    }
+
+    return render(request, 'the_gatehouse/pending_guild_invites.html', context)
+
+
+
+@login_required
+@admin_required
+def approve_guild_invite(request, invite_id):
+    """Approve a pending guild join request."""
+    invite = get_object_or_404(DiscordGuildJoinRequest, id=invite_id)
+
+    # Save moderator message and note if provided
+    if request.method == 'POST':
+        fields_to_update = []
+
+        moderator_message = request.POST.get('moderator_message', '').strip()
+        if moderator_message:
+            invite.moderator_message = moderator_message
+            fields_to_update.append('moderator_message')
+
+        moderator_note = request.POST.get('moderator_note', '').strip()
+        if moderator_note:
+            invite.moderator_note = moderator_note
+            fields_to_update.append('moderator_note')
+
+        if fields_to_update:
+            invite.save(update_fields=fields_to_update)
+
+    try:
+        invite.approve()
+        messages.success(
+            request,
+            f"Approved {invite.profile.name}'s request to join {invite.guild.name}"
+        )
+
+        # Send Discord notification
+        send_discord_message(
+            f"Guild invite approved: {invite.profile.name} → {invite.guild.name} (by {request.user.profile.name})",
+            'report'
+        )
+
+        # Send user notification
+        from .models import UserNotification, MessageChoices
+        notification_message = f"Your request to join {invite.guild.name} has been approved!"
+        if invite.moderator_message:
+            notification_message += f" {invite.moderator_message}"
+
+        UserNotification.create_notification(
+            profile=invite.profile,
+            message=notification_message,
+            message_type=MessageChoices.SUCCESS,
+            related_url=reverse('guild-invite', kwargs={'guild_id': invite.guild.guild_id})
+        )
+
+    except ValueError as e:
+        messages.error(request, str(e))
+
+    return redirect('pending-guild-invites')
+
+
+@login_required
+@admin_required
+def reject_guild_invite(request, invite_id):
+    """Reject a pending guild join request."""
+    invite = get_object_or_404(DiscordGuildJoinRequest, id=invite_id)
+
+    # Save moderator message and note if provided
+    if request.method == 'POST':
+        fields_to_update = []
+
+        moderator_message = request.POST.get('moderator_message', '').strip()
+        if moderator_message:
+            invite.moderator_message = moderator_message
+            fields_to_update.append('moderator_message')
+
+        moderator_note = request.POST.get('moderator_note', '').strip()
+        if moderator_note:
+            invite.moderator_note = moderator_note
+            fields_to_update.append('moderator_note')
+
+        if fields_to_update:
+            invite.save(update_fields=fields_to_update)
+
+    try:
+        invite.reject()
+        messages.warning(
+            request,
+            f"Rejected {invite.profile.name}'s request to join {invite.guild.name}"
+        )
+
+        # Send Discord notification
+        send_discord_message(
+            f"Guild invite rejected: {invite.profile.name} → {invite.guild.name} (by {request.user.profile.name})",
+            'report'
+        )
+
+        # Send user notification
+        from .models import UserNotification, MessageChoices
+        notification_message = f"Your request to join {invite.guild.name} has been rejected."
+        if invite.moderator_message:
+            notification_message += f" {invite.moderator_message}"
+
+        UserNotification.create_notification(
+            profile=invite.profile,
+            message=notification_message,
+            message_type=MessageChoices.WARNING,
+            related_url=None
+        )
+
+    except ValueError as e:
+        messages.error(request, str(e))
+
+    return redirect('pending-guild-invites')
+
+
+@login_required
+def mark_guild_invite_clicked(request, guild_id):
+    """Add guild to user's profile when they click to join (immediate access to guild links)."""
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
+    profile = request.user.profile
+    # Find the approved invite
+    invite = DiscordGuildJoinRequest.objects.filter(
+        profile=profile,
+        guild=guild,
+        status=DiscordGuildJoinRequest.Status.APPROVED
+    ).first()
+
+    if invite:
+        # Add guild to user's profile immediately so they get access to guild-gated links
+        # If they don't actually join Discord, the next sync will remove it
+        if guild not in profile.guilds.all():
+            profile.guilds.add(guild)
+            profile.save()
+
+    # Return success so JavaScript knows it worked
+    return JsonResponse({'success': True})
+
+
+
+
+@login_required
+@admin_required
+def pending_posts(request):
+    """Admin view to manage pending posts."""
+    from the_keep.models import StatusChoices
+
+    pending_posts = Post.objects.filter(
+        status=StatusChoices.SUBMITTED
+    ).select_related('designer', 'submitted_by').order_by('-date_posted')
+
+    title = "Pending Posts"
+
+    context = {
+        'pending_posts': pending_posts,
+        'title': title,
+    }
+
+    return render(request, 'the_gatehouse/pending_posts.html', context)
+
+
+@login_required
+@admin_required
+def approve_post(request, post_id):
+    """Approve a pending post and move it to Development status."""
+    from the_keep.models import StatusChoices
+    from .models import UserNotification, MessageChoices
+
+    post = get_object_or_404(Post, id=post_id)
+
+    if request.method == 'POST':
+        try:
+            post.status = StatusChoices.DEVELOPMENT
+            post.save()
+
+            messages.success(
+                request,
+                f"Approved '{post.title}' and moved to Development status"
+            )
+
+            # Send Discord notification
+            send_discord_message(
+                f"Post approved: {post.title} ({post.get_component_display()}) by {request.user.profile.name}",
+                'report'
+            )
+
+            # Create user notification for the submitter
+            if post.submitted_by:
+                UserNotification.create_notification(
+                    profile=post.submitted_by,
+                    message=f"Your submitted {post.get_component_display()} '{post.title}' has been approved and moved to Development status!",
+                    message_type=MessageChoices.SUCCESS,
+                    related_post=post,
+                    related_url=post.get_absolute_url()
+                )
+
+        except Exception as e:
+            messages.error(request, f"Error approving post: {str(e)}")
+
+    return redirect('pending-posts')
+
+
+@login_required
+@admin_required
+def reject_post(request, post_id):
+    """Reject a pending post and delete it."""
+    from the_keep.models import StatusChoices
+
+    post = get_object_or_404(Post, id=post_id)
+
+    if request.method == 'POST':
+        try:
+            post_title = post.title
+            post_component = post.get_component_display()
+
+            # Delete the post
+            post.delete()
+
+            messages.warning(
+                request,
+                f"Rejected and deleted '{post_title}'"
+            )
+
+            # Send Discord notification
+            send_discord_message(
+                f"Post rejected and deleted: {post_title} ({post_component}) by {request.user.profile.name}",
+                'report'
+            )
+
+        except Exception as e:
+            messages.error(request, f"Error rejecting post: {str(e)}")
+
+    return redirect('pending-posts')
+
+@login_required
+def dismiss_notification(request, notification_id):
+    """Dismiss a user notification."""
+    from .models import UserNotification
+
+    notification = get_object_or_404(UserNotification, id=notification_id, profile=request.user.profile)
+    notification.dismiss()
+
+    # Return JSON for AJAX requests
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+
+    # Redirect back for regular requests
+    return redirect(request.META.get('HTTP_REFERER', '/'))
+

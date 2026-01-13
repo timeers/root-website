@@ -5,7 +5,7 @@
         <div>
             <a href="{% url 'keep-about' %}">{% trans 'About' %}</a> |
 
-            {% if user.profile.player %}
+            {% if user.profile.player and rdb_feedback_invite %}
                 <a href="{{rdb_feedback_invite}}">Discord</a> |
             {% endif %}
             <a href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>

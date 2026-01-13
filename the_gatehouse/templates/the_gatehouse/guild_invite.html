@@ -1,0 +1,294 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-6 col-md-8">
+      
+      {% if discord_info.success %}
+      <!-- Discord Invite Card -->
+      <div class="discord-invite-card">
+        <!-- Banner -->
+        {% if discord_info.banner_url %}
+        <div class="discord-banner" style="background-image: url('{{ discord_info.banner_url }}');"></div>
+        {% elif discord_info.banner_color %}
+        <div class="discord-banner" style="background: {{ discord_info.banner_color }};"></div>
+        {% else %}
+        <div class="discord-banner discord-banner-default"></div>
+        {% endif %}
+        
+        <!-- Card Body -->
+        <div class="discord-card-body">
+          <!-- Server Icon -->
+          <div class="discord-icon-wrapper">
+            {% if discord_info.icon_url %}
+            <img src="{{ discord_info.icon_url }}" alt="{{ discord_info.name }}" class="discord-server-icon">
+            {% else %}
+            <div class="discord-server-icon discord-icon-placeholder">
+              {{ discord_info.name|first|upper }}
+            </div>
+            {% endif %}
+          </div>
+          
+          <!-- Server Info -->
+          <div class="discord-info">
+            <h3 class="discord-server-name">{{ discord_info.name }}</h3>
+
+  <!-- Stats -->
+            <div class="discord-stats">
+              <div class="discord-stat">
+                <span class="discord-dot discord-dot-online"></span>
+                <span class="discord-stat-text">
+                  <strong>{{ discord_info.online_count|default:0 }}</strong> Online
+                </span>
+              </div>
+              <div class="discord-stat">
+                <span class="discord-dot discord-dot-members"></span>
+                <span class="discord-stat-text">
+                  <strong>{{ discord_info.member_count|default:0 }}</strong> Members
+                </span>
+              </div>
+            </div>
+
+            {% if discord_info.description %}
+            <p class="discord-description">{{ discord_info.description }}</p>
+            {% endif %}
+            
+
+            <!-- Join Button -->
+            {% if next_url %}
+            <a href="#" id="discord-join-btn" data-invite-url="{{ guild.server_invite }}" data-next-url="{{ next_url }}" class="discord-join-btn">
+            <span>Go to Server</span>
+            </a>
+            {% else %}
+            <a href="{{ guild.server_invite }}" target="_blank" class="discord-join-btn">
+            <span>Go to Server</span>
+            </a>
+            {% endif %}
+
+          </div>
+        </div>
+      </div>
+      
+      {% else %}
+      <!-- Error State -->
+      <div class="alert alert-danger">
+        <h4>Unable to load Discord invite</h4>
+        <p>{{ discord_info.error|default:"The invite link may be invalid or expired." }}</p>
+      </div>
+      {% endif %}
+      
+    </div>
+  </div>
+</div>
+
+<style>
+.discord-invite-card {
+  background: #2f3136;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
+  font-family: "Whitney", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.discord-banner {
+  height: 120px;
+  background-size: cover;
+  background-position: center;
+  background-color: #5865F2;
+}
+
+.discord-banner-default {
+  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+}
+
+.discord-card-body {
+  padding: 16px;
+  position: relative;
+}
+
+.discord-icon-wrapper {
+  position: absolute;
+  top: -40px;
+  left: 16px;
+}
+
+.discord-server-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 16px;
+  border: 6px solid #2f3136;
+  background: #36393f;
+  display: block;
+}
+
+.discord-icon-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 600;
+  color: #fff;
+  background: #5865F2;
+}
+
+.discord-info {
+  margin-top: 50px;
+}
+
+.discord-server-name {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  line-height: 1.2;
+}
+
+.discord-description {
+  color: #b9bbbe;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 16px 0;
+}
+
+.discord-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.discord-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #b9bbbe;
+}
+
+.discord-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.discord-dot-online {
+  background: #3ba55d;
+  box-shadow: 0 0 8px rgba(59, 165, 93, 0.5);
+}
+
+.discord-dot-members {
+  background: #747f8d;
+}
+
+.discord-stat-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.discord-stat-text strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.discord-join-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #248046;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 24px;
+  font-weight: 600;
+  font-size: 16px;
+  text-decoration: none;
+  transition: background 0.17s ease;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+.discord-join-btn:hover {
+  background: #1a6334;
+  color: #fff;
+  text-decoration: none;
+}
+
+.discord-join-btn:active {
+  background: #164d29;
+}
+
+.discord-join-btn svg {
+  margin-left: 4px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 576px) {
+  .discord-server-icon {
+    width: 64px;
+    height: 64px;
+  }
+  
+  .discord-icon-placeholder {
+    font-size: 24px;
+  }
+  
+  .discord-info {
+    margin-top: 40px;
+  }
+  
+  .discord-server-name {
+    font-size: 18px;
+  }
+}
+</style>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const joinBtn = document.getElementById('discord-join-btn');
+
+  if (joinBtn) {
+    joinBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+
+      const inviteUrl = this.getAttribute('data-invite-url');
+      const nextUrl = this.getAttribute('data-next-url');
+      const guildId = {{ guild.guild_id }};
+
+      // Mark invite as clicked (completed) via AJAX
+      fetch("{% url 'mark-guild-invite-clicked' guild.guild_id %}", {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+          'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin'
+      }).then(response => response.json())
+        .then(data => {
+          // Open Discord invite in new window
+          window.open(inviteUrl, '_blank');
+
+          // Redirect current page to next URL
+          if (nextUrl) {
+            window.location.href = nextUrl;
+          }
+        })
+        .catch(error => {
+          console.error('Error marking invite as clicked:', error);
+          // Still open the invite even if the request fails
+          window.open(inviteUrl, '_blank');
+          if (nextUrl) {
+            window.location.href = nextUrl;
+          }
+        });
+    });
+  }
+});
+</script>
+{% endblock scripts %}

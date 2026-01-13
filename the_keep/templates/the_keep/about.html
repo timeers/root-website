@@ -31,7 +31,9 @@
 
     <div class='mb-4 lore-content' style="font-size: 1.1rem;">
         Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
+        {% if rdb_feedback_invite %}
         You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_feedback_invite}}">Root Database Discord</a>.
+        {% endif %}
     </div>
 
     <div class='mb-4'>

@@ -262,11 +262,11 @@ class Expansion(models.Model):
     def count_links(self, user):
 
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
 
-        # Only include wr_link if user is authenticated and has in_wr = True
-        if getattr(user, 'is_authenticated', False) and getattr(user.profile, 'in_weird_root', False):
-            link_fields.append('wr_link')
+        # # Only include wr_link if user is authenticated and has in_wr = True
+        # if getattr(user, 'is_authenticated', False) and getattr(user.profile, 'in_weird_root', False):
+        #     link_fields.append('wr_link')
 
         # Count how many of these fields are not None or empty
         count = 0
@@ -468,11 +468,11 @@ class Post(models.Model):
     def count_links(self, user):
 
         # List of link field names you want to check
-        link_fields = ['bgg_link', 'tts_link', 'ww_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
+        link_fields = ['bgg_link', 'tts_link', 'ww_link', 'wr_link', "fr_link", 'pnp_link', 'stl_link', 'leder_games_link', 'rootjam_link']
 
-        # Only include wr_link if user is authenticated and has in_wr = True
-        if getattr(user, 'is_authenticated', False) and getattr(user.profile, 'in_weird_root', False):
-            link_fields.append('wr_link')
+        # # Only include wr_link if user is authenticated and has in_wr = True
+        # if getattr(user, 'is_authenticated', False) and getattr(user.profile, 'in_weird_root', False):
+        #     link_fields.append('wr_link')
 
         # Count how many of these fields are not None or empty
         count = 0
@@ -530,7 +530,10 @@ class Post(models.Model):
                     if old_image and not old_image.name.startswith('default_images/'):
                         # Delete non-default images
                         self._delete_old_image(old_image)
-            new_post = False
+            if old_instance.status == StatusChoices.SUBMITTED and self.status != StatusChoices.SUBMITTED:
+                new_post = True
+            else:
+                new_post = False
         else:
             new_post = True
 
@@ -555,7 +558,7 @@ class Post(models.Model):
             self.designers_list = designers_list
             Post.objects.filter(pk=self.pk).update(designers_list=designers_list)
         # If the post is new and not in submittal status
-        if new_post and self.status != '9':
+        if new_post and self.status != StatusChoices.SUBMITTED:
             fields = []
             fields.append({
                     'name': 'By:',

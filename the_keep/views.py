@@ -36,11 +36,11 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
-from the_gatehouse.models import Profile, Language, Website
+from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest
 from the_gatehouse.views import (designer_required_class_based_view, designer_required, tester_required,
                                  player_required, player_required_class_based_view,
                                  admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
-from the_gatehouse.services.discordservice import send_discord_message, send_rich_discord_message
+from the_gatehouse.services.discordservice import send_discord_message, send_rich_discord_message, get_guild_link_config
 from the_gatehouse.utils import get_uuid, build_absolute_uri, int_to_alpha, int_to_roman
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from .tasks import sync_rules_task
@@ -82,6 +82,9 @@ from django.db.models import OuterRef, Subquery, F, Value, Exists
 from django.db.models.functions import Coalesce
 
 from yaml.representer import SafeRepresenter
+
+with open('/etc/config.json') as config_file:
+    config = json.load(config_file)
 
 COMPONENT_MAPPING = {
     "post": Post,
@@ -231,6 +234,15 @@ def expansion_detail_view(request, slug):
 
     can_edit = user_can_edit(request, expansion)
 
+    wr_link_config = None
+    if expansion.wr_link:
+        wr_link_config = get_guild_link_config(request, config['WR_GUILD_ID'], expansion.wr_link)
+            
+    fr_link_config = None
+    if expansion.fr_link:
+        fr_link_config = get_guild_link_config(request, config['FR_GUILD_ID'], expansion.fr_link)
+            
+
     context = {
         'expansion': expansion,
         'posts': posts,
@@ -247,6 +259,9 @@ def expansion_detail_view(request, slug):
         'tts_link': tts_link,
         'bgg_link': bgg_link,
         'pnp_link': pnp_link,
+
+        'wr_link_config': wr_link_config,
+        'fr_link_config': fr_link_config,
 
         'col_class': col_class,
         'available_law': available_law,
@@ -472,7 +487,9 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         obj = self.get_object()
         can_edit = user_can_edit(self.request, obj)
         if not can_edit:
-            if obj.co_designers_can_edit:
+            if obj.status == StatusChoices.SUBMITTED:
+                messages.error(self.request, f'The {obj.component} "{obj.title}" has been submitted and can only be edited by an Admin user.')
+            elif obj.co_designers_can_edit:
                 messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designers_list}.')
             else:
                 messages.error(self.request, f'The {obj.component} "{obj.title}" can only be edited by {obj.designer}.')
@@ -1203,6 +1220,14 @@ def ultimate_component_view(request, slug, component):
 
     can_edit = user_can_edit(request, obj)
 
+    wr_link_config = None
+    if obj.wr_link:
+        wr_link_config = get_guild_link_config(request, config['WR_GUILD_ID'], obj.wr_link)
+
+    fr_link_config = None
+    if obj.fr_link:
+        fr_link_config = get_guild_link_config(request, config['FR_GUILD_ID'], obj.fr_link)
+
     context = {
         'object': obj,
         'component': component,
@@ -1262,6 +1287,9 @@ def ultimate_component_view(request, slug, component):
         'tts_link': tts_link,
         'bgg_link': bgg_link,
         'pnp_link': pnp_link,
+
+        'wr_link_config': wr_link_config,
+        'fr_link_config': fr_link_config,
 
         'meta_description': meta_description,
         'meta_image_url': meta_image_url,

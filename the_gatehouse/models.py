@@ -1,5 +1,6 @@
 import os
 import uuid
+from urllib.parse import urlparse
 from django.contrib.auth.models import User
 from io import BytesIO
 # from the_warroom.models import Effort
@@ -58,12 +59,81 @@ class Language(models.Model):
         return self.LOCALE_MAP.get(self.code, self.code)
 
 
+
+
+ALLOWED_DISCORD_DOMAINS = {
+    "discord.gg",
+    "www.discord.gg",
+    "discord.com",
+    "www.discord.com",
+}
+
+def validate_discord_invite(url):
+    parsed = urlparse(url)
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValidationError("Invite must be a valid http or https URL.")
+
+    if parsed.netloc not in ALLOWED_DISCORD_DOMAINS:
+        raise ValidationError("Invite must be a Discord invite URL.")
+
+    # Enforce invite path formats
+    if not (
+        parsed.path.startswith("/invite/")
+        or parsed.netloc.endswith("discord.gg")
+    ):
+        raise ValidationError("Invite must be a valid Discord invite link.")
+
+
 class DiscordGuild(models.Model):
     guild_id = models.CharField(max_length=32, unique=True)
     name = models.CharField(max_length=100)
+    server_invite = models.URLField(
+        max_length=1200, 
+        null=True, 
+        blank=True,
+        validators=[validate_discord_invite],
+        help_text="Discord server invite URL")
+    request_message = models.TextField(blank=True, null=True)
+    server_rules = models.TextField(blank=True, null=True)
+    auto_approve_invite = models.BooleanField(default=False)
+
+    # From Discord API
+    actual_name = models.CharField(max_length=100, null=True, blank=True)
+    description = models.TextField(blank=True, null=True, help_text="Server description from Discord")
+    icon_hash = models.CharField(max_length=200, blank=True, null=True, help_text="Discord server icon hash")
+    banner_hash = models.CharField(max_length=200, blank=True, null=True, help_text="Discord server banner hash")
+    member_count = models.IntegerField(default=0, help_text="Approximate member count")
+    online_count = models.IntegerField(default=0, help_text="Approximate online count")
+    last_updated = models.DateTimeField(auto_now=True, help_text="Last time Discord info was refreshed")
+    
+    
 
     def __str__(self):
         return self.name
+
+    def guild_name(self):
+        if self.actual_name:
+            return self.actual_name
+        return self.name
+
+    def get_invite_code(self):
+        """Extract invite code from server_invite URL"""
+        if self.server_invite:
+            return self.server_invite.split('/')[-1].split('?')[0]  # Handle query params
+        return None
+    
+    def get_icon_url(self):
+        """Get full Discord icon URL"""
+        if self.guild_id and self.icon_hash:
+            return f"https://cdn.discordapp.com/icons/{self.guild_id}/{self.icon_hash}.png?size=256"
+        return None
+    
+    def get_banner_url(self):
+        """Get full Discord banner URL"""
+        if self.guild_id and self.banner_hash:
+            return f"https://cdn.discordapp.com/banners/{self.guild_id}/{self.banner_hash}.png?size=512"
+        return None
 
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
@@ -748,6 +818,7 @@ class Website(models.Model):
     rdb_feedback_invite = models.CharField(max_length=100, null=True, blank=True)
     date_modified = models.DateTimeField(auto_now=True)
     last_law_check = models.DateTimeField(null=True, blank=True)
+    primary_discord_guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True)
 
     @classmethod
     def get_singular_instance(cls):
@@ -840,6 +911,82 @@ class ChangelogEntry(models.Model):
     def save(self, *args, **kwargs):
         self.category_order = self.CATEGORY_ORDER.get(self.category, 99)
         super().save(*args, **kwargs)
+
+
+class DiscordGuildJoinRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        WITHDRAWN = "withdrawn", "Withdrawn"
+        COMPLETED = "completed", "Completed"
+
+    profile = models.ForeignKey(
+        Profile,
+        on_delete=models.CASCADE,
+        related_name="guild_join_requests",
+    )
+    guild = models.ForeignKey(
+        DiscordGuild,
+        on_delete=models.CASCADE,
+        related_name="join_requests",
+    )
+
+    request_message = models.TextField()
+    agreement_message = models.TextField()
+    acknowledgement = models.BooleanField(default=False)
+    
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    moderator_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional message shown to the user when approved/rejected"
+    )
+    moderator_note = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Internal note visible only to moderators"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("profile", "guild")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.profile} → {self.guild} ({self.status})"
+
+
+    def clean(self):
+        if not self.acknowledgement:
+            raise ValidationError("You must acknowledge the server rules.")
+        
+    def approve(self):
+        if self.status != self.Status.PENDING:
+            raise ValueError("Only pending requests can be approved.")
+        self.status = self.Status.APPROVED
+        self.save(update_fields=["status"])
+
+    def reject(self):
+        if self.status != self.Status.PENDING:
+            raise ValueError("Only pending requests can be rejected.")
+        self.status = self.Status.REJECTED
+        self.save(update_fields=["status"])
+
+    def complete(self):
+        if self.status != self.Status.APPROVED:
+            raise ValueError("Only approved requests can be completed.")
+        self.status = self.Status.COMPLETED
+        self.save(update_fields=["status"])
+
 
 
 # # Surveys
@@ -977,3 +1124,60 @@ class ChangelogEntry(models.Model):
 #     rank = models.PositiveIntegerField()
 #     class Meta:
 #         unique_together = ('answer', 'rank')
+
+
+class UserNotification(models.Model):
+    """
+    Persistent notification system for users.
+    Stores dismissible notifications that appear in the message bar.
+    """
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='notifications')
+    message = models.TextField()
+    message_type = models.CharField(
+        max_length=20,
+        choices=MessageChoices.choices,
+        default=MessageChoices.INFO
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_dismissed = models.BooleanField(default=False)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+
+    # Optional: Link to related object
+    related_post_id = models.IntegerField(null=True, blank=True, help_text="ID of related Post if applicable")
+    related_url = models.CharField(max_length=500, null=True, blank=True, help_text="URL to navigate to")
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['profile', 'is_dismissed']),
+        ]
+
+    def __str__(self):
+        return f"Notification for {self.profile.name}: {self.message[:50]}"
+
+    def dismiss(self):
+        """Mark notification as dismissed"""
+        self.is_dismissed = True
+        self.dismissed_at = timezone.now()
+        self.save()
+
+    @classmethod
+    def create_notification(cls, profile, message, message_type=MessageChoices.INFO, related_post=None, related_url=None):
+        """
+        Helper method to create a notification.
+
+        Args:
+            profile: Profile object
+            message: Notification message text
+            message_type: Type of message (success, warning, danger, info)
+            related_post: Optional Post object to link to
+            related_url: Optional URL to link to
+        """
+        notification = cls.objects.create(
+            profile=profile,
+            message=message,
+            message_type=message_type,
+            related_post_id=related_post.id if related_post else None,
+            related_url=related_url
+        )
+        return notification

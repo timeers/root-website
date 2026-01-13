@@ -337,3 +337,17 @@ class MessageForm(forms.Form):
             self.fields['message'].widget.attrs.update({
             'placeholder': _('Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.')
                 })
+
+class GuildJoinRequestForm(forms.Form):
+    request_message = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4}),
+        label="Why would you like to join?",
+    )
+    agreement_message = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4}),
+        label="Acknowledgement",
+    )
+    acknowledgement = forms.BooleanField(
+        required=True,
+        label="I agree to be respectful of others and follow the server's rules",
+    )

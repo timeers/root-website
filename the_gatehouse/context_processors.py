@@ -15,7 +15,10 @@ def active_user_data(request):
         global_message_type = config.message_type
         woodland_warriors_invite = config.woodland_warriors_invite
         french_root_invite = config.french_root_invite
-        rdb_feedback_invite = config.rdb_feedback_invite
+        if config.primary_discord_guild:
+            rdb_feedback_invite = config.primary_discord_guild.server_invite
+        else:
+            rdb_feedback_invite = None
 
         post_count = 0
         recent_posts = []
@@ -24,6 +27,8 @@ def active_user_data(request):
         scorecard_count = 0
         unassigned_scorecards = 0
         bookmarks = 0
+        approved_invites = []
+        user_notifications = []
 
         if hasattr(request, 'user') and request.user.is_authenticated:
             try:
@@ -39,6 +44,22 @@ def active_user_data(request):
                 bookmarked_games = profile.bookmarkedgames.count()
                 bookmarked_posts = profile.bookmarkedposts.count()
                 bookmarks = bookmarked_posts + bookmarked_games
+
+                # Get approved invites for guilds the user is not yet a member of
+                # Excludes completed invites (user already joined) and guilds already in
+                approved_invites = profile.guild_join_requests.filter(
+                    status="approved"
+                ).exclude(
+                    guild__in=profile.guilds.all()
+                )
+
+                # Get user notifications that haven't been dismissed
+                from .models import UserNotification
+                user_notifications = UserNotification.objects.filter(
+                    profile=profile,
+                    is_dismissed=False
+                ).order_by('-created_at')
+
             except ObjectDoesNotExist:
                 pass  # profile or related object not found
             except Exception:
@@ -58,6 +79,8 @@ def active_user_data(request):
             'user_active_count': unassigned_scorecards + in_process_games,
             'user_bookmarks_count': bookmarks,
             'user_scorecard_count': scorecard_count,
+            'approved_invites': approved_invites,
+            'user_notifications': user_notifications,
             'theme': theme,
             'theme_artists': theme_artists,
             'global_message': global_message,

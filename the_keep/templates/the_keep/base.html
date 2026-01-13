@@ -29,6 +29,20 @@
                 {% endfor %}
             {% endif %}
 
+            {% if user_notifications %}
+                {% for notification in user_notifications %}
+                <div class="alert alert-{{ notification.message_type }} alert-dismissible fade show" role="alert">
+                    {{ notification.message }}
+                    {% if notification.related_url %}
+                        <a href="{{ notification.related_url }}" class="alert-link ms-2" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')">View</a>
+                    {% endif %}
+                    <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                {% endfor %}
+            {% endif %}
+
             <div class='mb-2'></div>
             {% block content %}{% endblock %}
         </div>

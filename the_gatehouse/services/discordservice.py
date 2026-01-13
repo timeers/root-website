@@ -8,7 +8,10 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 
-from the_gatehouse.models import DiscordGuild
+from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
+
+from django.urls import reverse
+from django.utils.translation import gettext as _
 
 
 DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
@@ -122,9 +125,22 @@ def update_user_guilds(user, guilds):
     current_guild_ids = [g['id'] for g in guilds]
 
     # Clear and re-add only matching guilds that exist in DB
+    # This will remove any guilds that were added via "mark_guild_invite_clicked"
+    # if the user never actually joined the Discord server
     user.profile.guilds.clear()
     existing_guilds = DiscordGuild.objects.filter(guild_id__in=current_guild_ids)
     user.profile.guilds.add(*existing_guilds)
+
+    # Mark approved invites as completed if user has actually joined the guild
+    # Invites stay APPROVED if user clicked but never joined (so they can try again)
+    from the_gatehouse.models import DiscordGuildJoinRequest
+    approved_invites = DiscordGuildJoinRequest.objects.filter(
+        profile=user.profile,
+        status=DiscordGuildJoinRequest.Status.APPROVED,
+        guild__in=existing_guilds
+    )
+    for invite in approved_invites:
+        invite.complete()
 
 
 
@@ -327,3 +343,148 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
     
     if response.status_code != 204:
         print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
+
+def get_discord_invite_info(invite_code):
+    """Fetch Discord server info from invite code"""
+    try:
+        response = requests.get(
+            f'https://discord.com/api/v10/invites/{invite_code}',
+            params={'with_counts': 'true', 'with_expiration': 'true'},
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            guild_data = data.get('guild', {})
+            
+            icon = guild_data.get('icon')
+            banner = guild_data.get('banner')
+            splash = guild_data.get('splash')
+            
+            # Generate default banner color if no banner/splash
+            guild_id = guild_data.get('id')
+            banner_color = None
+            profile_data = data.get('profile', {})    
+    
+            if not banner and not splash:
+                # Try to get the badge colors from profile
+                primary_color = profile_data.get('badge_color_primary')
+                secondary_color = profile_data.get('badge_color_secondary')
+                
+                if primary_color and secondary_color and not (primary_color == '#ff0000' and secondary_color == '#800000'):
+                    # Use Discord's actual server colors
+                    banner_color = f'linear-gradient(135deg, {primary_color} 0%, {secondary_color} 100%)'
+                elif guild_id:
+                    # Fallback to generated color
+                    banner_color = generate_guild_color(guild_id)
+            
+
+            return {
+                'success': True,
+                'guild_id': guild_data.get('id'),
+                'name': guild_data.get('name'),
+                'description': guild_data.get('description'),
+                'icon_hash': icon,  
+                'banner_hash': banner,
+                'splash_hash': splash,
+                'banner_color': banner_color,
+                'member_count': data.get('approximate_member_count', 0),
+                'online_count': data.get('approximate_presence_count', 0),
+                'vanity_url': guild_data.get('vanity_url_code'),
+                'features': guild_data.get('features', []),
+                'invite_code': invite_code,
+            }
+        else:
+            return {'success': False, 'error': 'Invalid or expired invite'}
+            
+    except requests.RequestException as e:
+        return {'success': False, 'error': str(e)}
+    
+def generate_guild_color(guild_id):
+    """Generate a default gradient color based on guild ID"""
+    # Discord's default gradient colors
+    gradients = [
+        ('linear-gradient(135deg, #5865F2 0%, #7289DA 100%)', 'blue'),
+        ('linear-gradient(135deg, #57F287 0%, #3BA55D 100%)', 'green'),
+        ('linear-gradient(135deg, #FEE75C 0%, #F0B232 100%)', 'yellow'),
+        ('linear-gradient(135deg, #EB459E 0%, #C558E8 100%)', 'fuchsia'),
+        ('linear-gradient(135deg, #ED4245 0%, #C9302C 100%)', 'red'),
+        ('linear-gradient(135deg, #FF7A00 0%, #E67E22 100%)', 'orange'),
+        ('linear-gradient(135deg, #00D9FF 0%, #00B8D4 100%)', 'cyan'),
+        ('linear-gradient(135deg, #9B59B6 0%, #8E44AD 100%)', 'purple'),
+    ]
+    
+    # Use guild ID to consistently pick a color
+    index = int(guild_id) % len(gradients)
+    return gradients[index][0]
+
+
+def get_guild_link_config(request, guild_id, object_link):
+    """
+    Generate configuration for Discord guild-gated links.
+
+    Args:
+        request: Django request object
+        guild_id: Discord guild ID (e.g., config['WR_GUILD_ID'])
+        object_link: The protected link to display (e.g., obj.wr_link)
+
+    Returns:
+        Dict with 'type', 'url', and 'text' keys, or None if no link
+    """
+
+
+    if not object_link:
+        return None
+
+    discord_guild = DiscordGuild.objects.filter(guild_id=guild_id).first()
+    if not discord_guild:
+        return None
+
+    if not request.user.is_authenticated:
+        next_url = request.get_full_path()
+        login_url = reverse('discord_login')
+        return {
+            'type': 'login',
+            'url': f"{login_url}?next={next_url}",
+            'text': _(f'{discord_guild.name} Thread')
+        }
+
+    is_member = request.user.profile.guilds.filter(guild_id=discord_guild.guild_id).exists()
+
+    if is_member:
+        return {
+            'type': 'direct_link',
+            'url': object_link,
+            'text': _(f'{discord_guild.name} Thread')
+        }
+
+    if not request.user.profile.player:
+        return {
+            'type': 'discord_join',
+            'text': _('Join on Discord for Link')
+        }
+
+    # User is a player but not a member - check for existing invite
+    guild_invite = DiscordGuildJoinRequest.objects.filter(
+        guild=discord_guild,
+        profile=request.user.profile
+    ).first()
+
+    if guild_invite:
+        if guild_invite.status == DiscordGuildJoinRequest.Status.PENDING:
+            link_text = _('Invite Pending')
+        elif guild_invite.status == DiscordGuildJoinRequest.Status.APPROVED:
+            link_text = _(f'Join {discord_guild.name}')
+        else:
+            link_text = _(f'Request Invite to {discord_guild.name}')
+    else:
+        link_text = _(f'Request Invite to {discord_guild.name}')
+
+    next_url = request.get_full_path()
+    url = f"{reverse('guild-invite', kwargs={'guild_id': discord_guild.guild_id})}?next={next_url}"
+
+    return {
+        'type': 'invite_request',
+        'url': url,
+        'text': link_text
+    }

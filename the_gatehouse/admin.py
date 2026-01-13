@@ -3,10 +3,10 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
-from .models import (Profile, PlayerBookmark, 
-                     Theme, BackgroundImage, ForegroundImage, 
+from .models import (Profile, PlayerBookmark,
+                     Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
-                     Changelog, ChangelogEntry)
+                     Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification)
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -23,6 +23,9 @@ class ChangelogEntryInline(admin.StackedInline):
     model = ChangelogEntry
     extra = 0
 
+class DiscordGuildJoinRequestAdmin(admin.ModelAdmin):
+    list_display = ['profile__discord', 'guild__name', 'status']
+    search_fields = ['profile__discord', 'guild__name', 'status']
 
 class DiscordGuildAdmin(admin.ModelAdmin):
     list_display = ['name', 'guild_id']
@@ -272,7 +275,18 @@ class PlayerBookmarkAdmin(admin.ModelAdmin):
     list_display = ('id', 'player', 'friend', 'public')
     search_fields = ['player__discord', 'player__dwd', 'player__display_name', 'friend__discord', 'friend__dwd', 'friend__display_name']
 
+class UserNotificationAdmin(admin.ModelAdmin):
+    list_display = ('profile', 'message_type', 'message_preview', 'created_at', 'is_dismissed')
+    list_filter = ('message_type', 'is_dismissed', 'created_at')
+    search_fields = ('profile__display_name', 'profile__discord', 'message')
+    readonly_fields = ('created_at', 'dismissed_at')
+
+    def message_preview(self, obj):
+        return obj.message[:50] + '...' if len(obj.message) > 50 else obj.message
+    message_preview.short_description = 'Message'
+
 admin.site.register(PlayerBookmark, PlayerBookmarkAdmin)
+admin.site.register(UserNotification, UserNotificationAdmin)
 
 
 # Unregister the default User admin
@@ -294,3 +308,4 @@ admin.site.register(Holiday, HolidayAdmin)
 admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
 admin.site.register(DiscordGuild, DiscordGuildAdmin)
 admin.site.register(Changelog, ChangelogAdmin)
+admin.site.register(DiscordGuildJoinRequest, DiscordGuildJoinRequestAdmin)

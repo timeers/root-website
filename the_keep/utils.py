@@ -774,14 +774,19 @@ def user_can_edit(request, post=None):
     profile = getattr(user, "profile", None)
     if not profile:
         return False
-    
+
     # Admins can always make changes
     if profile.admin:
         return True
-    
     if post:
+        # Submitted posts can only be edited by admins
+        from the_keep.models import StatusChoices
+        if hasattr(post, 'status') and post.status == StatusChoices.SUBMITTED:
+            
+            return False
+
         # Only accounts with Editor status can make changes
-        if profile.editor:
+        if profile.editor and hasattr(post, 'designer'):
             if profile == post.designer:
                 return True
             # Co-designers can only make changes if the post is marked as such
@@ -789,4 +794,5 @@ def user_can_edit(request, post=None):
                 return True
 
     return False
+
 

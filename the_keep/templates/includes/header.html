@@ -53,6 +53,23 @@
                     <ul class="dropdown-menu dropdown-menu-right">
                       <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle mr-1"></i> {% trans 'Profile' %}</a></li>
                       <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill mr-1"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
+
+                      {% if approved_invites %}
+                        {% for invite in approved_invites %}
+                          <li>
+                            <a class="dropdown-item d-flex align-items-center" href="{% url 'guild-invite' invite.guild.guild_id %}">
+                              <span class="position-relative">
+                                <i class="bi bi-envelope-fill mr-1"></i>
+                                <span class="notification-badge">!</span>
+                              </span>
+                              <span class='ml-1'>
+                                {% trans 'Join' %} {{ invite.guild.name }}
+                              </span>
+                            </a>
+                          </li>
+                        {% endfor %}
+                      {% endif %}
+
                       {% if user_games_count or user_active_games_count %}
                         <li>
                           <a class="dropdown-item d-flex align-items-center" href="{% url 'player-games' user.profile.slug %}">

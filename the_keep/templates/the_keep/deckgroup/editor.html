@@ -659,57 +659,6 @@ modalIds.forEach(modalId => {
 });
 {% endif %}
 
-{% comment %} 
-document.addEventListener("DOMContentLoaded", function () {
-    const editBtn = document.getElementById("edit-deckgroup-btn");
-    const deckModal = document.getElementById("editDeckModal");
-    const preview = document.getElementById("edit-deck-image-preview");
-
-    if (!editBtn || !deckModal || !preview ) return;
-
-    // Open modal and set initial image
-    editBtn.addEventListener("click", function () {
-        const deckImage = this.dataset.backImage || "";
-        const fileInput = modal.querySelector('input[type="file"][name*="back_image"]')
-        if (deckImage) {
-            preview.src = deckImage;
-            preview.style.display = "block";
-        } else {
-            preview.src = "";
-            preview.style.display = "none";
-        }
-    
-
-      if (fileInput) {
-        fileInput.value = "";
-        
-        // Update preview when selecting a new file
-        fileInput.addEventListener("change", function (e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    preview.src = e.target.result;
-                    preview.style.display = "block";
-                };
-                reader.readAsDataURL(file);
-            } else {
-                // Revert to original image if no file selected
-                const originalImageBtn = document.querySelector(`.edit-deck-btn[data-deck-id='${deckId}']`);
-                const originalImage = originalImageBtn ? originalImageBtn.dataset.backImage : "";
-                if (originalImage) {
-                    preview.src = originalImage;
-                    preview.style.display = "block";
-                } else {
-                    preview.src = "";
-                    preview.style.display = "none";
-                }
-            }
-        });
-      }
-  });
-}); {% endcomment %}
-
 </script>
 
 

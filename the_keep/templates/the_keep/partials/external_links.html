@@ -50,57 +50,36 @@
     {% endif %}
 
     {% if object.wr_link %}
-        {% if user.is_authenticated %}
-            {% if user.profile.in_weird_root %}
-                <a class="mr-2 mt-1" href="{{ object.wr_link }}" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
-                    {% trans 'Weird Root Thread' %}
-                </a>
-            {% elif user.profile.player %}
-                <a class="mr-2 mt-1" href="{% url 'weird-root-invite' object.slug %}" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
-                    {% trans 'Request Invite to Weird Root' %}
-                </a>
-            {% else %}
-                <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
-                    {% trans 'Join on Discord for Link' %}
-                </span>
-            {% endif %}
-        {% else %}
-            <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
+        {% if wr_link_config %}
+            {% if wr_link_config.type == 'discord_join' %}
+            <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
-                {% trans 'Weird Root Thread' %}
+                {% trans 'Join on Discord for Link' %}
+            </span>
+            {% else %}
+            <a class="mr-2 mt-1" href="{{ wr_link_config.url }}" style="display: inline-flex; align-items: center;">
+                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
+                {{ wr_link_config.text }}
             </a>
+            {% endif %}
         {% endif %}
     {% endif %}
 
+
+
     {% if object.fr_link %}
-        {% if user.is_authenticated %}
-            {% if user.profile.in_french_root %}
-                <a class="mr-2 mt-1" href="{{ object.fr_link }}" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
-                    {% trans 'French Root Thread' %}
-                </a>
-            {% elif user.profile.player %}
-                <a class="mr-2 mt-1"
-                href="#"
-                onclick="handleJoinClick('{{ french_root_invite }}', '{% url 'join-discord-server' %}', '{{ request.path|urlencode }}')"
-                style="display: inline-flex; align-items: center;">
-                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
-                    {% trans 'Join French Root' %}
-                </a>
-            {% else %}
-                <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
-                    {% trans 'Join on Discord for Link' %}
-                </span>
-            {% endif %}
-        {% else %}
-            <a class="mr-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
+        {% if fr_link_config %}
+            {% if fr_link_config.type == 'discord_join' %}
+            <span class="mr-2 mt-1" style="display: inline-flex; align-items: center;">
                 <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
-                {% trans 'French Root Thread' %}
+                {% trans 'Join on Discord for Link' %}
+            </span>
+            {% else %}
+            <a class="mr-2 mt-1" href="{{ fr_link_config.url }}" style="display: inline-flex; align-items: center;">
+                <img class="user-icon mr-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
+                {{ fr_link_config.text }}
             </a>
+            {% endif %}
         {% endif %}
     {% endif %}
 
@@ -132,11 +111,3 @@
     </div>
 </article>
 
-{% block scripts %}
-    <script>
-    function handleJoinClick(inviteUrl, djangoUrl, origin) {
-        window.open(inviteUrl, "_blank");
-        window.location.href = `${djangoUrl}?origin=${origin}&invite=${encodeURIComponent(inviteUrl)}`;
-    }
-    </script>
-{% endblock scripts %}

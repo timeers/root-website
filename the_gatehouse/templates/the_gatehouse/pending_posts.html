@@ -1,0 +1,183 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+{% block title %}{{ title }} | {% endblock %}
+{% block content %}
+
+<div class="container">
+    <h1 class='root-title'>{{ title }}</h1>
+
+    {% if pending_posts %}
+        <article class="media content-section">
+            <div class="media-body">
+                <p class="text-muted mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    {{ pending_posts.count }} pending post{{ pending_posts.count|pluralize }}
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Submitted By</th>
+                                <th>Submitted</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for post in pending_posts %}
+                                <tr>
+                                    <td>
+                                        <a href="{{ post.get_absolute_url }}">
+                                            <img class="user-icon mr-2" src="{{ post.picture.url }}" alt="{{ post.title }}">
+                                            {{ post.title }} ({{ post.get_component_display }})
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% if post.submitted_by %}
+                                            <a href="{{ post.submitted_by.get_absolute_url }}">
+                                                <img class="user-icon mr-2" src="{{ post.submitted_by.image.url }}" alt="{{ post.submitted_by.name }}">
+                                                {{ post.submitted_by.name }}
+                                            </a>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if post.date_posted %}
+                                            <small class="text-muted">
+                                                {{ post.date_posted|timesince }} ago
+                                            </small>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="btn btn-primary btn-sm"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#reviewModal{{ post.id }}">
+                                            <i class="bi bi-chat-square-text"></i> Review
+                                        </button>
+                                    </td>
+                                </tr>
+
+                                <!-- Review Modal -->
+                                <div class="modal fade" id="reviewModal{{ post.id }}" tabindex="-1" aria-labelledby="reviewModalLabel{{ post.id }}" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title" id="reviewModalLabel{{ post.id }}">
+                                                    <i class="bi bi-file-earmark-check"></i>
+                                                    Review: {{ post.title }}
+                                                </h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <!-- Post Details -->
+                                                <div class="mb-4">
+                                                    <div class="row">
+                                                        <div class="col-md-3">
+                                                            <img src="{{ post.picture.url }}" alt="{{ post.title }}" class="img-fluid rounded mb-2">
+                                                        </div>
+                                                        <div class="col-md-9">
+                                                            <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
+                                                                <i class="bi bi-info-circle mr-1"></i> {{ post.get_component_display }} Details
+                                                            </h6>
+                                                            <div class="p-3 bg-light border rounded">
+                                                                <p class="mb-2"><strong>Component:</strong> {% if post.component_snippet %}{{ post.component_snippet }} {% endif %}{{ post.get_component_display }}</p>
+                                                                <p class="mb-2"><strong>Designer:</strong>
+                                                                    {% if post.designer %}
+                                                                        <a href="{{ post.designer.get_absolute_url }}">{{ post.designer.name }}</a>
+                                                                    {% else %}
+                                                                        <span class="text-muted">—</span>
+                                                                    {% endif %}
+                                                                </p>
+                                                                <p class="mb-2"><strong>Submitted By:</strong>
+                                                                    {% if post.submitted_by %}
+                                                                        <a href="{{ post.submitted_by.get_absolute_url }}">{{ post.submitted_by.name }}</a>
+                                                                    {% else %}
+                                                                        <span class="text-muted">—</span>
+                                                                    {% endif %}
+                                                                </p>
+                                                                <p class="mb-0"><strong>Submitted:</strong>
+                                                                    {% if post.date_posted %}
+                                                                        {{ post.date_posted|timesince }} ago
+                                                                    {% else %}
+                                                                        <span class="text-muted">—</span>
+                                                                    {% endif %}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Action Buttons -->
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <a href="{{ post.get_absolute_url }}" class="btn btn-info" target="_blank">
+                                                        <i class="bi bi-box-arrow-up-right"></i> View Full Post
+                                                    </a>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                    Cancel
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-danger"
+                                                        onclick="if(confirm('Are you sure you want to reject and delete this {{post.get_component_display}}? This action cannot be undone.')) { submitAction({{ post.id }}, 'reject'); }">
+                                                    <i class="bi bi-trash"></i> Reject & Delete
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-success"
+                                                        onclick="if(confirm('Are you sure you want to approve this {{post.get_component_display}} and move it to Development status?')) { submitAction({{ post.id }}, 'approve'); }">
+                                                    <i class="bi bi-check-circle"></i> Approve
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </article>
+    {% else %}
+        <article class="media content-section">
+            <div class="media-body text-center py-5">
+                <i class="bi bi-inbox" style="font-size: 3rem; color: #999;"></i>
+                <p class="text-muted mt-3">{% trans "No pending posts" %}</p>
+            </div>
+        </article>
+    {% endif %}
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+<script>
+function submitAction(postId, action) {
+    const form = document.createElement('form');
+    form.method = 'POST';
+
+    // Set the form action based on approve/reject
+    if (action === 'approve') {
+        form.action = "{% url 'approve-post' 0 %}".replace('0', postId);
+    } else {
+        form.action = "{% url 'reject-post' 0 %}".replace('0', postId);
+    }
+
+    // Add CSRF token
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+
+    // Submit the form
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+{% endblock scripts %}

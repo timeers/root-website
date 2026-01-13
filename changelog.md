@@ -1,14 +1,26 @@
 # Changelog
 
-## [1.10.1] - 2026-1-9 Update
+## [1.10.1] - 2026-1-13 Admin & Notifications
 
 ### New Features
-- TTS Export
-- Record Knave Captains in Games
+- Admin pending posts widget and management system
+- UserNotification system for persistent user alerts
+- Post approval/rejection workflow with user notifications
+- Guild invite approval/rejection notifications with moderator messages
+- Pending posts review page with modal-based interface
 
 ### Improvements
+- Auto-dismiss notifications when clicking View link
+- Notifications display in alert bars across all pages
+- Post approval changes status to Development
+- Admin dashboard shows count of pending submitted posts
 
 ### Bug Fixes
+- Broken Clockwork Factions links
+- Knaves Advanced Search Title showing as Vagabond
+- Submittal message showing on Stable faction form
+- Submitted posts could be edited before being approved
+- Submitted posts could not be edited by new users after approval
 
 ### Known Issues
 - Unable to remove turns on Scorecard once saved

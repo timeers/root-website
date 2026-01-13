@@ -1,0 +1,496 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n static %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-7 col-md-9">
+
+      <!-- Guild Request Card -->
+      <div class="guild-request-card">
+        <!-- Header with guild name -->
+        <div class="guild-card-header">
+          <i class="bi bi-house-lock me-2 mr-2"></i>
+          <h2 class="root-title guild-card-title mb-0">{{ guild.guild_name }}</h2>
+        </div>
+
+        <!-- Info Section -->
+        {% if guild.request_message %}
+        <div class="guild-info-box">
+          <div class="info-icon">
+            <i class="bi bi-info-circle-fill"></i>
+          </div>
+          <div class="info-content">
+            {{ guild.request_message|linebreaks }}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Form Section -->
+        <div class="guild-card-body">
+          <form method="post" id="guild-request-form">
+            {% csrf_token %}
+
+            <div class="form-section">
+              <label for="{{ form.request_message.id_for_label }}" class="form-label-custom">
+                <i class="bi bi-chat-left-text mr-2"></i>
+                {{ form.request_message.label }}
+              </label>
+              <div class="form-help-text mb-2">
+                To prove you are human, tell us why you'd like to join {{guild.name}}
+              </div>
+              {{ form.request_message }}
+              {% if form.request_message.errors %}
+                <div class="form-error mt-2">
+                  <i class="bi bi-exclamation-circle me-1"></i>
+                  {{ form.request_message.errors }}
+                </div>
+              {% endif %}
+            </div>
+
+            <button
+              type="button"
+              class="guild-btn guild-btn-primary"
+              id="open-rules-modal"
+              disabled
+            >
+              <span>Continue</span>
+              {% comment %} <i class="bi bi-caret-right-fill ml-2"></i> {% endcomment %}
+            </button>
+
+            <!-- Rules Modal -->
+            <div class="modal fade" id="rulesModal" tabindex="-1" aria-labelledby="rulesModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+              <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content guild-modal">
+                  <div class="modal-header guild-modal-header">
+                    <h5 class="root-title modal-title d-flex align-items-center" id="rulesModalLabel">
+                      <i class="bi bi-book mr-2"></i>
+                      Invite Rules & Acknowledgement
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" id="modal-close-btn"></button>
+                  </div>
+
+                  <div class="modal-body guild-modal-body">
+                    <div class="rules-notice">
+                      <i class="bi bi-exclamation-triangle-fill mr-2"></i>
+                      <strong class='mr-1'>Please read carefully:</strong> 
+                      {% if guild.server_rules %}
+                      You must acknowledge these rules before submitting your request.
+                      {% else %}
+                      The rules for this server can be found on Discord.
+                      {% endif %}
+                    </div>
+
+                    {% if guild.server_rules %}
+                    <div class="rules-content">
+                      <h6 class="rules-heading">Invite Rules</h6>
+                      <div class="rules-text">
+                        {{ guild.server_rules|linebreaks }}
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="form-section">
+                      <label for="{{ form.agreement_message.id_for_label }}" class="form-label-custom">
+                        {% comment %} <i class="bi bi-check2-all mr-2"></i> {% endcomment %}
+                        {{ form.agreement_message.label }}
+                      </label>
+                      {% if not guild.server_rules %}
+                        <div class="form-help-text mb-2">
+                            Do you agree to read the {{ guild.name }} server rules on Discord{% if not guild.auto_approve_invite %} if your request is approved{% endif %}?
+                        </div>
+                      {% endif %}
+                      {% if not guild.auto_approve_invite %}
+                        <div class="form-help-text mb-2">
+                            Your answer could affect whether your request is approved or rejected
+                        </div>
+                      {% endif %}
+                      {{ form.agreement_message }}
+                      {% if form.agreement_message.errors %}
+                        <div class="form-error mt-2">
+                          <i class="bi bi-exclamation-circle me-1"></i>
+                          {{ form.agreement_message.errors }}
+                        </div>
+                      {% endif %}
+                    </div>
+
+                    <div class="acknowledgement-box">
+                      <div class="form-check">
+                        {{ form.acknowledgement }}
+                        <label class="form-check-label" for="id_acknowledgement">
+                          {{ form.acknowledgement.label }}
+                        </label>
+                      </div>
+                      {% if form.acknowledgement.errors %}
+                        <div class="form-error mt-2">
+                          <i class="bi bi-exclamation-circle me-1"></i>
+                          {{ form.acknowledgement.errors }}
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="modal-footer guild-modal-footer">
+                    <button type="button" class="guild-btn guild-btn-secondary" data-bs-dismiss="modal" id="modal-cancel-btn">
+                      Cancel
+                    </button>
+                    <button type="submit" class="guild-btn guild-btn-success" id="submit-request-btn" disabled>
+                      <i class="bi bi-check-circle mr-2"></i>
+                      Submit Request
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+/* Guild Request Card Styles */
+.guild-request-card {
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e3e5e8;
+}
+
+.guild-card-header {
+  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+  padding: 24px 28px;
+  display: flex;
+  align-items: center;
+  color: #fff;
+}
+
+.guild-card-header i {
+  font-size: 28px;
+}
+
+.guild-card-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.guild-info-box {
+  background: #f7f8fa;
+  padding: 20px 28px;
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid #e3e5e8;
+}
+
+.info-icon {
+  color: #5865F2;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.info-content {
+  color: #4f5660;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.guild-card-body {
+  padding: 28px;
+  background: #fff;
+}
+
+.form-section {
+  margin-bottom: 24px;
+}
+
+.form-label-custom {
+  display: flex;
+  align-items: center;
+  color: #2c2f33;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.form-help-text {
+  color: #6c757d;
+  font-size: 13px;
+}
+
+.form-section textarea,
+.form-section input[type="text"] {
+  background: #fff;
+  border: 2px solid #e3e5e8;
+  color: #2c2f33;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 15px;
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  transition: all 0.15s ease;
+}
+
+.form-section textarea:focus,
+.form-section input[type="text"]:focus {
+  background: #fff;
+  border-color: #5865F2;
+  color: #2c2f33;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
+}
+
+.form-error {
+  color: #dc3545;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+
+.guild-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.guild-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.guild-btn-primary {
+  background: #5865F2;
+  color: #fff;
+  width: 100%;
+}
+
+.guild-btn-primary:not(:disabled):hover {
+  background: #4752c4;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4);
+}
+
+.guild-btn-secondary {
+  background: #4e5058;
+  color: #fff;
+}
+
+.guild-btn-secondary:hover {
+  background: #5d5f67;
+}
+
+.guild-btn-success {
+  background: #248046;
+  color: #fff;
+}
+
+.guild-btn-success:not(:disabled):hover {
+  background: #1a6334;
+}
+
+/* Modal Styles */
+.guild-modal .modal-content {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+}
+
+.guild-modal-header {
+  background: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 20px 24px;
+  color: #2c2f33;
+}
+
+.guild-modal-header .modal-title {
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.guild-modal-body {
+  padding: 24px;
+  color: #4f5660;
+}
+
+.guild-modal-footer {
+  background: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+  padding: 16px 24px;
+}
+
+.rules-notice {
+  background: #fff3cd;
+  border-left: 4px solid #ffc107;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  color: #856404;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.rules-content {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.rules-heading {
+  color: #2c2f33;
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.rules-text {
+  color: #4f5660;
+  font-size: 14px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.rules-text::-webkit-scrollbar {
+  width: 8px;
+}
+
+.rules-text::-webkit-scrollbar-track {
+  background: #e9ecef;
+  border-radius: 4px;
+}
+
+.rules-text::-webkit-scrollbar-thumb {
+  background: #adb5bd;
+  border-radius: 4px;
+}
+
+.rules-text::-webkit-scrollbar-thumb:hover {
+  background: #868e96;
+}
+
+.acknowledgement-box {
+  background: #e7f1ff;
+  border: 2px solid #5865F2;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.acknowledgement-box .form-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.acknowledgement-box .form-check-input {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #5865F2;
+  background: #fff;
+  cursor: pointer;
+}
+
+.acknowledgement-box .form-check-input:checked {
+  background-color: #5865F2;
+  border-color: #5865F2;
+}
+
+.acknowledgement-box .form-check-label {
+  color: #2c2f33;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .guild-card-header {
+    padding: 20px;
+  }
+
+  .guild-card-body {
+    padding: 20px;
+  }
+
+  .guild-info-box {
+    padding: 16px 20px;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+</style>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const modalElement = $("#rulesModal");
+  const openBtn = document.getElementById("open-rules-modal");
+  const requestMessageField = document.getElementById("{{ form.request_message.id_for_label }}");
+  const acknowledgeCheckbox = document.getElementById("id_acknowledgement");
+  const submitBtn = document.getElementById("submit-request-btn");
+
+  // Enable/disable Next button based on request_message field
+  function toggleNextButton() {
+    if (requestMessageField) {
+      const hasContent = requestMessageField.value.trim().length > 0;
+      openBtn.disabled = !hasContent;
+    }
+  }
+
+  // Enable/disable Submit button based on acknowledgement checkbox
+  function toggleSubmitButton() {
+    if (submitBtn && acknowledgeCheckbox) {
+      submitBtn.disabled = !acknowledgeCheckbox.checked;
+    }
+  }
+
+  // Initialize Next button state
+  toggleNextButton();
+
+  // Listen for input changes on request_message field
+  if (requestMessageField) {
+    requestMessageField.addEventListener("input", toggleNextButton);
+    requestMessageField.addEventListener("change", toggleNextButton);
+  }
+
+  // Open modal on Next click
+  if (openBtn) {
+    openBtn.addEventListener("click", function () {
+      modalElement.modal("show");
+    });
+  }
+
+  // Initialize submit button state
+  if (acknowledgeCheckbox) {
+    toggleSubmitButton();
+    acknowledgeCheckbox.addEventListener("change", toggleSubmitButton);
+  }
+
+  // If Django returned form errors, reopen modal automatically
+  {% if form.errors %}
+  modalElement.modal("show");
+  {% endif %}
+});
+</script>
+{% endblock scripts %}
