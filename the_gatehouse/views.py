@@ -1405,26 +1405,27 @@ def admin_dashboard(request):
             ]
         },
 
-        {
-            "title": "Admin Site",
-            "subtitle": "View the Django Admin Site",
-            "image": "/static/images/ambush.jpg",
-            "buttons": [
-                {
-                    "label": "Go To Admin", 
-                    "link": admin_url, 
-                    "class": 'primary',
-                    "size": 'lg',
+        # {
+        #     "title": "Admin Site",
+        #     "subtitle": "View the Django Admin Site",
+        #     "image": "/static/images/ambush.jpg",
+        #     "buttons": [
+        #         {
+        #             "label": "Go To Admin", 
+        #             "link": admin_url, 
+        #             "class": 'primary',
+        #             "size": 'lg',
 
-                 },
-            ],
-        },
+        #          },
+        #     ],
+        # },
 
     ]
 
 
     context = {
         'widgets': widgets,
+        'admin_url': admin_url,
     }
 
     return render(request, 'the_gatehouse/admin_dashboard.html', context) 

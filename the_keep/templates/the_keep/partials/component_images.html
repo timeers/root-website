@@ -35,22 +35,14 @@
 </div>
 {% endif %}
 
-{% comment %} {% if object_board_image_url %}
-    <img class="rounded-corner-img responsive-img mb-1" src="{{ object_board_image_url }}">
-{% endif %}
-
-{% if object_board_2_image_url %}
-    <img class="rounded-corner-img responsive-img" src="{{ object_board_2_image_url }}">
-{% endif %} {% endcomment %}
-
 
 {% if object_board_image_url %}
-
+<div class="text-center">
     <picture>
         {% if small_board_image_url %}
             <source media="(max-width: 500px)" srcset="{{ small_board_image_url }}">
         {% endif %}
-        <img 
+        <img
             class="mb-1 rounded-corner-img responsive-img zoomable"
             src="{{ object_board_image_url }}"
             data-full="{{ object_board_image_url }}"
@@ -59,17 +51,16 @@
             loading="lazy"
         >
     </picture>
-
-
+</div>
 {% endif %}
 
 {% if object_board_2_image_url %}
-
+<div class="text-center">
     <picture>
         {% if small_board_2_image_url %}
             <source media="(max-width: 500px)" srcset="{{ small_board_2_image_url }}">
         {% endif %}
-        <img 
+        <img
             class="mb-1 rounded-corner-img responsive-img zoomable"
             src="{{ object_board_2_image_url }}"
             data-full="{{ object_board_2_image_url }}"
@@ -78,5 +69,5 @@
             loading="lazy"
         >
     </picture>
-
+</div>
 {% endif %}

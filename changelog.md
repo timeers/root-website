@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.10.1] - 2026-1-13 Admin & Notifications
+## [1.10.1] - 2026-1-14 Admin & Notifications
 
 ### New Features
 - Admin pending posts widget and management system
@@ -15,6 +15,7 @@
 - Notifications display in alert bars across all pages
 - Post approval changes status to Development
 - Admin dashboard shows count of pending submitted posts
+- Moved from Bootstrap 4 to Bootstrap 5
 
 ### Bug Fixes
 - Broken Clockwork Factions links
@@ -22,6 +23,7 @@
 - Submittal message showing on Stable faction form
 - Submitted posts could be edited before being approved
 - Submitted posts could not be edited by new users after approval
+- JS fixes when unable to display scorecard data
 
 ## [1.10.0] - 2026-1-9 Happy New Year!
 

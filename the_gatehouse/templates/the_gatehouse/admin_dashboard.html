@@ -2,14 +2,21 @@
 {% block title %}Admin | {% endblock %}
 {% block content %}
 
-<h1 class='root-title'>Admin Dashboard</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class='root-title mb-0'>Admin Dashboard</h1>
+  <a href="{{ admin_url }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-gear-fill"></i> Django Admin
+  </a>
+</div>
 
 <div class="dashboard-grid">
     {% for widget in widgets %}
+
       {% include "the_gatehouse/partials/dashboard_widget.html" with widget=widget %}
+
     {% endfor %}
   </div>
-  
-  
+
+
 
 {% endblock content%}

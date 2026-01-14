@@ -260,15 +260,17 @@
 const collapseElement = document.getElementById('collapseRegister');
 const collapseToggleButton = document.getElementById('collapseToggleButton');
 
-// Add event listeners to the collapse element
-collapseElement.addEventListener('show.bs.collapse', function () {
-    // Change button text to "Hide" when collapse is shown
-    collapseToggleButton.innerHTML = 'Hide';
-});
+if (collapseElement && collapseToggleButton) {
+    // Add event listeners to the collapse element
+    collapseElement.addEventListener('show.bs.collapse', function () {
+        // Change button text to "Hide" when collapse is shown
+        collapseToggleButton.innerHTML = 'Hide';
+    });
 
-collapseElement.addEventListener('hide.bs.collapse', function () {
-    // Change button text to "View" when collapse is hidden
-    collapseToggleButton.innerHTML = 'View';
-});
+    collapseElement.addEventListener('hide.bs.collapse', function () {
+        // Change button text to "View" when collapse is hidden
+        collapseToggleButton.innerHTML = 'View';
+    });
+}
 </script>
 {% endblock scripts %}
