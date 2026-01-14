@@ -1,10 +1,5 @@
 # Changelog
 
-## [1.10.2] - 2026-1-13 Register New Designer
-
-### New Features
-- Register New Designer - Add new designers directly from the Post form when searching in Designer, Co-Designer, or Artist fields
-
 ## [1.10.1] - 2026-1-13 Admin & Notifications
 
 ### New Features
@@ -13,6 +8,7 @@
 - Post approval/rejection workflow with user notifications
 - Guild invite approval/rejection notifications with moderator messages
 - Pending posts review page with modal-based interface
+- Register New Designer - Add new designers directly from the Post form when searching in Designer, Co-Designer, or Artist fields
 
 ### Improvements
 - Auto-dismiss notifications when clicking View link

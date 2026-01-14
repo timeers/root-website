@@ -1,7 +1,7 @@
 <tbody id="players-table" class="effort-rows">
     {% for obj in objects %}
     <tr data-href="{{ obj.get_absolute_url }}">
-        <td>{% if user.profile.admin %}<img class="faction-icon image1 mr-1" src="{{ obj.image.url }}" alt="{{ obj.name }} Picture">{% endif %}{{ obj.name }}</td>
+        <td>{% if user.profile.admin %}<img class="faction-icon image1 me-1" src="{{ obj.image.url }}" alt="{{ obj.name }} Picture">{% endif %}{{ obj.name }}</td>
         <td>{{obj.active_posts_count}}</td>
         <td>{{obj.complete_games_count}}</td>
         {% if user.profile.admin %}

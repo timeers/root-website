@@ -33,7 +33,7 @@
 <div class='mb-2 d-flex justify-content-between'>
 
     <a href="{% url 'law-of-root' language_code=language_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
-        <div class='d-flex align-items-center mr-1'>
+        <div class='d-flex align-items-center me-1'>
         <i class="bi bi-chevron-left"></i> 
         </div>
         <div class='d-flex mx-auto'>
@@ -52,7 +52,7 @@
 
     </a>
   {% else %}
-    <div class='d-flex align-items-center mr-1'></div>
+    <div class='d-flex align-items-center me-1'></div>
   {% endif %}
 
 
@@ -137,21 +137,21 @@
         {% if edit_authorized %}
             
           {% if edit_mode %}
-            <a class="btn btn-primary btn-sm mt-1 mb-1 ml-1" href="{% url 'export-laws-yaml' group.slug language_code %}">
+            <a class="btn btn-primary btn-sm mt-1 mb-1 ms-1" href="{% url 'export-laws-yaml' group.slug language_code %}">
               <i class="bi bi-download"></i>
             </a>
           
-            <a class="btn btn-danger btn-sm mt-1 mb-1 ml-1" href="{% url 'delete-law-group' slug=group.slug language_code=language_code %}">
+            <a class="btn btn-danger btn-sm mt-1 mb-1 ms-1" href="{% url 'delete-law-group' slug=group.slug language_code=language_code %}">
                 <i class="bi bi-trash"></i>
             </a>
-            <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'update-law-group' slug=group.slug language_code=language_code %}">
+            <a class="btn btn-warning btn-sm mt-1 mb-1 ms-1" href="{% url 'update-law-group' slug=group.slug language_code=language_code %}">
               <i class="bi bi-gear-wide-connected"></i>
             </a>
-              <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'law-view' slug=group.slug language_code=language_code %}">
+              <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'law-view' slug=group.slug language_code=language_code %}">
                   {% trans 'Done' %} <i class="bi bi-check"></i>
               </a>
           {% else %}
-              <a class="btn btn-warning btn-sm mt-1 mb-1 ml-1" href="{% url 'edit-law-view' slug=group.slug language_code=language_code %}">
+              <a class="btn btn-warning btn-sm mt-1 mb-1 ms-1" href="{% url 'edit-law-view' slug=group.slug language_code=language_code %}">
                   {% trans 'Edit Law' %} <i class="bi bi-pencil-square"></i>
               </a>
           {% endif %}
@@ -280,7 +280,7 @@
                             </div>
 
                             {% if forloop.last and edit_mode and grandchild.allow_sub_laws %}
-                                    <div class='mt-2 ml-5'>
+                                    <div class='mt-2 ms-5'>
                                         <button class="btn btn-sm btn-success add-law-button"
                                                 data-code="{{ grandchild.law_code }}{{ forloop.counter|add:"1"|alpha }}"
                                                 data-group="{{ group.id }}"
@@ -294,7 +294,7 @@
                           {% empty %}
 
                             {% if edit_mode and grandchild.allow_sub_laws %}
-                                  <div class='mt-2 ml-5'>
+                                  <div class='mt-2 ms-5'>
                                       <button class="btn btn-sm btn-success add-law-button"
                                               data-code="{{ grandchild.law_code }}a"
                                               data-group="{{ group.id }}"
@@ -315,7 +315,7 @@
 
                       
                           {% if forloop.last and edit_mode and child.allow_sub_laws %}
-                              <div class='mt-2 ml-5'>
+                              <div class='mt-2 ms-5'>
                                   <button class="btn btn-sm btn-success add-law-button"
                                           data-code="{{ child.law_code }}.{{ forloop.counter|add:"1"|roman }}"
                                           data-group="{{ group.id }}"
@@ -330,7 +330,7 @@
                     {% empty %}
 
                       {% if edit_mode and child.allow_sub_laws %}
-                          <div class='mt-2 ml-5'>
+                          <div class='mt-2 ms-5'>
                               <button class="btn btn-sm btn-success add-law-button"
                                       data-code="{{ child.law_code }}.I"
                                       data-group="{{ group.id }}"
@@ -348,7 +348,7 @@
 
               </div>
                   {% if forloop.last and edit_mode and law.allow_sub_laws %}
-                        <div class='mt-2 ml-5'>
+                        <div class='mt-2 ms-5'>
                             <button class="btn btn-sm btn-success add-law-button"
                                 data-code="{{ law.law_code }}.{{ forloop.counter|add:"1" }}"
                                 data-group="{{ group.id }}"
@@ -362,7 +362,7 @@
                       {% endif %}
             {% empty %}
                 {% if edit_mode and law.allow_sub_laws %}
-                    <div class='mt-2 ml-5'>
+                    <div class='mt-2 ms-5'>
                         <button class="btn btn-sm btn-success add-law-button"
                             data-code="{{ law.law_code }}.1"
                             data-group="{{ group.id }}"
@@ -413,7 +413,7 @@
  
 </article>
 {% else %}
-<article class="media content-section d-flex justify-content-between align-items-center">
+<article class="d-flex content-section d-flex justify-content-between align-items-center">
   
   {% if post %}
     {% if available_languages %}
@@ -428,7 +428,7 @@
     {% if user.profile.admin or user.profile == post.designer and user.profile.editor %}
       <div class="d-flex flex-wrap justify-content-end">
 
-          <a class="btn btn-success btn-sm mt-1 mb-1 ml-1" href="{% url 'post-law-group-create' slug=post.slug %}">
+          <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'post-law-group-create' slug=post.slug %}">
               {% trans 'Add Laws' %} <i class="bi bi-plus"></i>
           </a>
 
@@ -575,7 +575,7 @@
 
     {% if previous_group %}
       <a href="{% url 'law-view' slug=previous_group.slug language_code=language_code %}" class="content-box d-flex align-items-center clickable-segment text-center">
-          <div class='d-flex align-items-center mr-1'>
+          <div class='d-flex align-items-center me-1'>
           <i class="bi bi-chevron-left"></i> 
           </div>
           <div class='d-flex mx-auto'>
@@ -584,10 +584,10 @@
 
       </a>
     {% else %}
-      <div class='d-flex align-items-center mr-1'></div>
+      <div class='d-flex align-items-center me-1'></div>
     {% endif %}
 
-    <div class='d-flex align-items-center mr-1'></div>
+    <div class='d-flex align-items-center me-1'></div>
 
 
     {% if next_group %}
@@ -596,13 +596,13 @@
           <div class='d-flex mx-auto'>
             {{ next_name }} 
           </div>
-          <div class='d-flex align-items-center ml-1'>
+          <div class='d-flex align-items-center ms-1'>
             <i class="bi bi-chevron-right"></i>
           </div>
 
       </a>
     {% else %}
-      <div class='d-flex align-items-center mr-1'></div>
+      <div class='d-flex align-items-center me-1'></div>
     {% endif %}
     
   </div>

@@ -9,7 +9,7 @@
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            <fieldset class="form-group">
+            <fieldset class="mb-3">
                 <legend class="border-bottom mb-4">
                     {% if object.id %}
                         {% trans 'Update Link to Resource' %}
@@ -27,7 +27,7 @@
                 {{ form | crispy }}
             </fieldset>
 
-            <div class="form-group">
+            <div class="mb-3">
                 <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
                 
                 

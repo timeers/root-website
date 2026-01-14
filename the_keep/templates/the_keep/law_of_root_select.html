@@ -50,19 +50,19 @@
               <option value="{{ rule.id }}">{{ rule }}</option>
             {% endfor %}
           </select>
-          <a href="#" class="btn btn-secondary preview-btn ml-1 disabled" target="_blank" aria-disabled="true">View</a>
-          <button type="submit" class="btn btn-primary ml-1">Update</button>
+          <a href="#" class="btn btn-secondary preview-btn ms-1 disabled" target="_blank" aria-disabled="true">View</a>
+          <button type="submit" class="btn btn-primary ms-1">Update</button>
           <!-- Archive Rule -->
           <button type="submit"
               formaction="{% url 'archive-rule' %}"
-              class="btn btn-warning ml-1">
+              class="btn btn-warning ms-1">
           Ignore
           </button>
         </div>
       </form>
       {% else %}
       <div class='mb-2'>
-      Law is up to date <a href="{% url 'law-preview' data.id %}" class="btn btn-secondary ml-1">View</a>
+      Law is up to date <a href="{% url 'law-preview' data.id %}" class="btn btn-secondary ms-1">View</a>
       </div>
       {% endif %}
     </div>

@@ -1,8 +1,8 @@
 {% load i18n text_filters roman_numerals %}
 
 <a href="{{ law.get_absolute_url }}">
-    <article class="media content-section post-card{% if not law.group.public %} light-yellow{% endif %}">
-        <div class="media-body">
+    <article class="d-flex content-section post-card{% if not law.group.public %} light-yellow{% endif %}">
+        <div>
         {% if law.prime_law %}
             <h2 class="root-title">{{ law.law_code }}. {{ law.title }}</h2>
 
@@ -19,7 +19,7 @@
         {% endif %}
         {% if law.description %}
             <div class="hidden-description markdown-section">
-                <div class='limited-text ml-4'>
+                <div class='limited-text ms-4'>
                 {{ law.description|format_law_text_no_link }}
                 </div>
             </div>

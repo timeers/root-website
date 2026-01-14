@@ -1,5 +1,5 @@
 <a href="{% url 'game-detail' object.id %}">
-<article class="media content-section">
+<article class="d-flex content-section">
 {% for effort in object.efforts.all %}
         {% if effort.win and not effort.coalition_with %}
         <div class="article-img-container">
@@ -7,7 +7,7 @@
         </div>
         {% endif %}
 {% endfor %}
-        <div class="media-body">
+        <div>
         <div class="article">
                 {% for effort in object.efforts.all %}
                         {% if effort.win and not effort.coalition_with %}

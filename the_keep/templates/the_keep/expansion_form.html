@@ -5,13 +5,13 @@
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            <fieldset class="form-group">
+            <fieldset class="mb-3">
                 <legend class="border-bottom mb-4">{{ form.form_type }}</legend>
                 An expansion is a way to group what you've created and provide an easy way for others to find things in a related collection.<br>
                 An expansion should include several components created at the same time or with a similar theme.<br>
                 {{ form | crispy }}
             </fieldset>
-            <div class="form-group">
+            <div class="mb-3">
                 <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
             </div>
         </form>

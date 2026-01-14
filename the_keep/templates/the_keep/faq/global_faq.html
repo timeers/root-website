@@ -21,7 +21,7 @@
 <div class='mb-2 d-flex justify-content-between'>
 
   <a href="{{ expansion.get_absolute_url }}?lang={{language_code}}" class="content-box d-flex align-items-center clickable-segment text-center">
-    <div class='d-flex align-items-center mr-1'>
+    <div class='d-flex align-items-center me-1'>
       <i class="bi bi-chevron-left"></i> 
       </div>
       <div class='d-flex mx-auto'>
@@ -89,7 +89,7 @@ style='max-width: 800px;'>
     <input type="hidden" name="type" id="faq-type-value" value="all">
     {% if not expansion_slug %}
     <!-- Segmented Button Group -->
-    <div class="btn-group ml-2" role="group" aria-label="FAQ type filter" id="faq-type-buttons">
+    <div class="btn-group ms-2" role="group" aria-label="FAQ type filter" id="faq-type-buttons">
       <button type="button" class="btn btn-outline-secondary" data-type="official">Official</button>
       <button type="button" class="btn btn-outline-secondary active" data-type="all">All</button>
       <button type="button" class="btn btn-outline-secondary" data-type="fan">Fan</button>

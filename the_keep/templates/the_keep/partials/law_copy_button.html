@@ -2,13 +2,13 @@
 
 <div class="d-flex align-items-center flex-nowrap">
     {% if selected_law.description %}
-        <i class="bi bi-copy copy-link-icon mr-2"
+        <i class="bi bi-copy copy-link-icon me-2"
            data-link="{{ selected_law }} {{ selected_law.plain_description }}"
            title="Copy text"
            style="cursor: pointer;"></i>
     {% endif %}
 
-    <i class="bi bi-link-45deg copy-link-icon mr-2"
+    <i class="bi bi-link-45deg copy-link-icon me-2"
        data-link="{{ selected_law.full_url }}"
        title="Copy link"
        style="cursor: pointer;"></i>

@@ -10,7 +10,7 @@
       <div class="guild-request-card">
         <!-- Header with guild name -->
         <div class="guild-card-header">
-          <i class="bi bi-house-lock me-2 mr-2"></i>
+          <i class="bi bi-house-lock me-2 me-2"></i>
           <h2 class="root-title guild-card-title mb-0">{{ guild.guild_name }}</h2>
         </div>
 
@@ -33,7 +33,7 @@
 
             <div class="form-section">
               <label for="{{ form.request_message.id_for_label }}" class="form-label-custom">
-                <i class="bi bi-chat-left-text mr-2"></i>
+                <i class="bi bi-chat-left-text me-2"></i>
                 {{ form.request_message.label }}
               </label>
               <div class="form-help-text mb-2">
@@ -55,7 +55,7 @@
               disabled
             >
               <span>Continue</span>
-              {% comment %} <i class="bi bi-caret-right-fill ml-2"></i> {% endcomment %}
+              {% comment %} <i class="bi bi-caret-right-fill ms-2"></i> {% endcomment %}
             </button>
 
             <!-- Rules Modal -->
@@ -64,7 +64,7 @@
                 <div class="modal-content guild-modal">
                   <div class="modal-header guild-modal-header">
                     <h5 class="root-title modal-title d-flex align-items-center" id="rulesModalLabel">
-                      <i class="bi bi-book mr-2"></i>
+                      <i class="bi bi-book me-2"></i>
                       Invite Rules & Acknowledgement
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" id="modal-close-btn"></button>
@@ -72,8 +72,8 @@
 
                   <div class="modal-body guild-modal-body">
                     <div class="rules-notice">
-                      <i class="bi bi-exclamation-triangle-fill mr-2"></i>
-                      <strong class='mr-1'>Please read carefully:</strong> 
+                      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                      <strong class='me-1'>Please read carefully:</strong> 
                       {% if guild.server_rules %}
                       You must acknowledge these rules before submitting your request.
                       {% else %}
@@ -92,7 +92,7 @@
 
                     <div class="form-section">
                       <label for="{{ form.agreement_message.id_for_label }}" class="form-label-custom">
-                        {% comment %} <i class="bi bi-check2-all mr-2"></i> {% endcomment %}
+                        {% comment %} <i class="bi bi-check2-all me-2"></i> {% endcomment %}
                         {{ form.agreement_message.label }}
                       </label>
                       {% if not guild.server_rules %}
@@ -135,7 +135,7 @@
                       Cancel
                     </button>
                     <button type="submit" class="guild-btn guild-btn-success" id="submit-request-btn" disabled>
-                      <i class="bi bi-check-circle mr-2"></i>
+                      <i class="bi bi-check-circle me-2"></i>
                       Submit Request
                     </button>
                   </div>

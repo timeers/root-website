@@ -9,7 +9,7 @@
           {% trans 'All' %}
       </div>
       {% for item_option in item_choices %}
-          
+
               {% if item_option.value == "None" %}
               <div class="button-option select-option root-title m-2" data-value="{{ item_option.value }}">
                   {{ item_option.label }}
@@ -19,12 +19,12 @@
                   <img class="item-option" src="{% static 'items/' %}{{ item_option.label|lower }}_flip.png" alt="{{ item_option.label }}">
               </div>
               {% endif %}
-          
+
       {% endfor %}
   </div>
   <input type="hidden" name="ability_item" id="ability_item" value="{{ ability_item }}">
-  <div class="d-flex flex-wrap justify-content-between align-items-center">
-    <input type="text" name="ability" id="ability" placeholder="Search by Ability Name..." value="{{ ability }}" class="form-control w-auto m-2">
+  <div class="mt-2 mx-2 mb-2">
+    <input type="text" name="ability" id="ability" placeholder="Search by Ability Name..." value="{{ ability }}" class="form-control">
   </div>
 </div>
 {% endif %}

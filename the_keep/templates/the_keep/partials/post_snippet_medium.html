@@ -2,7 +2,7 @@
 <div class="d-flex align-items-center mb-2 clickable-segment">
     <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
         {% if result.picture %}
-        <div class="d-flex align-items-center mr-1">
+        <div class="d-flex align-items-center me-1">
             {% if result.small_picture %}
                 <img class="lg-faction-icon" src="{{ result.small_picture.url }}" alt="{{ result.title }}">
             {% else %}
@@ -25,7 +25,7 @@
                 {% elif result.status == '4' %}bi-dash-circle-fill text-secondary
                 {% else %}bi-x-circle-fill text-dark
                 {% endif %}
-                ml-1"></i>
+                ms-1"></i>
                 {% endif %}
             </div>
             <div>

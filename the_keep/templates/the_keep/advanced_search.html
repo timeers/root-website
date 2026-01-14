@@ -14,8 +14,8 @@
 {% block content %}
 <h1 class='root-title text-center'>Advanced Search</h1>
 
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
 
         <div class="d-flex flex-wrap justify-content-center" role="group" aria-label="Component type filter">
             {% for tab in tabs %}
@@ -187,11 +187,11 @@
         {% if component_type == "faction" or component_type == "vagabond" or component_type == "clockwork" %}
         <h3 class='root-title'>Winrate</h3>
           <div class="d-flex align-items-center gap-3">
-            <span class="mr-4" id="winrate_min_display">0%</span>
+            <span class="me-4" id="winrate_min_display">0%</span>
             
             <div id="winrate-slider" style="flex-grow: 1;"></div>
             
-            <span class="ml-4" id="winrate_max_display">100%</span>
+            <span class="ms-4" id="winrate_max_display">100%</span>
           </div>
           
           <!-- Hidden fields for the actual form submission -->

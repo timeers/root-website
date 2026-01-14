@@ -29,7 +29,7 @@
                             <a href="{% url 'player-detail' designer.slug %}">{{ designer.name }}</a>{% if not forloop.last %}, {% elif expansion.designer %} and {% endif %}
                         {% endfor %}
                         {% if expansion.designer %}
-                                <a class="mr-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
+                                <a class="me-2" href="{% url 'player-detail' expansion.designer.slug %}">{{ expansion.designer.name }}</a>
                         {% endif %}
                 {% else %}
                         {{ expansion.designers_list }}

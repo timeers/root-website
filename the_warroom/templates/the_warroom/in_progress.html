@@ -3,8 +3,8 @@
 {% load i18n %}
 {% block content %}
 
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
     <h1 class='root-title'>{% trans 'In Progress' %}</h1>
     {% if in_progress_games_count and in_progress_scorecards_count %}
         {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count in_progress_games_count=in_progress_games_count %}
@@ -29,8 +29,8 @@
 </div> {% endcomment %}
 
 {% if in_progress_scorecards %}
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <h3 class='root-title'>{% trans 'Scorecards' %} ({{ in_progress_scorecards_count }})</h3>
         </div>   
@@ -89,8 +89,8 @@
 
 
 {% if in_progress_games %}
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 class='root-title'>{% trans 'Games' %} ({{ in_progress_games_count }})</h3>
             </div>   

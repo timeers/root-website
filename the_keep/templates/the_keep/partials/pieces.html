@@ -5,7 +5,7 @@
 
     {% if object.designer == user.profile and user.profile.editor_onboard and user.profile.editor or user.profile.admin %}
         <div class="d-flex justify-content-end">
-            <button id="edit-button" class="btn btn-warning btn-sm mt-1 mb-1 ml-2">
+            <button id="edit-button" class="btn btn-warning btn-sm mt-1 mb-1 ms-2">
                 {% trans 'Edit Components' %} <i class="bi bi-pencil-square"></i>
             </button>
         </div>    
@@ -122,7 +122,7 @@
                     {% if component == "Vagabond" %}
                     <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
                         <div class="d-flex align-items-center">
-                            <img class="lg-faction-icon mr-2" src="{% static 'items/Relationship Markers.png' %}" alt="Relationship Markers">
+                            <img class="lg-faction-icon me-2" src="{% static 'items/Relationship Markers.png' %}" alt="Relationship Markers">
                             {% trans 'Relationship Markers' %}
                         </div>
                     </div>
@@ -145,7 +145,7 @@
 
     </div>
     {% if user.profile.admin or object.designer == user.profile and user.profile.editor_onboard %}
-        <button type="button" id="save-all" class="btn btn-success ml-2 mb-2 hidden-buttons">{% trans 'Save All' %}</button>
+        <button type="button" id="save-all" class="btn btn-success ms-2 mb-2 hidden-buttons">{% trans 'Save All' %}</button>
     {% endif %}
 
     <!-- end of manifest -->

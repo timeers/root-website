@@ -1,8 +1,8 @@
 {% load i18n %}
 
 {% if scorecard_count %}
-<article class="media content-section" id="factionCharts">
-    <div class="media-body">
+<article class="d-flex content-section" id="factionCharts">
+    <div class="w-100">
         <div class="chart-container">
             <div class="chart" id="lineChartContainer">
                 <h2 class='root-title'>{% trans 'Points Breakdown' %}</h2>
@@ -91,6 +91,19 @@
         // Line Chart Data Processing for the Scorecard Data
         let color = factionData.color ? factionData.color : '#000000';  // Default color if not provided
 
+        // Check if essential data has required properties
+        if (!averageData.averages || !factionData.averages) {
+            console.error('Missing essential averages data:', { averageData, factionData });
+            if (factionChartsElement) {
+                factionChartsElement.remove();
+            }
+            return;
+        }
+
+        // Handle optional data with defaults for "No scorecards found" responses
+        const insurgentAverages = insurgentData.averages || [];
+        const militantAverages = militantData.averages || [];
+
         // Get the turn numbers and game points from scorecard data
         const averageTurns = averageData.averages.map(avg => avg.turn_number);
         const gamePoints = averageData.averages.map(avg => avg.average_game_points);
@@ -104,12 +117,12 @@
         const typeGamePoints = typeData.averages.map(avg => avg.average_game_points); {% endcomment %}
 
         // Get the turn numbers and game points from scorecard data
-        const insurgentTurns = insurgentData.averages.map(avg => avg.turn_number);
-        const insurgentGamePoints = insurgentData.averages.map(avg => avg.average_game_points);
+        const insurgentTurns = insurgentAverages.map(avg => avg.turn_number);
+        const insurgentGamePoints = insurgentAverages.map(avg => avg.average_game_points);
 
         // Get the turn numbers and game points from scorecard data
-        const militantTurns = militantData.averages.map(avg => avg.turn_number);
-        const militantGamePoints = militantData.averages.map(avg => avg.average_game_points);
+        const militantTurns = militantAverages.map(avg => avg.turn_number);
+        const militantGamePoints = militantAverages.map(avg => avg.average_game_points);
 
         // Combine turn numbers from both datasets and get the full range of turns
         const allTurnNumbers = [...new Set([
@@ -141,12 +154,12 @@
         }); {% endcomment %}
 
         const completeInsurgentGamePoints = allTurnNumbers.map(turnNumber => {
-            const insu = insurgentData.averages.find(insu => insu.turn_number === turnNumber);
+            const insu = insurgentAverages.find(insu => insu.turn_number === turnNumber);
             return insu ? insu.average_game_points : null;  // Use 0 if the turn is missing (avoid null)
         });
 
         const completeMilitantGamePoints = allTurnNumbers.map(turnNumber => {
-            const mili = militantData.averages.find(mili => mili.turn_number === turnNumber);
+            const mili = militantAverages.find(mili => mili.turn_number === turnNumber);
             return mili ? mili.average_game_points : null;  // Use 0 if the turn is missing (avoid null)
         }); 
 
@@ -166,8 +179,8 @@
         const totalLabel = "{% trans 'Total Plays' %}";
         document.getElementById('titleGames').innerHTML = `${factionData.count} ${factionData.faction_name} ${playsLabel}`;
         //document.getElementById('typeGames').innerHTML = `${typeData.count} ${typeName} Plays`;
-        document.getElementById('insurgentGames').innerHTML = `${insurgentData.count} ${insurgentLabel}`;
-        document.getElementById('militantGames').innerHTML = `${militantData.count} ${militantLabel}`;
+        document.getElementById('insurgentGames').innerHTML = `${insurgentData.count || 0} ${insurgentLabel}`;
+        document.getElementById('militantGames').innerHTML = `${militantData.count || 0} ${militantLabel}`;
         document.getElementById('totalGames').innerHTML = `${averageData.count} ${totalLabel}`;
         const averageLabel = "{% trans 'Average' %}";
         // Initialize the Combined Line Chart (for both Scorecard and Faction Average Data)

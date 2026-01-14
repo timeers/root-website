@@ -22,8 +22,8 @@
 
 {% include 'the_warroom/partials/game_detail.html' %}
 
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2>{% if game.test_match %}
                 {% trans 'Playtest Details' %}
@@ -130,8 +130,8 @@
 
 
 {% if user.profile.admin %}
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
         <h2>Admin Options</h2>
         <div>
             Admin users can edit and delete game data.<br>
@@ -144,8 +144,8 @@
         </div>
         </article>
 {% elif user.profile == game.recorder and not game.final %}
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
         <h2>{% trans 'Edit Options' %}</h2>
         <div>
             {% trans 'This game is in progress and can still be edited.' %}
@@ -157,8 +157,8 @@
     </div>
     </article>
 {% elif user.profile == game.recorder %}
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
     {% comment %} <h2>Update Details</h2> {% endcomment %}
     <div>
         {% trans 'Change the Nickname, Notes or Discord Link for this game.' %}
@@ -191,7 +191,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class='root-title'>{% trans "Add Player" %}</h5>
-        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       
       <form id="add-player-to-effort-form">

@@ -49,7 +49,7 @@ INSTALLED_APPS = [
 
     'debug_toolbar',
     'crispy_forms',
-    'crispy_bootstrap4',
+    'crispy_bootstrap5',
     'django_htmx',
     'django_filters',
 
@@ -227,9 +227,9 @@ LOCALE_PATHS = [
     BASE_DIR / 'locale',  # This is the folder where you'll store your translation files
 ]
 
-CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap4"
+CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
 
-CRISPY_TEMPLATE_PACK = 'bootstrap4'
+CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 LOGIN_REDIRECT_URL = 'site-home'
 HOME_URL = 'site-home'

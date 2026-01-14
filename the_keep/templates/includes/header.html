@@ -8,14 +8,14 @@
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
-        <h1><a class="navbar-brand mr-4 root-title" href="{% url 'site-home' %}">{{site_title}}</a></h1>
+        <h1><a class="navbar-brand me-4 root-title" href="{% url 'site-home' %}">{{site_title}}</a></h1>
                   <!-- Middle: Search Bar -->
           
                   {% include 'the_keep/partials/universal_search.html' %}
 
       
         <div class="collapse navbar-collapse" id="navbarToggle">
-          <div class="navbar-nav align-items-center mr-auto">
+          <div class="navbar-nav align-items-center me-auto">
             <a class="nav-item nav-link" href="{% url 'archive-home' %}">
               {% trans 'Archive' %}
             </a>
@@ -47,22 +47,22 @@
 
                   <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                      <img class="user-icon img-fluid mr-1" src="{{ user.profile.image.url }}">
+                      <img class="user-icon img-fluid me-1" src="{{ user.profile.image.url }}">
                       {{ user.profile.name }}
                     </a>
-                    <ul class="dropdown-menu dropdown-menu-right">
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle mr-1"></i> {% trans 'Profile' %}</a></li>
-                      <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill mr-1"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle me-1"></i> {% trans 'Profile' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill me-1"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
 
                       {% if approved_invites %}
                         {% for invite in approved_invites %}
                           <li>
                             <a class="dropdown-item d-flex align-items-center" href="{% url 'guild-invite' invite.guild.guild_id %}">
                               <span class="position-relative">
-                                <i class="bi bi-envelope-fill mr-1"></i>
+                                <i class="bi bi-envelope-fill me-1"></i>
                                 <span class="notification-badge">!</span>
                               </span>
-                              <span class='ml-1'>
+                              <span class='ms-1'>
                                 {% trans 'Join' %} {{ invite.guild.name }}
                               </span>
                             </a>
@@ -74,14 +74,14 @@
                         <li>
                           <a class="dropdown-item d-flex align-items-center" href="{% url 'player-games' user.profile.slug %}">
                             <span class="position-relative">
-                              <i class="bi bi-collection-play-fill mr-1"></i>
+                              <i class="bi bi-collection-play-fill me-1"></i>
                               {% if user_active_games_count %}
                                 <span class="notification-badge">
                                   {{ user_active_games_count }}
                                 </span>
                               {% endif %}
                             </span>
-                            <span class='ml-1'>
+                            <span class='ms-1'>
                             {% trans 'My Games' %} ({{ user_games_count }})
                             </span>
                           </a>
@@ -92,14 +92,14 @@
                         <li>
                           <a class="dropdown-item d-flex align-items-center" href="{% url 'scorecard-home' %}">
                             <span class="position-relative">
-                              <i class="bi bi-graph-up mr-1"></i>
+                              <i class="bi bi-graph-up me-1"></i>
                               {% if user_active_scorecards_count %}
                                 <span class="notification-badge">
                                   {{ user_active_scorecards_count }}
                                 </span>
                               {% endif %}
                             </span>
-                            <span class='ml-1'>
+                            <span class='ms-1'>
                             {% trans 'My Scorecards' %} ({{ user_scorecard_count }})
                             </span>
                           </a>
@@ -117,26 +117,26 @@
                       {% endif %} {% endcomment %}
 
                       {% if user.profile.player %}
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square mr-1"></i> {% trans 'New Post' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'New Post' %}</a></li>
                       {% else %}
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square mr-1"></i> {% trans 'Request Post' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'Request Post' %}</a></li>
                       {% endif %}
 
                       {% if user_recent_posts %}
                       {% comment %} <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6> {% endcomment %}
                         {% for user_post in user_recent_posts %}
-                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon mr-1" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
+                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon me-1" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
                         {% endfor %}
                         
                       {% endif %}
                       <li><hr class="dropdown-divider"></li>
 
                       {% if user.profile.admin %}
-                          <li><a class="dropdown-item" href="{% url 'admin-dashboard' %}"><i class="bi bi-shield-lock-fill mr-1"></i> {% trans 'Admin Dashboard' %}</a></li>
+                          <li><a class="dropdown-item" href="{% url 'admin-dashboard' %}"><i class="bi bi-shield-lock-fill me-1"></i> {% trans 'Admin Dashboard' %}</a></li>
                       {% endif %}
 
-                      <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected mr-1"></i> {% trans 'Settings' %}</a></li>
-                      <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open mr-1"></i> {% trans 'Sign Out' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected me-1"></i> {% trans 'Settings' %}</a></li>
+                      <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open me-1"></i> {% trans 'Sign Out' %}</a></li>
                     </ul>
                   </li>
 
@@ -163,7 +163,7 @@
                 <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                   <i class="bi bi-translate"></i>
                 </a>
-                <ul class="dropdown-menu dropdown-menu-right">
+                <ul class="dropdown-menu dropdown-menu-end">
                   <form action="{% url 'set_language_custom' %}" method="post" id="language-form">
                     {% csrf_token %}
                     {% for code, name in LANGUAGES %}

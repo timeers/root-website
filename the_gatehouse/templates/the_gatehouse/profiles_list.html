@@ -5,7 +5,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class='root-title'>Users</h1>
             {% if user.profile.player %}
-            <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+            <button class="btn btn-primary btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                     <i class="bi bi-person-plus-fill"></i>
             </button>
             {% endif %}
@@ -17,8 +17,8 @@
         </div>
         {% endif %}
 
-        <article class="media content-section">
-            <div class="media-body" style="overflow: auto;">
+        <article class="d-flex content-section">
+            <div style="overflow: auto;">
 
         <!-- Search bar with htmx attributes -->
         <div class="mb-3">

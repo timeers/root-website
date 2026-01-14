@@ -2,7 +2,7 @@
 
 {% if games_total %}
 
-<article class="media content-section post-card">
+<article class="d-flex content-section post-card">
 
     <a href="{{ object.get_games_url }}" class="w-100">
         <div>
@@ -17,8 +17,8 @@
 
 {% if top_players or most_players  %}
     {% if user.profile.player %}
-        <article class="media content-section">
-            <div class="media-body">
+        <article class="d-flex content-section">
+            <div class="w-100">
 
                 {% if top_players and user.profile.player or most_players and user.profile.player %}
 

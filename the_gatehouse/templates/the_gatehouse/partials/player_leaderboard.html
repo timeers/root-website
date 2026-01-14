@@ -1,7 +1,7 @@
 {% load i18n %}
 {% if top_players or most_players  %}
-        <article class="media content-section">
-            <div class="media-body">
+        <article class="d-flex content-section">
+            <div class="w-100">
 
                 {% if top_players or most_players %}
 
@@ -56,8 +56,8 @@
 
         </article>
 {% else %}
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
             <h2 class='root-title'>{% trans 'No Leaderboard' %}</h2>
             <small class="mb-2">*{% trans 'Leaderboard Threshold of' %} {{ leaderboard_threshold }}</small>
     </div>

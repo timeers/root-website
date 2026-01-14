@@ -28,13 +28,13 @@
 {% else %}
 
     {% if not query %}
-        <article class="media content-section">
+        <article class="d-flex content-section">
             {% blocktrans %}
                 No {{ selected_language }} laws available.
             {% endblocktrans %}
         </article>
     {% else %}
-        <article class="media content-section">
+        <article class="d-flex content-section">
             {% blocktrans %}
                 No laws matching "{{query}}".
             {% endblocktrans %}

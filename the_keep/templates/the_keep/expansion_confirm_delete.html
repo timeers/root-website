@@ -5,7 +5,7 @@
     <div class="content-section">
         <form method="POST">
             {% csrf_token %}
-            <fieldset class="form-group">
+            <fieldset class="mb-3">
                 <legend class="border-bottom mb-4">Delete {{ expansion.title }}?</legend>
                 <div>Are you sure you want to delete the expansion: "{{ expansion.title }}"? This cannot be undone.<br>
                 The relationship with the following will be cleared:</div>
@@ -13,7 +13,7 @@
             {% for post in expansion.get_posts %}
                 <ul>{{ post.title }}</ul>
             {% endfor %}
-            <div class="form-group">
+            <div class="mb-3">
                 <button class="btn btn-danger" type="submit">{% trans 'Yes, Delete' %}</button>
                 <a class="btn btn-secondary" href="{% url 'expansion-detail' expansion.slug %}">{% trans 'Cancel' %}</a>
             </div>
