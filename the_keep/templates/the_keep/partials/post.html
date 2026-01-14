@@ -1,6 +1,6 @@
 {% load i18n %}
 <a href="{{ object.get_absolute_url }}{% if language_code %}?lang={{language_code}}{% endif %}">
-<article class="media content-section post-card">
+<article class="d-flex content-section post-card">
 
     <div class="article-img-container">
 
@@ -25,8 +25,8 @@
     
     
     </div>
-        <div class="media-body">
-           
+        <div class="flex-fill">
+
             <div class="article-metadata d-flex flex-wrap justify-content-between">
                 <div class='d-flex'>
                     
@@ -60,7 +60,7 @@
                 <div class='d-flex'>
                 {% if object.status == '1' %}
                     <div class='hidden-status'>
-                        <div class='text-success mr-2'>
+                        <div class='text-success me-2'>
                             <small>
                                 {% trans 'Stable' %}
                             </small>
@@ -69,7 +69,7 @@
                     <i class="bi bi-check-circle-fill text-success"></i>
                 {% elif object.status == '2' %}
                     <div class='hidden-status'>
-                        <div class='text-primary mr-2'>
+                        <div class='text-primary me-2'>
                             <small>
                                 {% trans 'Testing' %}
                             </small>
@@ -78,7 +78,7 @@
                     <i class="bi bi-play-circle-fill text-primary"></i>
                 {% elif object.status == '3' %}
                 <div class='hidden-status'>
-                    <div class='text-warning mr-2'>
+                    <div class='text-warning me-2'>
                         <small>
                             {% trans 'Development' %}
                         </small>
@@ -87,7 +87,7 @@
                     <i class="bi bi-wrench-adjustable-circle-fill text-warning"></i>
                 {% elif object.status == '4' %}
                 <div class='hidden-status'>
-                    <div class='text-secondary mr-2'>
+                    <div class='text-secondary me-2'>
                         <small>
                             {% trans 'Inactive' %}
                         </small>
@@ -96,7 +96,7 @@
                     <i class="bi bi-dash-circle-fill text-secondary"></i>
                 {% elif object.status == '9' %}
                 <div class='hidden-status'>
-                    <div class='text-dark mr-2'>
+                    <div class='text-dark me-2'>
                         <small>
                             {% trans 'Submitted' %}
                         </small>
@@ -105,7 +105,7 @@
                     <i class="bi bi-hourglass-split text-dark"></i>
                 {% else %}
                 <div class='hidden-status'>
-                    <div class='text-dark mr-2'>
+                    <div class='text-dark me-2'>
                         <small>
                             {% trans 'Abandoned' %}
                         </small>

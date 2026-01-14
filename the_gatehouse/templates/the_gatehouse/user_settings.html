@@ -3,12 +3,12 @@
 {% block title %}Profile | {% endblock %}
 {% block content %}
     <div class="content-section">
-        <div class="media">
+        <div class="d-flex">
         <div class="article-img-container">
         <img class="article-img" src="{{ user.profile.image.url }}">
         </div>
-            <div class="media-body">
-                
+            <div class="flex-fill">
+
                 {% if user.profile.player %}
                     <h1 class="account-heading root-title"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h1>
                 {% else %}
@@ -24,7 +24,7 @@
             </div>
         </div>
 
-    <fieldset class="form-group">
+    <fieldset class="mb-3">
         <legend class="border-bottom mb-4 mt-2">Profile Info</legend>
 
         <div>Customize Avatar</div>
@@ -59,7 +59,7 @@
                 
             
             {% if not user.profile.banned and not user.profile.outcast %}
-            <div class="form-group">
+            <div class="mb-3">
                 <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
             </div>
         

@@ -7,8 +7,8 @@
     <h1 class='root-title'>{{ title }}</h1>
 
     {% if pending_invites %}
-        <article class="media content-section">
-            <div class="media-body">
+        <article class="d-flex content-section">
+            <div class="w-100">
                 <p class="text-muted mb-3">
                     <i class="bi bi-info-circle"></i>
                     {{ pending_invites.count }} pending request{{ pending_invites.count|pluralize }}
@@ -29,7 +29,7 @@
                                 <tr>
                                     <td>
                                         <a href="{{ invite.profile.get_absolute_url }}">
-                                            <img class="user-icon mr-2" src="{{ invite.profile.image.url }}" alt="{{ invite.profile.name }}">
+                                            <img class="user-icon me-2" src="{{ invite.profile.image.url }}" alt="{{ invite.profile.name }}">
                                             {{ invite.profile.name }}
                                         </a>
                                     </td>
@@ -66,7 +66,7 @@
                                                 <!-- Request Message -->
                                                 <div class="mb-4">
                                                     <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
-                                                        <i class="bi bi-chat-left-text mr-1"></i> Request Message
+                                                        <i class="bi bi-chat-left-text me-1"></i> Request Message
                                                     </h6>
                                                     <div class="p-3 bg-light border rounded">
                                                         {{ invite.request_message|linebreaks }}
@@ -76,7 +76,7 @@
                                                 <!-- Agreement Message -->
                                                 <div class="mb-4">
                                                     <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
-                                                        <i class="bi bi-check-circle mr-1"></i> Agreement Response
+                                                        <i class="bi bi-check-circle me-1"></i> Agreement Response
                                                     </h6>
                                                     <div class="p-3 bg-light border rounded">
                                                         {{ invite.agreement_message|linebreaks }}
@@ -90,7 +90,7 @@
                                                     <!-- User Message -->
                                                     <div class="mb-3">
                                                         <label for="moderatorMessage{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
-                                                            <i class="bi bi-chat-dots mr-1"></i> Message to User (Optional)
+                                                            <i class="bi bi-chat-dots me-1"></i> Message to User (Optional)
                                                         </label>
                                                         <textarea class="form-control"
                                                                   id="moderatorMessage{{ invite.id }}"
@@ -103,7 +103,7 @@
                                                     <!-- Internal Note -->
                                                     <div class="mb-3">
                                                         <label for="moderatorNote{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
-                                                            <i class="bi bi-pencil-square mr-1"></i> Internal Note (Optional)
+                                                            <i class="bi bi-pencil-square me-1"></i> Internal Note (Optional)
                                                         </label>
                                                         <textarea class="form-control"
                                                                   id="moderatorNote{{ invite.id }}"
@@ -139,8 +139,8 @@
             </div>
         </article>
     {% else %}
-        <article class="media content-section">
-            <div class="media-body text-center py-5">
+        <article class="d-flex content-section">
+            <div class="w-100 text-center py-5">
                 <i class="bi bi-inbox" style="font-size: 3rem; color: #999;"></i>
                 <p class="text-muted mt-3">{% trans "No pending guild invites" %}</p>
             </div>

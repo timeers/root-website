@@ -15,38 +15,34 @@
 
 
 {% block content %}
-<article class="media content-section mt-2">
-    <div class="media-body">
-
-        <div class="d-flex justify-content-between align-items-center">
-            <div class='d-flex'>
-                <h1 class='root-title'>{% trans 'Resources' %}</h1>
-            </div>
-            <div class='d-flex flex-wrap justify-content-end'>
-                
-                {% if user.is_authenticated and user.profile.assets.count != 0 %}
-                    <a href="{% url 'profile' %}#assets" class="btn btn-sm btn-secondary ml-1 mb-1">{% trans 'My Resources' %}</a>
-                {% endif %}
-
-                <a class="btn btn-sm btn-success ml-1 mb-1" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
-
-                <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary ml-1 mb-1">
-                    {% if user.profile.player %}
-                        {% trans 'New Post' %} +
-                    {% else %}
-                        {% trans 'Request Post' %}
-                    {% endif %}
-                </a>
-
-            </div>
+<article class="content-section mt-2">
+    <div class="d-flex justify-content-between align-items-center w-100">
+        <div>
+            <h1 class='root-title'>{% trans 'Resources' %}</h1>
         </div>
+        <div class='d-flex flex-wrap justify-content-end gap-1'>
 
+            {% if user.is_authenticated and user.profile.assets.count != 0 %}
+                <a href="{% url 'profile' %}#assets" class="btn btn-sm btn-secondary">{% trans 'My Resources' %}</a>
+            {% endif %}
+
+            <a class="btn btn-sm btn-success" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
+
+            <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary">
+                {% if user.profile.player %}
+                    {% trans 'New Post' %} +
+                {% else %}
+                    {% trans 'Request Post' %}
+                {% endif %}
+            </a>
+
+        </div>
     </div>
 </article>
-       
 
-        <article class="media content-section">
-            <div class="media-body" style="overflow: auto;">
+
+        <article class="content-section">
+            <div style="overflow: auto; width: 100%;">
                 {% comment %} {% if shared_assets %}
                     <h3>{% trans 'Pinned' %}</h3>
                 {% endif %} {% endcomment %}

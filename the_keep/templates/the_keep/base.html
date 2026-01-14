@@ -12,9 +12,7 @@
             {% if global_message %}
                 <div class="alert alert-{{ global_message_type }} alert-dismissible fade show" role="alert">
                     {{ global_message }}
-                        <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             {% endif %}
 
@@ -22,9 +20,7 @@
                 {% for message in messages %}
                 <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
                     {{ message }}
-                    <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
                 {% endfor %}
             {% endif %}
@@ -36,9 +32,7 @@
                     {% if notification.related_url %}
                         <a href="{{ notification.related_url }}" class="alert-link ms-2" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')">View</a>
                     {% endif %}
-                    <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')"></button>
                 </div>
                 {% endfor %}
             {% endif %}

@@ -20,67 +20,64 @@
 
 
 {% block content %}
-<article class="media content-section mt-2">
-    <div class="media-body">
+<article class="content-section mt-2">
+    <div class="d-flex justify-content-between align-items-center w-100">
+        <div>
+            <h1 class='root-title'>{% trans 'Games' %}</h1>
+        </div>
+        <div class='d-flex flex-wrap justify-content-end gap-1'>
 
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div class='d-flex'>
-                <h1 class='root-title'>{% trans 'Games' %}</h1>
-            </div>
-            <div class='d-flex flex-wrap justify-content-end'>
-                
-                {% if user.profile.admin %}
-                <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="series">
-                    {% trans 'Series' %}
+            {% if user.profile.admin %}
+            <a href="{% url 'tournaments-home' %}" class="btn btn-sm btn-primary" id="series">
+                {% trans 'Series' %}
+            </a>
+            {% endif %}
+
+
+            {% if user.is_authenticated %}
+                <a href="{% url 'player-games' user.profile.slug %}" class="btn btn-sm btn-secondary" id="player-games">
+                    {% trans 'My Games' %}
                 </a>
-                {% endif %}
-            
-
-                {% if user.is_authenticated %}
-                    <a href="{% url 'player-games' user.profile.slug %}" class="btn btn-sm btn-secondary ml-1 mb-3" id="player-games">
-                        {% trans 'My Games' %}
-                    </a>
-                {% endif %}
-                <div class="btn-group ml-1 mb-3">
-                    <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                        {% trans 'Record' %} +
-                    </button>
-                    <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="{% url 'record-game' %}">New Game</a></li>
-                    <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">New Scorecard</a></li>
-                    </ul>
-                </div>
-
-
-                {% if user_active_count %}
-                    <div class="position-relative d-inline-block ml-1">
-                        <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
-                            <i class="bi bi-pencil-square"></i>
-                            <span class="ml-1">{% trans 'In Progress' %}</span>
-                        </a>
-                            {% if user_active_games_count %}
-                            <span class="notification-badge">
-                                {{ user_active_games_count }}
-                            </span>
-                            {% endif %}
-                    </div>
-                {% endif %}
-
+            {% endif %}
+            <div class="btn-group">
+                <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    {% trans 'Record' %} +
+                </button>
+                <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'record-game' %}">New Game</a></li>
+                <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">New Scorecard</a></li>
+                </ul>
             </div>
+
+
+            {% if user_active_count %}
+                <div class="position-relative d-inline-block">
+                    <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
+                        <i class="bi bi-pencil-square"></i>
+                        <span class="ms-1">{% trans 'In Progress' %}</span>
+                    </a>
+                        {% if user_active_games_count %}
+                        <span class="notification-badge">
+                            {{ user_active_games_count }}
+                        </span>
+                        {% endif %}
+                </div>
+            {% endif %}
+
         </div>
     </div>
 </article>
 
 
-<article class="media content-section">
-    <div class="media-body">
+<article class="content-section">
+    <div class="w-100">
 
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div class='d-flex'>
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
             <h3>{% trans 'Filters' %}</h3>
         </div>
-        <div class='d-flex flex-wrap justify-content-end'>
-            <button id="leaderboard-btn" class="btn btn-secondary mb-1">
+        <div>
+            <button id="leaderboard-btn" class="btn btn-secondary">
                 <i class="bi bi-trophy-fill"></i> Leaderboards
             </button>
         </div>

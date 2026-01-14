@@ -13,8 +13,8 @@
 {% endblock meta%}
 
 {% block content %}
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
 <div style="display: flex; justify-content: space-between; align-items: center;">
         <h1 class='root-title'>{{ resource.title }}</h1>
         {% if resource.shared_by == user.profile %}
@@ -27,8 +27,8 @@
 </div>
 </article>
 
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
         <h2>
         {{ resource.category }} {% trans 'Resource' %}
         </h2>
@@ -58,12 +58,12 @@
 </article>
 
 
-<article class="media content-section">
-    <div class="media-body">
+<article class="d-flex content-section">
+    <div class="w-100">
         {% if resource.pinned %}
-            This link was {% if resource.shared_by %}shared by <a class="mr-2 clickable-link" href="{% url 'player-detail' resource.shared_by.slug %}">{{resource.shared_by.name }}</a>and {% endif %}pinned by the site admin. You should still verify every link before downloading anything.
+            This link was {% if resource.shared_by %}shared by <a class="me-2 clickable-link" href="{% url 'player-detail' resource.shared_by.slug %}">{{resource.shared_by.name }}</a>and {% endif %}pinned by the site admin. You should still verify every link before downloading anything.
         {% else %}
-            This link {% if resource.shared_by %}was shared by <a class="mr-2 clickable-link" href="{% url 'player-detail' resource.shared_by.slug %}">{{resource.shared_by.name }}</a>and {% endif %}has not been verified. Check the url above before downloading anything.
+            This link {% if resource.shared_by %}was shared by <a class="me-2 clickable-link" href="{% url 'player-detail' resource.shared_by.slug %}">{{resource.shared_by.name }}</a>and {% endif %}has not been verified. Check the url above before downloading anything.
         {% endif %}
         
     </div>

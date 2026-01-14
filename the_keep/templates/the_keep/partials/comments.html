@@ -1,8 +1,8 @@
 {% if user.profile.player %}
     {% if object.designer == user.profile or object.comments.count %}
-        <article class="media content-section">
+        <article class="d-flex content-section">
         
-            <div class="media-body">
+            <div class="w-100">
                 <h3>Design Notes</h3>
                 {% if object.designer == user.profile %}
                     (Notes are visible to all logged in users)

@@ -5,12 +5,12 @@
 {% block content %}
 
 <div class="content-section">
-    <div class="media">
+    <div class="d-flex">
     <div class="article-img-container">
     <img class="article-img" src="{{ user_to_edit.image.url }}">
     </div>
-        <div class="media-body">
-            
+        <div class="flex-fill">
+
 
             <h1 class="account-heading root-title"><a href="{% url 'player-detail' user_to_edit.slug %}">{{ user_to_edit.name }}</a></h1>
 
@@ -48,7 +48,7 @@
     {% csrf_token %}
 
     <!-- Render the form fields -->
-    <div class="form-group">
+    <div class="mb-3">
     {{ form | crispy }}
     </div>
 
@@ -67,7 +67,7 @@
     {% endif %}
 
     <!-- Submit button -->
-    <div class="form-group">
+    <div class="mb-3">
     <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
     <a class="btn btn-outline-secondary mb-2 mt-2"  href="{{ user_to_edit.get_absolute_url }}">{% trans 'Cancel' %}</a>
     </div>

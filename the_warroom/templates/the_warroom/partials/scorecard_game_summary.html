@@ -1,9 +1,9 @@
 {% load static i18n %}
 
 
-<article class="media content-section" id="game-{{ game.id }}">
+<article class="d-flex content-section" id="game-{{ game.id }}">
     
-    <div class="media-body">
+    <div>
         <a href="{{ game.get_absolute_url }}">
             {% if game.nickname %}
                 <h5>{{game.nickname}}</h5>
@@ -84,7 +84,7 @@
             </td>
             <td>
                 {% if effort.faction %}
-                    <div class="parent mr-2 mb-1">
+                    <div class="parent me-2 mb-1">
                         <!-- The first image -->
                         <img class="faction-icon image1" src="{{ effort.faction.small_icon.url }}" alt="Faction Icon">
         

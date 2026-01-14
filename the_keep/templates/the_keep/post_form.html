@@ -8,7 +8,7 @@
     <div class="content-section">
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            <fieldset class="form-group">                
+            <fieldset class="mb-3">                
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <legend class="border-bottom mb-4">
                         {% if form.form_type == 'Tweak' %}
@@ -17,7 +17,7 @@
                             {% trans form.form_type %}
                         {% endif %}
                     </legend>
-                    <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                    <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-info-circle"></i>
                     </button>
                 </div>   
@@ -34,7 +34,7 @@
             {% endif %}
             {% comment %} 
             {% for field in form %}
-                <div class="form-group">
+                <div class="mb-3">
                     {{ field.label_tag }}
                     {{ field }}
                     {% if field.errors %}
@@ -324,7 +324,7 @@
                 {{ form | crispy }} {% endcomment %}
             </fieldset>
 
-            <div class="form-group">
+            <div class="mb-3">
                 <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
                 {% if not object.id %}
                     <a class="btn btn-secondary" href="{% url 'archive-home' %}">{% trans 'Cancel' %}</a>
@@ -570,8 +570,8 @@
         function updateRootjamVisibility() {
             const selectedText = $('#id_expansion').find("option:selected").text().toLowerCase();
             const $rootjamField = $('#id_rootjam_link');
-            const $rootjamWrapper = $rootjamField.closest('.form-group');
-        
+            const $rootjamWrapper = $rootjamField.closest('.mb-3');
+
             if (selectedText.includes("rootjam 20") || selectedText.includes("rootjam special")) {
                 $rootjamWrapper.show(); // Show the field
             } else {

@@ -1,8 +1,8 @@
 {% load i18n %}
 <!-- Tournament Specifications -->
         <div class="tab-pane fade" id="assets" role="tabpanel" aria-labelledby="assets-tab">
-            <article class="media content-section">
-                <div class="media-body">
+            <article class="d-flex content-section">
+                <div class="w-100">
             {% if user.profile.admin %}
             <div style="display: flex; justify-content: flex-end;">
             <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ tournament_round.get_assets_url }}">{% trans 'Manage Assets' %}</a>
@@ -11,7 +11,7 @@
                 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseFactions" aria-expanded="false" aria-controls="collapseFactions">
                 <h2>{% trans 'Factions' %} ({{ tournament_round.factions.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseFactions">
                 <div class="card card-body">
@@ -36,7 +36,7 @@
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseDecks" aria-expanded="false" aria-controls="collapseDecks">
                 <h2>{% trans 'Decks' %} ({{ tournament_round.decks.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseDecks">
                 <div class="card card-body">
@@ -60,7 +60,7 @@
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseMaps" aria-expanded="false" aria-controls="collapseMaps">
                 <h2>{% trans 'Maps' %} ({{ tournament_round.maps.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseMaps">
                 <div class="card card-body">
@@ -83,7 +83,7 @@
 
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseVagabonds" aria-expanded="false" aria-controls="collapseVagabonds">
                 <h2>{% trans 'Vagabonds' %} ({{ tournament_round.vagabonds.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseVagabonds">
                 <div class="card card-body">
@@ -104,7 +104,7 @@
             {% if tournament_round.landmarks.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseLandmarks" aria-expanded="false" aria-controls="collapseLandmarks">
                 <h2>{% trans 'Landmarks' %} ({{ tournament_round.landmarks.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseLandmarks">
                 <div class="card card-body">
@@ -124,7 +124,7 @@
             {% if tournament_round.hirelings.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseHirelings" aria-expanded="false" aria-controls="collapseHirelings">
                 <h2>{% trans 'Hirelings' %} ({{ tournament_round.hirelings.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseHirelings">
                 <div class="card card-body">
@@ -143,7 +143,7 @@
             {% if tournament_round.tweaks.count %}
             <div style="display: flex; align-items: center;" data-bs-toggle="collapse" data-bs-target="#collapseTweaks" aria-expanded="false" aria-controls="collapseTweaks">
                 <h2>{% trans 'House Rules' %} ({{ tournament_round.tweaks.count }})</h2>
-                <i class="bi bi-chevron-down ml-2"></i>
+                <i class="bi bi-chevron-down ms-2"></i>
             </div>
             <div class="collapse" id="collapseTweaks">
                 <div class="card card-body">

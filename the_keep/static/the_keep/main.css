@@ -214,13 +214,23 @@ em, i {
   .site-header .navbar-nav .nav-link {
     color: #cbd5db;
   }
-  
+
   .site-header .navbar-nav .nav-link:hover {
     color: var(--foreground-color);
   }
-  
+
   .site-header .navbar-nav .nav-link.active {
     font-weight: 500;
+  }
+
+  /* Bootstrap 5 nav-link override - remove blue color */
+  .nav-link {
+    color: inherit;
+  }
+
+  .nav-link:hover,
+  .nav-link:focus {
+    color: inherit;
   }
   
   .content-section {
@@ -1480,13 +1490,14 @@ tr.clickable-row:hover {
 .text-overlay {
   top: 20%;
   position: absolute;
-  left: 20vw;  /* Padding on the left */
+  left: max(20px, 10vw);  /* Minimum 20px padding from left edge */
   color: white;
   text-align: center;
   padding: 10px 20px 20px 20px; /* top, right, bottom, left */
   background: rgba(0, 0, 0, 0.7); /* Solid color fallback */
   border-radius: 10px; /* Rounded corners */
   font-size: 1.5rem;
+  max-width: calc(100% - 40px); /* Ensure it never exceeds viewport width minus padding */
 }
 
 .title-overlay {
@@ -1497,7 +1508,19 @@ tr.clickable-row:hover {
 
 .text-overlay-right {
   left: auto;
-  right: 20vw;  /* Align text to the right side */
+  right: max(20px, 10vw);  /* Minimum 20px padding from right edge */
+}
+
+/* Ensure proper spacing at medium widths */
+@media (max-width: 900px) and (min-width: 651px) {
+  .text-overlay {
+    left: max(20px, 5vw);  /* Reduce viewport-based spacing for medium screens */
+    max-width: calc(100% - 40px);
+  }
+
+  .text-overlay-right {
+    right: max(20px, 5vw);  /* Reduce viewport-based spacing for medium screens */
+  }
 }
 
 @media (max-width: 650px) {
@@ -1506,7 +1529,12 @@ tr.clickable-row:hover {
     left: 50%; /* Center horizontally */
     transform: translate(-50%, -50%); /* Offset by 50% to truly center the element */
     width: auto;  /* Ensure it doesn't stretch unnecessarily */
-    min-width: 75%;
+    max-width: calc(100% - 40px); /* Maintain 20px spacing on each side */
+    min-width: min(75%, calc(100% - 40px)); /* Use 75% width but never exceed available space */
+  }
+
+  .text-overlay-right {
+    right: auto; /* Reset right positioning */
   }
 }
 

@@ -5,13 +5,13 @@
 <div style="display: flex; justify-content: space-between; align-items: center;">
         <legend>{% if object.id %}{% trans 'Update Game Data' %}{% else %}{% trans 'Record New Game' %}{% endif %}</legend>
        
-                {% comment %} <button class="btn btn-primary btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
+                {% comment %} <button class="btn btn-primary btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-person-plus-fill"></i>
                 </button> {% endcomment %}
-                <button class="btn btn-success btn-sm ml-2 ms-2" type="button" id="open-register-modal">
+                <button class="btn btn-success btn-sm ms-2" type="button" id="open-register-modal">
                         <i class="bi bi-person-plus-fill"></i> {% trans "Register Player" %}
                 </button>
-                <button class="btn btn-info btn-sm ml-2 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
+                <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
                         <i class="bi bi-info-circle"></i>
                 </button>
        
@@ -28,11 +28,11 @@
                                 hx-swap="none">
                                 {% csrf_token %}
 
-                                <div class="mr-2 mb-2">
+                                <div class="me-2 mb-2">
                                         {{ player_form.discord }}
                                 </div>
 
-                                <div class="mr-2 mb-2">
+                                <div class="me-2 mb-2">
                                         {{ player_form.display_name }}
                                 </div>
 

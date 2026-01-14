@@ -6,8 +6,8 @@
        
             {% if has_top_players or has_most_players %}
             <div class="col-lg-6 col-12">
-                <article class="media content-section">
-                    <div class="media-body">
+                <article class="d-flex content-section">
+                    <div class="w-100">
                     
                         <h2 class='root-title text-center'>{% if top_players and most_players %}
                             {% trans 'Player Leaderboards' %}
@@ -72,8 +72,8 @@
 
         {% if has_top_factions or has_most_factions %}
         <div class="col-lg-6 col-12">
-            <article class="media content-section">
-                <div class="media-body">
+            <article class="d-flex content-section">
+                <div class="w-100">
                 
                     <h2 class='root-title text-center'>{% if top_factions and most_factions %}
                             {% trans 'Faction Leaderboards' %}
@@ -134,8 +134,8 @@
         {% endif %} 
     </div>
 
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
     <h3 class='root-title text-center'>{% trans 'Total Games' %} ({{ games_count }})</h3> 
         </div>
     </article>

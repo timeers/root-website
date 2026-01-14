@@ -10,12 +10,12 @@
 
 
 
-        <a href="{% url 'games-home' %}" class="btn btn-sm btn-primary ml-1 mb-3" id="games">
+        <a href="{% url 'games-home' %}" class="btn btn-sm btn-primary ms-1 mb-3" id="games">
             Games
         </a>
 
         {% if user.profile.admin %}
-            <a class="btn btn-sm btn-success mb-3 ml-1" href="{% url 'tournament-create' %}">New Series +</a>
+            <a class="btn btn-sm btn-success mb-3 ms-1" href="{% url 'tournament-create' %}">New Series +</a>
         {% endif %}
     </div>
 </div>
@@ -67,8 +67,8 @@
     </div>
 {% else %}
     
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
         <h3>Ongoing Series</h3>
         {% with ongoing as tournaments %}
             {% include 'the_warroom/partials/tournament_list.html' %}

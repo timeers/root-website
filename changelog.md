@@ -1,11 +1,6 @@
 # Changelog
 
-## [1.10.2] - 2026-1-13 Register New Designer
-
-### New Features
-- Register New Designer - Add new designers directly from the Post form when searching in Designer, Co-Designer, or Artist fields
-
-## [1.10.1] - 2026-1-13 Admin & Notifications
+## [1.10.1] - 2026-1-14 Admin & Notifications
 
 ### New Features
 - Admin pending posts widget and management system
@@ -13,12 +8,14 @@
 - Post approval/rejection workflow with user notifications
 - Guild invite approval/rejection notifications with moderator messages
 - Pending posts review page with modal-based interface
+- Register New Designer - Add new designers directly from the Post form when searching in Designer, Co-Designer, or Artist fields
 
 ### Improvements
 - Auto-dismiss notifications when clicking View link
 - Notifications display in alert bars across all pages
 - Post approval changes status to Development
 - Admin dashboard shows count of pending submitted posts
+- Moved from Bootstrap 4 to Bootstrap 5
 
 ### Bug Fixes
 - Broken Clockwork Factions links
@@ -26,6 +23,7 @@
 - Submittal message showing on Stable faction form
 - Submitted posts could be edited before being approved
 - Submitted posts could not be edited by new users after approval
+- JS fixes when unable to display scorecard data
 
 ## [1.10.0] - 2026-1-9 Happy New Year!
 

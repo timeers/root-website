@@ -37,7 +37,7 @@
 
         <!-- Second div (Update Translation button) -->
         <div>
-            <a href="{% url 'translation-update' slug=object.slug lang=translation.language.code %}" class="btn btn-sm btn-warning mb-4 ml-3">
+            <a href="{% url 'translation-update' slug=object.slug lang=translation.language.code %}" class="btn btn-sm btn-warning mb-4 ms-3">
                 {% trans 'Update' %}
             </a>
         </div>
@@ -54,7 +54,7 @@
 
     {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
         <div class="d-flex justify-content-center align-items-center">
-            <a href="{% url 'translation-create' slug=object.slug %}" class="btn btn-sm btn-success mb-3 ml-3">
+            <a href="{% url 'translation-create' slug=object.slug %}" class="btn btn-sm btn-success mb-3 ms-3">
                 {% trans 'New Translation' %}
             </a>
         </div>

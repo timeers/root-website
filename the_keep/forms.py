@@ -457,10 +457,13 @@ class PostCreateForm(forms.ModelForm):
             self.fields['language'].initial = Language.objects.get(code='en')
 
         # Conditionally exclude artists for non admin users
-        exclude_profiles = ['kyleferrin', 'leder games', 'joshuayearsley', 'patrickleder']
-        
+        # Kyle Ferrin, Leder Games, Joshua Yearsley, Patrick Leder, Cole Wehrle
+        exclude_profiles = ['kyleferrin', 'leder games', 'joshuayearsley', 'patrickleder', 'colewehrle']
+
         if not user.profile.admin:
             self.fields['artist'].queryset = Profile.objects.exclude(discord__in=exclude_profiles)
+            self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(discord__in=exclude_profiles)
+            self.fields['designer'].queryset = self.fields['designer'].queryset.exclude(discord__in=exclude_profiles)
             # self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
             # Limit language choices to English and the user's language
             if user_language:
@@ -485,6 +488,7 @@ class PostCreateForm(forms.ModelForm):
         self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
             Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B") | Q(group='E')
             )
+
 
         if not post_instance:
             self.fields['designer'].initial = user.profile.id

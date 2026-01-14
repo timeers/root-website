@@ -1,14 +1,14 @@
 {% if page_obj.number == 1 and bookmark_page == False %}
 <div class="content-section">
-    <div class="media">
+    <div class="d-flex">
         <!-- Winrate -->
-        <div class="media-body">
+        <div>
             <div>{{ player.winrate|floatformat:2 }}% Winrate</div>
             <div>{{ player.games_played }} Games Played</div>
         </div>
 
         
-        <div class="media-body">
+        <div>
             {% if quantity_faction %}
             <div>Most plays with {{ quantity_faction }}: {{ quantity_count }} Games</div>
             {% endif %}

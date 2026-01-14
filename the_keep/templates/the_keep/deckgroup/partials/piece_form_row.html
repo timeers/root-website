@@ -31,18 +31,18 @@
   <!-- Column 3: Quantity + Actions -->
   <td>
     <div class="d-flex align-items-center">
-      <input type="number" name="quantity" form="add-piece-form" class="form-control mr-2" style="width: 80px;">
+      <input type="number" name="quantity" form="add-piece-form" class="form-control me-2" style="width: 80px;">
       <button
         type="submit"
         form="add-piece-form"
-        class="btn btn-outline-success btn-sm ml-auto"
+        class="btn btn-outline-success btn-sm ms-auto"
         title="{% trans 'Save' %}"
       >
         <i class="bi bi-check2"></i>
       </button>
       <button
         type="button"
-        class="btn btn-outline-danger btn-sm ml-2"
+        class="btn btn-outline-danger btn-sm ms-2"
         onclick="
         let row = this.closest('.piece-form-row');
         let next = row.nextElementSibling;

@@ -52,8 +52,8 @@
         {% if object.type == "Tournament" %}
         <!-- Rounds -->
         <div class="tab-pane fade" id="rounds" role="tabpanel" aria-labelledby="rounds-tab">
-            <article class="media content-section">
-                <div class="media-body">
+            <article class="d-flex content-section">
+                <div class="w-100">
             {% if user.is_authenticated %}
                 {% if user.profile.admin or user.profile == object.designer %}
                 <div style="display: flex; justify-content: flex-end;">
@@ -136,8 +136,8 @@
 
    
     {% if top_players or most_players %}
-        <article class="media content-section">
-            <div class="media-body">
+        <article class="d-flex content-section">
+            <div class="w-100">
             
                 <h2>{% if top_players and most_players %}
                         {% trans 'Player Leaderboards' %}
@@ -196,8 +196,8 @@
             </div>
         </article>
     {% else %}
-        <article class="media content-section">
-            <div class="media-body">
+        <article class="d-flex content-section">
+            <div class="w-100">
                 <h2>{% trans 'Player Leaderboard' %}</h2>
                 {% if leaderboard_threshold > 0 %}
                     {% trans 'No Players have reached the Game Threshold of' %} {{ leaderboard_threshold }}
@@ -212,8 +212,8 @@
 
 
     {% if top_factions or most_factions %}
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
             
             <h2>{% if top_factions and most_factions %}
                     {% trans 'Faction Leaderboards' %}
@@ -271,8 +271,8 @@
         </div>
     </article>
     {% else %}
-    <article class="media content-section">
-        <div class="media-body">
+    <article class="d-flex content-section">
+        <div class="w-100">
             <h2>{% trans 'Faction Leaderboard' %}</h2>
             {% if leaderboard_threshold > 0 %}
                 {% trans 'No Factions have reached the Game Threshold of' %} {{ leaderboard_threshold }}
@@ -289,8 +289,8 @@
         
         <!-- Active Players -->
         <div class="tab-pane fade" id="players" role="tabpanel" aria-labelledby="players-tab">
-            <article class="media content-section">
-                <div class="media-body">
+            <article class="d-flex content-section">
+                <div class="w-100">
             {% if user.is_authenticated %}
                 {% if user.profile.admin or user.profile == object.designer %}
                 <div style="display: flex; justify-content: flex-end;">

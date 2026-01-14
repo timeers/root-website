@@ -39,7 +39,7 @@
     {% if effort.faction %}
         <span class='root-title'>
         <a href="{{ effort.faction.get_absolute_url }}">
-            <div class="parent mr-2 mb-1">
+            <div class="parent me-2 mb-1">
                 <!-- The first image -->
                 <img class="faction-icon image1" src="{{ effort.faction.small_icon.url }}" alt="Faction Icon">
 
@@ -75,7 +75,7 @@
         {% endif %}
     {% elif effort.coalition_with %}
         <a href="{% url 'faction-detail' effort.coalition_with.slug %}">
-            <div class="parent mr-2">
+            <div class="parent me-2">
                 <!-- The first image -->
                 <img class="faction-icon image1" 
                 src="{{ effort.coalition_with.small_icon.url }}"
