@@ -1,0 +1,49 @@
+{% load i18n %}
+<!-- Register Player Modal for Post Forms -->
+<div class="modal fade" id="registerPlayerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class='root-title'>{% trans "Register New Player" %}</h5>
+        <button type="button" class="close" data-bs-dismiss="modal">&times;</button>
+      </div>
+
+      <form id="register-player-modal-form"
+            hx-post="{% url 'add-discord-player' %}"
+            hx-trigger="submit"
+            hx-target="#player-modal-errors"
+            hx-swap="none">
+        {% csrf_token %}
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="modal-discord">{% trans "Discord Username" %} <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="modal-discord" name="discord" required>
+            <small class="form-text text-muted">
+              {% trans "If they don't have Discord, choose a unique name for them." %}
+            </small>
+          </div>
+
+          <div class="mb-3">
+            <label for="modal-display-name">{% trans "Display Name (Optional)" %}</label>
+            <input type="text" class="form-control" id="modal-display-name" name="display_name">
+            <small class="form-text text-muted">
+              {% trans "Display names are case sensitive." %}
+            </small>
+          </div>
+
+          <div id="player-modal-errors"></div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            {% trans "Cancel" %}
+          </button>
+          <button type="submit" class="btn btn-primary">
+            {% trans "Register Player" %}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
