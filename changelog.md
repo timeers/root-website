@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.2] - 2026-1-13 Register New Designer
+
+### New Features
+- Register New Designer - Add new designers directly from the Post form when searching in Designer, Co-Designer, or Artist fields
+
 ## [1.10.1] - 2026-1-13 Admin & Notifications
 
 ### New Features
@@ -21,10 +26,6 @@
 - Submittal message showing on Stable faction form
 - Submitted posts could be edited before being approved
 - Submitted posts could not be edited by new users after approval
-
-### Known Issues
-- Unable to remove turns on Scorecard once saved
-- Games page slow to load
 
 ## [1.10.0] - 2026-1-9 Happy New Year!
 

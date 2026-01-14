@@ -356,10 +356,216 @@
             </div>
         {% endif %}
     </div>
+
+{% include 'the_keep/partials/register_player_modal.html' %}
+
 {% endblock content %}
 
 {% block scripts %}
     <script>
+
+        // Reusable function to add register button listener to a select element
+        function addRegisterButtonListener(selectElement) {
+            selectElement.on('select2:open', function(e) {
+                const select2 = selectElement.data('select2');
+                const searchField = select2.$dropdown.find('.select2-search__field');
+
+                searchField.on('input', function() {
+                    const searchTerm = $(this).val();
+
+                    setTimeout(() => {
+                        // Remove existing register button
+                        $('.register-player-btn-container').remove();
+
+                        if (searchTerm.length > 0) {
+                            // Check if there's an exact match in the results
+                            const results = select2.$results.find('.select2-results__option:not(.select2-results__message)');
+                            let hasExactMatch = false;
+
+                            results.each(function() {
+                                const resultText = $(this).text().trim().toLowerCase();
+                                if (resultText === searchTerm.toLowerCase()) {
+                                    hasExactMatch = true;
+                                    return false;
+                                }
+                            });
+
+                            // Show register button if no exact match
+                            if (!hasExactMatch) {
+                                const registerBtn = $(`
+                                    <div class="register-player-btn-container p-2 border-top">
+                                        <button type="button" class="btn btn-success btn-sm btn-block register-new-player"
+                                                data-search-term="${searchTerm}"
+                                                data-select-id="${selectElement.attr('id')}">
+                                            <i class="bi bi-person-plus-fill"></i> Register "${searchTerm}"
+                                        </button>
+                                    </div>
+                                `);
+
+                                select2.$results.append(registerBtn);
+                            }
+                        }
+                    }, 100);
+                });
+            });
+        }
+
+        // Handle clicking the register button - open modal
+        $(document).on('click', '.register-new-player', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const searchTerm = $(this).data('search-term');
+            const selectId = $(this).data('select-id');
+
+            // Store which select triggered this modal
+            $('#registerPlayerModal').data('source-select-id', selectId);
+
+            // Close only the specific select2 that's open (the one that triggered this)
+            const selectElement = $(`#${selectId}`);
+            if (selectElement.hasClass('select2-hidden-accessible')) {
+                selectElement.select2('close');
+            }
+
+            // Pre-fill the modal form
+            $('#modal-discord').val(searchTerm);
+
+            // Clear any previous errors
+            $('#player-modal-errors').html('');
+
+            // Open the modal
+            new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+
+            // Focus on the discord field after modal is shown
+            $('#registerPlayerModal').on('shown.bs.modal', function() {
+                $('#modal-discord').focus();
+            });
+        });
+
+        // Blur active element when register modal closes to prevent aria-hidden warning
+        document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
+            document.activeElement.blur();
+            // Also clear the stored source select ID
+            $(this).data('source-select-id', null);
+        });
+
+        // Handle register player form responses
+        document.addEventListener('htmx:afterRequest', function(event) {
+            // Only handle the register player modal form
+            if (event.target.id !== 'register-player-modal-form') {
+                return;
+            }
+
+            const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+            if (!contentType || !contentType.includes('application/json')) {
+                return;
+            }
+
+            const errorContainer = document.getElementById('player-modal-errors');
+
+            // Clear all previous error or success messages
+            errorContainer.innerHTML = '';
+
+            // Remove all error messages for each field before processing the new response
+            const existingErrorDivs = document.querySelectorAll('.error-message');
+            existingErrorDivs.forEach(div => div.remove());
+
+            // Handle error response (400)
+            if (event.detail.xhr.status === 400) {
+                const response = JSON.parse(event.detail.xhr.responseText);
+                const errors = JSON.parse(response.error);
+
+                if (errors) {
+                    // Create a consolidated error message
+                    let errorHtml = '<div class="alert alert-danger"><strong>Registration Failed:</strong><ul class="mb-0">';
+
+                    // Iterate through each error for the fields
+                    for (const fieldName in errors) {
+                        if (errors.hasOwnProperty(fieldName)) {
+                            const fieldErrors = errors[fieldName];
+
+                            // Add to consolidated error message
+                            fieldErrors.forEach(error => {
+                                errorHtml += `<li>${error.message}</li>`;
+                            });
+                        }
+                    }
+
+                    errorHtml += '</ul></div>';
+                    errorContainer.innerHTML = errorHtml;
+                }
+            }
+
+            // Handle success response (200)
+            if (event.detail.xhr.status === 200) {
+                const response = JSON.parse(event.detail.xhr.responseText);
+
+                if (response.id && response.discord) {
+                    // Clear the form fields
+                    const form = document.getElementById('register-player-modal-form');
+                    form.reset();
+
+                    // Show success message
+                    const successMessage = response.message || "Player registered successfully!";
+                    const successDiv = document.createElement('div');
+                    successDiv.classList.add('success-message', 'alert', 'alert-success');
+                    successDiv.innerHTML = `<p><i class="bi bi-check-circle"></i> ${successMessage}</p>`;
+                    errorContainer.appendChild(successDiv);
+
+                    // Add the new player to designer and co_designers select fields
+                    const designerField = document.getElementById('id_designer');
+                    const coDesignersField = document.getElementById('id_co_designers');
+                    const artistField = document.getElementById('id_artist');
+
+                    // Add to designer field if it exists
+                    if (designerField) {
+                        const newOption = new Option(response.discord, response.id);
+                        designerField.appendChild(newOption);
+                        $(designerField).trigger('change');
+                    }
+
+                    // Add to co_designers field
+                    if (coDesignersField) {
+                        const newOption = new Option(response.discord, response.id);
+                        coDesignersField.appendChild(newOption);
+                        $(coDesignersField).trigger('change');
+                    }
+
+                    // Add to artist field if it exists
+                    if (artistField) {
+                        const newOption = new Option(response.discord, response.id);
+                        artistField.appendChild(newOption);
+                        $(artistField).trigger('change');
+                    }
+
+                    // Get the select that triggered this modal (if any)
+                    const sourceSelectId = $('#registerPlayerModal').data('source-select-id');
+
+                    // If opened from a specific select via Select2, select the new player
+                    if (sourceSelectId) {
+                        const sourceSelect = $(`#${sourceSelectId}`);
+
+                        // For co_designers (multi-select), add to existing selections
+                        if (sourceSelectId === 'id_co_designers') {
+                            const currentValues = sourceSelect.val() || [];
+                            currentValues.push(response.id.toString());
+                            sourceSelect.val(currentValues).trigger('change');
+                        } else {
+                            // For single select fields (designer, artist)
+                            sourceSelect.val(response.id).trigger('change');
+                        }
+
+                        // Clear the stored source
+                        $('#registerPlayerModal').data('source-select-id', null);
+                    }
+
+                    // Close modal after short delay to show success message
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance(document.getElementById("registerPlayerModal")).hide();
+                    }, 750);
+                }
+            }
+        });
 
         function updateRootjamVisibility() {
             const selectedText = $('#id_expansion').find("option:selected").text().toLowerCase();
@@ -381,15 +587,29 @@
             $('#id_expansion').select2();
             $('#id_based_on').select2();
             if ($('#id_designer').length) {
-                $('#id_designer').select2();
+                $('#id_designer').select2({
+                    placeholder: "Search for designer...",
+                    allowClear: true
+                });
+                // Add register button listener to designer field
+                addRegisterButtonListener($('#id_designer'));
             }
             if ($('#id_other_side').length) {
                 $('#id_other_side').select2();
             }
             if ($('#id_artist').length) {
-                $('#id_artist').select2();
+                $('#id_artist').select2({
+                    placeholder: "Search for artist...",
+                    allowClear: true
+                });
+                // Add register button listener to artist field
+                addRegisterButtonListener($('#id_artist'));
             }
-            $('#id_co_designers').select2();
+            $('#id_co_designers').select2({
+                placeholder: "Search for co-designers...",
+                allowClear: true
+            });
+
             // Initial check on page load
             updateRootjamVisibility();
 
