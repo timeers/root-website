@@ -1,37 +1,30 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
-{% block title %}{{ object.title }} Games | {% endblock %}
+{% load static i18n %}
+{% block title %}{% trans 'My Submitted Games' %} | {% endblock %}
 
-{% include 'the_keep/partials/component_meta.html' %}
-
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/battlefield-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="My Submitted Games">
+<meta property="og:description" content="Games I've Recorded on the Root Database">
+<meta name="description" content="Games I've Recorded on the Root Database">
+{% endblock meta%}
 
 {% block content %}
+{% include 'the_warroom/partials/warroom_nav_header.html' with active_page='submitted-games' %}
 
-<h1 class='root-title'>{{ object.title }} {% trans 'Games' %}</h1>
+{% url 'my-submitted-games' as filter_url %}
+{% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url %}
 
-{% if games %}
-
-    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=object.get_games_url swap_method='innerHTML' %}
-
-    <div id="games-container">
+{% include 'the_warroom/partials/game_list_home.html' %}
 
 
-        {% include 'the_keep/partials/game_list.html' %}
 
-    </div>
 
-{% endif %}
+{% endblock content %}
 
-    <!-- Show option to send Feedback -->
-    <div class='mb-2'>
-        <a href="{% url 'post-feedback' object.slug %}" class='subtle-link'>
-            <small>
-                {% trans 'Is something missing or incorrect?' %}
-            </small>
-        </a>
-     </div>
-
-{% endblock content %} 
 
 {% block scripts %}
     <script>

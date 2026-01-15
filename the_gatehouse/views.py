@@ -276,8 +276,8 @@ def admin_required_class_based_view(view_class):
 
 @login_required
 @bookmark_toggle(Profile)
-def bookmark_player(request, object):
-    return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': object })
+def bookmark_player(request, obj):
+    return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': obj})
 
 
 @player_required

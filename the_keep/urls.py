@@ -140,6 +140,7 @@ urlpatterns = [
     path('piece/delete/<int:id>', views.delete_piece, name='delete-piece'),
 
     path('workshop/', views.PNPAssetListView.as_view(), name='asset-list'),
+    path('workshop/my-resources/', views.MyPNPAssetListView.as_view(), name='my-resources'),
     path('resources/', views.PNPAssetListView.as_view()),
     path('resources/new/', views.PNPAssetCreateView.as_view(), name='asset-new'),
     path('resources/<int:pk>/', views.PNPAssetDetailView.as_view(), name='asset-detail'),

@@ -1,7 +1,7 @@
 from django.urls import path
-# from .views import 
-from .views import (GameUpdateView, game_list_view, leaderboard_view, #GameListViewHX, GameListView, 
-                    game_detail_hx_view, game_detail_view, 
+# from .views import
+from .views import (GameUpdateView, game_list_view, leaderboard_view, #GameListViewHX, GameListView,
+                    game_detail_hx_view, game_detail_view,
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game, scorecard_manage_view, scorecard_detail_view,
                     scorecard_assign_view, scorecard_delete_view, scorecard_list_view, effort_assign_view,
@@ -11,7 +11,7 @@ from .views import (GameUpdateView, game_list_view, leaderboard_view, #GameListV
                     round_manage_players, RoundDeleteView,
                     tournament_players_pagination, round_players_pagination, round_games_pagination,
                     in_progress_view, TournamentDesignerUpdateView, round_component_leaderboard_view,
-                    add_player_to_effort)
+                    add_player_to_effort, my_submitted_games_view)
 from the_tavern.views import game_comment_delete
 
 urlpatterns = [
@@ -24,6 +24,7 @@ urlpatterns = [
     
 
     path('battlefield/active/', in_progress_view, name='in-progress'),
+    path('battlefield/my-games/', my_submitted_games_view, name='my-submitted-games'),
     # path('battlefield/', GameListView.as_view(), name='games-home'),
     path('battlefield/', game_list_view, name='games-home'),
     path('warroom/', game_list_view),

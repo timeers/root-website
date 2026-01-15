@@ -2148,3 +2148,135 @@ tr.clickable-row:hover {
   transform: translateY(-4px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
+
+/* ========================================
+   Warroom Navigation Header Styles
+   ======================================== */
+
+/* Main header container */
+.warroom-nav-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: nowrap;
+}
+
+/* Navigation tabs container */
+.warroom-nav-tabs {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Individual tab link */
+.warroom-nav-tab {
+  position: relative;
+  padding: 0.5rem 0;
+  color: #6c757d;
+  text-decoration: none;
+  font-size: 1.1rem;
+  font-weight: 500;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.warroom-nav-tab:hover {
+  color: var(--button-color);
+}
+
+/* Active tab styling with underline */
+.warroom-nav-tab.active {
+  color: var(--button-color);
+  font-weight: 600;
+}
+
+.warroom-nav-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: var(--button-color);
+  border-radius: 2px;
+}
+
+/* Action buttons container */
+.warroom-action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Desktop buttons visible by default */
+.warroom-actions-desktop {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Mobile dropdown hidden by default */
+.warroom-actions-mobile {
+  display: none;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  /* Stack header on very small screens if needed */
+  .warroom-nav-header {
+    gap: 0.75rem;
+  }
+
+  /* Reduce tab spacing on mobile */
+  .warroom-nav-tabs {
+    gap: 1rem;
+  }
+
+  /* Scale down tab font size */
+  .warroom-nav-tab {
+    font-size: 0.95rem;
+    padding: 0.4rem 0;
+  }
+
+  /* Hide desktop buttons, show mobile dropdown */
+  .warroom-actions-desktop {
+    display: none;
+  }
+
+  .warroom-actions-mobile {
+    display: flex;
+  }
+}
+
+/* Extra small screens - further condensing */
+@media (max-width: 480px) {
+  .warroom-nav-tabs {
+    gap: 0.75rem;
+  }
+
+  .warroom-nav-tab {
+    font-size: 0.875rem;
+  }
+}
+
+/* Badge on navigation tabs */
+.warroom-tab-badge {
+  display: inline-block;
+  padding: 0.2em 0.5em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  background-color: #dc3545;
+  border-radius: 10rem;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}

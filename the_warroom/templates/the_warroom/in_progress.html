@@ -2,10 +2,11 @@
 {% block title %}In Progress | {% endblock %}
 {% load i18n %}
 {% block content %}
+{% include 'the_warroom/partials/warroom_nav_header.html' with active_page='in-progress' %}
 
 <article class="d-flex content-section">
     <div class="w-100">
-    <h1 class='root-title'>{% trans 'In Progress' %}</h1>
+    <h3>{% trans 'In Progress' %}</h3>
     {% if in_progress_games_count and in_progress_scorecards_count %}
         {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count in_progress_games_count=in_progress_games_count %}
             You have {{ in_progress_scorecards_count }} unlinked Scorecard(s) and {{ in_progress_games_count }} in progress Game(s). Once complete each Scorecard should be linked to a matching Game and each Game should be finalized by clicking "Submit".

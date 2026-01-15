@@ -20,98 +20,12 @@
 
 
 {% block content %}
-<article class="content-section mt-2">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-        </div>
-        <div class='d-flex'>
-            <h1 class='root-title'>{% trans 'Leaderboards' %}</h1>
-        </div>
-        <div class='d-flex flex-wrap justify-content-end'>
-            <button id="games-btn" class="btn btn-secondary mb-1">
-                View Games
-            </button>
-        </div>
-    </div>
-</article>
+{% include 'the_warroom/partials/warroom_nav_header.html' with active_page='leaderboards' %}
 
 {% include 'the_warroom/partials/leaderboard_list_home.html' %}
 
-<article class="d-flex content-section">
-    <div class="w-100">
-
-
-    <h3>{% trans 'Filters' %}</h3>
-
-    <form hx-get="{% url 'leaderboard-view' %}" 
-            hx-target="#games-container"
-            hx-swap="outerHTML"
-            hx-include="#limit, #threshold"
-            id="gamefilterform">
-
-        <div class="row">
-            <div class="col-md-6 mb-1">
-                {{ form.map }}
-            </div>
-            <div class="col-md-6 mb-1">
-                {{ form.deck }}
-            </div>
-        </div>
-        <div class="mb-1">
-        {% comment %} {% trans 'Factions' %}: {% endcomment %}
-        {{ form.faction }}
-        </div>
-        <div class="mb-1">
-        {% comment %} {% trans 'Vagabonds' %}: {% endcomment %}
-        {{ form.vagabond }}
-        </div>
-        <div class="mb-1">
-        {% comment %} {% trans 'Players' %}: {% endcomment %}
-        {{ form.player }}
-        </div>
-
-        {% if user.is_authenticated and not user.profile.weird %}
-            <div class='mb-1'>
-                *Displaying Official Content Only
-            </div>
-        {% else %}
-            <div class='mb-1'>
-                {{ form.official }}
-            </div>
-        {% endif %}
-
-        <button class="btn btn-primary mb-1">{% trans 'Filter' %}</button>
-    </form>
-
-
-<div class="row">
-    <div class="col-md-6 mb-1">
-        <label for="limit">Leaderboard Places</label>
-        <input type="number"
-               id="limit"
-               name="limit"
-               min="1"
-               max="25"
-               class="form-control"
-               value="{{ leaderboard_places }}">
-    </div>
-
-    <div class="col-md-6 mb-1">
-        <label for="threshold">Leaderboard Threshold</label>
-        <input type="number"
-               id="threshold"
-               name="threshold"
-               min="1"
-               max="1000"
-               class="form-control"
-               value="{{ leaderboard_threshold }}">
-    </div>
-</div>
-
-
-
-    </div>
-</article>
+{% url 'leaderboard-view' as filter_url %}
+{% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url include_limit_threshold=True leaderboard_places=leaderboard_places leaderboard_threshold=leaderboard_threshold %}
     
         
     
@@ -123,25 +37,34 @@
 
 {% block scripts %}
     <script>
+        // Universal select2 initialization - handles both singular and plural field names
         const selectPlaceholders = {
             '#id_faction': "{% trans 'Select Factions' %}",
+            '#id_factions': "{% trans 'Select Factions' %}",
             '#id_player': "{% trans 'Select Players' %}",
+            '#id_players': "{% trans 'Select Players' %}",
             '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+            '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
             '#id_map': "{% trans 'Select a Map' %}",
             '#id_deck': "{% trans 'Select a Deck' %}"
         };
 
-
+        // Apply select2 only to fields that exist on the page
         Object.keys(selectPlaceholders).forEach(id => {
-            $(id).select2({
-                placeholder: selectPlaceholders[id],
-                allowClear: true,
+            if ($(id).length) {
+                $(id).select2({
+                    placeholder: selectPlaceholders[id],
+                    allowClear: true,
+                    width: '100%'
+                });
+            }
+        });
+
+        if ($('#id_official').length) {
+            $('#id_official').select2({
                 width: '100%'
             });
-        });
-        $('#id_official').select2({
-            width: '100%'
-        });
+        }
 
 
         // Get the collapse element and button
@@ -160,11 +83,20 @@
             });
 
         }
-        document.getElementById('games-btn').addEventListener('click', function () {
-            const form = document.getElementById('gamefilterform');
-            form.removeAttribute('hx-get');      // disable htmx for this submission
-            form.action = "{% url 'games-home' %}";
-            form.submit();                       // normal browser submit
+
+        // Handle navigation tab clicks to transfer filters
+        document.addEventListener('DOMContentLoaded', function() {
+            const gamesTab = document.querySelector('a.warroom-nav-tab[href="{% url 'games-home' %}"]');
+
+            if (gamesTab) {
+                gamesTab.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const form = document.getElementById('gamefilterform');
+                    form.removeAttribute('hx-get');
+                    form.action = "{% url 'games-home' %}";
+                    form.submit();
+                });
+            }
         });
     </script>
 {% endblock %}

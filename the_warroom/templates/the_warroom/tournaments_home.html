@@ -1,24 +1,26 @@
 {% extends 'the_keep/base.html' %}
+{% load static i18n %}
 {% block title %}Series | {% endblock %}
+
+{% block meta %}
+    <!-- Open Graph tags -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.build_absolute_uri }}">
+    <meta property="og:image" content="{% static 'images/battlefield-icon.png' %}">
+    <meta property="og:site_name" content="{{ site_title }}">
+
+    {% trans "Series" as series_title %}
+    {% trans "View and track Root tournaments and series" as series_description %}
+
+    <meta property="og:title" content="{{ series_title }}">
+    <meta property="og:description" content="{{ series_description }}">
+    <meta name="description" content="{{ series_description }}">
+{% endblock meta %}
+
+
+
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center;">
-    <div class='d-flex'>
-        <h1>Series</h1>
-
-    </div>  
-    <div class='d-flex'>
-
-
-
-        <a href="{% url 'games-home' %}" class="btn btn-sm btn-primary ms-1 mb-3" id="games">
-            Games
-        </a>
-
-        {% if user.profile.admin %}
-            <a class="btn btn-sm btn-success mb-3 ms-1" href="{% url 'tournament-create' %}">New Series +</a>
-        {% endif %}
-    </div>
-</div>
+{% include 'the_warroom/partials/warroom_nav_header.html' with active_page='series' %}
 
 {% if scheduled.count > 0 or future.count > 0 %}
 

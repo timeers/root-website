@@ -1559,8 +1559,8 @@ def component_games(request, slug, component):
 
 @login_required
 @bookmark_toggle(Post)
-def bookmark_post(request, object):
-    return render(request, 'the_keep/partials/bookmarks.html', {'object': object })
+def bookmark_post(request, obj):
+    return render(request, 'the_keep/partials/bookmarks.html', {'object': obj})
 
 
 
@@ -3174,6 +3174,7 @@ class PNPAssetListView(ListView):
     def get_context_data(self, **kwargs):
         # Add current user to the context data
         context = super().get_context_data(**kwargs)
+        context['active_page'] = 'workshop'  # Set active page for navigation
         if self.request.user.is_authenticated:
             context['profile'] = self.request.user.profile  # Adding the user to the context
             context['shared_assets'] = PNPAsset.objects.filter(shared_by__slug=self.request.user.profile.slug)
@@ -3236,7 +3237,58 @@ class PNPAssetListView(ListView):
         #     send_discord_message(f'{get_uuid(self.request)} viewing The Workshop')
 
         return super().render_to_response(context, **response_kwargs)
-    
+
+
+class MyPNPAssetListView(LoginRequiredMixin, ListView):
+    model = PNPAsset
+    template_name = 'the_keep/asset_list.html'
+    context_object_name = 'objects'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Filter for assets shared by the current logged-in user
+        queryset = queryset.filter(shared_by=self.request.user.profile)
+
+        # Get the search query from the GET parameters
+        search_query = self.request.GET.get('search', '')
+        search_type = self.request.GET.get('search_type', '')
+        file_type = self.request.GET.get('file_type', '')
+
+        # If a search query is provided, filter the queryset
+        if search_query:
+            queryset = queryset.filter(Q(title__icontains=search_query))
+        if search_type:
+            queryset = queryset.filter(category__icontains=search_type)
+        if file_type:
+            queryset = queryset.filter(file_type__icontains=file_type)
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['active_page'] = 'my-resources'  # Set active page for navigation
+        context['profile'] = self.request.user.profile
+        context['shared_assets'] = self.get_queryset()
+
+        theme = get_theme(self.request)
+        background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='resources')
+        context['background_image'] = background_image
+        context['foreground_images'] = foreground_images
+        context['background_pattern'] = background_pattern
+
+        # Add unpinned_assets as empty for consistency with the template
+        context['unpinned_assets'] = PNPAsset.objects.none()
+
+        return context
+
+    def render_to_response(self, context, **response_kwargs):
+        # Check if it's an HTMX request
+        if self.request.headers.get('HX-Request') == 'true':
+            return render(self.request, 'the_keep/partials/asset_list_table.html', context)
+
+        return super().render_to_response(context, **response_kwargs)
+
+
 @player_required_class_based_view
 class PNPAssetDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = PNPAsset
@@ -3280,7 +3332,7 @@ def pin_asset(request, id):
         obj.pinned = True
     obj.save()
 
-    return render(request, 'the_keep/partials/asset_pins.html', {'obj': object })
+    return render(request, 'the_keep/partials/asset_pins.html', {'obj': obj})
 
 
 
