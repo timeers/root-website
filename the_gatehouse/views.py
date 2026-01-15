@@ -276,8 +276,8 @@ def admin_required_class_based_view(view_class):
 
 @login_required
 @bookmark_toggle(Profile)
-def bookmark_player(request, object):
-    return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': object })
+def bookmark_player(request, obj):
+    return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': obj})
 
 
 @player_required
@@ -568,7 +568,10 @@ def onboard_user(request, user_type=None):
             
         # Redirect to a relevant page after onboarding
         next_url = request.POST.get('next', 'archive-home')  # Fallback to a default URL if no `next`
-        return redirect(next_url)
+        if next_url:
+            return redirect(next_url)
+        else:
+            return redirect('site-home')
 
     context = {
         'user_type': user_type,
@@ -1037,9 +1040,9 @@ def post_feedback(request, slug):
 
     post = get_object_or_404(Post, slug=slug)
 
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
-    object_translation = post.translations.filter(language=language_object).first()
+    language_code = get_language()
+    language = Language.objects.filter(code=language_code).first()
+    object_translation = post.translations.filter(language=language).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else post.title
 
 
@@ -1279,7 +1282,7 @@ def set_language_custom(request):
     return redirect(next_url)
 
 
-@admin_required
+@admin_onboard_required
 def admin_dashboard(request):
 
     new_rules = RulesFile.objects.filter(status=RulesFile.Status.NEW).count()

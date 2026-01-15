@@ -1,11 +1,17 @@
-<div style="display: flex; gap: 10px;">
-    <form action="{% url 'onboard-user' user_type=user_type %}" method="post">
+<div class="d-flex gap-3 pt-4 border-top">
+    <form action="{% url 'onboard-user' user_type=user_type %}" method="post" class="flex-fill">
         {% csrf_token %}
-        <button type="submit" class="btn btn-primary">I Agree</button>
+        <button type="submit" class="btn btn-primary btn-lg w-100 d-flex align-items-center justify-content-center gap-2">
+            <i class="bi bi-check-lg"></i>
+            I Agree
+        </button>
         <input type="hidden" name="next" value="{{ request.GET.next }}">
     </form>
-    <form action="{% url 'onboard-decline' user_type=user_type %}" method="post">
+    <form action="{% url 'onboard-decline' user_type=user_type %}" method="post" class="flex-fill">
         {% csrf_token %}
-        <button type="submit" class="btn btn-danger">Decline</button>
+        <button type="submit" class="btn btn-outline-secondary btn-lg w-100 d-flex align-items-center justify-content-center gap-2">
+            <i class="bi bi-x-lg"></i>
+            Decline
+        </button>
     </form>
 </div>

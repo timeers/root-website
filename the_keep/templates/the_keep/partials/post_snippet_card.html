@@ -1,0 +1,18 @@
+<div class="d-flex align-items-center mb-2 clickable-segment">
+    <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
+        {% if result.front_image %}
+        <div class="d-flex align-items-center me-1">
+            <img class="lg-faction-icon" src="{{ result.front_image.url }}" alt="{{ result.name }}">
+        </div>
+        {% endif %}
+        <div>
+            <div class='root-title'>
+                {{ result.name }}
+            </div>
+            <div>
+                <img class="faction-icon" src="{{ result.group.back_image.url }}" alt="{{ result.group.name }}">
+                {{ result.group.name }} - {{ result.group.post.title }}
+            </div>
+        </div>
+    </a>
+</div>

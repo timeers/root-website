@@ -20,7 +20,9 @@
                 <a class="btn btn-secondary" href="{% url 'tournaments-home' %}">{% trans 'Cancel' %}</a>
                 {% else %}
                 <a class="btn btn-secondary" href="{% url 'tournament-detail' object.slug %}">{% trans 'Cancel' %}</a>
-                <a class="btn btn-danger" href="{% url 'tournament-delete' object.slug %}">{% trans 'Delete' %}</a>
+                {% if user.profile.admin %}
+                    <a class="btn btn-danger" href="{% url 'tournament-delete' object.slug %}">{% trans 'Delete' %}</a>
+                {% endif %}
                 {% endif %}
             </div>
         </form>

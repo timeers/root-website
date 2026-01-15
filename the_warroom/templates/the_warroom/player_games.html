@@ -13,62 +13,22 @@
 {% endblock meta%}
 
 {% block content %}
+{% include 'the_warroom/partials/warroom_nav_header.html' with active_page='my-games' %}
+
+<article class="content-section mt-2">
 <div class="d-flex justify-content-between align-items-center">
-{% comment %} <div style="display: flex; align-items: center;"> {% endcomment %}
-    <div class='d-flex'>
+    <div class='d-flex align-items-center gap-2'>
         <a href="{% url 'player-detail' player.slug %}">
             {% if user.profile != player %}
-            {{ player.name }}'s 
+            {{ player.name }}'s
             {% endif %}
             {% trans 'Profile' %}
         </a>
         <i class="bi bi-chevron-right"></i>
-        {% trans 'Games' %}
-    </div>
-    <div class='d-flex align-items-center'>
-
-        <a href="{% url 'games-home' %}" class="btn btn-sm btn-secondary mt-1 ms-1 mb-3" id="games">
-            All Games
-        </a>
-    {% if user.profile == player %}
-    
-        <div class="btn-group mt-1 ms-1 mb-3">
-            <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                {% trans 'Record' %} +
-            </button>
-            <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="{% url 'record-game' %}">New Game</a></li>
-              <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">New Scorecard</a></li>
-            </ul>
-        </div>
-
-        {% comment %} <a href="{% url 'record-scorecard' %}" class="btn btn-sm btn-success mt-1 ms-1 mb-3" id="recordscorecard">
-            {% trans 'New Scorecard' %} +
-        </a>
-        <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mt-1 ms-1 mb-3" id="recordgame">
-            {% trans 'New Game' %} +
-        </a> {% endcomment %}
-
-
-        {% if user_active_count %}
-            <div class="position-relative d-inline-block mt-1 ms-1 mb-3">
-                <a class="btn btn-primary btn-sm d-inline-flex align-items-center" href="{% url 'in-progress' %}">
-                    <i class="bi bi-pencil-square"></i>
-                    <span class="ms-1">{% trans 'In Progress' %}</span>
-                </a>
-                {% if user_active_games_count %}
-                    <span class="notification-badge">
-                        {{ user_active_games_count }}
-                    </span>
-                {% endif %}
-            </div>
-        {% endif %}
-
-
-    
-    {% endif %}
+        <span>{% trans 'Games' %}</span>
     </div>
 </div>
+</article>
 
 <div class="d-flex content-section">
     <div class="article-img-container">
@@ -76,11 +36,9 @@
     </div>
         <div>
             <div class='d-flex flex-nowrap'>
-            {% if user.profile == player %}
-                <h1 class="account-heading root-title">{% trans 'My Games' %}</h1>
-            {% else %}
+
                 <h1 class="account-heading root-title">{{ player.name }}'s {% trans 'Games' %}</h1>
-            {% endif %}
+
             </div>
 
             
@@ -89,49 +47,8 @@
 </div>
 
 
-<article class="d-flex content-section">
-    <div class="w-100">
-
-
-    <h3>{% trans 'Filters' %}</h3>
-
-
-
-    <form hx-get="{% url 'player-games' player.slug %}" 
-            hx-target="#games-container"
-            hx-swap="outerHTML"
-            id="gamefilterform">
-        <div class="mb-1">
-            {{ player.name }} {% trans 'Playing as:' %}
-            {{ form.faction }}
-        </div>   
-        <div class="mb-1">
-            {% trans 'Map' %}:
-            {{ form.map }}
-        </div>    
-        <div class="mb-1">
-            {% trans 'Deck' %}:
-        {{ form.deck }}
-        </div>
-        <div class="mb-1">
-            {% trans 'Factions' %}:
-        {{ form.factions }}
-        {% trans 'Vagabonds' %}:
-        {{ form.vagabonds }}
-        </div>
-        <div class="mb-1">
-            {% trans 'Players' %}:
-        {{ form.players }}
-        </div>
-         <div>
-            {{ form.official }}
-        </div>
-        <button class="btn btn-primary mb-3">{% trans 'Filter' %}</button>
-    </form>
-
-
-    </div>
-</article>
+{% url 'player-games' player.slug as filter_url %}
+{% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url show_single_faction=True player_name=player.name %}
     
         {% include 'the_warroom/partials/game_list_home.html' %}
     
@@ -143,17 +60,33 @@
 
 {% block scripts %}
     <script>
-        const selectIds = ['#id_faction', '#id_factions', '#id_players', '#id_vagabonds', '#id_map', '#id_deck'];
+        // Universal select2 initialization - handles both singular and plural field names
+        const selectPlaceholders = {
+            '#id_faction': "{% trans 'Select a Faction' %}",
+            '#id_factions': "{% trans 'Select Factions' %}",
+            '#id_player': "{% trans 'Select Players' %}",
+            '#id_players': "{% trans 'Select Players' %}",
+            '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+            '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
+            '#id_map': "{% trans 'Select a Map' %}",
+            '#id_deck': "{% trans 'Select a Deck' %}"
+        };
 
-        // Apply select2 to all select elements in the list
-        selectIds.forEach(id => {
-            $(id).select2({
-                placeholder: "{% trans 'Select an option' %}",
-                allowClear: true
-            });
+        // Apply select2 only to fields that exist on the page
+        Object.keys(selectPlaceholders).forEach(id => {
+            if ($(id).length) {
+                $(id).select2({
+                    placeholder: selectPlaceholders[id],
+                    allowClear: true,
+                    width: '100%'
+                });
+            }
         });
 
-
-
+        if ($('#id_official').length) {
+            $('#id_official').select2({
+                width: '100%'
+            });
+        }
     </script>
 {% endblock %}

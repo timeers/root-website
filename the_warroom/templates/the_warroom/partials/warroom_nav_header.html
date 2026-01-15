@@ -1,0 +1,73 @@
+{% load static i18n %}
+
+<article class="content-section mt-2">
+    <div class="section-nav-header">
+        <!-- Navigation Tabs -->
+        <nav class="section-nav-tabs">
+            <a href="{% url 'games-home' %}"
+               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                {% trans 'Games' %}
+            </a>
+            <a href="{% url 'leaderboard-view' %}"
+               class="section-nav-tab root-title {% if active_page == 'leaderboards' %}active{% endif %}">
+                {% trans 'Leaderboards' %}
+            </a>
+            <a href="{% url 'tournaments-home' %}"
+               class="section-nav-tab root-title {% if active_page == 'series' %}active{% endif %}">
+                {% trans 'Series' %}
+            </a>
+            {% if user.is_authenticated and user_recorded_game_count %}
+                <a href="{% url 'my-submitted-games' %}"
+                   class="section-nav-tab root-title {% if active_page == 'submitted-games' %}active{% endif %}">
+                    {% trans 'Submitted Games' %}
+                </a>
+            {% endif %}
+            {% if user_active_count %}
+                <a href="{% url 'in-progress' %}"
+                   class="section-nav-tab root-title {% if active_page == 'in-progress' %}active{% endif %}">
+                    {% trans 'In Progress' %}
+                    {% if user_active_games_count %}
+                        <span class="section-nav-tab-badge">{{ user_active_games_count }}</span>
+                    {% endif %}
+                </a>
+            {% endif %}
+        </nav>
+
+        <!-- Action Buttons -->
+        <div class="section-nav-action-buttons">
+
+                <!-- Desktop buttons for Games-related pages -->
+                <div class="section-nav-actions-desktop">
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            {% trans 'Record' %} +
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
+                            <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
+                            {% if user.profile.admin and active_page == 'series' %}
+                            <li><a class="dropdown-item" href="{% url 'tournament-create' %}">{% trans 'New Series' %}</a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Mobile dropdown for Games-related pages -->
+                <div class="section-nav-actions-mobile">
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            {% trans 'Record' %} +
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
+                            <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
+                            {% if user.profile.admin and active_page == 'series' %}
+                            <li><a class="dropdown-item" href="{% url 'tournament-create' %}">{% trans 'New Series' %}</a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+
+        </div>
+    </div>
+</article>

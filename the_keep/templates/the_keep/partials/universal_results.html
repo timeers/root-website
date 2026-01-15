@@ -82,6 +82,21 @@
         {% endif %}
 
 
+        {% if pieces %}
+            <strong>{% trans 'Pieces' %}</strong>
+            {% for result in pieces %}
+                {% include 'the_keep/partials/post_snippet_piece.html' %}
+            {% endfor %}
+        {% endif %}
+
+        {% if cards %}
+        <strong>{% trans 'Cards' %}</strong>
+            {% for result in cards %}
+                {% include 'the_keep/partials/post_snippet_card.html' %}
+            {% endfor %}
+        {% endif %}
+
+        
         {% if games %}
             <strong>{% trans 'Games' %}</strong>
             {% for result in games %}
@@ -148,15 +163,6 @@
                     {% endif %}
                 </div>
             </a>
-            {% endfor %}
-        {% endif %}
-
-        {% if pieces %}
-            <strong>{% trans 'Pieces' %}</strong>
-            {% for result in pieces %}
-
-                {% include 'the_keep/partials/post_snippet_piece.html' %}
-
             {% endfor %}
         {% endif %}
 

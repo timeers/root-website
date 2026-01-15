@@ -1,0 +1,107 @@
+{% load i18n %}
+
+<article class="content-section">
+    <div class="w-100">
+
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h3>{% trans 'Filters' %}</h3>
+        </div>
+    </div>
+    <form hx-get="{{ filter_url }}"
+            hx-target="#games-container"
+            hx-swap="{{ swap_method|default:'outerHTML' }}"
+            {% if include_limit_threshold %}hx-include="#limit, #threshold"{% endif %}
+            id="gamefilterform">
+
+        {# Single faction field - only for PlayerGameFilter where player plays AS this faction #}
+        {% if show_single_faction and form.faction %}
+        <div class="mb-1">
+            {{ player_name|default:"Player" }} {% trans 'Playing as:' %}
+            {{ form.faction }}
+        </div>
+        {% endif %}
+
+        <div class="row">
+            <div class="col-md-6 mb-1">
+                {{ form.map }}
+            </div>
+            <div class="col-md-6 mb-1">
+                {{ form.deck }}
+            </div>
+        </div>
+
+        {# Multi-select factions field - handles both 'faction' and 'factions' #}
+        <div class="mb-1">
+        {% comment %} {% trans 'Factions' %}: {% endcomment %}
+        {% if form.factions %}
+            {{ form.factions }}
+        {% elif form.faction and not show_single_faction %}
+            {{ form.faction }}
+        {% endif %}
+        </div>
+
+        {# Vagabonds field - handles both singular and plural #}
+        <div class="mb-1">
+        {% comment %} {% trans 'Vagabonds' %}: {% endcomment %}
+        {% if form.vagabonds %}
+            {{ form.vagabonds }}
+        {% elif form.vagabond %}
+            {{ form.vagabond }}
+        {% endif %}
+        </div>
+
+        {# Players field - handles both singular and plural #}
+        <div class="mb-1">
+        {% comment %} {% trans 'Players' %}: {% endcomment %}
+        {% if form.players %}
+            {{ form.players }}
+        {% elif form.player %}
+            {{ form.player }}
+        {% endif %}
+        </div>
+
+        {# Official filter - conditional display based on user permissions #}
+        {% if user.is_authenticated and not user.profile.weird %}
+        <div class='mb-1'>
+            *Displaying Official Content Only
+        </div>
+        {% else %}
+        <div class='mb-1'>
+            {{ form.official }}
+        </div>
+        {% endif %}
+
+        <button class="btn btn-primary mb-1">{% trans 'Filter' %}</button>
+
+    </form>
+
+    {# Leaderboard-specific limit and threshold inputs #}
+    {% if include_limit_threshold %}
+    <div class="row">
+        <div class="col-md-6 mb-1">
+            <label for="limit">Leaderboard Places</label>
+            <input type="number"
+                   id="limit"
+                   name="limit"
+                   min="1"
+                   max="25"
+                   class="form-control"
+                   value="{{ leaderboard_places }}">
+        </div>
+
+        <div class="col-md-6 mb-1">
+            <label for="threshold">Leaderboard Threshold</label>
+            <input type="number"
+                   id="threshold"
+                   name="threshold"
+                   min="1"
+                   max="1000"
+                   class="form-control"
+                   value="{{ leaderboard_threshold }}">
+        </div>
+    </div>
+    {% endif %}
+
+    </div>
+</article>

@@ -1566,7 +1566,7 @@ class Faction(Post):
         The game threshold is how many games a faction needs to play to qualify.
         If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
         """
-        language = get_language()
+        language_code = get_language()
         
         # Start with the base queryset for factions
         queryset = cls.objects.filter(
@@ -1619,14 +1619,12 @@ class Faction(Post):
                 Subquery(
                     PostTranslation.objects.filter(
                         post=OuterRef('pk'), 
-                        language__code=language
+                        language__code=language_code
                     ).values('translated_title')[:1]
                 ),
                 F('title')  # Fallback
             )
         )
-        
-
         
         # Return as JSON if requested
         if as_json:
@@ -1989,9 +1987,9 @@ class Piece(models.Model):
     
     @property
     def get_name(self):
-        lang = get_language()
+        language_code = get_language()
         translations = PIECE_NAME_TRANSLATIONS.get(self.name, {})
-        return translations.get(lang, self.name)
+        return translations.get(language_code, self.name)
 
     def  get_absolute_url(self):
         match self.parent.component:
@@ -2894,6 +2892,17 @@ class Card(models.Model):
     @property
     def tag_string(self):
         return " ".join(self.tags).strip() if self.tags else ""
+
+    def get_absolute_url(self):
+        deckgroup = self.group
+        url = reverse('deckgroup-detail', kwargs={
+            'deckgroup_slug': deckgroup.slug, 
+            'post_slug': deckgroup.post.slug, 
+            'language_code': deckgroup.language.code})
+
+        query_params = {'highlight_card': self.id}
+        return f'{url}?{urlencode(query_params)}'
+
 
 class FeaturedItem(models.Model):
     date = models.DateField(unique=True)

@@ -1,6 +1,24 @@
 # Changelog
 
-## [1.10.1] - 2026-1-14 Admin & Notifications
+## [1.10.2] - 2026-1-14 Battlefield Unification
+
+### New Features
+- Tab view for the Battlefield
+- Tab view for the Workshop
+- Submitted games page for logged in users
+
+### Improvements
+- Universal game filter form used across the site
+- Updated feedback form styling
+- Added copy link button to card images
+- More modern onboarding pages
+
+### Bug Fixes
+- Fixed meta issues for Status and Component Games page
+- Update button showing for games with no recorder (imported games)
+- Leaderboard table overflow on small screens
+
+## [1.10.1] - 2026-1-13 Admin & Notifications
 
 ### New Features
 - Admin pending posts widget and management system

@@ -24,6 +24,7 @@ def active_user_data(request):
         recent_posts = []
         in_process_games = 0
         game_count = 0
+        recorded_game_count = 0
         scorecard_count = 0
         unassigned_scorecards = 0
         bookmarks = 0
@@ -39,6 +40,7 @@ def active_user_data(request):
                     ).exclude(status='9').order_by('-date_updated')[:3]
                 in_process_games = Game.objects.filter(final=False, recorder=profile).count()
                 game_count = Game.objects.filter(efforts__player=profile).distinct().count()
+                recorded_game_count = Game.objects.filter(recorder=profile).distinct().count()
                 scorecard_count = ScoreCard.objects.filter(recorder=profile, final=True).count()
                 unassigned_scorecards = ScoreCard.objects.filter(final=False, recorder=profile).count()
                 bookmarked_games = profile.bookmarkedgames.count()
@@ -75,6 +77,7 @@ def active_user_data(request):
             'user_recent_posts': recent_posts,
             'user_active_games_count': in_process_games,
             'user_games_count': game_count,
+            'user_recorded_game_count': recorded_game_count,
             'user_active_scorecards_count': unassigned_scorecards,
             'user_active_count': unassigned_scorecards + in_process_games,
             'user_bookmarks_count': bookmarks,

@@ -260,7 +260,7 @@ class MessageForm(forms.Form):
         required=False
     )
     captcha = ReCaptchaField(
-        label = _("Does Clearing Priority fill you with a sense of urgency?"),
+        label = _("Do you work for the Mechanical Marquise?"),
         widget=ReCaptchaV2Checkbox(
             attrs={
 

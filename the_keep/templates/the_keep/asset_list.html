@@ -15,30 +15,7 @@
 
 
 {% block content %}
-<article class="content-section mt-2">
-    <div class="d-flex justify-content-between align-items-center w-100">
-        <div>
-            <h1 class='root-title'>{% trans 'Resources' %}</h1>
-        </div>
-        <div class='d-flex flex-wrap justify-content-end gap-1'>
-
-            {% if user.is_authenticated and user.profile.assets.count != 0 %}
-                <a href="{% url 'profile' %}#assets" class="btn btn-sm btn-secondary">{% trans 'My Resources' %}</a>
-            {% endif %}
-
-            <a class="btn btn-sm btn-success" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
-
-            <a href="{% url 'post-request' %}" class="btn btn-sm btn-primary">
-                {% if user.profile.player %}
-                    {% trans 'New Post' %} +
-                {% else %}
-                    {% trans 'Request Post' %}
-                {% endif %}
-            </a>
-
-        </div>
-    </div>
-</article>
+{% include 'the_keep/partials/workshop_nav_header.html' %}
 
 
         <article class="content-section">
@@ -48,8 +25,8 @@
                 {% endif %} {% endcomment %}
         <!-- Search bar with htmx attributes -->
             <form class="mb-3"
-            hx-get="{% url 'asset-list' %}" 
-            hx-target="#asset-table" 
+            hx-get="{% if active_page == 'my-resources' %}{% url 'my-resources' %}{% else %}{% url 'asset-list' %}{% endif %}"
+            hx-target="#asset-table"
             hx-swap="outerHTML"
             hx-trigger="submit, input delay:0.3s">
                         <div class="row">
@@ -100,7 +77,7 @@
 
             </form>
 
-        <div style="overflow-x: auto;">
+        <div class="table-responsive">
         <table id="sortable-table">
             <thead>
                 <tr>
@@ -108,10 +85,6 @@
                     <th class="sortable" onclick="sortTable(1)">{% trans 'Category' %}</th>
                     <th class="sortable" onclick="sortTable(2)">{% trans 'File' %}</th>
                     <th class="sortable" onclick="sortTable(3)">{% trans 'Date' %}</th>
-                    {% comment %} <th class="sortable" onclick="sortTable(4)">{% trans 'Shared By' %}</th> {% endcomment %}
-                    {% if profile.player %}
-                    <th></th>
-                    {% endif %}
                 </tr>
             </thead>
             <tbody id="asset-table" class="effort-rows">
@@ -121,24 +94,6 @@
                     <td>{{ obj.category }}</td>
                     <td>{{ obj.file_type }}</td>
                     <td>{{ obj.date_updated|date:"m/d/y" }}</td>
-
-                    {% comment %} <td>
-                        {% if obj.shared_by %}
-                        {{ obj.shared_by.display_name }}
-                        {% else %}
-                        ---
-                        {% endif %}
-                    </td> {% endcomment %}
-                    {% if profile.player %}
-                    <td>
-                        {% if obj.shared_by == profile and obj.shared_by %}
-                        <a class="btn btn-warning btn-sm mt-1 mb-1" href="{% url 'asset-update' obj.pk %}"><i class="bi bi-pencil-square"></i></a>
-                        {% endif %}
-                        {% if profile.admin_onboard %}
-                          {% include 'the_keep/partials/asset_pins.html' %}
-                        {% endif %}
-                    </td>
-                    {% endif %}
                 </tr>
                 {% endfor %}
 

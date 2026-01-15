@@ -344,6 +344,12 @@ def player_game_list_view(request, slug=None):
     else:
         leaderboard_threshold = 1
 
+    # Theme
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
+        theme=theme, page='games'
+    )
+
     context = {
         'games': page_obj,
         'is_paginated': paginator.num_pages > 1,
@@ -358,9 +364,12 @@ def player_game_list_view(request, slug=None):
         'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
         'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
         'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+        'background_image': background_image,
+        'foreground_images': foreground_images,
+        'background_pattern': background_pattern,
     }
 
-    
+
     if player:
         context['player'] = player
 
@@ -371,9 +380,81 @@ def player_game_list_view(request, slug=None):
     return response
 
 
+@login_required
+def my_submitted_games_view(request):
+    player = request.user.profile
+
+    queryset = Game.objects.filter(final=True, recorder=player)
+    if not player.weird:
+        queryset = queryset.filter(official=True)
+
+    queryset = queryset.prefetch_related(
+        'efforts__player', 'efforts__faction', 'efforts__vagabond',
+        'round__tournament', 'hirelings', 'landmarks', 'tweaks',
+        'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    ).distinct()
+
+    filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
+    filtered_qs = filterset.qs.order_by('-date_posted')
+
+    paginator = Paginator(filtered_qs, settings.PAGE_SIZE)
+    page_number = request.GET.get('page')
+
+    try:
+        page_obj = paginator.get_page(page_number)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
+    games_count = paginator.count
+    efforts = Effort.objects.filter(game__in=filtered_qs)
+
+    if games_count > 100:
+        leaderboard_threshold = 10
+    elif games_count > 50:
+        leaderboard_threshold = 5
+    elif games_count > 20:
+        leaderboard_threshold = 3
+    elif games_count > 10:
+        leaderboard_threshold = 2
+    else:
+        leaderboard_threshold = 1
+
+    # Theme
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
+        theme=theme, page='games'
+    )
+
+    context = {
+        'games': page_obj,
+        'is_paginated': paginator.num_pages > 1,
+        'page_obj': page_obj,
+        'games_count': games_count,
+        'form': filterset.form,
+        'filterset': filterset,
+        'leaderboard_threshold': leaderboard_threshold,
+        'player_view': False,
+        'submitted_view': True,
+        'player': player,
+        'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+        'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+        'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
+        'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+        'background_image': background_image,
+        'foreground_images': foreground_images,
+        'background_pattern': background_pattern,
+    }
+
+    template_name = 'the_warroom/partials/game_list_home.html' if getattr(request, 'htmx', False) else 'the_warroom/my_submitted_games.html'
+
+    response = render(request, template_name, context)
+
+    return response
+
+
 # @player_onboard_required
 def game_detail_view(request, id=None, league_id=None):
-    current_language_code = get_language()
+    language_code = get_language()
 
     if id:
         game = get_object_or_404(Game, id=id)
@@ -392,7 +473,7 @@ def game_detail_view(request, id=None, league_id=None):
     if game.recorder:
         participants.append(game.recorder)
 
-    translations = PostTranslation.objects.filter(language__code=current_language_code)
+    translations = PostTranslation.objects.filter(language__code=language_code)
     efforts = game.efforts.all().prefetch_related(
         'player', 'vagabond', 'scorecard',
         Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
@@ -774,8 +855,8 @@ def add_player_to_effort(request):
 
 @player_required
 @bookmark_toggle(Game)
-def bookmark_game(request, object):
-    return render(request, 'the_warroom/partials/bookmarks.html', {'game': object })
+def bookmark_game(request, obj):
+    return render(request, 'the_warroom/partials/bookmarks.html', {'game': obj})
 
 
 
@@ -1066,8 +1147,8 @@ def scorecard_detail_view(request, id=None):
         obj = ScoreCard.objects.get(id=id)
     except ObjectDoesNotExist:
         obj = None
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
@@ -1219,8 +1300,8 @@ def scorecard_delete_view(request, id=None):
 @player_required
 def scorecard_list_view(request):
     active_profile = request.user.profile
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('turns', 'faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
 
 
@@ -1600,9 +1681,9 @@ def tournaments_home(request):
     concluded_tournaments = concluded_tournaments.annotate(
     unique_players_count=Count('rounds__games__efforts__player', distinct=True)
     )
-    
+
     ongoing_tournaments = Tournament.objects.filter(
-        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), 
+        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
         start_date__lt=timezone.now()
     )
     ongoing_tournaments = ongoing_tournaments.annotate(
@@ -1611,11 +1692,31 @@ def tournaments_home(request):
 
     # all_tournaments = Tournament.objects.all()
 
+    # Get user's tournaments (where they are designer or have played)
+    user_tournaments = None
+    if request.user.is_authenticated:
+        user_tournaments = Tournament.objects.filter(
+            Q(designer=request.user.profile) |
+            Q(rounds__games__efforts__player=request.user.profile)
+        ).distinct().annotate(
+            unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+        )
+    print(user_tournaments)
+    # Theme
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
+        theme=theme, page='games'
+    )
+
     context = {
         'scheduled': scheduled_tournaments,
         'concluded': concluded_tournaments,
         'ongoing': ongoing_tournaments,
+        'user_tournaments': user_tournaments,
         # 'all': all_tournaments,
+        'background_image': background_image,
+        'foreground_images': foreground_images,
+        'background_pattern': background_pattern,
     }
     return render(request, 'the_warroom/tournaments_home.html', context)
 
@@ -2012,8 +2113,8 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 @player_required
 def in_progress_view(request):
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     user_profile = request.user.profile
     prefetch_game = [
         'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
@@ -2037,12 +2138,20 @@ def in_progress_view(request):
         )
     )
 
+    # Theme
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
+        theme=theme, page='games'
+    )
+
     context = {
         'in_progress_games': in_progress_games,
         'in_progress_games_count': in_progress_games.count(),
         'in_progress_scorecards': in_progress_scorecards,
         'in_progress_scorecards_count': in_progress_scorecards.count(),
-
+        'background_image': background_image,
+        'foreground_images': foreground_images,
+        'background_pattern': background_pattern,
     }
 
     return render(request, 'the_warroom/in_progress.html', context)

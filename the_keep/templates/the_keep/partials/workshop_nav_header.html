@@ -1,0 +1,55 @@
+{% load static i18n %}
+
+<article class="content-section mt-2">
+    <div class="section-nav-header">
+        <!-- Navigation Tabs -->
+        <nav class="section-nav-tabs">
+            <a href="{% url 'asset-list' %}"
+               class="section-nav-tab root-title {% if active_page == 'workshop' %}active{% endif %}">
+                {% trans 'Workshop' %}
+            </a>
+            {% if user.is_authenticated and shared_assets %}
+                <a href="{% url 'my-resources' %}"
+                   class="section-nav-tab root-title {% if active_page == 'my-resources' %}active{% endif %}">
+                    {% trans 'My Resources' %}
+                </a>
+            {% endif %}
+        </nav>
+
+        <!-- Action Buttons -->
+        <div class="section-nav-action-buttons">
+            <!-- Desktop buttons -->
+            <div class="section-nav-actions-desktop">
+                <div class="btn-group">
+                    <a class="btn btn-success btn-sm" href="{% url 'asset-new' %}">{% trans 'New Resource' %} +</a>
+                    <a href="{% url 'post-request' %}" class="btn btn-primary btn-sm">
+                        {% if user.is_authenticated and user.profile.player %}
+                            {% trans 'New Post' %} +
+                        {% else %}
+                            {% trans 'Request Post' %}
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+
+            <!-- Mobile dropdown -->
+            <div class="section-nav-actions-mobile">
+                <div class="btn-group">
+                    <button type="button" class="btn btn-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                        {% trans 'Actions' %}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{% url 'asset-new' %}">{% trans 'New Resource' %}</a></li>
+                        <li><a class="dropdown-item" href="{% url 'post-request' %}">
+                            {% if user.is_authenticated and user.profile.player %}
+                                {% trans 'New Post' %}
+                            {% else %}
+                                {% trans 'Request Post' %}
+                            {% endif %}
+                        </a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</article>

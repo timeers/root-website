@@ -72,13 +72,13 @@ def post_comment_delete(request, pk):
 def bookmark_toggle(model):
     def inner_func(func):
         def wrapper(request, *args, **kwargs):
-            object = get_object_or_404(model, id=kwargs.get('id'))
-            player_exists = object.bookmarks.filter(discord=request.user.profile.discord).exists()
+            obj = get_object_or_404(model, id=kwargs.get('id'))
+            player_exists = obj.bookmarks.filter(discord=request.user.profile.discord).exists()
             if player_exists:
-                object.bookmarks.remove(request.user.profile)
+                obj.bookmarks.remove(request.user.profile)
             else:
-                object.bookmarks.add(request.user.profile)
-            return func(request, object)
+                obj.bookmarks.add(request.user.profile)
+            return func(request, obj)
         return wrapper
     return inner_func
 

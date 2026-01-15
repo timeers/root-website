@@ -16,12 +16,106 @@
 
 
 {% block content %}
-<h1 class='root-title'>{{ title }}</h1>
-<form method="POST">
-    {% csrf_token %}
-    {{ form | crispy }}
-    <button class="btn btn-primary mb-1" type="submit">{% trans 'Submit' %}</button>
-</form>
+<article class="content-section">
+    <div class="feedback-header mb-4">
+        <h1 class='root-title mb-3'>{{ title }}</h1>
+        <p class="text-muted">
+            {% trans "Is something missing or incorrect? Do you have suggestions to improve the site? We'd love to hear from you!" %}
+        </p>
+    </div>
+
+    <div class="feedback-form-container">
+        <form method="POST" class="feedback-form">
+            {% csrf_token %}
+            {{ form | crispy }}
+
+            <div class="d-flex gap-2 mt-4">
+                <button class="btn btn-primary" type="submit">
+                    <i class="bi bi-send-fill me-1"></i>
+                    {% trans 'Submit Feedback' %}
+                </button>
+                {% if request.GET.next %}
+                    <a href="{{ request.GET.next }}" class="btn btn-secondary">
+                        {% trans 'Cancel' %}
+                    </a>
+                {% endif %}
+            </div>
+        </form>
+
+        <div class="feedback-info mt-4 p-3 bg-light rounded">
+            <h6 class="fw-bold mb-2">
+                <i class="bi bi-info-circle me-1"></i>
+                {% trans 'Quick Tips' %}
+            </h6>
+            <ul class="small mb-0">
+                <li>{% trans 'Be specific and provide as much detail as possible' %}</li>
+                <li>{% trans 'For bugs, include steps to reproduce the issue' %}</li>
+                <li>{% trans 'For outdated information, please provide a link to the correct source' %}</li>
+            </ul>
+        </div>
+    </div>
+</article>
+
+<style>
+.feedback-header {
+    border-bottom: 2px solid var(--button-color);
+    padding-bottom: 1rem;
+}
+
+.feedback-form-container {
+    max-width: 800px;
+}
+
+.feedback-form .form-group {
+    margin-bottom: 1.5rem;
+}
+
+.feedback-form label {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.5rem;
+}
+
+.feedback-form .form-control,
+.feedback-form .form-select {
+    border: 1.5px solid #ced4da;
+    border-radius: 0.375rem;
+    padding: 0.625rem 0.875rem;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.feedback-form .form-control:focus,
+.feedback-form .form-select:focus {
+    border-color: var(--button-color);
+    box-shadow: 0 0 0 0.2rem rgba(var(--button-color-rgb), 0.25);
+}
+
+.feedback-form textarea.form-control {
+    min-height: 150px;
+    resize: vertical;
+}
+
+.feedback-info {
+    border-left: 4px solid var(--button-color);
+}
+
+.feedback-info ul {
+    padding-left: 1.25rem;
+}
+
+.feedback-info li {
+    margin-bottom: 0.5rem;
+}
+
+.feedback-info li:last-child {
+    margin-bottom: 0;
+}
+
+.feedback-form #div_id_captcha > div {
+    display: flex;
+    justify-content: center;
+}
+</style>
 
 {% endblock content %}
 
@@ -29,18 +123,18 @@
 
 <script>
     document.getElementById('id_title').addEventListener('change', function () {
-        
+
       const title = this.value;
       const messageField = document.getElementById('id_message');
       console.log(title)
-      
+
       let placeholderText = 'Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.';
       switch (title) {
         case 'translation':
           placeholderText = 'Please provide a language, the discord username of the translator (if available), the translated title, any translated flavor text or description, and a link to the translated image files.';
           break;
       }
-  
+
       messageField.placeholder = placeholderText;
     });
   </script>

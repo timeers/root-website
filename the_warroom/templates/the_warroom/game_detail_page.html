@@ -156,7 +156,7 @@
     </small>
     </div>
     </article>
-{% elif user.profile == game.recorder %}
+{% elif user.profile == game.recorder and user.is_authenticated %}
 <article class="d-flex content-section">
     <div class="w-100">
     {% comment %} <h2>Update Details</h2> {% endcomment %}
