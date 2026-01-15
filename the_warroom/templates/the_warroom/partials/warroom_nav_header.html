@@ -16,10 +16,10 @@
                class="section-nav-tab root-title {% if active_page == 'series' %}active{% endif %}">
                 {% trans 'Series' %}
             </a>
-            {% if user.is_authenticated %}
+            {% if user.is_authenticated and user_recorded_game_count %}
                 <a href="{% url 'my-submitted-games' %}"
                    class="section-nav-tab root-title {% if active_page == 'submitted-games' %}active{% endif %}">
-                    {% trans 'My Games' %}
+                    {% trans 'Submitted Games' %}
                 </a>
             {% endif %}
             {% if user_active_count %}
@@ -55,10 +55,10 @@
                 <!-- Mobile dropdown for Games-related pages -->
                 <div class="section-nav-actions-mobile">
                     <div class="btn-group">
-                        <button type="button" class="btn btn-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                            {% trans 'Actions' %}
+                        <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            {% trans 'Record' %} +
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end">
+                        <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
                             <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
                             {% if user.profile.admin and active_page == 'series' %}

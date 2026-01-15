@@ -2,53 +2,205 @@
 {% block title %}Onboard | {% endblock %}
 {% block content %}
 
-<h1>Welcome</h1>
-<article class="d-flex content-section">
-<div class="w-100">
-{% if user_type == 'admin' and active_user.admin %}
-    <div>Thank you for your interest in helping moderate the site.</div>
-    <div>By accepting you agree to not abuse Admin actions.</div>
-    <div>You will be able to organize tournaments, edit and delete games and demote or promote users.</div>
-    <div>Thank you for your help!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8 col-xl-7">
+            <article class="content-section shadow-sm">
+                <div class="text-center mb-4">
+                    <h1 class="root-title display-5 fw-bold mb-3">Welcome to the Root Database</h1>
+                    <p class="text-muted lead">Let's get you set up</p>
+                </div>
 
-{% elif user_type == 'designer' and active_user.designer and active_user.editor_onboard %}
-    <div>Thank you for your interest in posting your own fan-made Root content.</div>
-    <div>All the rules for editing posts apply to posting new content. By accepting, you also agree to not over-post or post anything you do not plan to develp further.</div>
-    <div>If you would prefer to have an admin post your material, click "Decline".</div>
-    <div>Have fun creating and enjoy!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+                {% if user_type == 'admin' and active_user.admin and not active_user.admin_onboard %}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3">
+                                <i class="bi bi-shield-check"></i>
+                                Admin Moderator Role
+                            </h3>
+                            <p class="mb-2">Thank you for your interest in helping moderate the site.</p>
+                        </div>
 
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Responsibilities:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Edit and moderate incorrect game records</li>
+                                <li>Post new fan content for unregistered users</li>
+                                <li>Review and approve submitted fan content</li>
+                                <li>Manage user permissions and roles</li>
+                                <li>Approve or deny user Discord Invite requests</li>
+                                <li>Refresh the Law of Root when an update is available</li>
+                                <li>Post helpful FAQs for Root and the Website</li>
+                                <li>Maintain community standards</li>
+                            </ul>
+                        </div>
 
-{% elif user_type == 'designer' and active_user.designer %}
-    <div>Thank you for your interest in posting your own fan-made Root content.</div>
-    <div>Every post must be linked to a Discord or BGG thread for discussion.</div>
-    <div>By accepting, you agree to not over-post or post offensive material. You also agree to only post ideas you intend to develop further.</div>
-    <div>If you would prefer to have an admin post your material, click "Decline".</div>
-    <div>Have fun creating and enjoy!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+                        <div class="alert alert-warning border-warning mb-4">
+                            <strong>Important:</strong> By accepting, you agree to use admin actions responsibly and not abuse your moderator privileges.
+                        </div>
 
-{% elif user_type == 'editor' and active_user.editor %}
-    <div>Thank you for your interest in keeping your fan-made content up to date.</div>
-    <div>You will be able to edit and update all of your existing posts.</div>
-    <div>Every post should be linked to a Discord or BGG thread for discussion.</div>
-    <div>By accepting, you agree to not post offensive material.</div>
-    <div>If you would prefer to have an admin continue to update your material, click "Decline".</div>
-    <div>Have fun creating and enjoy!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+                        <p class="text-muted mb-4">Thank you for helping make our community better!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
-{% elif user_type == 'player' and active_user.player %}
-    <div>Thank you for logging in. We're happy to have you here!</div> 
-    <div>By accepting you agree to not post spam or offensive material.</div>
-    <div>You also agree to only post games that are accurate to the best of your knowledge.</div>
-    <div>If you see anything that does not align with this agreement please report it.</div>
-    <div>Please be respectful and enjoy!</div>
-    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+                {% elif user_type == 'designer' and active_user.designer and active_user.editor_onboard and not active_user.designer_onboard %}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3">
+                                <i class="bi bi-pencil-square"></i>
+                                Designer
+                            </h3>
+                            <p class="mb-2">Thank you for your interest in posting your own fan-made Root content.</p>
+                        </div>
 
-{% else %}
-    <div>You are all up to date. Enjoy the database.</div>
-{% endif %}
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Guidelines:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>All the rules for editing posts apply to posting new content</li>
+                                <li>Only post ideas you plan to develop further</li>
+                                <li>No offensive material or spam</li>                                
+                                <li>Avoid over-posting or submitting incomplete ideas</li>
+                                <li>Link posts to Discord or BGG threads for discussion</li>
+                            </ul>
+                        </div>
+
+                        <p class="text-muted mb-4">If you would prefer to have an admin review your posts, click "Decline".</p>
+                        <p class="fw-semibold">Have fun creating and enjoy!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+                {% elif user_type == 'designer' and active_user.designer and not active_user.designer_onboard %}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3">
+                                <i class="bi bi-pencil-square"></i>
+                                Designer & Editor
+                            </h3>
+                            <p class="mb-2">Thank you for your interest in posting and updating your own fan-made Root content.</p>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Requirements:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Only post ideas you plan to develop further</li>
+                                <li>No offensive material or spam</li>                                
+                                <li>Avoid over-posting or submitting incomplete ideas</li>
+                                <li>Link posts to Discord or BGG threads for discussion</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Permissions:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Post new fan content without admin review</li>
+                                <li>Edit and update all of your existing posts</li>
+                                <li>Maintain links to Discord or BGG discussion threads</li>
+                                <li>Keep content current and accurate</li>
+                                <li>Add and edit FAQs</li>
+                                <li>Add and edit detailed rules to the Law</li>
+                                <li>Add a Components Manifest</li>
+                                <li>Add Translations for your posts</li>
+                            </ul>
+                        </div>
+
+                        <p class="text-muted mb-4">If you would prefer to have an admin review your posts, click "Decline".</p>
+                        <p class="fw-semibold">Have fun creating and enjoy!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+                {% elif user_type == 'editor' and active_user.editor and not active_user.editor_onboard and not active_user.designer_onboard %}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3">
+                                <i class="bi bi-pencil-square"></i>
+                                Editor
+                            </h3>
+                            <p class="mb-2">Thank you for your interest in keeping your fan-made content up to date.</p>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Permissions:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Edit and update all of your existing posts</li>
+                                <li>Maintain links to Discord or BGG discussion threads</li>
+                                <li>Keep content current and accurate</li>
+                                <li>Add and edit FAQs</li>
+                                <li>Add and edit detailed rules to the Law</li>
+                                <li>Add a Components Manifest</li>
+                                <li>Add Translations for your posts</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Responsibilities:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Follow community guidelines</li>
+                                <li>Don't post offensive or inappropriate content</li>
+                                <li>Don't post intentionally inaccurate material</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-info border-info mb-4">
+                            <strong>Remember:</strong> Posts without recent games or updates will be moved to Inactive after 6 months.
+                        </div>
+
+                        <p class="text-muted mb-4">If you would prefer to have an admin continue to update your material, click "Decline".</p>
+                        <p class="fw-semibold">Have fun creating and enjoy!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+                {% elif user_type == 'player' and active_user.player and not active_user.player_onboard %}
+                    {{active_user.player_onboard }}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3">
+                                <i class="bi bi-people"></i>
+                                Community Member
+                            </h3>
+                            <p class="mb-2 lead">Thank you for logging in. We're happy to have you here!</p>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Community Guidelines:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>No spam or offensive material</li>
+                                <li>Post game records that are accurate to the best of your knowledge</li>
+                                <li>Be respectful to other community members</li>
+                                <li>Report any content that violates these guidelines</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Permissions:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Submit fan content for approval</li>
+                                <li>Record games of Root</li>
+                                <li>Record turn by turn scores for your games</li>
+                                <li>Post community resources to your profile</li>
+                                <li>View other user's profiles</li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-light p-3 rounded border mb-4">
+                            <p class="mb-0 small text-muted">
+                                <strong>Need help?</strong> If you see anything that doesn't align with our community agreement, please report it to the moderators by using the feedback form linked at the bottom of the site.
+                            </p>
+                        </div>
+
+                        <p class="fw-semibold">Please be respectful and enjoy!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-check-circle text-success mb-3" style="font-size: 48px;"></i>
+                        <h3 class="h4 mb-2">You're All Set!</h3>
+                        <p class="text-muted">You are all up to date. Enjoy the database.</p>
+                    </div>
+                {% endif %}
+            </article>
+        </div>
+    </div>
 </div>
-</article>
 
 {% endblock %}

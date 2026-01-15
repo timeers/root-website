@@ -2,8 +2,9 @@
 {% load i18n %}
 {% block title %}{{ object.title }} Games | {% endblock %}
 
-{% include 'the_keep/partials/component_meta.html' %}
-
+{% block meta %}
+    {% include 'the_keep/partials/component_meta.html' %}
+{% endblock meta %}
 
 {% block content %}
 

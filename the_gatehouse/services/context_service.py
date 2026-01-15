@@ -171,38 +171,3 @@ def get_daily_user_summary(date=None):
     summary['message'] = message
 
     return summary
-
-
-
-# def detect_language(request):
-
-#     if request.user.is_authenticated:
-#         profile = request.user.profile
-#         if profile.language:
-#             language = profile.language.code
-#             return language
-#     # First try getting from the request (browser or URL)
-#     language = get_language_from_request(request)
-    
-#     # If not found, fall back to session or default language
-#     if not language:
-#         language = get_language()
-    
-#     return language
-
-# def set_language(request):
-#     # Check if the user is logged in and has a saved language preference
-#     if request.user.is_authenticated and hasattr(request.user.profile, 'language'):
-#         user_language = request.user.profile.language.code
-#     elif 'language' in request.session:
-#         # Use the session value if available
-#         user_language = request.session['language']
-#     else:
-#         # Fall back to the browser's default language
-#         user_language = get_language_from_request(request)
-
-#     # Activate the language
-#     activate(user_language)
-
-#     # Optionally, store the selected language in the session
-#     request.session['language'] = user_language

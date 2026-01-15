@@ -36,11 +36,9 @@
     </div>
         <div>
             <div class='d-flex flex-nowrap'>
-            {% if user.profile == player %}
-                <h1 class="account-heading root-title">{% trans 'My Games' %}</h1>
-            {% else %}
+
                 <h1 class="account-heading root-title">{{ player.name }}'s {% trans 'Games' %}</h1>
-            {% endif %}
+
             </div>
 
             

@@ -1212,9 +1212,10 @@ def ultimate_component_view(request, slug, component):
             color_label = None
             object_color = None
 
-    absolute_uri = build_absolute_uri(request, obj.get_absolute_url())
+    absolute_uri = f'{build_absolute_uri(request, obj.get_absolute_url())}?lang={language_code}'
 
     # Meta Tags
+    meta_title = object_title
     meta_description = obj.get_meta_description(language)
     meta_image_url = obj.get_meta_image_url(language)
 
@@ -1291,6 +1292,7 @@ def ultimate_component_view(request, slug, component):
         'wr_link_config': wr_link_config,
         'fr_link_config': fr_link_config,
 
+        'meta_title': meta_title,
         'meta_description': meta_description,
         'meta_image_url': meta_image_url,
 
@@ -1311,8 +1313,8 @@ def ultimate_component_view(request, slug, component):
 
 def color_group_view(request, color_name):
 
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
 
     color_name = str(color_name).capitalize()
     color_group = ColorChoices.get_color_by_name(color_name)
@@ -1372,8 +1374,8 @@ def color_group_view(request, color_name):
 
 def animal_match_view(request, slug):
 
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     # post = get_object_or_404(Post, slug=slug)
     post = Post.objects.filter(slug=slug).annotate(
                 selected_title=Coalesce(
@@ -1439,8 +1441,6 @@ def animal_match_view(request, slug):
                     'lore'  # Fall back to the default lore if there's no translation
                 )
             ).distinct()
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
     # Try to get the translated animal name from PostTranslation
     translated_animal = None
     if language_object:
@@ -1533,8 +1533,14 @@ def component_games(request, slug, component):
     except EmptyPage:
         page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
 
+    language_code = get_language()
+    language = Language.objects.filter(code=language_code).first()
 
-
+    # Meta Tags
+    absolute_uri = build_absolute_uri(request, obj.get_absolute_url())
+    meta_title = f'{obj.title} Games'
+    meta_description = f'Games recorded with {obj.title}'
+    meta_image_url = obj.get_meta_image_url(language)
 
     context = {
         'object': obj,
@@ -1549,6 +1555,11 @@ def component_games(request, slug, component):
         'win_rate': win_rate,
         'tourney_points': tourney_points,
         'total_efforts': total_efforts,
+
+        'absolute_uri': absolute_uri,
+        'meta_title': meta_title,
+        'meta_description': meta_description,
+        'meta_image_url': meta_image_url,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
@@ -2805,9 +2816,9 @@ def status_check(request, slug):
     Klass = COMPONENT_MAPPING.get(post.component)
     obj = get_object_or_404(Klass, slug=slug)
 
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
-    object_translation = obj.translations.filter(language=language_object).first()
+    language_code = get_language()
+    language = Language.objects.filter(code=language_code).first()
+    object_translation = obj.translations.filter(language=language).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.title
 
 
@@ -2912,6 +2923,12 @@ def status_check(request, slug):
                 object_color = "#5f788a"
         else:
             object_color = "#5f788a"
+    
+    # Meta Tags
+    absolute_uri = build_absolute_uri(request, obj.get_absolute_url())
+    meta_title = f'{obj.title} Status'
+    meta_description = f'{total_completion} Progress towards Stable Status ({total_count}/{total_threshold})'
+    meta_image_url = obj.get_meta_image_url(language)
 
     context = {
         'object': obj,
@@ -2958,6 +2975,11 @@ def status_check(request, slug):
         'total_count': total_count,
         'total_threshold': total_threshold,
         'total_completion': total_completion,
+
+        'absolute_uri': absolute_uri,
+        'meta_title': meta_title,
+        'meta_description': meta_description,
+        'meta_image_url': meta_image_url,
     }
 
     return render(request, 'the_keep/status_check.html', context)
@@ -3371,8 +3393,8 @@ def universal_search(request):
     translations = PostTranslation.objects.none()
     translated_posts = Post.objects.none()
 
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
 
     if not query:
         factions = Faction.objects.none()
@@ -3393,6 +3415,7 @@ def universal_search(request):
         laws = Law.objects.none()
         bot_laws = Law.objects.none()
         fan_laws = Law.objects.none()
+        cards = Card.objects.none()
     else:
         # If the query is not empty, perform the search as usual
         factions = search_translatable_posts(Faction, query, language_object, view_status)
@@ -3427,7 +3450,7 @@ def universal_search(request):
             
         # Laws, look for exact matches first, then contains matches
         laws = Law.objects.filter(
-            language__code=language,
+            language__code=language_code,
             group__type__in=['Official', 'Appendix'],
             group__public=True
         ).filter(
@@ -3435,7 +3458,7 @@ def universal_search(request):
         )
         if not laws:
             laws = Law.objects.filter(
-                language__code=language,
+                language__code=language_code,
                 group__type__in=['Official', 'Appendix'],
                 group__public=True
             ).filter(
@@ -3443,7 +3466,7 @@ def universal_search(request):
             )
 
         bot_laws = Law.objects.filter(
-            language__code=language,
+            language__code=language_code,
             group__type='Bot',
             group__public=True
         ).filter(
@@ -3451,7 +3474,7 @@ def universal_search(request):
         )
         if not bot_laws:
             bot_laws = Law.objects.filter(
-                language__code=language,
+                language__code=language_code,
                 group__type='Bot',
                 group__public=True
             ).filter(
@@ -3459,7 +3482,7 @@ def universal_search(request):
             )
 
         fan_laws = Law.objects.filter(
-            language__code=language,
+            language__code=language_code,
             group__type='Fan',
             group__public=True
         ).filter(
@@ -3467,12 +3490,13 @@ def universal_search(request):
         )
         if not fan_laws:
             fan_laws = Law.objects.filter(
-                language__code=language,
+                language__code=language_code,
                 group__type='Fan',
                 group__public=True
             ).filter(
                 (Q(plain_title__icontains=query))
             )
+        cards = Card.objects.filter(name__icontains=query)
 
     if color_group:
         color_count = 1
@@ -3484,7 +3508,8 @@ def universal_search(request):
                      players.count() + games.count() + scorecards.count() + 
                      tournaments.count() + rounds.count() + tweaks.count() + 
                      resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count() +
-                     laws.count() + bot_laws.count() + fan_laws.count()
+                     laws.count() + bot_laws.count() + fan_laws.count() +
+                     cards.count()
                      )
     
     no_results = total_results == 0
@@ -3518,6 +3543,7 @@ def universal_search(request):
         'laws': laws[:result_count],
         'bot_laws': bot_laws[:result_count],
         'fan_laws': fan_laws[:result_count],
+        'cards': cards[:result_count],
         'no_results': no_results,
         'query': query,
     }
@@ -5149,14 +5175,34 @@ def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
     language = get_object_or_404(Language, code=language_code)
     has_only_one_card = post.has_only_one_card()
     deckgroup = get_object_or_404(
-        DeckGroup, 
-        slug=deckgroup_slug, 
-        post=post, 
+        DeckGroup,
+        slug=deckgroup_slug,
+        post=post,
         language=language
     )
- 
+
     can_edit = user_can_edit(request, post)
     title = deckgroup.name
+    highlight_card_id = request.GET.get('highlight_card')
+    highlighted_card = None
+    absolute_uri = None
+    meta_title = f'{deckgroup.name} - {deckgroup.post.title}'
+    meta_description = f'{deckgroup.card_count} {deckgroup.name} for {deckgroup.post.title}'
+    meta_image_url = deckgroup.back_image.url
+    if highlight_card_id:
+        highlighted_card = Card.objects.filter(group=deckgroup, id=highlight_card_id).first()
+        if highlighted_card:
+            print('highlight')
+            absolute_uri = build_absolute_uri(request, highlighted_card.get_absolute_url())
+            meta_image_url = highlighted_card.front_image.url
+            if highlighted_card.name:
+                meta_title = f'{highlighted_card.name} - {deckgroup.name}'
+            if highlighted_card.text:
+                meta_description = highlighted_card.text
+
+    if not absolute_uri:
+        absolute_uri = build_absolute_uri(request, deckgroup.get_absolute_url())
+
     context = {
         "deckgroup": deckgroup,
         "post": post,
@@ -5165,6 +5211,12 @@ def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
         'language_code': language_code,
         "title": title,
         "has_only_one_card": has_only_one_card,
+        "highlight_card_id": highlight_card_id,
+
+        "absolute_uri": absolute_uri,
+        "meta_title": meta_title,
+        "meta_description": meta_description,
+        "meta_image_url": meta_image_url,
         }
     return render(request, "the_keep/deckgroup/detail.html", context)
 

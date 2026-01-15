@@ -454,7 +454,7 @@ def my_submitted_games_view(request):
 
 # @player_onboard_required
 def game_detail_view(request, id=None, league_id=None):
-    current_language_code = get_language()
+    language_code = get_language()
 
     if id:
         game = get_object_or_404(Game, id=id)
@@ -473,7 +473,7 @@ def game_detail_view(request, id=None, league_id=None):
     if game.recorder:
         participants.append(game.recorder)
 
-    translations = PostTranslation.objects.filter(language__code=current_language_code)
+    translations = PostTranslation.objects.filter(language__code=language_code)
     efforts = game.efforts.all().prefetch_related(
         'player', 'vagabond', 'scorecard',
         Prefetch('faction__translations', queryset=translations, to_attr='filtered_translations')
@@ -1147,8 +1147,8 @@ def scorecard_detail_view(request, id=None):
         obj = ScoreCard.objects.get(id=id)
     except ObjectDoesNotExist:
         obj = None
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
@@ -1300,8 +1300,8 @@ def scorecard_delete_view(request, id=None):
 @player_required
 def scorecard_list_view(request):
     active_profile = request.user.profile
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('turns', 'faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
 
 
@@ -2113,8 +2113,8 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 @player_required
 def in_progress_view(request):
-    language = get_language()
-    language_object = Language.objects.filter(code=language).first()
+    language_code = get_language()
+    language_object = Language.objects.filter(code=language_code).first()
     user_profile = request.user.profile
     prefetch_game = [
         'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 

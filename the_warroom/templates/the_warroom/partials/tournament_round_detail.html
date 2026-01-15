@@ -54,61 +54,63 @@
         <div class="tab-pane fade" id="rounds" role="tabpanel" aria-labelledby="rounds-tab">
             <article class="d-flex content-section">
                 <div class="w-100">
-            {% if user.is_authenticated %}
-                {% if user.profile.admin or user.profile == object.designer %}
-                <div style="display: flex; justify-content: flex-end;">
-                <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">{% trans 'Add Round' %} +</a>
-                </div>
-                {% endif %}
-            {% endif %}
-            
-            {% with 'Round' as type %}
-                {% include 'the_warroom/partials/tournament_list_header.html' %}
-            {% endwith %}
+                    {% if user.is_authenticated %}
+                        {% if user.profile.admin or user.profile == object.designer %}
+                        <div style="display: flex; justify-content: flex-end;">
+                        <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">{% trans 'Add Round' %} +</a>
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                    <div class='table-responsive'>
+                        {% with 'Round' as type %}
+                            {% include 'the_warroom/partials/tournament_list_header.html' %}
+                        {% endwith %}
 
 
-            {% if future.count > 0 %}
-                {% if user.profile.admin or user.profile == object.designer %}
-                    {% with 'Future' as title %}
-                        {% include 'the_warroom/partials/tournament_line_divide.html' %}
-                    {% endwith %}
-                    {% for tournament in future %}
-                        {% include 'the_warroom/partials/tournament_link.html' %}
-                    {% endfor %}
-                {% endif %}
-            {% endif %}
+                        {% if future.count > 0 %}
+                            {% if user.profile.admin or user.profile == object.designer %}
+                                {% with 'Future' as title %}
+                                    {% include 'the_warroom/partials/tournament_line_divide.html' %}
+                                {% endwith %}
+                                {% for tournament in future %}
+                                    {% include 'the_warroom/partials/tournament_link.html' %}
+                                {% endfor %}
+                            {% endif %}
+                        {% endif %}
 
 
-            {% if active.count > 0 %}
-                {% with 'Current' as title %}
-                    {% include 'the_warroom/partials/tournament_line_divide.html' %}
-                {% endwith %}
-                {% for tournament in active %}
-                    {% include 'the_warroom/partials/tournament_link.html' %}
-                {% endfor %}
-            {% endif %}
+                        {% if active.count > 0 %}
+                            {% with 'Current' as title %}
+                                {% include 'the_warroom/partials/tournament_line_divide.html' %}
+                            {% endwith %}
+                            {% for tournament in active %}
+                                {% include 'the_warroom/partials/tournament_link.html' %}
+                            {% endfor %}
+                        {% endif %}
 
 
 
 
 
-            {% if past.count > 0 %}
-                {% with 'Past' as title %}
-                    {% include 'the_warroom/partials/tournament_line_divide.html' %}
-                {% endwith %}
-                {% for tournament in past %}
-                    {% include 'the_warroom/partials/tournament_link.html' %}
-                {% endfor %}
-            {% endif %}
+                        {% if past.count > 0 %}
+                            {% with 'Past' as title %}
+                                {% include 'the_warroom/partials/tournament_line_divide.html' %}
+                            {% endwith %}
+                            {% for tournament in past %}
+                                {% include 'the_warroom/partials/tournament_link.html' %}
+                            {% endfor %}
+                        {% endif %}
 
 
-            {% if past.count == 0 and active.count == 0 %}
-                {% with 'Current' as title %}
-                    {% include 'the_warroom/partials/tournament_line_empty.html' %}
-                {% endwith %}
-            {% endif %}
+                        {% if past.count == 0 and active.count == 0 %}
+                            {% with 'Current' as title %}
+                                {% include 'the_warroom/partials/tournament_line_empty.html' %}
+                            {% endwith %}
+                        {% endif %}
 
-            {% include 'the_warroom/partials/tournament_list_footer.html' %}
+                        {% include 'the_warroom/partials/tournament_list_footer.html' %}
+                
+                    </div>
                 </div>
             </article>
         </div>
@@ -291,58 +293,58 @@
         <div class="tab-pane fade" id="players" role="tabpanel" aria-labelledby="players-tab">
             <article class="d-flex content-section">
                 <div class="w-100">
-            {% if user.is_authenticated %}
-                {% if user.profile.admin or user.profile == object.designer %}
-                <div style="display: flex; justify-content: flex-end;">
-                    <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">{% trans 'Manage Players' %}</a>
-                </div>
-                {% endif %}
-            {% endif %}
-          
+                    {% if user.is_authenticated %}
+                        {% if user.profile.admin or user.profile == object.designer %}
+                        <div style="display: flex; justify-content: flex-end;">
+                            <a class="btn btn-primary btn-sm mt-1 mb-1" href="{{ object.get_players_url }}">{% trans 'Manage Players' %}</a>
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                
+                    <div class='table-responsive'>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>{% trans 'Name' %}</th>
+                                    <th>{% trans 'Games' %}</th>
+                                    <th>{% trans 'Points' %}</th>
+                                    <th>{% trans 'Winrate' %}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="effort-rows">
+
+                        
+                            {% if object.type == "Tournament" %}
+                                <tr
+                                hx-trigger="revealed" 
+                                hx-get="{% url 'tournament-players-pagination' object.id %}?page={{ players.number|add:1 }}"
+                                hx-swap="outerHTML">
+                            {% else %}
+                                <tr
+                                hx-trigger="revealed"
+                                hx-get="{% url 'round-players-pagination' object.id %}?page={{ players.number|add:1 }}"
+                                hx-swap="outerHTML">
+                            {% endif %}
+                                <td>
+                                    {% trans 'Player Name' %}
+                                </td>
+                                <td>
+                                    {% trans 'Games Played by Player' %}
+                                </td>
+                                <td>
+                                {% trans 'Points Earned' %}
+                                </td>
+                                <td>
+                                    {% trans 'Total Win Rate' %}
+                                </td>
+                            </tr>
 
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>{% trans 'Name' %}</th>
-                        <th>{% trans 'Games' %}</th>
-                        <th>{% trans 'Points' %}</th>
-                        <th>{% trans 'Winrate' %}</th>
-                    </tr>
-                </thead>
-                <tbody class="effort-rows">
+                            </tbody>
 
-            
-                {% if object.type == "Tournament" %}
-                    <tr
-                    hx-trigger="revealed" 
-                    hx-get="{% url 'tournament-players-pagination' object.id %}?page={{ players.number|add:1 }}"
-                    hx-swap="outerHTML">
-                {% else %}
-                    <tr
-                    hx-trigger="revealed"
-                    hx-get="{% url 'round-players-pagination' object.id %}?page={{ players.number|add:1 }}"
-                    hx-swap="outerHTML">
-                {% endif %}
-                    <td>
-                        {% trans 'Player Name' %}
-                    </td>
-                    <td>
-                        {% trans 'Games Played by Player' %}
-                    </td>
-                    <td>
-                       {% trans 'Points Earned' %}
-                    </td>
-                    <td>
-                        {% trans 'Total Win Rate' %}
-                    </td>
-                </tr>
-
-
-                </tbody>
-
-            </table>
-
+                        </table>
+                    </div>
 
                 </div>
             </article>
