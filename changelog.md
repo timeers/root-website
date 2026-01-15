@@ -11,10 +11,12 @@
 - Universal game filter form used across the site
 - Updated feedback form styling
 - Added copy link button to card images
+- More modern onboarding pages
 
 ### Bug Fixes
 - Fixed meta issues for Status and Component Games page
 - Update button showing for games with no recorder (imported games)
+- Leaderboard table overflow on small screens
 
 ## [1.10.1] - 2026-1-13 Admin & Notifications
 
