@@ -22,55 +22,85 @@
 {% block content %}
 {% include 'the_warroom/partials/warroom_nav_header.html' with active_page='series' %}
 
-{% if scheduled.count > 0 or future.count > 0 %}
+{% if scheduled.count > 0 or future.count > 0 or user.is_authenticated and user_tournaments %}
 
-    <div class="container mt-4">
-        <!-- Tab navigation -->
-        <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="concluded-tab" data-bs-toggle="tab" href="#concluded" role="tab" aria-controls="concluded" aria-selected="false">Concluded</a>
-            </li>
-
-            <li class="nav-item" role="presentation">
-                <a class="nav-link active" id="ongoing-tab" data-bs-toggle="tab" href="#ongoing" role="tab" aria-controls="ongoing" aria-selected="false">Ongoing</a>
-            </li>
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="scheduled-tab" data-bs-toggle="tab" href="#scheduled" role="tab" aria-controls="scheduled" aria-selected="true">Scheduled</a>
-            </li>
-        </ul>
-
-        <!-- Tab content -->
-        <div class="tab-content" id="tournamentTabsContent">
-            <!-- Scheduled Tournaments -->
-            <div class="tab-pane fade" id="scheduled" role="tabpanel" aria-labelledby="scheduled-tab">
-                <h3>Scheduled Series</h3>
-                {% with scheduled as tournaments %}
-                    {% include 'the_warroom/partials/tournament_list.html' %}
-                {% endwith %}
-            </div>
-
-            <!-- Ongoing Tournaments -->
-            <div class="tab-pane fade show active" id="ongoing" role="tabpanel" aria-labelledby="ongoing-tab">
-                <h3>Ongoing Series</h3>
-
-                {% with ongoing as tournaments %}
-                    {% include 'the_warroom/partials/tournament_list.html' %}
-                {% endwith %}
-            </div>
-
-            <!-- Concluded Tournaments -->
-            <div class="tab-pane fade" id="concluded" role="tabpanel" aria-labelledby="concluded-tab">
-                <h3>Concluded Series</h3>
-                {% with concluded as tournaments %}
-                    {% include 'the_warroom/partials/tournament_list.html' %}
-                {% endwith %}
-            </div>
-        </div>
-    </div>
-{% else %}
-    
     <article class="d-flex content-section">
         <div class="w-100">
+            <!-- Tab navigation -->
+            <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="concluded-tab" data-bs-toggle="tab" href="#concluded" role="tab" aria-controls="concluded" aria-selected="false">Concluded</a>
+                </li>
+
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link active" id="ongoing-tab" data-bs-toggle="tab" href="#ongoing" role="tab" aria-controls="ongoing" aria-selected="true">Ongoing</a>
+                </li>
+                {% if user.is_authenticated and user.profile.admin %}
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="scheduled-tab" data-bs-toggle="tab" href="#scheduled" role="tab" aria-controls="scheduled" aria-selected="false">Scheduled</a>
+                </li>
+                {% endif %}
+                {% if user.is_authenticated and user_tournaments %}
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="mine-tab" data-bs-toggle="tab" href="#mine" role="tab" aria-controls="mine" aria-selected="false">My Series</a>
+                </li>
+                {% endif %}
+            </ul>
+
+            <!-- Tab content -->
+            <div class="tab-content" id="tournamentTabsContent">
+                {% if user.is_authenticated and user_tournaments %}
+                <!-- My Tournaments -->
+                <div class="tab-pane fade" id="mine" role="tabpanel" aria-labelledby="mine-tab">
+                    <h3>My Series</h3>
+                    {% with user_tournaments as tournaments %}
+                        {% include 'the_warroom/partials/tournament_list.html' %}
+                    {% endwith %}
+                </div>
+                {% endif %}
+
+                {% if user.is_authenticated and user.profile.admin %}
+                <!-- Scheduled Tournaments -->
+                <div class="tab-pane fade" id="scheduled" role="tabpanel" aria-labelledby="scheduled-tab">
+                    <h3>Scheduled Series</h3>
+                    {% with scheduled as tournaments %}
+                        {% include 'the_warroom/partials/tournament_list.html' %}
+                    {% endwith %}
+                </div>
+                {% endif %}
+
+                <!-- Ongoing Tournaments -->
+                <div class="tab-pane fade show active" id="ongoing" role="tabpanel" aria-labelledby="ongoing-tab">
+                    <h3>Ongoing Series</h3>
+
+                    {% with ongoing as tournaments %}
+                        {% include 'the_warroom/partials/tournament_list.html' %}
+                    {% endwith %}
+                </div>
+
+                <!-- Concluded Tournaments -->
+                <div class="tab-pane fade" id="concluded" role="tabpanel" aria-labelledby="concluded-tab">
+                    <h3>Concluded Series</h3>
+                    {% with concluded as tournaments %}
+                        {% include 'the_warroom/partials/tournament_list.html' %}
+                    {% endwith %}
+                </div>
+            </div>
+        </div>
+    </article>
+{% else %}
+
+    <article class="d-flex content-section">
+        <div class="w-100">
+        {% if user.is_authenticated and user_tournaments %}
+        <h3>My Series</h3>
+        <p class="text-muted">Series you've created or participated in</p>
+        {% with user_tournaments as tournaments %}
+            {% include 'the_warroom/partials/tournament_list.html' %}
+        {% endwith %}
+        <hr>
+        {% endif %}
+
         <h3>Ongoing Series</h3>
         {% with ongoing as tournaments %}
             {% include 'the_warroom/partials/tournament_list.html' %}

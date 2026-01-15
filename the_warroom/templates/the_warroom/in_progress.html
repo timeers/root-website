@@ -6,7 +6,7 @@
 
 <article class="d-flex content-section">
     <div class="w-100">
-    <h3>{% trans 'In Progress' %}</h3>
+    <h3 class='root-title'>{% trans 'In Progress' %}</h3>
     {% if in_progress_games_count and in_progress_scorecards_count %}
         {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count in_progress_games_count=in_progress_games_count %}
             You have {{ in_progress_scorecards_count }} unlinked Scorecard(s) and {{ in_progress_games_count }} in progress Game(s). Once complete each Scorecard should be linked to a matching Game and each Game should be finalized by clicking "Submit".

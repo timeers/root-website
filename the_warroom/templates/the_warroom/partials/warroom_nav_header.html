@@ -1,43 +1,43 @@
 {% load static i18n %}
 
 <article class="content-section mt-2">
-    <div class="warroom-nav-header">
+    <div class="section-nav-header">
         <!-- Navigation Tabs -->
-        <nav class="warroom-nav-tabs">
+        <nav class="section-nav-tabs">
             <a href="{% url 'games-home' %}"
-               class="warroom-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}
             </a>
             <a href="{% url 'leaderboard-view' %}"
-               class="warroom-nav-tab root-title {% if active_page == 'leaderboards' %}active{% endif %}">
+               class="section-nav-tab root-title {% if active_page == 'leaderboards' %}active{% endif %}">
                 {% trans 'Leaderboards' %}
             </a>
             <a href="{% url 'tournaments-home' %}"
-               class="warroom-nav-tab root-title {% if active_page == 'series' %}active{% endif %}">
+               class="section-nav-tab root-title {% if active_page == 'series' %}active{% endif %}">
                 {% trans 'Series' %}
             </a>
             {% if user.is_authenticated %}
                 <a href="{% url 'my-submitted-games' %}"
-                   class="warroom-nav-tab root-title {% if active_page == 'submitted-games' %}active{% endif %}">
+                   class="section-nav-tab root-title {% if active_page == 'submitted-games' %}active{% endif %}">
                     {% trans 'My Games' %}
                 </a>
             {% endif %}
             {% if user_active_count %}
                 <a href="{% url 'in-progress' %}"
-                   class="warroom-nav-tab root-title {% if active_page == 'in-progress' %}active{% endif %}">
+                   class="section-nav-tab root-title {% if active_page == 'in-progress' %}active{% endif %}">
                     {% trans 'In Progress' %}
                     {% if user_active_games_count %}
-                        <span class="warroom-tab-badge">{{ user_active_games_count }}</span>
+                        <span class="section-nav-tab-badge">{{ user_active_games_count }}</span>
                     {% endif %}
                 </a>
             {% endif %}
         </nav>
 
         <!-- Action Buttons -->
-        <div class="warroom-action-buttons">
-          
+        <div class="section-nav-action-buttons">
+
                 <!-- Desktop buttons for Games-related pages -->
-                <div class="warroom-actions-desktop">
+                <div class="section-nav-actions-desktop">
                     <div class="btn-group">
                         <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                             {% trans 'Record' %} +
@@ -53,7 +53,7 @@
                 </div>
 
                 <!-- Mobile dropdown for Games-related pages -->
-                <div class="warroom-actions-mobile">
+                <div class="section-nav-actions-mobile">
                     <div class="btn-group">
                         <button type="button" class="btn btn-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                             {% trans 'Actions' %}

@@ -4,10 +4,12 @@
 
 ### New Features
 - Tab view for the Battlefield
+- Tab view for the Workshop
 - Submitted games page for logged in users
 
 ### Improvements
 - Universal game filter form used across the site
+- Updated feedback form styling
 
 ## [1.10.1] - 2026-1-13 Admin & Notifications
 

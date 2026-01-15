@@ -1692,6 +1692,16 @@ def tournaments_home(request):
 
     # all_tournaments = Tournament.objects.all()
 
+    # Get user's tournaments (where they are designer or have played)
+    user_tournaments = None
+    if request.user.is_authenticated:
+        user_tournaments = Tournament.objects.filter(
+            Q(designer=request.user.profile) |
+            Q(rounds__games__efforts__player=request.user.profile)
+        ).distinct().annotate(
+            unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+        )
+    print(user_tournaments)
     # Theme
     theme = get_theme(request)
     background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
@@ -1702,6 +1712,7 @@ def tournaments_home(request):
         'scheduled': scheduled_tournaments,
         'concluded': concluded_tournaments,
         'ongoing': ongoing_tournaments,
+        'user_tournaments': user_tournaments,
         # 'all': all_tournaments,
         'background_image': background_image,
         'foreground_images': foreground_images,

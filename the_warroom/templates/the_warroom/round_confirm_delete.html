@@ -6,7 +6,7 @@
     {% csrf_token %}
     <h1>Delete {{ round }}?</h1>
     <p>Are you sure you want to delete the selected round? This cannot be undone.</p>
-    <p>The games related to this round will not be removed.</p>
+    <p>The games related to this round will not be removed, but their relationship to this series will be cleared.</p>
     <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
     <a class="btn btn-secondary" href="{{ round.get_absolute_url }}">{% trans 'Cancel' %}</a>
 </form>

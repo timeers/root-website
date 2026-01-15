@@ -84,7 +84,7 @@
 
         // Handle navigation tab clicks to transfer filters
         document.addEventListener('DOMContentLoaded', function() {
-            const leaderboardTab = document.querySelector('a.warroom-nav-tab[href="{% url 'leaderboard-view' %}"]');
+            const leaderboardTab = document.querySelector('a.section-nav-tab[href="{% url 'leaderboard-view' %}"]');
 
             if (leaderboardTab) {
                 leaderboardTab.addEventListener('click', function(e) {

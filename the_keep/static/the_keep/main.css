@@ -2154,7 +2154,7 @@ tr.clickable-row:hover {
    ======================================== */
 
 /* Main header container */
-.warroom-nav-header {
+.section-nav-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -2163,7 +2163,7 @@ tr.clickable-row:hover {
 }
 
 /* Navigation tabs container */
-.warroom-nav-tabs {
+.section-nav-tabs {
   display: flex;
   gap: 2rem;
   align-items: center;
@@ -2173,7 +2173,7 @@ tr.clickable-row:hover {
 }
 
 /* Individual tab link */
-.warroom-nav-tab {
+.section-nav-tab {
   position: relative;
   padding: 0.5rem 0;
   color: #6c757d;
@@ -2184,17 +2184,17 @@ tr.clickable-row:hover {
   white-space: nowrap;
 }
 
-.warroom-nav-tab:hover {
+.section-nav-tab:hover {
   color: var(--button-color);
 }
 
 /* Active tab styling with underline */
-.warroom-nav-tab.active {
+.section-nav-tab.active {
   color: var(--button-color);
   font-weight: 600;
 }
 
-.warroom-nav-tab.active::after {
+.section-nav-tab.active::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -2206,7 +2206,7 @@ tr.clickable-row:hover {
 }
 
 /* Action buttons container */
-.warroom-action-buttons {
+.section-nav-action-buttons {
   display: flex;
   gap: 0.5rem;
   align-items: flex-start;
@@ -2216,7 +2216,7 @@ tr.clickable-row:hover {
 }
 
 /* Desktop buttons visible by default */
-.warroom-actions-desktop {
+.section-nav-actions-desktop {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -2224,51 +2224,51 @@ tr.clickable-row:hover {
 }
 
 /* Mobile dropdown hidden by default */
-.warroom-actions-mobile {
+.section-nav-actions-mobile {
   display: none;
 }
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
   /* Stack header on very small screens if needed */
-  .warroom-nav-header {
+  .section-nav-header {
     gap: 0.75rem;
   }
 
   /* Reduce tab spacing on mobile */
-  .warroom-nav-tabs {
+  .section-nav-tabs {
     gap: 1rem;
   }
 
   /* Scale down tab font size */
-  .warroom-nav-tab {
+  .section-nav-tab {
     font-size: 0.95rem;
     padding: 0.4rem 0;
   }
 
   /* Hide desktop buttons, show mobile dropdown */
-  .warroom-actions-desktop {
+  .section-nav-actions-desktop {
     display: none;
   }
 
-  .warroom-actions-mobile {
+  .section-nav-actions-mobile {
     display: flex;
   }
 }
 
 /* Extra small screens - further condensing */
 @media (max-width: 480px) {
-  .warroom-nav-tabs {
+  .section-nav-tabs {
     gap: 0.75rem;
   }
 
-  .warroom-nav-tab {
+  .section-nav-tab {
     font-size: 0.875rem;
   }
 }
 
 /* Badge on navigation tabs */
-.warroom-tab-badge {
+.section-nav-tab-badge {
   display: inline-block;
   padding: 0.2em 0.5em;
   font-size: 0.75rem;
@@ -2277,6 +2277,6 @@ tr.clickable-row:hover {
   color: #fff;
   background-color: #dc3545;
   border-radius: 10rem;
-  margin-left: 0.4rem;
+  margin-left: 0rem;
   vertical-align: middle;
 }
