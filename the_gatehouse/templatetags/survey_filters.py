@@ -25,3 +25,12 @@ def get_item(dictionary, key):
 def get_form_field(form, field_name):
     """Get a form field by name"""
     return form.fields.get(field_name) if hasattr(form, 'fields') else None
+
+@register.filter
+def get_question_field(form, question_id):
+    """Get a form field for a specific question ID"""
+    field_name = f'question_{question_id}'
+    try:
+        return form[field_name]
+    except (KeyError, AttributeError):
+        return None

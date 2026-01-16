@@ -66,6 +66,28 @@
                             {% endfor %}
                         </div>
 
+                    {# Time Availability #}
+                    {% elif question.question_type == 'TA' %}
+                        <div class="mt-3">
+                            <div class="alert alert-info">
+                                <i class="bi bi-clock"></i> {% trans 'Times will be shown in respondent\'s local timezone' %}
+                            </div>
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-check2-square"></i> {% trans 'Select all hours when available (24-hour format shown):' %}
+                            </p>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 0.5rem;">
+                                {% for choice in question.choices.all %}
+                                    <div>
+                                        <input class="btn-check" type="checkbox" name="question_{{ question.id }}"
+                                               id="q{{ question.id }}_c{{ choice.id }}" disabled>
+                                        <label class="btn btn-outline-primary w-100" for="q{{ question.id }}_c{{ choice.id }}">
+                                            {{ choice.text }}:00 UTC
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
                     {# Open Ended #}
                     {% elif question.question_type == 'OE' %}
                         <div class="mt-3">
@@ -116,7 +138,19 @@
                             </div>
                         </div>
 
-                    {# Date/Time #}
+                    {# Date #}
+                    {% elif question.question_type == 'DA' %}
+                        <div class="mt-3">
+                            <input type="date" class="form-control" disabled>
+                        </div>
+
+                    {# Time #}
+                    {% elif question.question_type == 'TI' %}
+                        <div class="mt-3">
+                            <input type="time" class="form-control" disabled>
+                        </div>
+
+                    {# Date & Time #}
                     {% elif question.question_type == 'DT' %}
                         <div class="mt-3">
                             <input type="datetime-local" class="form-control" disabled>

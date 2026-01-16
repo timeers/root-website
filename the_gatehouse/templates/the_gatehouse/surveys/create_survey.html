@@ -193,7 +193,10 @@ const questionTypes = {
     'LK': 'Scale',
     'RT': 'Rating',
     'RK': 'Ranking',
-    'DT': 'Date/Time'
+    'TA': 'Time Availability',
+    'DA': 'Date',
+    'TI': 'Time',
+    'DT': 'Date & Time'
 };
 
 const likertScales = [
@@ -414,7 +417,16 @@ function handleTypeChange(questionId) {
 
     optionsContainer.innerHTML = '';
 
-    if (['MC', 'MS', 'YN', 'RK'].includes(type)) {
+    if (type === 'TA') {
+        // Time Availability - automatically creates 24 UTC hour choices
+        optionsContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-clock"></i> <strong>Time Availability Question</strong><br>
+                <small>This question type automatically creates 24 hour slots (0-23 UTC).
+                Respondents will see times in their local timezone, and selections are stored as UTC hours.</small>
+            </div>
+        `;
+    } else if (['MC', 'MS', 'YN', 'RK'].includes(type)) {
         // Choice-based questions
         optionsContainer.innerHTML = `
             <div class="choices-section">

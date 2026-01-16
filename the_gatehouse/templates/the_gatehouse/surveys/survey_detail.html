@@ -2,6 +2,10 @@
 {% load crispy_forms_tags i18n survey_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="content-section">
     <div class="mb-4">
@@ -63,20 +67,68 @@
                             </div>
                         {% endif %}
 
-                    {# All other question types - render form fields from the loop #}
-                    {% else %}
+                    {# Time Availability with timezone conversion #}
+                    {% elif question.question_type == 'TA' %}
                         <div class="mt-3">
-                            {% for field in form %}
-                                {% if field.name == "question_"|add:question.id|stringformat:"s" %}
+                            <div class="alert alert-info" id="timezone_info_{{ question.id }}">
+                                <i class="bi bi-clock"></i> <span class="timezone-name">Detecting your timezone...</span>
+                            </div>
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-check2-square"></i> {% trans 'Select all hours when you are available (times shown in your local timezone):' %}
+                            </p>
+                            <div class="time-availability-grid" id="time_availability_{{ question.id }}" data-question-id="{{ question.id }}">
+                                {% for choice in question.choices.all %}
+                                    <div class="time-slot-item" data-utc-hour="{{ choice.text }}" data-choice-id="{{ choice.id }}">
+                                        <input type="checkbox" class="btn-check"
+                                               name="question_{{ question.id }}"
+                                               value="{{ choice.id }}"
+                                               id="time_{{ question.id }}_{{ choice.id }}"
+                                               {% if question.required %}data-required="true"{% endif %}>
+                                        <label class="btn btn-outline-primary w-100" for="time_{{ question.id }}_{{ choice.id }}">
+                                            <span class="local-time-display">{{ choice.text }}:00</span>
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            {% if question.required %}
+                                <div class="invalid-feedback" id="time_error_{{ question.id }}" style="display: none;">
+                                    {% trans 'Please select at least one time slot.' %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                    {# Ranking questions with drag-and-drop #}
+                    {% elif question.question_type == 'RK' %}
+                        <div class="mt-3">
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-grip-vertical"></i> {% trans 'Drag and drop to rank these options (1 = highest):' %}
+                            </p>
+                            <div class="ranking-list" id="ranking_{{ question.id }}" data-question-id="{{ question.id }}">
+                                {% for choice in question.choices.all %}
+                                    <div class="ranking-item" data-choice-id="{{ choice.id }}">
+                                        <span class="ranking-number">{{ forloop.counter }}</span>
+                                        <i class="bi bi-grip-vertical ranking-handle"></i>
+                                        <span class="ranking-text">{{ choice.text }}</span>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <input type="hidden" name="question_{{ question.id }}" id="ranking_input_{{ question.id }}" {% if question.required %}required{% endif %}>
+                        </div>
+
+                    {# All other question types - render form field #}
+                    {% else %}
+                        {% with field=form|get_question_field:question.id %}
+                            {% if field %}
+                                <div class="mt-3">
                                     {{ field }}
                                     {% if field.errors %}
                                         <div class="invalid-feedback d-block">
                                             {{ field.errors }}
                                         </div>
                                     {% endif %}
-                                {% endif %}
-                            {% endfor %}
-                        </div>
+                                </div>
+                            {% endif %}
+                        {% endwith %}
                     {% endif %}
                 </div>
             </div>
@@ -109,5 +161,214 @@
     .form-check-label {
         margin-left: 0.25rem;
     }
+
+    /* Ranking question styles */
+    .ranking-list {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+        min-height: 100px;
+    }
+
+    .ranking-item {
+        background-color: white;
+        border: 2px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        cursor: move;
+        transition: all 0.2s ease;
+    }
+
+    .ranking-item:hover {
+        border-color: #0d6efd;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+
+    .ranking-number {
+        background-color: #0d6efd;
+        color: white;
+        border-radius: 50%;
+        width: 2rem;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        flex-shrink: 0;
+    }
+
+    .ranking-handle {
+        color: #6c757d;
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .ranking-text {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .ranking-item.sortable-ghost {
+        opacity: 0.4;
+        background-color: #e9ecef;
+    }
+
+    .ranking-item.sortable-drag {
+        opacity: 1;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+    /* Time Availability styles */
+    .time-availability-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .time-slot-item {
+        position: relative;
+    }
+
+    .time-slot-item label {
+        font-size: 0.9rem;
+        padding: 0.5rem;
+        white-space: nowrap;
+    }
+
+    .time-slot-item .btn-check:checked + label {
+        background-color: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+
+    #timezone_info {
+        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    @media (max-width: 768px) {
+        .time-availability-grid {
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        }
+    }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Time Availability: Detect timezone and convert hours
+    const timeAvailabilityGrids = document.querySelectorAll('.time-availability-grid');
+
+    timeAvailabilityGrids.forEach(grid => {
+        const questionId = grid.dataset.questionId;
+        const timezoneInfo = document.getElementById(`timezone_info_${questionId}`);
+
+        // Get user's timezone offset in hours
+        const now = new Date();
+        const timezoneOffsetMinutes = now.getTimezoneOffset();
+        const timezoneOffsetHours = -timezoneOffsetMinutes / 60;
+
+        // Get timezone name
+        const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        // Update timezone info display
+        if (timezoneInfo) {
+            const tzNameSpan = timezoneInfo.querySelector('.timezone-name');
+            const offsetSign = timezoneOffsetHours >= 0 ? '+' : '';
+            tzNameSpan.textContent = `Times shown in ${timezoneName} (UTC${offsetSign}${timezoneOffsetHours})`;
+        }
+
+        // Convert all time slots to local time
+        const timeSlots = grid.querySelectorAll('.time-slot-item');
+        timeSlots.forEach(slot => {
+            const utcHour = parseInt(slot.dataset.utcHour);
+            const localHour = (utcHour + timezoneOffsetHours + 24) % 24;
+
+            // Format hour for display (with AM/PM)
+            const displayTime = formatHour(localHour);
+            const timeDisplay = slot.querySelector('.local-time-display');
+            if (timeDisplay) {
+                timeDisplay.textContent = displayTime;
+            }
+        });
+
+        // Add form validation for required fields
+        const form = grid.closest('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
+                const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
+                const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+
+                if (isRequired && !isChecked) {
+                    e.preventDefault();
+                    const errorDiv = document.getElementById(`time_error_${questionId}`);
+                    if (errorDiv) {
+                        errorDiv.style.display = 'block';
+                    }
+                    grid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    const errorDiv = document.getElementById(`time_error_${questionId}`);
+                    if (errorDiv) {
+                        errorDiv.style.display = 'none';
+                    }
+                }
+            });
+        }
+    });
+
+    function formatHour(hour) {
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        return `${displayHour}:00 ${period}`;
+    }
+
+    // Initialize Sortable for all ranking questions
+    const rankingLists = document.querySelectorAll('.ranking-list');
+
+    rankingLists.forEach(list => {
+        const questionId = list.dataset.questionId;
+
+        new Sortable(list, {
+            animation: 150,
+            handle: '.ranking-item',
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            onEnd: function() {
+                updateRankingNumbers(questionId);
+                updateRankingInput(questionId);
+            }
+        });
+
+        // Initialize the hidden input with initial order
+        updateRankingInput(questionId);
+    });
+
+    function updateRankingNumbers(questionId) {
+        const list = document.getElementById(`ranking_${questionId}`);
+        const items = list.querySelectorAll('.ranking-item');
+
+        items.forEach((item, index) => {
+            const numberSpan = item.querySelector('.ranking-number');
+            numberSpan.textContent = index + 1;
+        });
+    }
+
+    function updateRankingInput(questionId) {
+        const list = document.getElementById(`ranking_${questionId}`);
+        const items = list.querySelectorAll('.ranking-item');
+        const input = document.getElementById(`ranking_input_${questionId}`);
+
+        // Create comma-separated list of choice IDs in their current order
+        const choiceIds = Array.from(items).map(item => item.dataset.choiceId);
+        input.value = choiceIds.join(',');
+    }
+});
+</script>
 {% endblock content %}

@@ -386,9 +386,21 @@ class SurveyResponseForm(forms.Form):
                 self.fields[field_name] = forms.MultipleChoiceField(
                     label=question.text,
                     choices=choices,
-                    required=question.required,
+                    required=False,  # We'll validate this manually in the view if needed
                     help_text=question.help_text,
                     widget=forms.CheckboxSelectMultiple
+                )
+
+            # Time Availability (handled in template with JavaScript)
+            elif question.question_type == 'TA':
+                # Create hidden field - actual UI is rendered in template
+                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                self.fields[field_name] = forms.MultipleChoiceField(
+                    label=question.text,
+                    choices=choices,
+                    required=False,  # We'll validate this manually in the view if needed
+                    help_text=question.help_text,
+                    widget=forms.MultipleHiddenInput
                 )
 
             # Open Ended
@@ -449,7 +461,25 @@ class SurveyResponseForm(forms.Form):
                     widget=forms.TextInput(attrs={'placeholder': 'e.g., 1,3,2'})
                 )
 
-            # Date/Time
+            # Date only
+            elif question.question_type == 'DA':
+                self.fields[field_name] = forms.DateField(
+                    label=question.text,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.DateInput(attrs={'type': 'date'})
+                )
+
+            # Time only
+            elif question.question_type == 'TI':
+                self.fields[field_name] = forms.TimeField(
+                    label=question.text,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.TimeInput(attrs={'type': 'time'})
+                )
+
+            # Date & Time
             elif question.question_type == 'DT':
                 self.fields[field_name] = forms.DateTimeField(
                     label=question.text,

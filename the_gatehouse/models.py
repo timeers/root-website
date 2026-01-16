@@ -7,6 +7,7 @@ from io import BytesIO
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.urls import reverse
 from django.db.models.signals import pre_save, post_save
+from django.dispatch import receiver
 from django.db import models
 from PIL import Image
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
@@ -1095,7 +1096,10 @@ class Question(models.Model):
         RATING = 'RT', 'Rating'
         LIKERT = 'LK', 'Likert Scale'
         BOOLEAN = 'YN', 'Yes/No'
-        DATE = 'DT', 'Date/Time'
+        DATE = 'DA', 'Date'
+        TIME = 'TI', 'Time'
+        DATETIME = 'DT', 'Date & Time'
+        TIME_AVAILABILITY = 'TA', 'Time Availability'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
     text = models.TextField(help_text="The question text")
@@ -1113,6 +1117,23 @@ class Question(models.Model):
     def __str__(self):
         return f"{self.survey.title} - Q{self.order}: {self.text[:50]}"
 
+    def create_utc_hour_choices(self):
+        """Create 24 UTC hour choices for TIME_AVAILABILITY questions"""
+        if self.question_type != self.QuestionType.TIME_AVAILABILITY:
+            return
+
+        # Only create if choices don't already exist
+        if self.choices.exists():
+            return
+
+        # Create choices for hours 0-23 (UTC)
+        for hour in range(24):
+            Choice.objects.create(
+                question=self,
+                text=str(hour),
+                order=hour
+            )
+
     def clean(self):
         """Validate that question type matches required fields"""
         super().clean()
@@ -1122,7 +1143,7 @@ class Question(models.Model):
         # Only validate choices if the question has been saved (has a primary key)
         if self.pk:
             if self.question_type in [self.QuestionType.MULTIPLE_CHOICE, self.QuestionType.MULTIPLE_SELECTION,
-                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING]:
+                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING, self.QuestionType.TIME_AVAILABILITY]:
                 if not self.choices.exists():
                     raise ValidationError(f"{self.get_question_type_display()} questions require at least one choice.")
 
@@ -1205,6 +1226,12 @@ class Answer(models.Model):
             if self.selected_choice:
                 raise ValidationError("Use 'selected_choices' only for multiple selection.")
 
+        # TIME AVAILABILITY - same as multiple selection
+        elif qtype == Question.QuestionType.TIME_AVAILABILITY:
+            # Check will happen after save for M2M fields
+            if self.selected_choice:
+                raise ValidationError("Use 'selected_choices' only for time availability.")
+
         # OPEN ENDED
         elif qtype == Question.QuestionType.OPEN_ENDED:
             if self.question.required and not self.text_answer:
@@ -1258,6 +1285,9 @@ class Answer(models.Model):
         elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
             choices = self.selected_choices.all()
             return ", ".join([c.text for c in choices]) if choices else "No answer"
+        elif qtype == Question.QuestionType.TIME_AVAILABILITY:
+            choices = self.selected_choices.all().order_by('text')
+            return ", ".join([f"{c.text}:00 UTC" for c in choices]) if choices else "No answer"
         elif qtype == Question.QuestionType.OPEN_ENDED:
             return self.text_answer or "No answer"
         elif qtype == Question.QuestionType.BOOLEAN:
@@ -1383,3 +1413,11 @@ class UserNotification(models.Model):
             related_url=related_url
         )
         return notification
+
+
+# Signal to auto-create UTC hour choices for TIME_AVAILABILITY questions
+@receiver(post_save, sender=Question)
+def create_time_availability_choices(sender, instance, created, **kwargs):
+    """Automatically create 24 UTC hour choices for TIME_AVAILABILITY questions"""
+    if instance.question_type == Question.QuestionType.TIME_AVAILABILITY:
+        instance.create_utc_hour_choices()

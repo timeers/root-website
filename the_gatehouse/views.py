@@ -1970,6 +1970,23 @@ def survey_detail_view(request, slug):
         form = SurveyResponseForm(request.POST, survey=survey)
 
         if form.is_valid():
+            # Additional validation for required multiple selection questions
+            validation_errors = []
+            for question in survey.questions.all():
+                if question.required and question.question_type in ['MS', 'TA']:
+                    field_name = f'question_{question.id}'
+                    answer_data = form.cleaned_data.get(field_name)
+                    if not answer_data or len(answer_data) == 0:
+                        validation_errors.append(f'{question.text}: Please select at least one option.')
+
+            if validation_errors:
+                for error in validation_errors:
+                    messages.error(request, error)
+                return render(request, 'the_gatehouse/surveys/survey_detail.html', {
+                    'survey': survey,
+                    'form': form,
+                    'has_responded': has_responded
+                })
             # Create survey response
             survey_response = SurveyResponse.objects.create(
                 survey=survey,
@@ -1994,8 +2011,8 @@ def survey_detail_view(request, slug):
                         answer.selected_choice = choice
                         answer.save()
 
-                    elif question.question_type == 'MS':
-                        # Multiple choices
+                    elif question.question_type == 'MS' or question.question_type == 'TA':
+                        # Multiple choices (including time availability)
                         answer.save()  # Save first to enable M2M
                         for choice_id in answer_data:
                             choice = Choice.objects.get(id=int(choice_id))
