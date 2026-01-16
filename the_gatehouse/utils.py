@@ -8,6 +8,8 @@ from django.utils.text import slugify
 
 from randomcolor import RandomColor
 
+RESERVED_SLUGS = {'edit', 'lang', 'add', 'delete', 'create'}
+
 def generate_neon_color():
     random_color = RandomColor()
     color = random_color.generate(luminosity='light', hue='pastel')[0]  # Use bright luminosity for neon-like colors
@@ -60,7 +62,10 @@ def slugify_survey_title(instance, save=False, new_slug=None):
         slug = new_slug
     else:
         slug = slugify(unidecode(instance.title))
-    
+    # Check if the slug is reserved
+    if slug in RESERVED_SLUGS:
+        slug = f"{slug}-{random.randint(1000, 9999)}"
+
     Klass = instance.__class__
     qs = Klass.objects.filter(slug=slug).exclude(id=instance.id)
 

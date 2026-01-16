@@ -1002,6 +1002,7 @@ class Survey(models.Model):
     end_date = models.DateTimeField(null=True, blank=True, help_text="When survey closes")
     is_public = models.BooleanField(default=True, help_text="If False, only specific users can access")
     allow_multiple_responses = models.BooleanField(default=False, help_text="Allow users to submit multiple times")
+    allow_edit_responses = models.BooleanField(default=False, help_text="Allow users to edit their responses while survey is open")
     show_results_to_respondents = models.BooleanField(default=False, help_text="Allow respondents to view results")
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
 
@@ -1036,6 +1037,14 @@ class Survey(models.Model):
         if not user_profile:
             return False
         return self.responses.filter(user=user_profile).exists()
+
+    def can_edit_response(self, user_profile):
+        """Check if a user can edit their response"""
+        if not user_profile or not self.allow_edit_responses:
+            return False
+        if not self.is_available():
+            return False
+        return self.has_user_responded(user_profile)
 
 
 class LikertScale(models.Model):
@@ -1084,6 +1093,18 @@ class LikertScale(models.Model):
                 except (ValueError, TypeError):
                     raise ValidationError({'labels': f'Label key "{key}" must be a number.'})
 
+    def get_display_labels(self):
+        if self.labels:
+            return {
+                value: _(label)
+                for value, label in self.labels.items()
+            }
+
+        return {
+            self.min_value: _(self.min_label),
+            self.max_value: _(self.max_label),
+        }
+
 
 # Each Survey is made up of one or more questions
 # The Type determines what kind of question it is
@@ -1093,8 +1114,7 @@ class Question(models.Model):
         MULTIPLE_SELECTION = 'MS', 'Multiple Selection'
         OPEN_ENDED = 'OE', 'Open Ended'
         RANKING = 'RK', 'Ranking'
-        RATING = 'RT', 'Rating'
-        LIKERT = 'LK', 'Likert Scale'
+        SCALE = 'LK', 'Scale'
         BOOLEAN = 'YN', 'Yes/No'
         DATE = 'DA', 'Date'
         TIME = 'TI', 'Time'
@@ -1137,8 +1157,8 @@ class Question(models.Model):
     def clean(self):
         """Validate that question type matches required fields"""
         super().clean()
-        if self.question_type == self.QuestionType.LIKERT and not self.likert_scale:
-            raise ValidationError("Likert Scale questions require a Likert Scale to be selected.")
+        if self.question_type == self.QuestionType.SCALE and not self.likert_scale:
+            raise ValidationError("Scale questions require a Likert Scale to be selected.")
 
         # Only validate choices if the question has been saved (has a primary key)
         if self.pk:
@@ -1249,8 +1269,8 @@ class Answer(models.Model):
                 if not valid:
                     raise ValidationError("Selected choice is not valid for this question.")
 
-        # LIKERT & RATING - store in numeric_answer
-        elif qtype in [Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
+        # SCALE - store in numeric_answer
+        elif qtype == Question.QuestionType.SCALE:
             if self.question.required and self.numeric_answer is None:
                 raise ValidationError(f"{self.question.get_question_type_display()} question requires a numeric answer.")
             if self.numeric_answer is not None and self.question.likert_scale:
@@ -1307,7 +1327,7 @@ class Answer(models.Model):
             return self.text_answer or "No answer"
         elif qtype == Question.QuestionType.BOOLEAN:
             return self.selected_choice.text if self.selected_choice else "No answer"
-        elif qtype in [Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
+        elif qtype == Question.QuestionType.SCALE:
             return str(self.numeric_answer) if self.numeric_answer is not None else "No answer"
         elif qtype == Question.QuestionType.RANKING:
             ranked = self.ranked_items.order_by('rank')
@@ -1372,7 +1392,7 @@ class QuestionTemplate(models.Model):
             'help_text': self.help_text,
         }
 
-        if self.question_type in ['LK', 'RT'] and self.likert_scale:
+        if self.question_type == 'LK' and self.likert_scale:
             data['likert_scale_id'] = self.likert_scale_id
 
         if self.question_type in ['MC', 'MS', 'YN', 'RK'] and self.choices_data:

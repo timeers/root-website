@@ -52,8 +52,33 @@
                         </div>
                     {% endfor %}
 
-                {% elif question_data.question.question_type == 'LK' or question_data.question.question_type == 'RT' %}
-                    {# Likert/Rating - show average and distribution #}
+                {% elif question_data.question.question_type == 'TA' %}
+                    {# Time Availability - show bar chart with timezone conversion #}
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-clock"></i> {% trans 'Times shown in your timezone' %}: <span id="ta-timezone-{{ question_data.question.id }}"></span>
+                        <br><small class="text-muted">{% trans 'Sorted by popularity (most selected first)' %}</small>
+                    </div>
+                    {% for result in question_data.results %}
+                        {% if result.count > 0 %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="ta-time-label" data-utc-hour="{{ result.choice }}">{{ result.choice }}:00 UTC</span>
+                                    <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-success" role="progressbar"
+                                         style="width: {{ result.percentage }}%;"
+                                         aria-valuenow="{{ result.percentage }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'LK' %}
+                    {# Scale - show average and distribution #}
                     {% if question_data.average %}
                         <div class="alert alert-light">
                             <strong>{% trans 'Average' %}:</strong> {{ question_data.average }}
@@ -163,3 +188,48 @@
     {% endif %}
 </div>
 {% endblock content %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Convert all Time Availability times to user's local timezone
+    const taTimeLabels = document.querySelectorAll('.ta-time-label');
+
+    if (taTimeLabels.length > 0) {
+        // Get user's timezone information
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const now = new Date();
+        const tzAbbr = now.toLocaleTimeString('en-US', {
+            timeZoneName: 'short'
+        }).split(' ').pop();
+
+        // Update timezone display for each TA question
+        document.querySelectorAll('[id^="ta-timezone-"]').forEach(elem => {
+            elem.textContent = `${userTimezone} (${tzAbbr})`;
+        });
+
+        // Convert each time label
+        taTimeLabels.forEach(label => {
+            const utcHour = parseInt(label.getAttribute('data-utc-hour'));
+
+            // Create a date in UTC with the given hour
+            const utcDate = new Date();
+            utcDate.setUTCHours(utcHour, 0, 0, 0);
+
+            // Format in user's local timezone
+            const localTimeStr = utcDate.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+
+            // Update label text
+            label.textContent = `${localTimeStr}`;
+
+            // Add tooltip showing UTC time
+            label.title = `UTC: ${String(utcHour).padStart(2, '0')}:00`;
+        });
+    }
+});
+</script>
+{% endblock scripts %}

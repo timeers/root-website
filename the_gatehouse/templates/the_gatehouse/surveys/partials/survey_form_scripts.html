@@ -1,0 +1,577 @@
+<script>
+let questionCounter = 0;
+const questionsData = [];
+let sortableInstance = null;
+
+const questionTypes = {
+    'MC': 'Multiple Choice',
+    'MS': 'Multiple Selection',
+    'OE': 'Open Ended',
+    'YN': 'Yes/No',
+    'LK': 'Scale',
+    'RK': 'Ranking',
+    'TA': 'Time Availability',
+    'DA': 'Date',
+    'TI': 'Time',
+    'DT': 'Date & Time'
+};
+
+const likertScales = [
+    {% for scale in likert_scales %}
+    { id: {{ scale.id }}, name: '{{ scale.name }}' },
+    {% endfor %}
+];
+
+{% if existing_questions %}
+// Load existing questions on page load (edit mode)
+const existingQuestions = {{ existing_questions|safe }};
+{% endif %}
+
+function initializeSortable() {
+    const container = document.getElementById('questions-container');
+
+    // Check if Sortable is available
+    if (typeof Sortable === 'undefined') {
+        console.error('Sortable library not loaded');
+        return;
+    }
+
+    // Destroy existing instance if it exists
+    if (sortableInstance) {
+        sortableInstance.destroy();
+    }
+
+    // Only initialize if there are questions
+    if (container.querySelectorAll('.question-card').length > 0) {
+        sortableInstance = new Sortable(container, {
+            animation: 150,
+            handle: '.drag-handle',
+            ghostClass: 'sortable-ghost',
+            onEnd: function(evt) {
+                renumberQuestions();
+            }
+        });
+    }
+}
+
+{% if existing_questions %}
+function loadExistingQuestions() {
+    const container = document.getElementById('questions-container');
+    container.innerHTML = '';
+
+    existingQuestions.forEach((question, index) => {
+        questionCounter++;
+        const questionId = `question-${questionCounter}`;
+
+        const questionHtml = `
+            <div class="card question-card" data-question-id="${questionId}" data-order="${index + 1}" data-existing-id="${question.id}">
+                <div class="question-header">
+                    <span class="drag-handle me-2">
+                        <i class="bi bi-grip-vertical"></i>
+                    </span>
+                    <span class="flex-fill"><strong>Question ${index + 1}</strong></span>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                        <textarea class="form-control question-text" rows="2" required>${question.text}</textarea>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                            <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                                <option value="">Select type...</option>
+                                ${Object.entries(questionTypes).map(([key, value]) =>
+                                    '<option value="' + key + '" ' + (question.type === key ? 'selected' : '') + '>' + value + '</option>'
+                                ).join('')}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input question-required" type="checkbox" ${question.required ? 'checked' : ''}>
+                                <label class="form-check-label">Required</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="type-specific-options"></div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Help Text (optional)</label>
+                        <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${question.help_text || ''}">
+                    </div>
+                </div>
+            </div>
+        `;
+
+        container.insertAdjacentHTML('beforeend', questionHtml);
+
+        // Load type-specific options
+        if (question.type) {
+            handleTypeChange(questionId, question);
+        }
+    });
+
+    initializeSortable();
+}
+{% endif %}
+
+function loadQuestionFromTemplate(templateData) {
+    questionCounter++;
+    const questionId = `question-${questionCounter}`;
+    const container = document.getElementById('questions-container');
+
+    // Remove "no questions" message if present
+    if (container.querySelector('p.text-muted')) {
+        container.innerHTML = '';
+    }
+
+    const questionHtml = `
+        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
+            <div class="question-header">
+                <span class="drag-handle me-2">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required>${templateData.text || ''}</textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                            <option value="">Select type...</option>
+                            ${Object.entries(questionTypes).map(([key, value]) =>
+                                '<option value="' + key + '" ' + (templateData.type === key ? 'selected' : '') + '>' + value + '</option>'
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input question-required" type="checkbox" ${templateData.required ? 'checked' : ''}>
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="type-specific-options"></div>
+
+                <div class="mb-3">
+                    <label class="form-label">Help Text (optional)</label>
+                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${templateData.help_text || ''}">
+                </div>
+
+            </div>
+        </div>
+    `;
+
+    container.insertAdjacentHTML('beforeend', questionHtml);
+
+    // Load type-specific options if type is set
+    if (templateData.type) {
+        const card = document.querySelector(`[data-question-id="${questionId}"]`);
+        const optionsContainer = card.querySelector('.type-specific-options');
+
+        if (templateData.type === 'YN') {
+            // Yes/No question - fixed choices
+            optionsContainer.innerHTML = `
+                <div class="choices-section">
+                    <label class="form-label">Choices</label>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> <strong>Yes/No Question</strong><br>
+                        <small>This question type has fixed choices: "Yes" and "No".</small>
+                    </div>
+                    <div class="choices-list"></div>
+                </div>
+            `;
+
+            // Add fixed Yes/No choices
+            addChoice(questionId, 'Yes', null, true);
+            addChoice(questionId, 'No', null, true);
+        } else if (['MC', 'MS', 'RK'].includes(templateData.type) && templateData.choices) {
+            optionsContainer.innerHTML = `
+                <div class="choices-section">
+                    <label class="form-label">Choices <span class="text-danger">*</span></label>
+                    <div class="choices-list"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
+                        <i class="bi bi-plus"></i> Add Choice
+                    </button>
+                </div>
+            `;
+
+            // Add choices from template
+            templateData.choices.forEach(choiceText => {
+                addChoice(questionId, choiceText);
+            });
+        } else if (templateData.type === 'LK') {
+            const scaleOptions = likertScales.map(s =>
+                '<option value="' + s.id + '" ' + (templateData.likert_scale_id == s.id ? 'selected' : '') + '>' + s.name + '</option>'
+            ).join('');
+
+            optionsContainer.innerHTML = `
+                <div class="mb-3">
+                    <label class="form-label">Scale <span class="text-danger">*</span></label>
+                    <select class="form-select likert-scale-select" required>
+                        <option value="">Select scale...</option>
+                        ${scaleOptions}
+                    </select>
+                    <small class="form-text text-muted">
+                        Request additional Scales from an Admin if needed.
+                    </small>
+                </div>
+            `;
+        }
+    }
+
+    initializeSortable();
+}
+
+function addQuestion() {
+    questionCounter++;
+    const questionId = `question-${questionCounter}`;
+
+    const container = document.getElementById('questions-container');
+
+    // Remove "no questions" message if present
+    if (container.querySelector('p.text-muted')) {
+        container.innerHTML = '';
+    }
+
+    const questionHtml = `
+        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
+            <div class="question-header">
+                <span class="drag-handle me-2">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required></textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                            <option value="">Select type...</option>
+                            ${Object.entries(questionTypes).map(([key, value]) =>
+                                '<option value="' + key + '">' + value + '</option>'
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input question-required" type="checkbox" checked>
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="type-specific-options"></div>
+
+                <div class="mb-3">
+                    <label class="form-label">Help Text (optional)</label>
+                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents">
+                </div>
+
+            </div>
+        </div>
+    `;
+
+    container.insertAdjacentHTML('beforeend', questionHtml);
+    initializeSortable();
+}
+
+function removeQuestion(questionId) {
+    const question = document.querySelector(`[data-question-id="${questionId}"]`);
+    if (question && confirm('Are you sure you want to remove this question?')) {
+        question.remove();
+        renumberQuestions();
+    }
+}
+
+function renumberQuestions() {
+    const questions = document.querySelectorAll('.question-card');
+    questions.forEach((q, idx) => {
+        q.dataset.order = idx + 1;
+        q.querySelector('.question-header strong').textContent = `Question ${idx + 1}`;
+    });
+}
+
+function handleTypeChange(questionId, existingData = null) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const typeSelect = card.querySelector('.question-type');
+    const optionsContainer = card.querySelector('.type-specific-options');
+    const type = typeSelect.value;
+
+    optionsContainer.innerHTML = '';
+
+    if (type === 'TA') {
+        // Time Availability - automatically creates 24 UTC hour choices
+        optionsContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-clock"></i> <strong>Time Availability Question</strong><br>
+                <small>This question type automatically creates 24 hour slots (0-23 UTC).
+                Respondents will see times in their local timezone, and selections are stored as UTC hours.</small>
+            </div>
+        `;
+    } else if (type === 'YN') {
+        // Yes/No question - fixed choices
+        optionsContainer.innerHTML = `
+            <div class="choices-section">
+                <label class="form-label">Choices</label>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> <strong>Yes/No Question</strong><br>
+                    <small>This question type has fixed choices: "Yes" and "No".</small>
+                </div>
+                <div class="choices-list"></div>
+            </div>
+        `;
+
+        // Add fixed Yes/No choices (readonly)
+        if (existingData && existingData.choices && existingData.choices.length === 2) {
+            existingData.choices.forEach(choice => {
+                addChoice(questionId, choice.text, choice.id, true);
+            });
+        } else {
+            addChoice(questionId, 'Yes', null, true);
+            addChoice(questionId, 'No', null, true);
+        }
+    } else if (['MC', 'MS', 'RK'].includes(type)) {
+        // Choice-based questions
+        optionsContainer.innerHTML = `
+            <div class="choices-section">
+                <label class="form-label">Choices <span class="text-danger">*</span></label>
+                <div class="choices-list"></div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
+                    <i class="bi bi-plus"></i> Add Choice
+                </button>
+            </div>
+        `;
+
+        // Add choices
+        if (existingData && existingData.choices) {
+            existingData.choices.forEach(choice => {
+                addChoice(questionId, choice.text, choice.id);
+            });
+        } else {
+            addChoice(questionId);
+            addChoice(questionId);
+        }
+    } else if (type === 'LK') {
+        // Scale questions
+        const scaleOptions = likertScales.map(s =>
+            '<option value="' + s.id + '" ' + (existingData && existingData.likert_scale_id == s.id ? 'selected' : '') + '>' + s.name + '</option>'
+        ).join('');
+
+        optionsContainer.innerHTML = `
+            <div class="mb-3">
+                <label class="form-label">Scale <span class="text-danger">*</span></label>
+                <select class="form-select likert-scale-select" required>
+                    <option value="">Select scale...</option>
+                    ${scaleOptions}
+                </select>
+                <small class="form-text text-muted">
+                    Request additional Scales from an Admin if needed.
+                </small>
+            </div>
+        `;
+    }
+}
+
+function addChoice(questionId, defaultValue = '', existingId = null, readonly = false) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choicesList = card.querySelector('.choices-list');
+    const choiceId = `choice-${Date.now()}`;
+
+    const choiceHtml = `
+        <div class="choice-item" data-choice-id="${choiceId}" ${existingId ? 'data-existing-choice-id="' + existingId + '"' : ''}>
+            <input type="text" class="form-control" placeholder="Choice text" value="${defaultValue}" ${readonly ? 'readonly' : ''} required>
+            ${!readonly ? '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeChoice(\'' + questionId + '\', \'' + choiceId + '\')"><i class="bi bi-x"></i></button>' : ''}
+        </div>
+    `;
+
+    choicesList.insertAdjacentHTML('beforeend', choiceHtml);
+}
+
+function removeChoice(questionId, choiceId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choice = card.querySelector(`[data-choice-id="${choiceId}"]`);
+    const choicesList = card.querySelector('.choices-list');
+
+    // Require at least 2 choices
+    if (choicesList.children.length > 2) {
+        choice.remove();
+    } else {
+        alert('At least 2 choices are required.');
+    }
+}
+
+// Serialize form data on submit
+document.getElementById('survey-form').addEventListener('submit', function(e) {
+    const questions = [];
+    const questionCards = document.querySelectorAll('.question-card');
+
+    questionCards.forEach(card => {
+        const questionData = {
+            order: parseInt(card.dataset.order),
+            text: card.querySelector('.question-text').value,
+            type: card.querySelector('.question-type').value,
+            required: card.querySelector('.question-required').checked,
+            help_text: card.querySelector('.question-help').value
+        };
+
+        // Include existing question ID if present (edit mode)
+        if (card.dataset.existingId) {
+            questionData.id = parseInt(card.dataset.existingId);
+        }
+
+        // Add type-specific data
+        if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
+            const choices = [];
+            card.querySelectorAll('.choice-item').forEach(choiceItem => {
+                const input = choiceItem.querySelector('input');
+                if (input.value.trim()) {
+                    const choiceData = { text: input.value.trim() };
+                    // Include existing choice ID if present (edit mode)
+                    if (choiceItem.dataset.existingChoiceId) {
+                        choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
+                    }
+                    choices.push(choiceData);
+                }
+            });
+            questionData.choices = choices;
+        } else if (questionData.type === 'LK') {
+            const scaleSelect = card.querySelector('.likert-scale-select');
+            questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+        }
+
+        questions.push(questionData);
+    });
+
+    // Store as JSON
+    document.getElementById('questions-data').value = JSON.stringify(questions);
+});
+
+{% if existing_questions %}
+// Load existing questions when page loads (edit mode)
+window.addEventListener('DOMContentLoaded', function() {
+    console.log('DOMContentLoaded - existingQuestions:', existingQuestions);
+    if (existingQuestions && existingQuestions.length > 0) {
+        console.log('Loading', existingQuestions.length, 'existing questions');
+        loadExistingQuestions();
+    } else {
+        console.log('No existing questions to load');
+    }
+});
+
+// Save and Preview function (edit mode only)
+function saveAndPreview() {
+    const form = document.getElementById('survey-form');
+
+    // If the form validates, add a redirect parameter and submit
+    if (form.checkValidity()) {
+        // Manually trigger the submit event handler to populate questions_data
+        const questionCards = document.querySelectorAll('.question-card');
+        const questions = [];
+
+        questionCards.forEach(card => {
+            const questionData = {
+                order: parseInt(card.dataset.order),
+                text: card.querySelector('.question-text').value,
+                type: card.querySelector('.question-type').value,
+                required: card.querySelector('.question-required').checked,
+                help_text: card.querySelector('.question-help').value
+            };
+
+            if (card.dataset.existingId) {
+                questionData.id = parseInt(card.dataset.existingId);
+            }
+
+            if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
+                const choices = [];
+                card.querySelectorAll('.choice-item').forEach(choiceItem => {
+                    const input = choiceItem.querySelector('input');
+                    if (input.value.trim()) {
+                        const choiceData = { text: input.value.trim() };
+                        if (choiceItem.dataset.existingChoiceId) {
+                            choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
+                        }
+                        choices.push(choiceData);
+                    }
+                });
+                questionData.choices = choices;
+            } else if (questionData.type === 'LK') {
+                const scaleSelect = card.querySelector('.likert-scale-select');
+                questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+            }
+
+            questions.push(questionData);
+        });
+
+        document.getElementById('questions-data').value = JSON.stringify(questions);
+
+        // Add a hidden input to tell the backend to redirect to preview
+        let redirectInput = document.getElementById('redirect-to-preview');
+        if (!redirectInput) {
+            redirectInput = document.createElement('input');
+            redirectInput.type = 'hidden';
+            redirectInput.name = 'redirect_to_preview';
+            redirectInput.id = 'redirect-to-preview';
+            redirectInput.value = 'true';
+            form.appendChild(redirectInput);
+        }
+
+        // Submit the form
+        form.submit();
+    } else {
+        // Show validation errors
+        form.reportValidity();
+    }
+}
+{% else %}
+// Template search functionality (create mode only)
+document.getElementById('template-search')?.addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const templateItems = document.querySelectorAll('.template-item');
+
+    templateItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+});
+
+// Template selection (create mode only)
+document.querySelectorAll('.template-item').forEach(item => {
+    item.addEventListener('click', function(e) {
+        e.preventDefault();
+        const templateData = JSON.parse(this.dataset.templateData);
+        loadQuestionFromTemplate(templateData);
+
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('templateModal'));
+        modal.hide();
+    });
+});
+{% endif %}
+</script>

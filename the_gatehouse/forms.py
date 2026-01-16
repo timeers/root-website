@@ -359,7 +359,7 @@ class SurveyResponseForm(forms.Form):
     Dynamic form for survey responses.
     Form fields are created based on the survey's questions.
     """
-    def __init__(self, *args, survey=None, **kwargs):
+    def __init__(self, *args, survey=None, existing_response=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not survey:
@@ -409,7 +409,12 @@ class SurveyResponseForm(forms.Form):
                     label=question.text,
                     required=question.required,
                     help_text=question.help_text,
-                    widget=forms.Textarea(attrs={'rows': 4})
+                    widget=forms.Textarea(attrs={
+                        'rows': 5,
+                        'class': 'form-control modern-textarea',
+                        'placeholder': 'Type your answer here...',
+                        'style': 'resize: vertical;'
+                    })
                 )
 
             # Boolean (Yes/No)
@@ -423,7 +428,7 @@ class SurveyResponseForm(forms.Form):
                     widget=forms.RadioSelect
                 )
 
-            # Likert Scale
+            # Scale
             elif question.question_type == 'LK':
                 if question.likert_scale:
                     scale = question.likert_scale
@@ -433,19 +438,6 @@ class SurveyResponseForm(forms.Form):
                         choices=choices,
                         required=question.required,
                         help_text=question.help_text or f"{scale.min_label} ({scale.min_value}) to {scale.max_label} ({scale.max_value})",
-                        widget=forms.RadioSelect
-                    )
-
-            # Rating
-            elif question.question_type == 'RT':
-                if question.likert_scale:
-                    scale = question.likert_scale
-                    choices = [(i, str(i)) for i in range(scale.min_value, scale.max_value + 1)]
-                    self.fields[field_name] = forms.ChoiceField(
-                        label=question.text,
-                        choices=choices,
-                        required=question.required,
-                        help_text=question.help_text or f"Rate from {scale.min_value} to {scale.max_value}",
                         widget=forms.RadioSelect
                     )
 
@@ -487,3 +479,53 @@ class SurveyResponseForm(forms.Form):
                     help_text=question.help_text,
                     widget=forms.DateTimeInput(attrs={'type': 'datetime-local'})
                 )
+
+        # Prepopulate with existing response if editing
+        if existing_response and not kwargs.get('data'):
+            from .models import Answer
+            for question in survey.questions.all():
+                field_name = f'question_{question.id}'
+                try:
+                    answer = Answer.objects.get(response=existing_response, question=question)
+
+                    if question.question_type == 'MC' or question.question_type == 'YN':
+                        # Single choice
+                        if answer.selected_choice:
+                            self.initial[field_name] = answer.selected_choice.id
+
+                    elif question.question_type == 'MS' or question.question_type == 'TA':
+                        # Multiple choices
+                        self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
+
+                    elif question.question_type == 'OE':
+                        # Open ended
+                        self.initial[field_name] = answer.text_answer
+
+                    elif question.question_type == 'LK':
+                        # Scale
+                        self.initial[field_name] = answer.numeric_answer
+
+                    elif question.question_type == 'RK':
+                        # Ranking - convert back to comma-separated IDs
+                        from .models import RankedAnswer
+                        ranked_answers = RankedAnswer.objects.filter(answer=answer).order_by('rank')
+                        choice_ids = [str(ra.choice.id) for ra in ranked_answers]
+                        self.initial[field_name] = ','.join(choice_ids)
+
+                    elif question.question_type == 'DA':
+                        # Date only
+                        self.initial[field_name] = answer.date_answer
+
+                    elif question.question_type == 'TI':
+                        # Time only
+                        self.initial[field_name] = answer.time_answer
+
+                    elif question.question_type == 'DT':
+                        # Date & Time
+                        from datetime import datetime
+                        if answer.date_answer and answer.time_answer:
+                            dt = datetime.combine(answer.date_answer, answer.time_answer)
+                            self.initial[field_name] = dt
+
+                except Answer.DoesNotExist:
+                    pass

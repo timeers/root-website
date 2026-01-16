@@ -1,0 +1,74 @@
+{% load i18n %}
+{# Survey Basic Information Card - Shared between create and edit survey #}
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">{% trans 'Survey Information' %}</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="title" class="form-label">{% trans 'Title' %} <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="description" class="form-label">{% trans 'Description' %}</label>
+            <textarea class="form-control" id="description" name="description" rows="3">{{ survey.description|default:'' }}</textarea>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
+                <input type="datetime-local" class="form-control" id="start_date" name="start_date"
+                       value="{% if survey.start_date %}{{ survey.start_date|date:'Y-m-d\TH:i' }}{% endif %}">
+                <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+            </div>
+            <div class="col-md-6">
+                <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
+                <input type="datetime-local" class="form-control" id="end_date" name="end_date"
+                       value="{% if survey.end_date %}{{ survey.end_date|date:'Y-m-d\TH:i' }}{% endif %}">
+                <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
+                           {% if not survey or survey.is_active %}checked{% endif %}>
+                    <label class="form-check-label" for="is_active">
+                        {% trans 'Active' %}
+                    </label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="allow_multiple_responses" name="allow_multiple_responses"
+                           {% if survey.allow_multiple_responses %}checked{% endif %}>
+                    <label class="form-check-label" for="allow_multiple_responses">
+                        {% trans 'Allow Multiple Responses' %}
+                    </label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
+                           {% if survey.allow_edit_responses %}checked{% endif %}>
+                    <label class="form-check-label" for="allow_edit_responses">
+                        {% trans 'Allow Edit Responses' %}
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
+                           {% if survey.show_results_to_respondents %}checked{% endif %}>
+                    <label class="form-check-label" for="show_results_to_respondents">
+                        {% trans 'Show Results to Respondents' %}
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

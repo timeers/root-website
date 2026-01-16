@@ -1960,18 +1960,23 @@ def survey_detail_view(request, slug):
 
     # Check if user has already responded
     user_response = None
+    is_editing = False
     if request.user.is_authenticated and request.user.profile:
         user_response = survey.responses.filter(user=request.user.profile).first()
 
-    if user_response and not survey.allow_multiple_responses:
-        # Show their previous response instead of redirecting
-        return render(request, 'the_gatehouse/surveys/survey_response_view.html', {
-            'survey': survey,
-            'response': user_response,
-        })
+    # Determine if user can edit their response
+    if user_response:
+        if survey.can_edit_response(request.user.profile):
+            is_editing = True
+        elif not survey.allow_multiple_responses:
+            # Show their previous response in read-only mode
+            return render(request, 'the_gatehouse/surveys/survey_response_view.html', {
+                'survey': survey,
+                'response': user_response,
+            })
 
     if request.method == 'POST':
-        form = SurveyResponseForm(request.POST, survey=survey)
+        form = SurveyResponseForm(request.POST, survey=survey, existing_response=user_response if is_editing else None)
 
         if form.is_valid():
             # Additional validation for required multiple selection questions
@@ -1989,12 +1994,17 @@ def survey_detail_view(request, slug):
                 return render(request, 'the_gatehouse/surveys/survey_detail.html', {
                     'survey': survey,
                     'form': form,
+                    'is_editing': is_editing,
                 })
-            # Create survey response
-            survey_response = SurveyResponse.objects.create(
-                survey=survey,
-                user=request.user.profile
-            )
+
+            # Update existing response or create new one
+            if is_editing:
+                survey_response = user_response
+            else:
+                survey_response = SurveyResponse.objects.create(
+                    survey=survey,
+                    user=request.user.profile
+                )
 
             # Save answers for each question
             for question in survey.questions.all():
@@ -2002,10 +2012,26 @@ def survey_detail_view(request, slug):
                 answer_data = form.cleaned_data.get(field_name)
 
                 if answer_data:
-                    answer = Answer.objects.create(
-                        response=survey_response,
-                        question=question
-                    )
+                    # Get or create answer (for editing vs new response)
+                    if is_editing:
+                        answer, created = Answer.objects.get_or_create(
+                            response=survey_response,
+                            question=question
+                        )
+                        # Clear previous values
+                        answer.text_answer = None
+                        answer.selected_choice = None
+                        answer.numeric_answer = None
+                        answer.date_answer = None
+                        answer.time_answer = None
+                        answer.selected_choices.clear()
+                        # Delete previous ranked answers
+                        RankedAnswer.objects.filter(answer=answer).delete()
+                    else:
+                        answer = Answer.objects.create(
+                            response=survey_response,
+                            question=question
+                        )
 
                     # Save based on question type
                     if question.question_type == 'MC' or question.question_type == 'YN':
@@ -2026,7 +2052,7 @@ def survey_detail_view(request, slug):
                         answer.text_answer = answer_data
                         answer.save()
 
-                    elif question.question_type in ['LK', 'RT']:
+                    elif question.question_type == 'LK':
                         # Likert/Rating
                         answer.numeric_answer = int(answer_data)
                         answer.save()
@@ -2064,16 +2090,10 @@ def survey_detail_view(request, slug):
                             answer.time_answer = answer_data.time()
                         answer.save()
 
-            messages.success(request, _('Thank you for completing the survey!'))
-
-            # Create notification for user
-            from .models import UserNotification, MessageChoices
-            UserNotification.create_notification(
-                profile=request.user.profile,
-                message=f'You completed the survey: {survey.title}',
-                message_type=MessageChoices.SUCCESS,
-                related_url=survey.get_absolute_url()
-            )
+            if is_editing:
+                messages.success(request, _('Your survey response has been updated!'))
+            else:
+                messages.success(request, _('Thank you for completing the survey!'))
 
             # Redirect to results if allowed
             if survey.show_results_to_respondents:
@@ -2081,11 +2101,12 @@ def survey_detail_view(request, slug):
 
             return redirect('survey-list')
     else:
-        form = SurveyResponseForm(survey=survey)
+        form = SurveyResponseForm(survey=survey, existing_response=user_response if is_editing else None)
 
     context = {
         'survey': survey,
         'form': form,
+        'is_editing': is_editing,
     }
     return render(request, 'the_gatehouse/surveys/survey_detail.html', context)
 
@@ -2116,22 +2137,26 @@ def survey_results_view(request, slug):
             'results': []
         }
 
-        if question.question_type in ['MC', 'YN', 'MS']:
-            # Choice-based questions
+        if question.question_type in ['MC', 'YN', 'MS', 'TA']:
+            # Choice-based questions (including Time Availability)
+            results_list = []
             for choice in question.choices.all():
-                if question.question_type == 'MS':
+                if question.question_type in ['MS', 'TA']:
                     count = choice.multiple_answers.filter(response__survey=survey).count()
                 else:
                     count = choice.single_answers.filter(response__survey=survey).count()
 
                 percentage = (count / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
-                question_data['results'].append({
+                results_list.append({
                     'choice': choice.text,
                     'count': count,
                     'percentage': round(percentage, 1)
                 })
 
-        elif question.question_type in ['LK', 'RT']:
+            # Sort by count (descending) for better visualization
+            question_data['results'] = sorted(results_list, key=lambda x: x['count'], reverse=True)
+
+        elif question.question_type == 'LK':
             # Numeric questions - calculate average and distribution
             answers = question.answer_set.filter(response__survey=survey, numeric_answer__isnull=False)
             numeric_values = answers.values_list('numeric_answer', flat=True)
@@ -2231,6 +2256,7 @@ def duplicate_survey_view(request, slug):
             description=original_survey.description,
             is_active=False,  # Start as inactive
             allow_multiple_responses=original_survey.allow_multiple_responses,
+            allow_edit_responses=original_survey.allow_edit_responses,
             show_results_to_respondents=original_survey.show_results_to_respondents,
             start_date=None,
             end_date=None,
@@ -2300,6 +2326,7 @@ def edit_survey_view(request, slug):
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
             allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
+            allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
 
             # Get date fields
@@ -2328,6 +2355,7 @@ def edit_survey_view(request, slug):
             survey.description = description
             survey.is_active = is_active
             survey.allow_multiple_responses = allow_multiple_responses
+            survey.allow_edit_responses = allow_edit_responses
             survey.show_results_to_respondents = show_results_to_respondents
             survey.start_date = start_date_obj
             survey.end_date = end_date_obj
@@ -2353,7 +2381,7 @@ def edit_survey_view(request, slug):
                         question.help_text = q_data.get('help_text', '')
 
                         # Update likert scale if needed
-                        if q_data['type'] in ['LK', 'RT'] and q_data.get('likert_scale_id'):
+                        if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
                             question.likert_scale_id = q_data['likert_scale_id']
                         else:
                             question.likert_scale = None
@@ -2408,7 +2436,7 @@ def edit_survey_view(request, slug):
                         )
 
                         # Add likert scale if needed
-                        if q_data['type'] in ['LK', 'RT'] and q_data.get('likert_scale_id'):
+                        if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
                             question.likert_scale_id = q_data['likert_scale_id']
                             question.save()
 
@@ -2491,6 +2519,7 @@ def create_survey_view(request):
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
             allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
+            allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
 
             # Get date fields
@@ -2520,6 +2549,7 @@ def create_survey_view(request):
                 description=description,
                 is_active=is_active,
                 allow_multiple_responses=allow_multiple_responses,
+                allow_edit_responses=allow_edit_responses,
                 show_results_to_respondents=show_results_to_respondents,
                 start_date=start_date_obj,
                 end_date=end_date_obj,
@@ -2543,7 +2573,7 @@ def create_survey_view(request):
                     )
 
                     # Add likert scale if needed
-                    if q_data['type'] in ['LK', 'RT'] and q_data.get('likert_scale_id'):
+                    if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
                         question.likert_scale_id = q_data['likert_scale_id']
                         question.save()
 

@@ -16,6 +16,12 @@
 
     <h1 class="root-title">{{ survey.title }}</h1>
 
+    {% if is_editing %}
+        <div class="alert alert-info">
+            <i class="bi bi-pencil-square"></i> {% trans 'You are editing your previous response.' %}
+        </div>
+    {% endif %}
+
     {% if survey.description %}
         <p class="lead">{{ survey.description|linebreaks }}</p>
     {% endif %}
@@ -39,8 +45,8 @@
                         <p class="text-muted small">{{ question.help_text }}</p>
                     {% endif %}
 
-                    {# Likert Scale / Rating with custom button-style layout #}
-                    {% if question.question_type == 'LK' or question.question_type == 'RT' %}
+                    {# Scale with custom button-style layout #}
+                    {% if question.question_type == 'LK' %}
                         {% if question.likert_scale %}
                             <div class="mt-3">
                                 <div class="d-flex justify-content-between mb-2">
@@ -50,9 +56,12 @@
                                 <div class="btn-group d-flex flex-column flex-md-row gap-2" role="group">
                                     {% for i in question.likert_scale.min_value|make_list_range:question.likert_scale.max_value %}
                                         <div class="d-flex flex-column align-items-center flex-fill">
-                                            <input type="radio" class="btn-check" name="question_{{ question.id }}"
-                                                   value="{{ i }}" id="q{{ question.id }}_{{ i }}"
-                                                   {% if question.required %}required{% endif %}>
+                                            {% with field=form|get_question_field:question.id %}
+                                                <input type="radio" class="btn-check" name="question_{{ question.id }}"
+                                                       value="{{ i }}" id="q{{ question.id }}_{{ i }}"
+                                                       {% if question.required %}required{% endif %}
+                                                       {% if field.value == i %}checked{% endif %}>
+                                            {% endwith %}
                                             <label class="btn btn-outline-primary w-100" for="q{{ question.id }}_{{ i }}">
                                                 {{ i }}
                                             </label>
@@ -76,20 +85,23 @@
                             <p class="text-muted small mb-2">
                                 <i class="bi bi-check2-square"></i> {% trans 'Select all hours when you are available (times shown in your local timezone):' %}
                             </p>
-                            <div class="time-availability-grid" id="time_availability_{{ question.id }}" data-question-id="{{ question.id }}">
-                                {% for choice in question.choices.all %}
-                                    <div class="time-slot-item" data-utc-hour="{{ choice.text }}" data-choice-id="{{ choice.id }}">
-                                        <input type="checkbox" class="btn-check"
-                                               name="question_{{ question.id }}"
-                                               value="{{ choice.id }}"
-                                               id="time_{{ question.id }}_{{ choice.id }}"
-                                               {% if question.required %}data-required="true"{% endif %}>
-                                        <label class="btn btn-outline-primary w-100" for="time_{{ question.id }}_{{ choice.id }}">
-                                            <span class="local-time-display">{{ choice.text }}:00</span>
-                                        </label>
-                                    </div>
-                                {% endfor %}
-                            </div>
+                            {% with field=form|get_question_field:question.id %}
+                                <div class="time-availability-grid" id="time_availability_{{ question.id }}" data-question-id="{{ question.id }}">
+                                    {% for choice in question.choices.all %}
+                                        <div class="time-slot-item" data-utc-hour="{{ choice.text }}" data-choice-id="{{ choice.id }}">
+                                            <input type="checkbox" class="btn-check"
+                                                   name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}"
+                                                   id="time_{{ question.id }}_{{ choice.id }}"
+                                                   {% if question.required %}data-required="true"{% endif %}
+                                                   {% if field.value and choice.id in field.value %}checked{% endif %}>
+                                            <label class="btn btn-outline-primary w-100" for="time_{{ question.id }}_{{ choice.id }}">
+                                                <span class="local-time-display">{{ choice.text }}:00</span>
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endwith %}
                             {% if question.required %}
                                 <div class="invalid-feedback" id="time_error_{{ question.id }}" style="display: none;">
                                     {% trans 'Please select at least one time slot.' %}
@@ -112,7 +124,11 @@
                                     </div>
                                 {% endfor %}
                             </div>
-                            <input type="hidden" name="question_{{ question.id }}" id="ranking_input_{{ question.id }}" {% if question.required %}required{% endif %}>
+                            {% with field=form|get_question_field:question.id %}
+                                <input type="hidden" name="question_{{ question.id }}" id="ranking_input_{{ question.id }}"
+                                       {% if question.required %}required{% endif %}
+                                       {% if field.value %}value="{{ field.value }}"{% endif %}>
+                            {% endwith %}
                         </div>
 
                     {# All other question types - render form field #}
@@ -141,125 +157,30 @@
                 <span class="text-danger">*</span> {% trans 'Required fields' %}
             </small>
             <button type="submit" class="btn btn-primary btn-lg">
-                {% trans 'Submit Survey' %}
+                {% if is_editing %}
+                    <i class="bi bi-pencil-square"></i> {% trans 'Update Response' %}
+                {% else %}
+                    {% trans 'Submit Survey' %}
+                {% endif %}
             </button>
         </div>
     </form>
 </div>
+{% endblock content %}
 
+{% block styles %}
+{% include 'the_gatehouse/surveys/partials/survey_styles.html' %}
 <style>
-    /* Style radio buttons and checkboxes for better appearance */
-    .form-check {
-        padding-left: 1.5em;
-        margin-bottom: 0.5rem;
-    }
-
-    .form-check-input {
-        margin-top: 0.25rem;
-    }
-
-    .form-check-label {
-        margin-left: 0.25rem;
-    }
-
-    /* Ranking question styles */
-    .ranking-list {
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 0.375rem;
-        padding: 0.5rem;
-        min-height: 100px;
-    }
-
-    .ranking-item {
-        background-color: white;
-        border: 2px solid #dee2e6;
-        border-radius: 0.375rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.5rem;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        cursor: move;
-        transition: all 0.2s ease;
-    }
-
-    .ranking-item:hover {
-        border-color: #0d6efd;
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-    }
-
-    .ranking-number {
-        background-color: #0d6efd;
-        color: white;
-        border-radius: 50%;
-        width: 2rem;
-        height: 2rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        flex-shrink: 0;
-    }
-
-    .ranking-handle {
-        color: #6c757d;
-        font-size: 1.25rem;
-        flex-shrink: 0;
-    }
-
-    .ranking-text {
-        flex: 1;
-        font-weight: 500;
-    }
-
-    .ranking-item.sortable-ghost {
-        opacity: 0.4;
-        background-color: #e9ecef;
-    }
-
-    .ranking-item.sortable-drag {
-        opacity: 1;
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-    }
-
-    /* Time Availability styles */
-    .time-availability-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .time-slot-item {
-        position: relative;
-    }
-
-    .time-slot-item label {
-        font-size: 0.9rem;
-        padding: 0.5rem;
-        white-space: nowrap;
-    }
-
-    .time-slot-item .btn-check:checked + label {
-        background-color: #0d6efd;
-        color: white;
-        border-color: #0d6efd;
-    }
-
+    /* Template-specific styles */
     #timezone_info {
         font-size: 0.9rem;
         padding: 0.5rem 1rem;
         margin-bottom: 1rem;
     }
-
-    @media (max-width: 768px) {
-        .time-availability-grid {
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-        }
-    }
 </style>
+{% endblock styles %}
 
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Time Availability: Detect timezone and convert hours
@@ -335,6 +256,23 @@ document.addEventListener('DOMContentLoaded', function() {
     rankingLists.forEach(list => {
         const questionId = list.dataset.questionId;
 
+        // Check if there's a prepopulated order (for editing)
+        const input = document.getElementById(`ranking_input_${questionId}`);
+        if (input && input.value) {
+            const choiceIds = input.value.split(',').map(id => id.trim());
+            const items = Array.from(list.querySelectorAll('.ranking-item'));
+
+            // Reorder items based on prepopulated data
+            choiceIds.forEach(choiceId => {
+                const item = items.find(el => el.dataset.choiceId === choiceId);
+                if (item) {
+                    list.appendChild(item);
+                }
+            });
+
+            updateRankingNumbers(questionId);
+        }
+
         new Sortable(list, {
             animation: 150,
             handle: '.ranking-item',
@@ -371,4 +309,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-{% endblock content %}
+{% endblock scripts %}

@@ -70,7 +70,7 @@
                     {% elif question.question_type == 'TA' %}
                         <div class="mt-3">
                             <div class="alert alert-info">
-                                <i class="bi bi-clock"></i> {% trans 'Times will be shown in respondent\'s local timezone' %}
+                                <i class="bi bi-clock"></i> {% trans "Times will be shown in respondent's local timezone" %}
                             </div>
                             <p class="text-muted small mb-2">
                                 <i class="bi bi-check2-square"></i> {% trans 'Select all hours when available (24-hour format shown):' %}
@@ -95,8 +95,8 @@
                                       placeholder="{% trans 'Your answer here...' %}"></textarea>
                         </div>
 
-                    {# Likert Scale / Rating #}
-                    {% elif question.question_type == 'LK' or question.question_type == 'RT' %}
+                    {# Scale #}
+                    {% elif question.question_type == 'LK' %}
                         {% if question.likert_scale %}
                             <div class="mt-3">
                                 <div class="d-flex justify-content-between mb-2">
@@ -176,6 +176,10 @@
     </form>
 </div>
 
+
+{% endblock content %}
+
+{% block scripts %}
 {# Custom template filter for range #}
 {% load static %}
 <script>
@@ -188,4 +192,4 @@
     });
 })();
 </script>
-{% endblock content %}
+{% endblock scripts %}

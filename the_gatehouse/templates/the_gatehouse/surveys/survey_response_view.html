@@ -16,6 +16,15 @@
         <small>{% trans 'This survey does not allow multiple responses.' %}</small>
     </div>
 
+    {% if survey.allow_edit_responses and survey.is_available %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> {% trans 'You can edit your response while the survey is still open.' %}
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-primary ms-3">
+                <i class="bi bi-pencil-square"></i> {% trans 'Edit Response' %}
+            </a>
+        </div>
+    {% endif %}
+
     <h1 class="root-title">{{ survey.title }}</h1>
 
     {% if survey.description %}
@@ -80,8 +89,8 @@
                                 {{ answer.text_answer|linebreaks }}
                             </div>
 
-                        {# Likert Scale or Rating #}
-                        {% elif answer.question.question_type == 'LK' or answer.question.question_type == 'RT' %}
+                        {# Scale #}
+                        {% elif answer.question.question_type == 'LK' %}
                             {% if answer.question.likert_scale %}
                                 <div class="mt-3">
                                     <div class="d-flex justify-content-between mb-2">
@@ -165,13 +174,13 @@
         </div>
     {% endif %}
 </div>
+{% endblock content %}
 
-<style>
-    .gap-2 {
-        gap: 0.5rem;
-    }
-</style>
+{% block styles %}
+{% include 'the_gatehouse/surveys/partials/survey_styles.html' %}
+{% endblock styles %}
 
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Get user's timezone
@@ -215,4 +224,4 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-{% endblock content %}
+{% endblock scripts %}
