@@ -1,4 +1,4 @@
-<div class="dashboard-widget card shadow-sm mb-3">
+<div id="{{ release.slug }}" class="dashboard-widget card shadow-sm mb-3 {% if selected_changelog.slug == release.slug %}changelog-selected{% endif %}">
   <div class="changelog-release mx-5 my-3">
     <h2 class='root-title'>{{ release.version }}{% if release.title %} - {{ release.title }}{% endif %}</h2>
     <p class="text-muted">{{ release.date|date:"F d, Y" }}</p>

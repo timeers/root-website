@@ -1,6 +1,15 @@
 # Changelog
 
+## [1.10.3] - 2026-1-16 ?
+
+### Improvements
+- Changelog page now selects the most recent update or scrolls to the selected update
+
+### Bug Fixes
+- Clicking on a link to a Law now respects the user's Reduce Motion preferences
+
 ## [1.10.2] - 2026-1-14 Battlefield Unification
+The Battlefield now has a new tab structure to quickly navigate between games, leaderboards, series and your submitted games. A similar tab structure is added to the Workshop.
 
 ### New Features
 - Tab view for the Battlefield
@@ -19,6 +28,7 @@
 - Leaderboard table overflow on small screens
 
 ## [1.10.1] - 2026-1-13 Admin & Notifications
+This update brings some bug fixes and admin improvements. Admins now have a page to approve Posts and a page to approve Discord Server requests. These admin actions will send a dismissable notification to the user.
 
 ### New Features
 - Admin pending posts widget and management system

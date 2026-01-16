@@ -6,7 +6,7 @@ from .views import (user_settings, player_page_view,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
                     status_check, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error,
-                    admin_dashboard, sync_discord_avatar, join_discord_server, changelog_list_view,
+                    admin_dashboard, sync_discord_avatar, join_discord_server, changelog_select_view, latest_changelog_redirect,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification)
@@ -53,7 +53,9 @@ urlpatterns = [
     path('feedback/french-invite/<slug:slug>/', french_root_invite, name='french-root-invite'),
     path('bookmarks/', user_bookmarks, name='user-bookmarks'),
 
-    path('updates/', changelog_list_view, name='changelog-list-view'),
+    path('updates/', latest_changelog_redirect, name='changelog-list-view'),
+    path('updates/<slug:slug>/', changelog_select_view, name='changelog-select-view'),
+
 
     path('guild/', join_discord_server, name='join-discord-server'),
     path("guild/<int:guild_id>/request/", guild_join_request, name="guild-request",),
