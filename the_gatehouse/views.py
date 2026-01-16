@@ -1456,41 +1456,53 @@ def sync_discord_avatar(request):
 
     return redirect(request.META.get('HTTP_REFERER', '/'))
 
-def changelog_list_view(request):
-    
+
+def latest_changelog_redirect(request):
     latest_changelog = Changelog.objects.first()
-    older_changelogs = Changelog.objects.exclude(pk=latest_changelog.pk)
+    return redirect('changelog-select-view', slug=latest_changelog.slug)
+
+def changelog_select_view(request, slug):
+
+    selected_changelog = get_object_or_404(Changelog, slug=slug)
+    all_changelogs = Changelog.objects.all()
     title = "Updates"
-    meta_title = f'Update {latest_changelog.version} - {latest_changelog.title} ({latest_changelog.date.strftime("%B %Y")})'
-    if latest_changelog.description:
-        meta_description = f"{latest_changelog.description}"
+    meta_title = f'Update {selected_changelog.version} - {selected_changelog.title} ({selected_changelog.date.strftime("%B %Y")})'
+    if selected_changelog.description:
+        meta_description = f"{selected_changelog.description}"
     else:
         meta_description = ''
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_gatehouse/partials/changelog_list.html'
     else:
-        template_name = 'the_gatehouse/changelog.html'
-
+        template_name = 'the_gatehouse/changelog_select.html'
 
     # Pagination
     paginate_by = settings.PAGE_SIZE
-    paginator = Paginator(older_changelogs, paginate_by)
-    page_number = request.GET.get('page')
-    
+    paginator = Paginator(all_changelogs, paginate_by)
+
+    # Find which page contains the selected changelog
+    selected_page = 1
+    for i, changelog in enumerate(all_changelogs):
+        if changelog.slug == slug:
+            selected_page = (i // paginate_by) + 1
+            break
+
+    page_number = request.GET.get('page', selected_page)
+
     try:
         page_obj = paginator.get_page(page_number)
     except EmptyPage:
         page_obj = paginator.page(paginator.num_pages)
-    
+
     context = {
         "meta_description": meta_description,
         'meta_title': meta_title,
         "title": title,
-        'latest_changelog': latest_changelog,
         'changelogs': page_obj,
         'is_paginated': paginator.num_pages > 1,
         'page_obj': page_obj,
+        'selected_changelog': selected_changelog,
     }
 
     return render(request, template_name, context)

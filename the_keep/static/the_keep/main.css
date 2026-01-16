@@ -2280,3 +2280,23 @@ tr.clickable-row:hover {
   margin-left: 0rem;
   vertical-align: middle;
 }
+
+/* Changelog highlight styling */
+.changelog-selected {
+  border: 3px solid var(--theme-color) !important;
+  box-shadow: 0 0 15px rgba(95, 120, 138, 0.3) !important;
+  transition: all 0.3s ease-in-out;
+}
+
+.changelog-highlighted {
+  animation: highlight-pulse 1s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.01);
+  }
+}

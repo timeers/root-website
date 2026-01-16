@@ -1,0 +1,101 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n static %}
+
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+{% if selected_changelog.image %}
+    <meta property="og:image" content="{{ selected_changelog.image.url }}">
+{% else %}
+    <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+{% endif %}
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta%}
+
+
+{% block content %}
+<div class='card my-2'>
+<h1 class='root-title text-center my-3'>Changelog</h1>
+</div>
+
+<div id="search-contents">
+    {% if changelogs %}
+        {% for release in changelogs %}
+
+
+            {% if forloop.last and changelogs.has_next %}
+                <div hx-trigger="revealed"
+                hx-get="{% url 'changelog-select-view' slug=selected_changelog.slug %}?page={{ page_obj.number|add:1 }}"
+                hx-target="#search-contents"
+                hx-swap="beforeend"
+                hx-indicator="#spinner">
+            {% else %}
+                <div>
+            {% endif %}
+
+
+
+            {% include 'the_gatehouse/partials/changelog_entry.html' %}
+
+
+            </div>
+
+            {% if forloop.last and changelogs.has_next %}
+                {% include 'the_gatehouse/partials/spinner.html' %}
+            {% endif %}
+
+        {% endfor %}
+
+
+
+    {% else %}
+        {% trans 'No updates to display.' %}
+    {% endif %}
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+
+<script>
+// Scroll to the selected changelog when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    const selectedElement = document.getElementById('{{ selected_changelog.slug }}');
+    if (selectedElement) {
+        // Add highlight class
+        selectedElement.classList.add('changelog-highlighted');
+
+        // Check if user prefers reduced motion
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // Scroll to element with smooth behavior and offset for navbar
+        setTimeout(function() {
+            // Get the element's position
+            const elementRect = selectedElement.getBoundingClientRect();
+            const absoluteElementTop = elementRect.top + window.pageYOffset;
+
+            // Account for fixed navbar (5rem = 80px) plus some padding
+            const navbarHeight = 80;
+            const additionalPadding = 20;
+            const offset = navbarHeight + additionalPadding;
+
+            const targetScrollPosition = absoluteElementTop - offset;
+
+            // Only scroll if the element is not already near the top
+            // If target scroll is less than 150px, don't scroll (element is already at top)
+            if (targetScrollPosition > 150) {
+                window.scrollTo({
+                    top: targetScrollPosition,
+                    behavior: prefersReducedMotion ? 'auto' : 'smooth'
+                });
+            }
+        }, 100);
+    }
+});
+</script>
+
+{% endblock scripts%}
