@@ -9,7 +9,9 @@ from .views import (user_settings, player_page_view,
                     admin_dashboard, sync_discord_avatar, join_discord_server, changelog_select_view, latest_changelog_redirect,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
-                    approve_post, reject_post, dismiss_notification)
+                    approve_post, reject_post, dismiss_notification,
+                    survey_list_view, survey_detail_view, survey_results_view, my_surveys_view,
+                    create_survey_view, edit_survey_view, preview_survey_view, duplicate_survey_view)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -70,6 +72,16 @@ urlpatterns = [
     path('posts/<int:post_id>/reject/', reject_post, name='reject-post'),
 
     path('notifications/<int:notification_id>/dismiss/', dismiss_notification, name='dismiss-notification'),
+
+    # Survey URLs
+    path('surveys/', survey_list_view, name='survey-list'),
+    path('surveys/create/', create_survey_view, name='create-survey'),
+    path('surveys/<slug:slug>/', survey_detail_view, name='survey-detail'),
+    path('surveys/<slug:slug>/edit/', edit_survey_view, name='edit-survey'),
+    path('surveys/<slug:slug>/preview/', preview_survey_view, name='preview-survey'),
+    path('surveys/<slug:slug>/duplicate/', duplicate_survey_view, name='duplicate-survey'),
+    path('surveys/<slug:slug>/results/', survey_results_view, name='survey-results'),
+    path('profile/<slug:slug>/surveys/', my_surveys_view, name='my-surveys'),
 
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),

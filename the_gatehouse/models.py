@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from django.contrib.auth.models import User
 from io import BytesIO
 # from the_warroom.models import Effort
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.urls import reverse
 from django.db.models.signals import pre_save, post_save
 from django.db import models
@@ -989,141 +990,342 @@ class DiscordGuildJoinRequest(models.Model):
 
 
 
-# # Surveys
-# class Survey(models.Model):
-#     title = models.CharField(max_length=200)
-#     description = models.TextField(blank=True)
-#     is_active = models.BooleanField(default=True)
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     start_date = models.DateTimeField(null=True, blank=True)
-#     end_date = models.DateTimeField(null=True, blank=True)
-#     is_public = models.BooleanField(default=True)
+# Surveys
+class Survey(models.Model):
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    slug = models.SlugField(unique=True, max_length=250, null=True, blank=True)
+    is_active = models.BooleanField(default=True, help_text="Whether this survey is currently accepting responses")
+    created_at = models.DateTimeField(auto_now_add=True)
+    start_date = models.DateTimeField(null=True, blank=True, help_text="When survey becomes available")
+    end_date = models.DateTimeField(null=True, blank=True, help_text="When survey closes")
+    is_public = models.BooleanField(default=True, help_text="If False, only specific users can access")
+    allow_multiple_responses = models.BooleanField(default=False, help_text="Allow users to submit multiple times")
+    show_results_to_respondents = models.BooleanField(default=False, help_text="Allow respondents to view results")
+    created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Survey'
+        verbose_name_plural = 'Surveys'
+
+    def __str__(self):
+        return self.title
+
+    def get_absolute_url(self):
+        return reverse('survey-detail', kwargs={'slug': self.slug})
+
+    def is_available(self):
+        """Check if survey is currently available to take"""
+        now = timezone.now()
+        if not self.is_active:
+            return False
+        if self.start_date and now < self.start_date:
+            return False
+        if self.end_date and now > self.end_date:
+            return False
+        return True
+
+    def response_count(self):
+        """Get total number of responses"""
+        return self.responses.count()
+
+    def has_user_responded(self, user_profile):
+        """Check if a specific user has already responded"""
+        if not user_profile:
+            return False
+        return self.responses.filter(user=user_profile).exists()
 
 
-# class LikertScale(models.Model):
-#     min_value = models.IntegerField(default=1)
-#     max_value = models.IntegerField(default=5)
-#     labels = models.JSONField(default=dict)
+class LikertScale(models.Model):
+    name = models.CharField(max_length=100, help_text="Name for this scale (e.g., '5-point Agreement')")
+    min_value = models.IntegerField(default=1, validators=[MinValueValidator(0)], help_text="Minimum value (up to -10)")
+    max_value = models.IntegerField(default=5, validators=[MaxValueValidator(10)], help_text="Maximum value (up to 10)")
+    min_label = models.CharField(max_length=50, default="Strongly Disagree", blank=False, help_text="Label for minimum value")
+    max_label = models.CharField(max_length=50, default="Strongly Agree", blank=False, help_text="Label for maximum value")
+    labels = models.JSONField(default=dict, null=True, blank=True, help_text='Optional labels for each value (e.g., {"1": "Poor", "5": "Excellent"})')
 
-# # Each Survey is made up of one or more questions
-# # The Type determines what kind of question it is
-# class Question(models.Model):
-#     class QuestionType(models.TextChoices):
-#         MULTIPLE_CHOICE = 'MC', 'Multiple Choice'
-#         MULTIPLE_SELECTION = 'MS', 'Multiple Selection'
-#         OPEN_ENDED = 'OE', 'Open Ended'
-#         RANKING = 'RK', 'Ranking'
-#         RATING = 'RT', 'Rating'
-#         LIKERT = 'LK', 'Likert Scale'
-#         BOOLEAN = 'YN', 'Yes/No'
-#         DATE = 'DT', 'Date/Time'
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Scale'
+        verbose_name_plural = 'Scales'
 
-#     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
-#     text = models.TextField()
-#     likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL)
-#     question_type = models.CharField(max_length=2, choices=QuestionType.choices)
-#     order = models.PositiveIntegerField(default=0)
-#     required = models.BooleanField(default=True)
-#     help_text = models.CharField(max_length=300, blank=True)
+    def __str__(self):
+        return f"{self.name} ({self.min_value}-{self.max_value})"
 
+    def clean(self):
+        """Validate that required fields are filled"""
+        from django.core.exceptions import ValidationError
 
-# # For multiple choice questions they will have multiple choices
-# class Choice(models.Model):
-#     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choices')
-#     text = models.CharField(max_length=200)
-#     order = models.PositiveIntegerField(default=0)
+        # Validate required labels
+        if not self.min_label or not self.min_label.strip():
+            raise ValidationError({'min_label': 'Minimum label is required.'})
+        if not self.max_label or not self.max_label.strip():
+            raise ValidationError({'max_label': 'Maximum label is required.'})
 
-# # A user's response to a survey is stored here
-# class SurveyResponse(models.Model):
-#     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='responses')
-#     user = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
-#     submitted_at = models.DateTimeField(auto_now_add=True)
-#     class Meta:
-#         # Prevent duplicate submissions
-#         unique_together = ('survey', 'user')
+        # Validate min/max values
+        if self.min_value >= self.max_value:
+            raise ValidationError({'max_value': 'Maximum value must be greater than minimum value.'})
 
-#     def __str__(self):
-#         return f"{self.user} → {self.survey.title}"
+        # Validate labels JSON field if provided
+        if self.labels:
+            if not isinstance(self.labels, dict):
+                raise ValidationError({'labels': 'Labels must be a dictionary/object.'})
 
-
-# # An anser to a question that is linked to a user's response
-# class Answer(models.Model):
-#     response = models.ForeignKey(SurveyResponse, on_delete=models.CASCADE, related_name='answers')
-#     question = models.ForeignKey(Question, on_delete=models.CASCADE)
-
-#     # For open-ended
-#     text_answer = models.TextField(blank=True, null=True)
-
-#     # For multiple choice
-#     selected_choice = models.ForeignKey(Choice, on_delete=models.SET_NULL, null=True, blank=True)
-#     selected_choices = models.ManyToManyField(Choice, blank=True)
-
-#     # For date questions
-#     date_answer = models.DateTimeField(blank=True, null=True)
-
-#     def clean(self):
-#         qtype = self.question.question_type
-
-#         # MULTIPLE CHOICE
-#         if qtype == Question.QuestionType.MULTIPLE_CHOICE:
-#             if not self.selected_choice:
-#                 raise ValidationError("Multiple choice question requires a selected choice.")
-#             if self.selected_choices.exists():
-#                 raise ValidationError("Only one choice allowed for multiple choice questions.")
-
-#         # MULTIPLE SELECTION
-#         elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
-#             if not self.pk:
-#                 # Need to save instance first to access selected_choices M2M
-#                 super().save()
-#             if self.selected_choices.count() == 0:
-#                 raise ValidationError("You must select at least one option for multiple selection questions.")
-#             if self.selected_choice:
-#                 raise ValidationError("Use 'selected_choices' only for multiple selection.")
-
-#         # OPEN ENDED
-#         elif qtype == Question.QuestionType.OPEN_ENDED:
-#             if not self.text_answer:
-#                 raise ValidationError("Open-ended question requires a text answer.")
-#             if self.selected_choice or self.selected_choices.exists():
-#                 raise ValidationError("Open-ended questions should not have choices selected.")
-
-#         # BOOLEAN (YES/NO)
-#         elif qtype == Question.QuestionType.BOOLEAN:
-#             if not self.selected_choice:
-#                 raise ValidationError("Yes/No question requires a choice.")
-#             valid = self.question.choices.filter(pk=self.selected_choice.pk).exists()
-#             if not valid:
-#                 raise ValidationError("Selected choice is not valid for this question.")
-
-#         # RANKING, LIKERT, RATING
-#         elif qtype in [Question.QuestionType.RANKING, Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
-#             # Enforce that answers are in `RankedAnswer`, not here
-#             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
-#                 raise ValidationError("Use the associated ranking models to store ranking/likert/rating answers.")
-
-#         # DATE
-#         elif qtype == Question.QuestionType.DATE:
-#             if not self.date_answer:
-#                 raise ValidationError("A valid date/time must be provided.")
-#             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
-#                 raise ValidationError("Only a date/time answer is allowed.")
+            # Validate that keys are integers within the scale range
+            for key, value in self.labels.items():
+                try:
+                    key_int = int(key)
+                    if key_int < self.min_value or key_int > self.max_value:
+                        raise ValidationError({
+                            'labels': f'Label key {key} is outside the scale range ({self.min_value}-{self.max_value}).'
+                        })
+                except (ValueError, TypeError):
+                    raise ValidationError({'labels': f'Label key "{key}" must be a number.'})
 
 
-#         # Fallback
-#         else:
-#             raise ValidationError("Unsupported question type.")
+# Each Survey is made up of one or more questions
+# The Type determines what kind of question it is
+class Question(models.Model):
+    class QuestionType(models.TextChoices):
+        MULTIPLE_CHOICE = 'MC', 'Multiple Choice'
+        MULTIPLE_SELECTION = 'MS', 'Multiple Selection'
+        OPEN_ENDED = 'OE', 'Open Ended'
+        RANKING = 'RK', 'Ranking'
+        RATING = 'RT', 'Rating'
+        LIKERT = 'LK', 'Likert Scale'
+        BOOLEAN = 'YN', 'Yes/No'
+        DATE = 'DT', 'Date/Time'
 
-#     def __str__(self):
-#         return f"Answer to '{self.question.text}'"
+    survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
+    text = models.TextField(help_text="The question text")
+    likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL, help_text="Required for Likert Scale questions")
+    question_type = models.CharField(max_length=2, choices=QuestionType.choices)
+    order = models.PositiveIntegerField(default=0, help_text="Display order in survey")
+    required = models.BooleanField(default=True, help_text="Is this question required?")
+    help_text = models.CharField(max_length=300, blank=True, help_text="Optional help text shown to users")
+
+    class Meta:
+        ordering = ['survey', 'order', 'id']
+        verbose_name = 'Question'
+        verbose_name_plural = 'Questions'
+
+    def __str__(self):
+        return f"{self.survey.title} - Q{self.order}: {self.text[:50]}"
+
+    def clean(self):
+        """Validate that question type matches required fields"""
+        super().clean()
+        if self.question_type == self.QuestionType.LIKERT and not self.likert_scale:
+            raise ValidationError("Likert Scale questions require a Likert Scale to be selected.")
+
+        # Only validate choices if the question has been saved (has a primary key)
+        if self.pk:
+            if self.question_type in [self.QuestionType.MULTIPLE_CHOICE, self.QuestionType.MULTIPLE_SELECTION,
+                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING]:
+                if not self.choices.exists():
+                    raise ValidationError(f"{self.get_question_type_display()} questions require at least one choice.")
 
 
-# class RankedAnswer(models.Model):
-#     answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_items')
-#     choice = models.ForeignKey(Choice, on_delete=models.CASCADE)
-#     rank = models.PositiveIntegerField()
-#     class Meta:
-#         unique_together = ('answer', 'rank')
+# For multiple choice questions they will have multiple choices
+class Choice(models.Model):
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choices')
+    text = models.CharField(max_length=200)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['question', 'order', 'id']
+        verbose_name = 'Choice'
+        verbose_name_plural = 'Choices'
+
+    def __str__(self):
+        return f"{self.question.text[:30]} - {self.text}"
+
+
+# A user's response to a survey is stored here
+class SurveyResponse(models.Model):
+    survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='responses')
+    user = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='survey_responses')
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-submitted_at']
+        verbose_name = 'Survey Response'
+        verbose_name_plural = 'Survey Responses'
+        indexes = [
+            models.Index(fields=['survey', 'user']),
+        ]
+
+    def __str__(self):
+        user_display = self.user.name if self.user else "Anonymous"
+        return f"{user_display} → {self.survey.title}"
+
+
+# An answer to a question that is linked to a user's response
+class Answer(models.Model):
+    response = models.ForeignKey(SurveyResponse, on_delete=models.CASCADE, related_name='answers')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+
+    # For open-ended
+    text_answer = models.TextField(blank=True, null=True)
+
+    # For multiple choice (single selection)
+    selected_choice = models.ForeignKey(Choice, on_delete=models.SET_NULL, null=True, blank=True, related_name='single_answers')
+
+    # For multiple selection
+    selected_choices = models.ManyToManyField(Choice, blank=True, related_name='multiple_answers')
+
+    # For date questions
+    date_answer = models.DateTimeField(blank=True, null=True)
+
+    # For rating/likert (stored as integer value)
+    numeric_answer = models.IntegerField(blank=True, null=True, help_text="For rating and likert scale questions")
+
+    class Meta:
+        ordering = ['response', 'question__order']
+        verbose_name = 'Answer'
+        verbose_name_plural = 'Answers'
+        unique_together = ('response', 'question')
+
+    def clean(self):
+        """Validate that answer matches question type"""
+        qtype = self.question.question_type
+
+        # MULTIPLE CHOICE
+        if qtype == Question.QuestionType.MULTIPLE_CHOICE:
+            if self.question.required and not self.selected_choice:
+                raise ValidationError("Multiple choice question requires a selected choice.")
+            if self.selected_choices.exists():
+                raise ValidationError("Only one choice allowed for multiple choice questions.")
+
+        # MULTIPLE SELECTION
+        elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
+            # Check will happen after save for M2M fields
+            if self.selected_choice:
+                raise ValidationError("Use 'selected_choices' only for multiple selection.")
+
+        # OPEN ENDED
+        elif qtype == Question.QuestionType.OPEN_ENDED:
+            if self.question.required and not self.text_answer:
+                raise ValidationError("Open-ended question requires a text answer.")
+            if self.selected_choice or self.selected_choices.exists():
+                raise ValidationError("Open-ended questions should not have choices selected.")
+
+        # BOOLEAN (YES/NO)
+        elif qtype == Question.QuestionType.BOOLEAN:
+            if self.question.required and not self.selected_choice:
+                raise ValidationError("Yes/No question requires a choice.")
+            if self.selected_choice:
+                valid = self.question.choices.filter(pk=self.selected_choice.pk).exists()
+                if not valid:
+                    raise ValidationError("Selected choice is not valid for this question.")
+
+        # LIKERT & RATING - store in numeric_answer
+        elif qtype in [Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
+            if self.question.required and self.numeric_answer is None:
+                raise ValidationError(f"{self.question.get_question_type_display()} question requires a numeric answer.")
+            if self.numeric_answer is not None and self.question.likert_scale:
+                if not (self.question.likert_scale.min_value <= self.numeric_answer <= self.question.likert_scale.max_value):
+                    raise ValidationError(f"Answer must be between {self.question.likert_scale.min_value} and {self.question.likert_scale.max_value}.")
+
+        # RANKING - uses RankedAnswer model
+        elif qtype == Question.QuestionType.RANKING:
+            # Validation happens in RankedAnswer
+            if self.selected_choice or self.selected_choices.exists() or self.text_answer:
+                raise ValidationError("Use the RankedAnswer model to store ranking answers.")
+
+        # DATE
+        elif qtype == Question.QuestionType.DATE:
+            if self.question.required and not self.date_answer:
+                raise ValidationError("A valid date/time must be provided.")
+            if self.selected_choice or self.selected_choices.exists() or self.text_answer:
+                raise ValidationError("Only a date/time answer is allowed.")
+
+        # Fallback
+        else:
+            raise ValidationError("Unsupported question type.")
+
+    def __str__(self):
+        return f"Answer to '{self.question.text[:50]}'"
+
+    def get_display_value(self):
+        """Return a human-readable version of the answer"""
+        qtype = self.question.question_type
+
+        if qtype == Question.QuestionType.MULTIPLE_CHOICE:
+            return self.selected_choice.text if self.selected_choice else "No answer"
+        elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
+            choices = self.selected_choices.all()
+            return ", ".join([c.text for c in choices]) if choices else "No answer"
+        elif qtype == Question.QuestionType.OPEN_ENDED:
+            return self.text_answer or "No answer"
+        elif qtype == Question.QuestionType.BOOLEAN:
+            return self.selected_choice.text if self.selected_choice else "No answer"
+        elif qtype in [Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
+            return str(self.numeric_answer) if self.numeric_answer is not None else "No answer"
+        elif qtype == Question.QuestionType.RANKING:
+            ranked = self.ranked_items.order_by('rank')
+            return ", ".join([f"{r.rank}. {r.choice.text}" for r in ranked]) if ranked else "No answer"
+        elif qtype == Question.QuestionType.DATE:
+            return str(self.date_answer) if self.date_answer else "No answer"
+        return "No answer"
+
+
+class RankedAnswer(models.Model):
+    """For ranking questions - stores the rank order of choices"""
+    answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_items')
+    choice = models.ForeignKey(Choice, on_delete=models.CASCADE)
+    rank = models.PositiveIntegerField(help_text="Position in ranking (1 = first choice)")
+
+    class Meta:
+        ordering = ['answer', 'rank']
+        unique_together = ('answer', 'rank')
+        verbose_name = 'Ranked Answer'
+        verbose_name_plural = 'Ranked Answers'
+
+    def __str__(self):
+        return f"Rank {self.rank}: {self.choice.text}"
+
+
+# Question Templates - Reusable questions
+class QuestionTemplate(models.Model):
+    """Template for reusable survey questions"""
+    name = models.CharField(max_length=200, help_text="Template name (e.g., 'Age Question', 'Satisfaction Scale')")
+    text = models.TextField(help_text="The question text")
+    question_type = models.CharField(max_length=2, choices=Question.QuestionType.choices)
+    likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL)
+    help_text = models.CharField(max_length=300, blank=True)
+    required = models.BooleanField(default=True)
+    choices_data = models.JSONField(default=list, blank=True, help_text="List of choice texts for choice-based questions")
+    created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='question_templates')
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_public = models.BooleanField(default=False, help_text="Make available to all users")
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Question Template'
+        verbose_name_plural = 'Question Templates'
+
+    def __str__(self):
+        return self.name
+
+    def to_question_data(self):
+        """Convert template to question data format used in create/edit forms"""
+        data = {
+            'text': self.text,
+            'type': self.question_type,
+            'required': self.required,
+            'help_text': self.help_text,
+        }
+
+        if self.question_type in ['LK', 'RT'] and self.likert_scale:
+            data['likert_scale_id'] = self.likert_scale_id
+
+        if self.question_type in ['MC', 'MS', 'YN', 'RK'] and self.choices_data:
+            data['choices'] = self.choices_data
+
+        return data
 
 
 class UserNotification(models.Model):

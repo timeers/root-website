@@ -12,9 +12,9 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
-from .models import Profile, ForegroundImage, BackgroundImage, Changelog
+from .models import Profile, ForegroundImage, BackgroundImage, Changelog, Survey
 from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, send_discord_message, update_discord_avatar
-from .utils import slugify_instance_discord, slugify_changelog
+from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
@@ -180,6 +180,15 @@ def component_post_save(sender, instance, created, **kwargs):
     if created:
         slugify_instance_discord(instance, save=True)
 
+@receiver(pre_save, sender=Survey)
+def component_pre_save(sender, instance, **kwargs):
+    if instance.slug is None:
+        slugify_survey_title(instance, save=False)
+
+@receiver(post_save, sender=Survey)
+def component_post_save(sender, instance, created, **kwargs):
+    if created:
+        slugify_survey_title(instance, save=True)
 
 
 @receiver(post_save, sender=User)

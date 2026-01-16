@@ -23,8 +23,8 @@ from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm
-from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, SurveyResponseForm
+from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest, Survey
 from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar, get_discord_invite_info
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri
@@ -1665,7 +1665,6 @@ def guild_invite_view(request, guild_id):
     return render(request, 'the_gatehouse/guild_invite.html', context)
 
 
-@login_required
 @admin_required
 def pending_guild_invites(request):
     """Admin view to manage pending guild join requests."""
@@ -1684,7 +1683,6 @@ def pending_guild_invites(request):
 
 
 
-@login_required
 @admin_required
 def approve_guild_invite(request, invite_id):
     """Approve a pending guild join request."""
@@ -1739,7 +1737,6 @@ def approve_guild_invite(request, invite_id):
     return redirect('pending-guild-invites')
 
 
-@login_required
 @admin_required
 def reject_guild_invite(request, invite_id):
     """Reject a pending guild join request."""
@@ -1819,7 +1816,6 @@ def mark_guild_invite_clicked(request, guild_id):
 
 
 
-@login_required
 @admin_required
 def pending_posts(request):
     """Admin view to manage pending posts."""
@@ -1839,7 +1835,6 @@ def pending_posts(request):
     return render(request, 'the_gatehouse/pending_posts.html', context)
 
 
-@login_required
 @admin_required
 def approve_post(request, post_id):
     """Approve a pending post and move it to Development status."""
@@ -1880,7 +1875,6 @@ def approve_post(request, post_id):
     return redirect('pending-posts')
 
 
-@login_required
 @admin_required
 def reject_post(request, post_id):
     """Reject a pending post and delete it."""
@@ -1926,4 +1920,623 @@ def dismiss_notification(request, notification_id):
 
     # Redirect back for regular requests
     return redirect(request.META.get('HTTP_REFERER', '/'))
+
+
+# Survey Views
+def survey_list_view(request):
+    """Display list of available surveys."""
+    from .models import Survey
+
+    # Get all active surveys
+    surveys = Survey.objects.filter(is_active=True)
+
+    # Filter by availability (date range)
+    available_surveys = [s for s in surveys if s.is_available()]
+
+    # If user is logged in, annotate which surveys they've completed
+    if request.user.is_authenticated:
+        for survey in available_surveys:
+            survey.user_has_responded = survey.has_user_responded(request.user.profile)
+            survey.can_respond = survey.allow_multiple_responses or not survey.user_has_responded
+
+    context = {
+        'surveys': available_surveys,
+    }
+    return render(request, 'the_gatehouse/surveys/survey_list.html', context)
+
+
+@login_required
+def survey_detail_view(request, slug):
+    """Display survey and handle response submission."""
+    from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer
+    from .forms import SurveyResponseForm
+
+    survey = get_object_or_404(Survey, slug=slug)
+
+    # Check if survey is available
+    if not survey.is_available():
+        messages.warning(request, _('This survey is not currently available.'))
+        return redirect('survey-list')
+
+    # Check if user has already responded
+    has_responded = survey.has_user_responded(request.user.profile)
+    if has_responded and not survey.allow_multiple_responses:
+        messages.info(request, _('You have already completed this survey.'))
+        if survey.show_results_to_respondents:
+            return redirect('survey-results', slug=survey.slug)
+        return redirect('survey-list')
+
+    if request.method == 'POST':
+        form = SurveyResponseForm(request.POST, survey=survey)
+
+        if form.is_valid():
+            # Create survey response
+            survey_response = SurveyResponse.objects.create(
+                survey=survey,
+                user=request.user.profile
+            )
+
+            # Save answers for each question
+            for question in survey.questions.all():
+                field_name = f'question_{question.id}'
+                answer_data = form.cleaned_data.get(field_name)
+
+                if answer_data:
+                    answer = Answer.objects.create(
+                        response=survey_response,
+                        question=question
+                    )
+
+                    # Save based on question type
+                    if question.question_type == 'MC' or question.question_type == 'YN':
+                        # Single choice
+                        choice = Choice.objects.get(id=int(answer_data))
+                        answer.selected_choice = choice
+                        answer.save()
+
+                    elif question.question_type == 'MS':
+                        # Multiple choices
+                        answer.save()  # Save first to enable M2M
+                        for choice_id in answer_data:
+                            choice = Choice.objects.get(id=int(choice_id))
+                            answer.selected_choices.add(choice)
+
+                    elif question.question_type == 'OE':
+                        # Open ended
+                        answer.text_answer = answer_data
+                        answer.save()
+
+                    elif question.question_type in ['LK', 'RT']:
+                        # Likert/Rating
+                        answer.numeric_answer = int(answer_data)
+                        answer.save()
+
+                    elif question.question_type == 'RK':
+                        # Ranking - parse comma-separated IDs
+                        answer.save()  # Save first
+                        choice_ids = [int(x.strip()) for x in answer_data.split(',') if x.strip().isdigit()]
+                        for rank, choice_id in enumerate(choice_ids, start=1):
+                            try:
+                                choice = question.choices.get(id=choice_id)
+                                RankedAnswer.objects.create(
+                                    answer=answer,
+                                    choice=choice,
+                                    rank=rank
+                                )
+                            except Choice.DoesNotExist:
+                                pass
+
+                    elif question.question_type == 'DT':
+                        # Date/Time
+                        answer.date_answer = answer_data
+                        answer.save()
+
+            messages.success(request, _('Thank you for completing the survey!'))
+
+            # Create notification for user
+            from .models import UserNotification, MessageChoices
+            UserNotification.create_notification(
+                profile=request.user.profile,
+                message=f'You completed the survey: {survey.title}',
+                message_type=MessageChoices.SUCCESS,
+                related_url=survey.get_absolute_url()
+            )
+
+            # Redirect to results if allowed
+            if survey.show_results_to_respondents:
+                return redirect('survey-results', slug=survey.slug)
+
+            return redirect('survey-list')
+    else:
+        form = SurveyResponseForm(survey=survey)
+
+    context = {
+        'survey': survey,
+        'form': form,
+    }
+    return render(request, 'the_gatehouse/surveys/survey_detail.html', context)
+
+
+@login_required
+def survey_results_view(request, slug):
+    """Display aggregated survey results (admin only, or respondents if allowed)."""
+    from .models import Survey, Question
+    from django.db.models import Count
+
+    survey = get_object_or_404(Survey, slug=slug)
+
+    # Check permissions
+    if not request.user.profile.admin:
+        if not survey.show_results_to_respondents:
+            raise PermissionDenied
+        if not survey.has_user_responded(request.user.profile):
+            messages.warning(request, _('You must complete the survey to view results.'))
+            return redirect('survey-detail', slug=survey.slug)
+
+    # Gather results for each question
+    questions_with_results = []
+
+    for question in survey.questions.all():
+        question_data = {
+            'question': question,
+            'total_responses': question.answer_set.count(),
+            'results': []
+        }
+
+        if question.question_type in ['MC', 'YN', 'MS']:
+            # Choice-based questions
+            for choice in question.choices.all():
+                if question.question_type == 'MS':
+                    count = choice.multiple_answers.filter(response__survey=survey).count()
+                else:
+                    count = choice.single_answers.filter(response__survey=survey).count()
+
+                percentage = (count / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
+                question_data['results'].append({
+                    'choice': choice.text,
+                    'count': count,
+                    'percentage': round(percentage, 1)
+                })
+
+        elif question.question_type in ['LK', 'RT']:
+            # Numeric questions - calculate average and distribution
+            answers = question.answer_set.filter(response__survey=survey, numeric_answer__isnull=False)
+            numeric_values = answers.values_list('numeric_answer', flat=True)
+
+            if numeric_values:
+                avg = sum(numeric_values) / len(numeric_values)
+                question_data['average'] = round(avg, 2)
+
+                # Distribution
+                distribution = answers.values('numeric_answer').annotate(count=Count('id')).order_by('numeric_answer')
+                question_data['results'] = [
+                    {
+                        'value': item['numeric_answer'],
+                        'count': item['count'],
+                        'percentage': round(item['count'] / len(numeric_values) * 100, 1)
+                    }
+                    for item in distribution
+                ]
+
+        elif question.question_type == 'OE':
+            # Open-ended - show all text responses
+            answers = question.answer_set.filter(response__survey=survey, text_answer__isnull=False)
+            question_data['results'] = [
+                {'text': answer.text_answer}
+                for answer in answers
+            ]
+
+        elif question.question_type == 'RK':
+            # Ranking - show average rank for each choice
+            ranking_data = {}
+            for choice in question.choices.all():
+                ranks = choice.rankedanswer_set.filter(answer__response__survey=survey).values_list('rank', flat=True)
+                if ranks:
+                    avg_rank = sum(ranks) / len(ranks)
+                    ranking_data[choice.text] = {
+                        'avg_rank': round(avg_rank, 2),
+                        'count': len(ranks)
+                    }
+
+            question_data['results'] = sorted(ranking_data.items(), key=lambda x: x[1]['avg_rank'])
+
+        questions_with_results.append(question_data)
+
+    context = {
+        'survey': survey,
+        'total_responses': survey.response_count(),
+        'questions_with_results': questions_with_results,
+    }
+    return render(request, 'the_gatehouse/surveys/survey_results.html', context)
+
+
+@login_required
+def my_surveys_view(request, slug):
+    """Show user's completed surveys."""
+    from .models import SurveyResponse
+
+    profile = get_object_or_404(Profile, slug=slug)
+
+    # Only allow users to view their own surveys
+    if request.user.profile != profile and not request.user.profile.admin:
+        raise PermissionDenied
+
+    responses = SurveyResponse.objects.filter(user=profile).select_related('survey')
+
+    context = {
+        'profile': profile,
+        'responses': responses,
+    }
+    return render(request, 'the_gatehouse/surveys/my_surveys.html', context)
+
+
+@admin_required
+def duplicate_survey_view(request, slug):
+    """Duplicate an existing survey."""
+    from .models import Survey, Question, Choice
+    from django.utils.text import slugify
+
+    original_survey = get_object_or_404(Survey, slug=slug)
+
+    try:
+        # Create a copy of the survey
+        new_survey = Survey.objects.create(
+            title=f"{original_survey.title} (Copy)",
+            description=original_survey.description,
+            is_active=False,  # Start as inactive
+            allow_multiple_responses=original_survey.allow_multiple_responses,
+            show_results_to_respondents=original_survey.show_results_to_respondents,
+            start_date=None,
+            end_date=None,
+            created_by=request.user.profile
+        )
+
+        # Copy all questions
+        for question in original_survey.questions.all():
+            new_question = Question.objects.create(
+                survey=new_survey,
+                text=question.text,
+                question_type=question.question_type,
+                likert_scale=question.likert_scale,
+                order=question.order,
+                required=question.required,
+                help_text=question.help_text
+            )
+
+            # Copy choices for choice-based questions
+            if question.question_type in ['MC', 'MS', 'YN', 'RK']:
+                for choice in question.choices.all():
+                    Choice.objects.create(
+                        question=new_question,
+                        text=choice.text,
+                        order=choice.order
+                    )
+
+        messages.success(request, f'Survey duplicated successfully as "{new_survey.title}"')
+        return redirect('edit-survey', slug=new_survey.slug)
+
+    except Exception as e:
+        messages.error(request, f'Error duplicating survey: {str(e)}')
+        return redirect('survey-list')
+
+
+@admin_required
+def preview_survey_view(request, slug):
+    """Preview a survey without submitting responses."""
+    from .models import Survey
+    from .forms import SurveyResponseForm
+
+    survey = get_object_or_404(Survey, slug=slug)
+
+    # Create a read-only form for preview
+    form = SurveyResponseForm(survey=survey)
+
+    context = {
+        'survey': survey,
+        'form': form,
+        'is_preview': True,
+    }
+    return render(request, 'the_gatehouse/surveys/survey_preview.html', context)
+
+
+@admin_required
+def edit_survey_view(request, slug):
+    """Edit an existing survey."""
+    from .models import Survey, Question, Choice, LikertScale
+    import json
+
+    survey = get_object_or_404(Survey, slug=slug)
+
+    if request.method == 'POST':
+        try:
+            # Get survey data
+            title = request.POST.get('title')
+            description = request.POST.get('description', '')
+            is_active = request.POST.get('is_active') == 'on'
+            allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
+            show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
+
+            # Get date fields
+            from datetime import datetime
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+
+            # Convert to datetime objects if provided
+            start_date_obj = None
+            end_date_obj = None
+
+            if start_date:
+                try:
+                    start_date_obj = datetime.fromisoformat(start_date)
+                except ValueError:
+                    pass
+
+            if end_date:
+                try:
+                    end_date_obj = datetime.fromisoformat(end_date)
+                except ValueError:
+                    pass
+
+            # Update survey
+            survey.title = title
+            survey.description = description
+            survey.is_active = is_active
+            survey.allow_multiple_responses = allow_multiple_responses
+            survey.show_results_to_respondents = show_results_to_respondents
+            survey.start_date = start_date_obj
+            survey.end_date = end_date_obj
+            survey.save()
+
+            # Get questions data from JSON
+            questions_json = request.POST.get('questions_data')
+            if questions_json:
+                questions_data = json.loads(questions_json)
+
+                # Track existing question IDs to know which to delete
+                existing_question_ids = set(survey.questions.values_list('id', flat=True))
+                updated_question_ids = set()
+
+                for q_data in questions_data:
+                    if q_data.get('id'):
+                        # Update existing question
+                        question = Question.objects.get(id=q_data['id'], survey=survey)
+                        question.text = q_data['text']
+                        question.question_type = q_data['type']
+                        question.order = q_data['order']
+                        question.required = q_data.get('required', True)
+                        question.help_text = q_data.get('help_text', '')
+
+                        # Update likert scale if needed
+                        if q_data['type'] in ['LK', 'RT'] and q_data.get('likert_scale_id'):
+                            question.likert_scale_id = q_data['likert_scale_id']
+                        else:
+                            question.likert_scale = None
+
+                        question.save()
+                        updated_question_ids.add(question.id)
+
+                        # Update choices for choice-based questions
+                        if q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
+                            # Track existing choice IDs
+                            existing_choice_ids = set(question.choices.values_list('id', flat=True))
+                            updated_choice_ids = set()
+
+                            for idx, choice_data in enumerate(q_data['choices']):
+                                if isinstance(choice_data, dict) and choice_data.get('id'):
+                                    # Update existing choice
+                                    choice = Choice.objects.get(id=choice_data['id'], question=question)
+                                    choice.text = choice_data['text']
+                                    choice.order = idx
+                                    choice.save()
+                                    updated_choice_ids.add(choice.id)
+                                else:
+                                    # Create new choice
+                                    choice_text = choice_data['text'] if isinstance(choice_data, dict) else choice_data
+                                    if choice_text.strip():
+                                        Choice.objects.create(
+                                            question=question,
+                                            text=choice_text,
+                                            order=idx
+                                        )
+
+                            # Delete choices that were removed
+                            choices_to_delete = existing_choice_ids - updated_choice_ids
+                            if choices_to_delete:
+                                Choice.objects.filter(id__in=choices_to_delete).delete()
+                        else:
+                            # Not a choice-based question, delete all choices
+                            question.choices.all().delete()
+
+                    else:
+                        # Create new question
+                        question = Question.objects.create(
+                            survey=survey,
+                            text=q_data['text'],
+                            question_type=q_data['type'],
+                            order=q_data['order'],
+                            required=q_data.get('required', True),
+                            help_text=q_data.get('help_text', '')
+                        )
+
+                        # Add likert scale if needed
+                        if q_data['type'] in ['LK', 'RT'] and q_data.get('likert_scale_id'):
+                            question.likert_scale_id = q_data['likert_scale_id']
+                            question.save()
+
+                        # Add choices for choice-based questions
+                        if q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
+                            for idx, choice_data in enumerate(q_data['choices']):
+                                choice_text = choice_data['text'] if isinstance(choice_data, dict) else choice_data
+                                if choice_text.strip():
+                                    Choice.objects.create(
+                                        question=question,
+                                        text=choice_text,
+                                        order=idx
+                                    )
+
+                        updated_question_ids.add(question.id)
+
+                # Delete questions that were removed
+                questions_to_delete = existing_question_ids - updated_question_ids
+                if questions_to_delete:
+                    Question.objects.filter(id__in=questions_to_delete).delete()
+
+            messages.success(request, f'Survey "{title}" updated successfully!')
+
+            # Check if we should redirect to preview
+            if request.POST.get('redirect_to_preview') == 'true':
+                return redirect('preview-survey', slug=survey.slug)
+
+            return redirect('survey-detail', slug=survey.slug)
+
+        except Exception as e:
+            messages.error(request, f'Error updating survey: {str(e)}')
+            return redirect('edit-survey', slug=survey.slug)
+
+    # GET request - show form with existing data
+    likert_scales = LikertScale.objects.all()
+
+    # Prepare existing questions data for JavaScript
+    existing_questions = []
+    for question in survey.questions.all():
+        q_data = {
+            'id': question.id,
+            'text': question.text,
+            'type': question.question_type,
+            'order': question.order,
+            'required': question.required,
+            'help_text': question.help_text or '',
+            'choices': [],
+            'likert_scale_id': question.likert_scale_id if question.likert_scale else None
+        }
+
+        # Add choices if applicable
+        if question.question_type in ['MC', 'MS', 'YN', 'RK']:
+            for choice in question.choices.all():
+                q_data['choices'].append({
+                    'id': choice.id,
+                    'text': choice.text,
+                    'order': choice.order
+                })
+
+        existing_questions.append(q_data)
+
+    context = {
+        'survey': survey,
+        'likert_scales': likert_scales,
+        'existing_questions': json.dumps(existing_questions),
+    }
+    return render(request, 'the_gatehouse/surveys/edit_survey.html', context)
+
+
+@admin_required
+def create_survey_view(request):
+    """Create a new survey with questions and choices."""
+    from .models import Survey, Question, Choice, LikertScale
+    import json
+
+    if request.method == 'POST':
+        try:
+            # Get survey data
+            title = request.POST.get('title')
+            description = request.POST.get('description', '')
+            is_active = request.POST.get('is_active') == 'on'
+            allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
+            show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
+
+            # Get date fields
+            from datetime import datetime
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+
+            # Convert to datetime objects if provided
+            start_date_obj = None
+            end_date_obj = None
+
+            if start_date:
+                try:
+                    start_date_obj = datetime.fromisoformat(start_date)
+                except ValueError:
+                    pass
+
+            if end_date:
+                try:
+                    end_date_obj = datetime.fromisoformat(end_date)
+                except ValueError:
+                    pass
+
+            # Create survey
+            survey = Survey.objects.create(
+                title=title,
+                description=description,
+                is_active=is_active,
+                allow_multiple_responses=allow_multiple_responses,
+                show_results_to_respondents=show_results_to_respondents,
+                start_date=start_date_obj,
+                end_date=end_date_obj,
+                created_by=request.user.profile
+            )
+
+            # Get questions data from JSON
+            questions_json = request.POST.get('questions_data')
+            if questions_json:
+                questions_data = json.loads(questions_json)
+
+                for q_data in questions_data:
+                    # Create question
+                    question = Question.objects.create(
+                        survey=survey,
+                        text=q_data['text'],
+                        question_type=q_data['type'],
+                        order=q_data['order'],
+                        required=q_data.get('required', True),
+                        help_text=q_data.get('help_text', '')
+                    )
+
+                    # Add likert scale if needed
+                    if q_data['type'] in ['LK', 'RT'] and q_data.get('likert_scale_id'):
+                        question.likert_scale_id = q_data['likert_scale_id']
+                        question.save()
+
+                    # Add choices for choice-based questions
+                    if q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
+                        for idx, choice_text in enumerate(q_data['choices']):
+                            if choice_text.strip():
+                                Choice.objects.create(
+                                    question=question,
+                                    text=choice_text,
+                                    order=idx
+                                )
+
+            messages.success(request, f'Survey "{title}" created successfully!')
+            return redirect('survey-detail', slug=survey.slug)
+
+        except Exception as e:
+            messages.error(request, f'Error creating survey: {str(e)}')
+            return redirect('create-survey')
+
+    # GET request - show form
+    from .models import QuestionTemplate
+    likert_scales = LikertScale.objects.all()
+
+    # Get available question templates (public ones or user's own)
+    question_templates = QuestionTemplate.objects.filter(
+        Q(is_public=True) | Q(created_by=request.user.profile)
+    ).order_by('name')
+
+    # Convert templates to JSON for JavaScript
+    templates_json = []
+    for template in question_templates:
+        template_data = template.to_question_data()
+        templates_json.append({
+            'id': template.id,
+            'name': template.name,
+            'data': template_data
+        })
+
+    context = {
+        'likert_scales': likert_scales,
+        'question_templates': question_templates,
+    }
+    return render(request, 'the_gatehouse/surveys/create_survey.html', context)
 

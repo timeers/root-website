@@ -1,0 +1,141 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'Results' %}: {{ survey.title }} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    <div class="mb-4">
+        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        </a>
+    </div>
+
+    <h1 class="root-title">{{ survey.title }}</h1>
+    <p class="lead text-muted">{% trans 'Survey Results' %}</p>
+
+    <div class="alert alert-info">
+        <strong>{% trans 'Total Responses' %}:</strong> {{ total_responses }}
+    </div>
+
+    {% if survey.description %}
+        <p>{{ survey.description|linebreaks }}</p>
+    {% endif %}
+
+    <hr>
+
+    {% for question_data in questions_with_results %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">{{ question_data.question.text }}</h5>
+                <small class="text-muted">
+                    {{ question_data.question.get_question_type_display }} |
+                    {{ question_data.total_responses }} {% trans 'response' %}{{ question_data.total_responses|pluralize }}
+                </small>
+            </div>
+            <div class="card-body">
+                {% if question_data.question.question_type == 'MC' or question_data.question.question_type == 'YN' or question_data.question.question_type == 'MS' %}
+                    {# Choice-based questions - show bar chart #}
+                    {% for result in question_data.results %}
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>{{ result.choice }}</span>
+                                <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                            </div>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar" role="progressbar"
+                                     style="width: {{ result.percentage }}%;"
+                                     aria-valuenow="{{ result.percentage }}"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100">
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'LK' or question_data.question.question_type == 'RT' %}
+                    {# Likert/Rating - show average and distribution #}
+                    {% if question_data.average %}
+                        <div class="alert alert-light">
+                            <strong>{% trans 'Average' %}:</strong> {{ question_data.average }}
+                            {% if question_data.question.likert_scale %}
+                                / {{ question_data.question.likert_scale.max_value }}
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    <h6>{% trans 'Distribution' %}:</h6>
+                    {% for result in question_data.results %}
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>{{ result.value }}</span>
+                                <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                            </div>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-info" role="progressbar"
+                                     style="width: {{ result.percentage }}%;"
+                                     aria-valuenow="{{ result.percentage }}"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100">
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'OE' %}
+                    {# Open-ended - show all responses #}
+                    {% if question_data.results %}
+                        <div class="list-group">
+                            {% for result in question_data.results %}
+                                <div class="list-group-item">
+                                    <i class="bi bi-chat-quote"></i> {{ result.text|linebreaks }}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'RK' %}
+                    {# Ranking - show average ranks #}
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>{% trans 'Choice' %}</th>
+                                <th>{% trans 'Average Rank' %}</th>
+                                <th>{% trans 'Times Ranked' %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for choice, data in question_data.results %}
+                                <tr>
+                                    <td>{{ choice }}</td>
+                                    <td>{{ data.avg_rank }}</td>
+                                    <td>{{ data.count }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                {% elif question_data.question.question_type == 'DT' %}
+                    {# Date/Time responses #}
+                    {% if question_data.results %}
+                        <ul class="list-group">
+                            {% for result in question_data.results %}
+                                <li class="list-group-item">{{ result.date }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if not questions_with_results %}
+        <div class="alert alert-warning">
+            {% trans 'No results available yet.' %}
+        </div>
+    {% endif %}
+</div>
+{% endblock content %}

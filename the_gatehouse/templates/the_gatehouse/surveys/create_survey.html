@@ -1,0 +1,551 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% load survey_filters %}
+{% block title %}{% trans 'Create Survey' %} | {% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-section">
+    <div class="mb-4">
+        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        </a>
+    </div>
+
+    <h1 class="root-title">{% trans 'Create New Survey' %}</h1>
+
+    <form method="POST" id="survey-form">
+        {% csrf_token %}
+
+        {# Survey Basic Information #}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">{% trans 'Survey Information' %}</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="title" class="form-label">{% trans 'Title' %} <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="title" name="title" required>
+                </div>
+
+                <div class="mb-3">
+                    <label for="description" class="form-label">{% trans 'Description' %}</label>
+                    <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
+                        <input type="datetime-local" class="form-control" id="start_date" name="start_date">
+                        <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
+                        <input type="datetime-local" class="form-control" id="end_date" name="end_date">
+                        <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_active" name="is_active" checked>
+                            <label class="form-check-label" for="is_active">
+                                {% trans 'Active' %}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="allow_multiple_responses" name="allow_multiple_responses">
+                            <label class="form-check-label" for="allow_multiple_responses">
+                                {% trans 'Allow Multiple Responses' %}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents">
+                            <label class="form-check-label" for="show_results_to_respondents">
+                                {% trans 'Show Results to Respondents' %}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Questions Section #}
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{% trans 'Questions' %}</h5>
+            </div>
+            <div class="card-body" id="questions-container">
+                <p class="text-muted">{% trans 'No questions added yet. Click "Add Question" to get started.' %}</p>
+            </div>
+            <div class="card-footer d-flex justify-content-end align-items-center">
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#templateModal">
+                        <i class="bi bi-files"></i> {% trans 'Load from Template' %}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
+                        <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {# Hidden input to store questions JSON data #}
+        <input type="hidden" name="questions_data" id="questions-data">
+
+        <div class="d-flex justify-content-between">
+            <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="bi bi-check-circle"></i> {% trans 'Create Survey' %}
+            </button>
+        </div>
+    </form>
+</div>
+
+{# Template Selection Modal #}
+<div class="modal fade" id="templateModal" tabindex="-1" aria-labelledby="templateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="templateModalLabel">{% trans 'Load Question from Template' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="template-search" placeholder="{% trans 'Search templates...' %}">
+                </div>
+                <div id="template-list" class="list-group">
+                    {% for template in question_templates %}
+                        <a href="#" class="list-group-item list-group-item-action template-item"
+                           data-template-id="{{ template.id }}"
+                           data-template-data="{{ template.to_question_data|to_json }}">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">{{ template.name }}</h6>
+                                <small class="text-muted">{{ template.get_question_type_display }}</small>
+                            </div>
+                            <p class="mb-1 text-muted small">{{ template.text|truncatewords:20 }}</p>
+                        </a>
+                    {% empty %}
+                        <div class="alert alert-info">
+                            {% trans 'No question templates available. Create templates in the admin panel.' %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .question-card {
+        border-left: 4px solid #007bff;
+        margin-bottom: 1rem;
+    }
+
+    .question-header {
+        background-color: #f8f9fa;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: between;
+        align-items: center;
+    }
+
+    .choice-item {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .choice-item input {
+        flex: 1;
+    }
+
+    .drag-handle {
+        cursor: move;
+        color: #6c757d;
+    }
+
+    .sortable-ghost {
+        opacity: 0.4;
+        background-color: #f8f9fa;
+    }
+</style>
+
+<script>
+let questionCounter = 0;
+const questionsData = [];
+let sortableInstance = null;
+
+const questionTypes = {
+    'MC': 'Multiple Choice',
+    'MS': 'Multiple Selection',
+    'OE': 'Open Ended',
+    'YN': 'Yes/No',
+    'LK': 'Scale',
+    'RT': 'Rating',
+    'RK': 'Ranking',
+    'DT': 'Date/Time'
+};
+
+const likertScales = [
+    {% for scale in likert_scales %}
+    { id: {{ scale.id }}, name: '{{ scale.name }}' },
+    {% endfor %}
+];
+
+function initializeSortable() {
+    const container = document.getElementById('questions-container');
+
+    // Check if Sortable is available
+    if (typeof Sortable === 'undefined') {
+        console.error('Sortable library not loaded');
+        return;
+    }
+
+    // Destroy existing instance if it exists
+    if (sortableInstance) {
+        sortableInstance.destroy();
+    }
+
+    // Only initialize if there are questions
+    if (container.querySelectorAll('.question-card').length > 0) {
+        sortableInstance = new Sortable(container, {
+            animation: 150,
+            handle: '.drag-handle',
+            ghostClass: 'sortable-ghost',
+            onEnd: function(evt) {
+                renumberQuestions();
+            }
+        });
+    }
+}
+
+function loadQuestionFromTemplate(templateData) {
+    questionCounter++;
+    const questionId = `question-${questionCounter}`;
+    const container = document.getElementById('questions-container');
+
+    // Remove "no questions" message if present
+    if (container.querySelector('p.text-muted')) {
+        container.innerHTML = '';
+    }
+
+    const questionHtml = `
+        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
+            <div class="question-header">
+                <span class="drag-handle me-2">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required>${templateData.text || ''}</textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                            <option value="">Select type...</option>
+                            ${Object.entries(questionTypes).map(([key, value]) =>
+                                `<option value="${key}" ${templateData.type === key ? 'selected' : ''}>${value}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input question-required" type="checkbox" ${templateData.required ? 'checked' : ''}>
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Help Text (optional)</label>
+                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${templateData.help_text || ''}">
+                </div>
+
+                <div class="type-specific-options"></div>
+            </div>
+        </div>
+    `;
+
+    container.insertAdjacentHTML('beforeend', questionHtml);
+
+    // Load type-specific options if type is set
+    if (templateData.type) {
+        const card = document.querySelector(`[data-question-id="${questionId}"]`);
+        const optionsContainer = card.querySelector('.type-specific-options');
+
+        if (['MC', 'MS', 'YN', 'RK'].includes(templateData.type) && templateData.choices) {
+            optionsContainer.innerHTML = `
+                <div class="choices-section">
+                    <label class="form-label">Choices <span class="text-danger">*</span></label>
+                    <div class="choices-list"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
+                        <i class="bi bi-plus"></i> Add Choice
+                    </button>
+                </div>
+            `;
+
+            // Add choices from template
+            templateData.choices.forEach(choiceText => {
+                addChoice(questionId, choiceText);
+            });
+        } else if (['LK', 'RT'].includes(templateData.type)) {
+            const scaleOptions = likertScales.map(s =>
+                `<option value="${s.id}" ${templateData.likert_scale_id == s.id ? 'selected' : ''}>${s.name}</option>`
+            ).join('');
+
+            optionsContainer.innerHTML = `
+                <div class="mb-3">
+                    <label class="form-label">Scale <span class="text-danger">*</span></label>
+                    <select class="form-select likert-scale-select" required>
+                        <option value="">Select scale...</option>
+                        ${scaleOptions}
+                    </select>
+                    <small class="form-text text-muted">
+                        Create Scales in the admin panel first if none are available.
+                    </small>
+                </div>
+            `;
+        }
+    }
+
+    initializeSortable();
+}
+
+function addQuestion() {
+    questionCounter++;
+    const questionId = `question-${questionCounter}`;
+
+    const container = document.getElementById('questions-container');
+
+    // Remove "no questions" message if present
+    if (container.querySelector('p.text-muted')) {
+        container.innerHTML = '';
+    }
+
+    const questionHtml = `
+        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
+            <div class="question-header">
+                <span class="drag-handle me-2">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required></textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                            <option value="">Select type...</option>
+                            ${Object.entries(questionTypes).map(([key, value]) =>
+                                `<option value="${key}">${value}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input question-required" type="checkbox" checked>
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Help Text (optional)</label>
+                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents">
+                </div>
+
+                {# Type-specific options will be inserted here #}
+                <div class="type-specific-options"></div>
+            </div>
+        </div>
+    `;
+
+    container.insertAdjacentHTML('beforeend', questionHtml);
+    initializeSortable();
+}
+
+function removeQuestion(questionId) {
+    const question = document.querySelector(`[data-question-id="${questionId}"]`);
+    if (question && confirm('Are you sure you want to remove this question?')) {
+        question.remove();
+        renumberQuestions();
+    }
+}
+
+function renumberQuestions() {
+    const questions = document.querySelectorAll('.question-card');
+    questions.forEach((q, idx) => {
+        q.dataset.order = idx + 1;
+        q.querySelector('.question-header strong').textContent = `Question ${idx + 1}`;
+    });
+}
+
+function handleTypeChange(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const typeSelect = card.querySelector('.question-type');
+    const optionsContainer = card.querySelector('.type-specific-options');
+    const type = typeSelect.value;
+
+    optionsContainer.innerHTML = '';
+
+    if (['MC', 'MS', 'YN', 'RK'].includes(type)) {
+        // Choice-based questions
+        optionsContainer.innerHTML = `
+            <div class="choices-section">
+                <label class="form-label">Choices <span class="text-danger">*</span></label>
+                <div class="choices-list"></div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
+                    <i class="bi bi-plus"></i> Add Choice
+                </button>
+            </div>
+        `;
+
+        // Add initial choices
+        if (type === 'YN') {
+            addChoice(questionId, 'Yes');
+            addChoice(questionId, 'No');
+        } else {
+            addChoice(questionId);
+            addChoice(questionId);
+        }
+    } else if (['LK', 'RT'].includes(type)) {
+        // Likert/Rating questions
+        const scaleOptions = likertScales.map(s =>
+            `<option value="${s.id}">${s.name}</option>`
+        ).join('');
+
+        optionsContainer.innerHTML = `
+            <div class="mb-3">
+                <label class="form-label">Likert Scale <span class="text-danger">*</span></label>
+                <select class="form-select likert-scale-select" required>
+                    <option value="">Select scale...</option>
+                    ${scaleOptions}
+                </select>
+                <small class="form-text text-muted">
+                    Create Likert scales in the admin panel first if none are available.
+                </small>
+            </div>
+        `;
+    }
+}
+
+function addChoice(questionId, defaultValue = '') {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choicesList = card.querySelector('.choices-list');
+    const choiceId = `choice-${Date.now()}`;
+
+    const choiceHtml = `
+        <div class="choice-item" data-choice-id="${choiceId}">
+            <input type="text" class="form-control" placeholder="Choice text" value="${defaultValue}" required>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeChoice('${questionId}', '${choiceId}')">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    `;
+
+    choicesList.insertAdjacentHTML('beforeend', choiceHtml);
+}
+
+function removeChoice(questionId, choiceId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choice = card.querySelector(`[data-choice-id="${choiceId}"]`);
+    const choicesList = card.querySelector('.choices-list');
+
+    // Require at least 2 choices
+    if (choicesList.children.length > 2) {
+        choice.remove();
+    } else {
+        alert('At least 2 choices are required.');
+    }
+}
+
+// Serialize form data on submit
+document.getElementById('survey-form').addEventListener('submit', function(e) {
+    const questions = [];
+    const questionCards = document.querySelectorAll('.question-card');
+
+    questionCards.forEach(card => {
+        const questionData = {
+            order: parseInt(card.dataset.order),
+            text: card.querySelector('.question-text').value,
+            type: card.querySelector('.question-type').value,
+            required: card.querySelector('.question-required').checked,
+            help_text: card.querySelector('.question-help').value
+        };
+
+        // Add type-specific data
+        if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
+            const choices = [];
+            card.querySelectorAll('.choice-item input').forEach(input => {
+                if (input.value.trim()) {
+                    choices.push(input.value.trim());
+                }
+            });
+            questionData.choices = choices;
+        } else if (['LK', 'RT'].includes(questionData.type)) {
+            const scaleSelect = card.querySelector('.likert-scale-select');
+            questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+        }
+
+        questions.push(questionData);
+    });
+
+    // Store as JSON
+    document.getElementById('questions-data').value = JSON.stringify(questions);
+});
+
+// Template search functionality
+document.getElementById('template-search')?.addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const templateItems = document.querySelectorAll('.template-item');
+
+    templateItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+});
+
+// Template selection
+document.querySelectorAll('.template-item').forEach(item => {
+    item.addEventListener('click', function(e) {
+        e.preventDefault();
+        const templateData = JSON.parse(this.dataset.templateData);
+        loadQuestionFromTemplate(templateData);
+
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('templateModal'));
+        modal.hide();
+    });
+});
+</script>
+{% endblock content %}

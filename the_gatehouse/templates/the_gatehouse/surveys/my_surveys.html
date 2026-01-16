@@ -1,0 +1,80 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'My Surveys' %} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    <div class="mb-4">
+        <a href="{% url 'player-detail' profile.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Profile' %}
+        </a>
+    </div>
+
+    <h1 class="root-title">{% trans 'My Completed Surveys' %}</h1>
+    <p class="lead text-muted">{{ profile.name }}</p>
+
+    <hr>
+
+    {% if responses %}
+        <div class="list-group">
+            {% for response in responses %}
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between align-items-start">
+                        <div>
+                            <h5 class="mb-1">
+                                <a href="{% url 'survey-detail' response.survey.slug %}">
+                                    {{ response.survey.title }}
+                                </a>
+                            </h5>
+                            <small class="text-muted">
+                                {% trans 'Submitted' %}: {{ response.submitted_at|date:"M d, Y g:i A" }}
+                            </small>
+                            {% if response.updated_at != response.submitted_at %}
+                                <br>
+                                <small class="text-muted">
+                                    {% trans 'Updated' %}: {{ response.updated_at|date:"M d, Y g:i A" }}
+                                </small>
+                            {% endif %}
+                        </div>
+                        <div>
+                            {% if response.survey.show_results_to_respondents or user.profile.admin %}
+                                <a href="{% url 'survey-results' response.survey.slug %}" class="btn btn-sm btn-outline-info">
+                                    <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
+                                </a>
+                            {% endif %}
+                            {% if response.survey.allow_multiple_responses %}
+                                <a href="{% url 'survey-detail' response.survey.slug %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-arrow-repeat"></i> {% trans 'Take Again' %}
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {# Show user's answers #}
+                    <div class="mt-3">
+                        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#response-{{ response.id }}" aria-expanded="false">
+                            <i class="bi bi-chevron-down"></i> {% trans 'View My Answers' %}
+                        </button>
+                        <div class="collapse" id="response-{{ response.id }}">
+                            <div class="card card-body mt-2">
+                                {% for answer in response.answers.all %}
+                                    <div class="mb-3">
+                                        <strong>{{ answer.question.text }}</strong><br>
+                                        <span class="text-muted">{{ answer.get_display_value }}</span>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            {% trans 'No completed surveys yet.' %}
+            <a href="{% url 'survey-list' %}" class="alert-link">{% trans 'Browse available surveys' %}</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock content %}

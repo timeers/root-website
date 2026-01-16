@@ -1,0 +1,58 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'Surveys' %} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    <h1 class="root-title">{% trans 'Available Surveys' %}</h1>
+
+    {% if surveys %}
+        <div class="list-group mt-4">
+            {% for survey in surveys %}
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between align-items-start">
+                        <div class="flex-fill">
+                            <h5 class="mb-1">
+                                <a href="{% url 'survey-detail' survey.slug %}">{{ survey.title }}</a>
+                            </h5>
+                            {% if survey.description %}
+                                <p class="mb-1 text-muted">{{ survey.description }}</p>
+                            {% endif %}
+                            <small class="text-secondary">
+                                {{ survey.response_count }} {% trans 'response' %}{{ survey.response_count|pluralize }}
+                                {% if survey.end_date %}
+                                    | {% trans 'Closes' %}: {{ survey.end_date|date:"M d, Y" }}
+                                {% endif %}
+                            </small>
+                        </div>
+                        <div class="ms-3">
+                            {% if user.is_authenticated %}
+                                {% if survey.user_has_responded %}
+                                    <span class="badge bg-success">{% trans 'Completed' %}</span>
+                                    {% if survey.allow_multiple_responses %}
+                                        <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-primary mt-2">
+                                            {% trans 'Take Again' %}
+                                        </a>
+                                    {% endif %}
+                                {% else %}
+                                    <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-primary">
+                                        {% trans 'Take Survey' %}
+                                    </a>
+                                {% endif %}
+                            {% else %}
+                                <a href="{% url 'account_login' %}?next={% url 'survey-detail' survey.slug %}" class="btn btn-primary">
+                                    {% trans 'Login to Participate' %}
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info mt-4">
+            {% trans 'No surveys are currently available.' %}
+        </div>
+    {% endif %}
+</div>
+{% endblock content %}

@@ -1,0 +1,550 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% load survey_filters %}
+{% block title %}{% trans 'Edit Survey' %} | {% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-section">
+    <div class="mb-4 d-flex justify-content-between align-items-center">
+        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        </a>
+        <div class="btn-group">
+            <a href="{% url 'preview-survey' survey.slug %}" class="btn btn-sm btn-outline-primary" target="_blank">
+                <i class="bi bi-eye"></i> {% trans 'Preview' %}
+            </a>
+            <button type="button" class="btn btn-sm btn-primary" onclick="saveAndPreview()">
+                <i class="bi bi-save"></i> {% trans 'Save & Preview' %}
+            </button>
+        </div>
+    </div>
+
+    <h1 class="root-title">{% trans 'Edit Survey' %}</h1>
+
+    <form method="POST" id="survey-form">
+        {% csrf_token %}
+
+        {# Survey Basic Information #}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">{% trans 'Survey Information' %}</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="title" class="form-label">{% trans 'Title' %} <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="title" name="title" value="{{ survey.title }}" required>
+                </div>
+
+                <div class="mb-3">
+                    <label for="description" class="form-label">{% trans 'Description' %}</label>
+                    <textarea class="form-control" id="description" name="description" rows="3">{{ survey.description }}</textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
+                        <input type="datetime-local" class="form-control" id="start_date" name="start_date"
+                               value="{% if survey.start_date %}{{ survey.start_date|date:'Y-m-d\TH:i' }}{% endif %}">
+                        <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
+                        <input type="datetime-local" class="form-control" id="end_date" name="end_date"
+                               value="{% if survey.end_date %}{{ survey.end_date|date:'Y-m-d\TH:i' }}{% endif %}">
+                        <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_active" name="is_active" {% if survey.is_active %}checked{% endif %}>
+                            <label class="form-check-label" for="is_active">
+                                {% trans 'Active' %}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="allow_multiple_responses" name="allow_multiple_responses" {% if survey.allow_multiple_responses %}checked{% endif %}>
+                            <label class="form-check-label" for="allow_multiple_responses">
+                                {% trans 'Allow Multiple Responses' %}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents" {% if survey.show_results_to_respondents %}checked{% endif %}>
+                            <label class="form-check-label" for="show_results_to_respondents">
+                                {% trans 'Show Results to Respondents' %}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Questions Section #}
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{% trans 'Questions' %}</h5>
+                <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
+                    <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
+                </button>
+            </div>
+            <div class="card-body" id="questions-container">
+                {% if survey.questions.all %}
+                    {# Existing questions will be loaded here #}
+                {% else %}
+                    <p class="text-muted">{% trans 'No questions added yet. Click "Add Question" to get started.' %}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Hidden input to store questions JSON data #}
+        <input type="hidden" name="questions_data" id="questions-data">
+
+        <div class="d-flex justify-content-between">
+            <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="bi bi-check-circle"></i> {% trans 'Save Changes' %}
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .question-card {
+        border-left: 4px solid #007bff;
+        margin-bottom: 1rem;
+    }
+
+    .question-header {
+        background-color: #f8f9fa;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: between;
+        align-items: center;
+    }
+
+    .choice-item {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .choice-item input {
+        flex: 1;
+    }
+
+    .drag-handle {
+        cursor: move;
+        color: #6c757d;
+    }
+
+    .sortable-ghost {
+        opacity: 0.4;
+        background-color: #f8f9fa;
+    }
+</style>
+
+<script>
+let questionCounter = 0;
+const questionsData = [];
+let sortableInstance = null;
+
+const questionTypes = {
+    'MC': 'Multiple Choice',
+    'MS': 'Multiple Selection',
+    'OE': 'Open Ended',
+    'YN': 'Yes/No',
+    'LK': 'Scale',
+    'RT': 'Rating',
+    'RK': 'Ranking',
+    'DT': 'Date/Time'
+};
+
+const likertScales = [
+    {% for scale in likert_scales %}
+    { id: {{ scale.id }}, name: '{{ scale.name }}' },
+    {% endfor %}
+];
+
+// Load existing questions on page load
+const existingQuestions = {{ existing_questions|safe }};
+
+function initializeSortable() {
+    const container = document.getElementById('questions-container');
+
+    // Check if Sortable is available
+    if (typeof Sortable === 'undefined') {
+        console.error('Sortable library not loaded');
+        return;
+    }
+
+    // Destroy existing instance if it exists
+    if (sortableInstance) {
+        sortableInstance.destroy();
+    }
+
+    // Only initialize if there are questions
+    if (container.querySelectorAll('.question-card').length > 0) {
+        sortableInstance = new Sortable(container, {
+            animation: 150,
+            handle: '.drag-handle',
+            ghostClass: 'sortable-ghost',
+            onEnd: function(evt) {
+                renumberQuestions();
+            }
+        });
+    }
+}
+
+function loadExistingQuestions() {
+    const container = document.getElementById('questions-container');
+    container.innerHTML = '';
+
+    existingQuestions.forEach((question, index) => {
+        questionCounter++;
+        const questionId = `question-${questionCounter}`;
+
+        const questionHtml = `
+            <div class="card question-card" data-question-id="${questionId}" data-order="${index + 1}" data-existing-id="${question.id}">
+                <div class="question-header">
+                    <span class="drag-handle me-2">
+                        <i class="bi bi-grip-vertical"></i>
+                    </span>
+                    <span class="flex-fill"><strong>Question ${index + 1}</strong></span>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                        <textarea class="form-control question-text" rows="2" required>${question.text}</textarea>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                            <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                                <option value="">Select type...</option>
+                                ${Object.entries(questionTypes).map(([key, value]) =>
+                                    `<option value="${key}" ${question.type === key ? 'selected' : ''}>${value}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input question-required" type="checkbox" ${question.required ? 'checked' : ''}>
+                                <label class="form-check-label">Required</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Help Text (optional)</label>
+                        <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${question.help_text || ''}">
+                    </div>
+
+                    <div class="type-specific-options"></div>
+                </div>
+            </div>
+        `;
+
+        container.insertAdjacentHTML('beforeend', questionHtml);
+
+        // Load type-specific options
+        if (question.type) {
+            handleTypeChange(questionId, question);
+        }
+    });
+
+    initializeSortable();
+}
+
+function addQuestion() {
+    questionCounter++;
+    const questionId = `question-${questionCounter}`;
+
+    const container = document.getElementById('questions-container');
+
+    // Remove "no questions" message if present
+    if (container.querySelector('p.text-muted')) {
+        container.innerHTML = '';
+    }
+
+    const questionHtml = `
+        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
+            <div class="question-header">
+                <span class="drag-handle me-2">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required></textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                            <option value="">Select type...</option>
+                            ${Object.entries(questionTypes).map(([key, value]) =>
+                                `<option value="${key}">${value}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input question-required" type="checkbox" checked>
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Help Text (optional)</label>
+                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents">
+                </div>
+
+                {# Type-specific options will be inserted here #}
+                <div class="type-specific-options"></div>
+            </div>
+        </div>
+    `;
+
+    container.insertAdjacentHTML('beforeend', questionHtml);
+    initializeSortable();
+}
+
+function removeQuestion(questionId) {
+    const question = document.querySelector(`[data-question-id="${questionId}"]`);
+    if (question && confirm('Are you sure you want to remove this question?')) {
+        question.remove();
+        renumberQuestions();
+    }
+}
+
+function renumberQuestions() {
+    const questions = document.querySelectorAll('.question-card');
+    questions.forEach((q, idx) => {
+        q.dataset.order = idx + 1;
+        q.querySelector('.question-header strong').textContent = `Question ${idx + 1}`;
+    });
+}
+
+function handleTypeChange(questionId, existingData = null) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const typeSelect = card.querySelector('.question-type');
+    const optionsContainer = card.querySelector('.type-specific-options');
+    const type = typeSelect.value;
+
+    optionsContainer.innerHTML = '';
+
+    if (['MC', 'MS', 'YN', 'RK'].includes(type)) {
+        // Choice-based questions
+        optionsContainer.innerHTML = `
+            <div class="choices-section">
+                <label class="form-label">Choices <span class="text-danger">*</span></label>
+                <div class="choices-list"></div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
+                    <i class="bi bi-plus"></i> Add Choice
+                </button>
+            </div>
+        `;
+
+        // Add choices
+        if (existingData && existingData.choices) {
+            existingData.choices.forEach(choice => {
+                addChoice(questionId, choice.text, choice.id);
+            });
+        } else if (type === 'YN') {
+            addChoice(questionId, 'Yes');
+            addChoice(questionId, 'No');
+        } else {
+            addChoice(questionId);
+            addChoice(questionId);
+        }
+    } else if (['LK', 'RT'].includes(type)) {
+        // Likert/Rating questions
+        const scaleOptions = likertScales.map(s =>
+            `<option value="${s.id}" ${existingData && existingData.likert_scale_id == s.id ? 'selected' : ''}>${s.name}</option>`
+        ).join('');
+
+        optionsContainer.innerHTML = `
+            <div class="mb-3">
+                <label class="form-label">Scale <span class="text-danger">*</span></label>
+                <select class="form-select likert-scale-select" required>
+                    <option value="">Select scale...</option>
+                    ${scaleOptions}
+                </select>
+                <small class="form-text text-muted">
+                    Create Scales in the admin panel first if none are available.
+                </small>
+            </div>
+        `;
+    }
+}
+
+function addChoice(questionId, defaultValue = '', existingId = null) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choicesList = card.querySelector('.choices-list');
+    const choiceId = `choice-${Date.now()}`;
+
+    const choiceHtml = `
+        <div class="choice-item" data-choice-id="${choiceId}" ${existingId ? `data-existing-choice-id="${existingId}"` : ''}>
+            <input type="text" class="form-control" placeholder="Choice text" value="${defaultValue}" required>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeChoice('${questionId}', '${choiceId}')">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    `;
+
+    choicesList.insertAdjacentHTML('beforeend', choiceHtml);
+}
+
+function removeChoice(questionId, choiceId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choice = card.querySelector(`[data-choice-id="${choiceId}"]`);
+    const choicesList = card.querySelector('.choices-list');
+
+    // Require at least 2 choices
+    if (choicesList.children.length > 2) {
+        choice.remove();
+    } else {
+        alert('At least 2 choices are required.');
+    }
+}
+
+// Serialize form data on submit
+document.getElementById('survey-form').addEventListener('submit', function(e) {
+    const questions = [];
+    const questionCards = document.querySelectorAll('.question-card');
+
+    questionCards.forEach(card => {
+        const questionData = {
+            order: parseInt(card.dataset.order),
+            text: card.querySelector('.question-text').value,
+            type: card.querySelector('.question-type').value,
+            required: card.querySelector('.question-required').checked,
+            help_text: card.querySelector('.question-help').value
+        };
+
+        // Include existing question ID if present
+        if (card.dataset.existingId) {
+            questionData.id = parseInt(card.dataset.existingId);
+        }
+
+        // Add type-specific data
+        if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
+            const choices = [];
+            card.querySelectorAll('.choice-item').forEach(choiceItem => {
+                const input = choiceItem.querySelector('input');
+                if (input.value.trim()) {
+                    const choiceData = { text: input.value.trim() };
+                    // Include existing choice ID if present
+                    if (choiceItem.dataset.existingChoiceId) {
+                        choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
+                    }
+                    choices.push(choiceData);
+                }
+            });
+            questionData.choices = choices;
+        } else if (['LK', 'RT'].includes(questionData.type)) {
+            const scaleSelect = card.querySelector('.likert-scale-select');
+            questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+        }
+
+        questions.push(questionData);
+    });
+
+    // Store as JSON
+    document.getElementById('questions-data').value = JSON.stringify(questions);
+});
+
+// Load existing questions when page loads
+window.addEventListener('DOMContentLoaded', function() {
+    if (existingQuestions && existingQuestions.length > 0) {
+        loadExistingQuestions();
+    }
+});
+
+// Save and Preview function
+function saveAndPreview() {
+    const form = document.getElementById('survey-form');
+
+    // If the form validates, add a redirect parameter and submit
+    if (form.checkValidity()) {
+        // Manually trigger the submit event handler to populate questions_data
+        const questionCards = document.querySelectorAll('.question-card');
+        const questions = [];
+
+        questionCards.forEach(card => {
+            const questionData = {
+                order: parseInt(card.dataset.order),
+                text: card.querySelector('.question-text').value,
+                type: card.querySelector('.question-type').value,
+                required: card.querySelector('.question-required').checked,
+                help_text: card.querySelector('.question-help').value
+            };
+
+            if (card.dataset.existingId) {
+                questionData.id = parseInt(card.dataset.existingId);
+            }
+
+            if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
+                const choices = [];
+                card.querySelectorAll('.choice-item').forEach(choiceItem => {
+                    const input = choiceItem.querySelector('input');
+                    if (input.value.trim()) {
+                        const choiceData = { text: input.value.trim() };
+                        if (choiceItem.dataset.existingChoiceId) {
+                            choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
+                        }
+                        choices.push(choiceData);
+                    }
+                });
+                questionData.choices = choices;
+            } else if (['LK', 'RT'].includes(questionData.type)) {
+                const scaleSelect = card.querySelector('.likert-scale-select');
+                questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+            }
+
+            questions.push(questionData);
+        });
+
+        document.getElementById('questions-data').value = JSON.stringify(questions);
+
+        // Add a hidden input to tell the backend to redirect to preview
+        let redirectInput = document.getElementById('redirect-to-preview');
+        if (!redirectInput) {
+            redirectInput = document.createElement('input');
+            redirectInput.type = 'hidden';
+            redirectInput.name = 'redirect_to_preview';
+            redirectInput.id = 'redirect-to-preview';
+            redirectInput.value = 'true';
+            form.appendChild(redirectInput);
+        }
+
+        // Submit the form
+        form.submit();
+    } else {
+        // Show validation errors
+        form.reportValidity();
+    }
+}
+</script>
+{% endblock content %}

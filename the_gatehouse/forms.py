@@ -3,7 +3,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile
+from .models import Profile, Survey, Question, Choice, Answer, SurveyResponse, RankedAnswer
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
 from django.utils.translation import gettext_lazy as _ 
@@ -351,3 +351,109 @@ class GuildJoinRequestForm(forms.Form):
         required=True,
         label="I agree to be respectful of others and follow the server's rules",
     )
+
+
+# Survey Forms
+class SurveyResponseForm(forms.Form):
+    """
+    Dynamic form for survey responses.
+    Form fields are created based on the survey's questions.
+    """
+    def __init__(self, *args, survey=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if not survey:
+            return
+
+        # Create a field for each question in the survey
+        for question in survey.questions.all():
+            field_name = f'question_{question.id}'
+
+            # Multiple Choice
+            if question.question_type == 'MC':
+                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                self.fields[field_name] = forms.ChoiceField(
+                    label=question.text,
+                    choices=choices,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.RadioSelect
+                )
+
+            # Multiple Selection
+            elif question.question_type == 'MS':
+                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                self.fields[field_name] = forms.MultipleChoiceField(
+                    label=question.text,
+                    choices=choices,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.CheckboxSelectMultiple
+                )
+
+            # Open Ended
+            elif question.question_type == 'OE':
+                self.fields[field_name] = forms.CharField(
+                    label=question.text,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.Textarea(attrs={'rows': 4})
+                )
+
+            # Boolean (Yes/No)
+            elif question.question_type == 'YN':
+                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                self.fields[field_name] = forms.ChoiceField(
+                    label=question.text,
+                    choices=choices,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.RadioSelect
+                )
+
+            # Likert Scale
+            elif question.question_type == 'LK':
+                if question.likert_scale:
+                    scale = question.likert_scale
+                    choices = [(i, str(i)) for i in range(scale.min_value, scale.max_value + 1)]
+                    self.fields[field_name] = forms.ChoiceField(
+                        label=question.text,
+                        choices=choices,
+                        required=question.required,
+                        help_text=question.help_text or f"{scale.min_label} ({scale.min_value}) to {scale.max_label} ({scale.max_value})",
+                        widget=forms.RadioSelect
+                    )
+
+            # Rating
+            elif question.question_type == 'RT':
+                if question.likert_scale:
+                    scale = question.likert_scale
+                    choices = [(i, str(i)) for i in range(scale.min_value, scale.max_value + 1)]
+                    self.fields[field_name] = forms.ChoiceField(
+                        label=question.text,
+                        choices=choices,
+                        required=question.required,
+                        help_text=question.help_text or f"Rate from {scale.min_value} to {scale.max_value}",
+                        widget=forms.RadioSelect
+                    )
+
+            # Ranking
+            elif question.question_type == 'RK':
+                # For ranking, we'll use a text field with instructions
+                # Frontend JavaScript would typically handle drag-and-drop
+                choices_text = ", ".join([choice.text for choice in question.choices.all()])
+                self.fields[field_name] = forms.CharField(
+                    label=question.text,
+                    required=question.required,
+                    help_text=question.help_text or f"Rank these items (comma-separated IDs): {choices_text}",
+                    widget=forms.TextInput(attrs={'placeholder': 'e.g., 1,3,2'})
+                )
+
+            # Date/Time
+            elif question.question_type == 'DT':
+                self.fields[field_name] = forms.DateTimeField(
+                    label=question.text,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.DateTimeInput(attrs={'type': 'datetime-local'})
+                )

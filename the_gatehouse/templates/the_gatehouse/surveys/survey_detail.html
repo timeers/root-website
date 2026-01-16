@@ -1,0 +1,113 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n survey_filters %}
+{% block title %}{{ survey.title }} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    <div class="mb-4">
+        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        </a>
+    </div>
+
+    <h1 class="root-title">{{ survey.title }}</h1>
+
+    {% if survey.description %}
+        <p class="lead">{{ survey.description|linebreaks }}</p>
+    {% endif %}
+
+    <hr>
+
+    <form method="POST">
+        {% csrf_token %}
+
+        {% for question in survey.questions.all %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        {{ forloop.counter }}. {{ question.text }}
+                        {% if question.required %}
+                            <span class="text-danger">*</span>
+                        {% endif %}
+                    </h5>
+
+                    {% if question.help_text %}
+                        <p class="text-muted small">{{ question.help_text }}</p>
+                    {% endif %}
+
+                    {# Likert Scale / Rating with custom button-style layout #}
+                    {% if question.question_type == 'LK' or question.question_type == 'RT' %}
+                        {% if question.likert_scale %}
+                            <div class="mt-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <small class="text-muted">{{ question.likert_scale.min_label }}</small>
+                                    <small class="text-muted">{{ question.likert_scale.max_label }}</small>
+                                </div>
+                                <div class="btn-group d-flex flex-column flex-md-row gap-2" role="group">
+                                    {% for i in question.likert_scale.min_value|make_list_range:question.likert_scale.max_value %}
+                                        <div class="d-flex flex-column align-items-center flex-fill">
+                                            <input type="radio" class="btn-check" name="question_{{ question.id }}"
+                                                   value="{{ i }}" id="q{{ question.id }}_{{ i }}"
+                                                   {% if question.required %}required{% endif %}>
+                                            <label class="btn btn-outline-primary w-100" for="q{{ question.id }}_{{ i }}">
+                                                {{ i }}
+                                            </label>
+                                            {% with label=question.likert_scale.labels|get_item:i %}
+                                                {% if label %}
+                                                    <small class="text-muted mt-1 text-center">{{ label }}</small>
+                                                {% endif %}
+                                            {% endwith %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                    {# All other question types - render form fields from the loop #}
+                    {% else %}
+                        <div class="mt-3">
+                            {% for field in form %}
+                                {% if field.name == "question_"|add:question.id|stringformat:"s" %}
+                                    {{ field }}
+                                    {% if field.errors %}
+                                        <div class="invalid-feedback d-block">
+                                            {{ field.errors }}
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+
+        <hr>
+
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+                <span class="text-danger">*</span> {% trans 'Required fields' %}
+            </small>
+            <button type="submit" class="btn btn-primary btn-lg">
+                {% trans 'Submit Survey' %}
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    /* Style radio buttons and checkboxes for better appearance */
+    .form-check {
+        padding-left: 1.5em;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-check-input {
+        margin-top: 0.25rem;
+    }
+
+    .form-check-label {
+        margin-left: 0.25rem;
+    }
+</style>
+{% endblock content %}
