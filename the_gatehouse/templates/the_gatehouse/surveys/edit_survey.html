@@ -92,9 +92,6 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">{% trans 'Questions' %}</h5>
-                <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
-                    <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
-                </button>
             </div>
             <div class="card-body" id="questions-container">
                 {% if survey.questions.all %}
@@ -102,6 +99,11 @@
                 {% else %}
                     <p class="text-muted">{% trans 'No questions added yet. Click "Add Question" to get started.' %}</p>
                 {% endif %}
+            </div>
+            <div class="card-footer d-flex justify-content-end align-items-center">
+                <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
+                    <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
+                </button>
             </div>
         </div>
 

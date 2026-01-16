@@ -1197,8 +1197,9 @@ class Answer(models.Model):
     # For multiple selection
     selected_choices = models.ManyToManyField(Choice, blank=True, related_name='multiple_answers')
 
-    # For date questions
-    date_answer = models.DateTimeField(blank=True, null=True)
+    # For date/time questions
+    date_answer = models.DateField(blank=True, null=True, help_text="For date questions and date part of datetime questions")
+    time_answer = models.TimeField(blank=True, null=True, help_text="For time questions and time part of datetime questions")
 
     # For rating/likert (stored as integer value)
     numeric_answer = models.IntegerField(blank=True, null=True, help_text="For rating and likert scale questions")
@@ -1265,9 +1266,23 @@ class Answer(models.Model):
         # DATE
         elif qtype == Question.QuestionType.DATE:
             if self.question.required and not self.date_answer:
-                raise ValidationError("A valid date/time must be provided.")
+                raise ValidationError("A valid date must be provided.")
+            if self.selected_choice or self.selected_choices.exists() or self.text_answer or self.time_answer:
+                raise ValidationError("Only a date answer is allowed.")
+
+        # TIME
+        elif qtype == Question.QuestionType.TIME:
+            if self.question.required and not self.time_answer:
+                raise ValidationError("A valid time must be provided.")
+            if self.selected_choice or self.selected_choices.exists() or self.text_answer or self.date_answer:
+                raise ValidationError("Only a time answer is allowed.")
+
+        # DATETIME
+        elif qtype == Question.QuestionType.DATETIME:
+            if self.question.required and (not self.date_answer or not self.time_answer):
+                raise ValidationError("Both date and time must be provided.")
             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
-                raise ValidationError("Only a date/time answer is allowed.")
+                raise ValidationError("Only date and time answers are allowed.")
 
         # Fallback
         else:
@@ -1299,6 +1314,14 @@ class Answer(models.Model):
             return ", ".join([f"{r.rank}. {r.choice.text}" for r in ranked]) if ranked else "No answer"
         elif qtype == Question.QuestionType.DATE:
             return str(self.date_answer) if self.date_answer else "No answer"
+        elif qtype == Question.QuestionType.TIME:
+            return str(self.time_answer) if self.time_answer else "No answer"
+        elif qtype == Question.QuestionType.DATETIME:
+            if self.date_answer and self.time_answer:
+                from datetime import datetime
+                dt = datetime.combine(self.date_answer, self.time_answer)
+                return dt.strftime("%B %d, %Y %I:%M %p")
+            return "No answer"
         return "No answer"
 
 

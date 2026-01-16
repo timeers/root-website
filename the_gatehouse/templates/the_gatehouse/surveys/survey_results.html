@@ -116,12 +116,36 @@
                         </tbody>
                     </table>
 
+                {% elif question_data.question.question_type == 'DA' %}
+                    {# Date responses #}
+                    {% if question_data.results %}
+                        <ul class="list-group">
+                            {% for result in question_data.results %}
+                                <li class="list-group-item">{{ result.date|date:"F j, Y" }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'TI' %}
+                    {# Time responses #}
+                    {% if question_data.results %}
+                        <ul class="list-group">
+                            {% for result in question_data.results %}
+                                <li class="list-group-item">{{ result.date|date:"g:i A" }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
                 {% elif question_data.question.question_type == 'DT' %}
                     {# Date/Time responses #}
                     {% if question_data.results %}
                         <ul class="list-group">
                             {% for result in question_data.results %}
-                                <li class="list-group-item">{{ result.date }}</li>
+                                <li class="list-group-item">{{ result.date|date:"F j, Y g:i A" }}</li>
                             {% endfor %}
                         </ul>
                     {% else %}

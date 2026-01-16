@@ -1959,12 +1959,16 @@ def survey_detail_view(request, slug):
         return redirect('survey-list')
 
     # Check if user has already responded
-    has_responded = survey.has_user_responded(request.user.profile)
-    if has_responded and not survey.allow_multiple_responses:
-        messages.info(request, _('You have already completed this survey.'))
-        if survey.show_results_to_respondents:
-            return redirect('survey-results', slug=survey.slug)
-        return redirect('survey-list')
+    user_response = None
+    if request.user.is_authenticated and request.user.profile:
+        user_response = survey.responses.filter(user=request.user.profile).first()
+
+    if user_response and not survey.allow_multiple_responses:
+        # Show their previous response instead of redirecting
+        return render(request, 'the_gatehouse/surveys/survey_response_view.html', {
+            'survey': survey,
+            'response': user_response,
+        })
 
     if request.method == 'POST':
         form = SurveyResponseForm(request.POST, survey=survey)
@@ -1985,7 +1989,6 @@ def survey_detail_view(request, slug):
                 return render(request, 'the_gatehouse/surveys/survey_detail.html', {
                     'survey': survey,
                     'form': form,
-                    'has_responded': has_responded
                 })
             # Create survey response
             survey_response = SurveyResponse.objects.create(
@@ -2043,9 +2046,22 @@ def survey_detail_view(request, slug):
                             except Choice.DoesNotExist:
                                 pass
 
-                    elif question.question_type == 'DT':
-                        # Date/Time
+                    elif question.question_type == 'DA':
+                        # Date only
                         answer.date_answer = answer_data
+                        answer.save()
+
+                    elif question.question_type == 'TI':
+                        # Time only
+                        answer.time_answer = answer_data
+                        answer.save()
+
+                    elif question.question_type == 'DT':
+                        # Date & Time - split into date and time parts
+                        from datetime import datetime
+                        if isinstance(answer_data, datetime):
+                            answer.date_answer = answer_data.date()
+                            answer.time_answer = answer_data.time()
                         answer.save()
 
             messages.success(request, _('Thank you for completing the survey!'))
@@ -2156,6 +2172,19 @@ def survey_results_view(request, slug):
                     }
 
             question_data['results'] = sorted(ranking_data.items(), key=lambda x: x[1]['avg_rank'])
+
+        elif question.question_type in ['DA', 'TI', 'DT']:
+            # Date/Time questions - show all responses
+            answers = question.answer_set.filter(response__survey=survey)
+            for answer in answers:
+                if question.question_type == 'DA' and answer.date_answer:
+                    question_data['results'].append({'date': answer.date_answer})
+                elif question.question_type == 'TI' and answer.time_answer:
+                    question_data['results'].append({'date': answer.time_answer})
+                elif question.question_type == 'DT' and answer.date_answer and answer.time_answer:
+                    from datetime import datetime
+                    dt = datetime.combine(answer.date_answer, answer.time_answer)
+                    question_data['results'].append({'date': dt})
 
         questions_with_results.append(question_data)
 
@@ -2360,6 +2389,9 @@ def edit_survey_view(request, slug):
                             choices_to_delete = existing_choice_ids - updated_choice_ids
                             if choices_to_delete:
                                 Choice.objects.filter(id__in=choices_to_delete).delete()
+                        elif q_data['type'] == 'TA':
+                            # TIME_AVAILABILITY - keep existing UTC hour choices, don't delete them
+                            pass
                         else:
                             # Not a choice-based question, delete all choices
                             question.choices.all().delete()
@@ -2428,7 +2460,7 @@ def edit_survey_view(request, slug):
         }
 
         # Add choices if applicable
-        if question.question_type in ['MC', 'MS', 'YN', 'RK']:
+        if question.question_type in ['MC', 'MS', 'YN', 'RK', 'TA']:
             for choice in question.choices.all():
                 q_data['choices'].append({
                     'id': choice.id,
