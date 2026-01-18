@@ -403,6 +403,18 @@ class SurveyResponseForm(forms.Form):
                     widget=forms.MultipleHiddenInput
                 )
 
+            # Day Availability
+            elif question.question_type == 'DY':
+                # Create hidden field - actual UI is rendered in template
+                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                self.fields[field_name] = forms.MultipleChoiceField(
+                    label=question.text,
+                    choices=choices,
+                    required=False,  # We'll validate this manually in the view if needed
+                    help_text=question.help_text,
+                    widget=forms.MultipleHiddenInput
+                )
+
             # Open Ended
             elif question.question_type == 'OE':
                 self.fields[field_name] = forms.CharField(
@@ -493,7 +505,7 @@ class SurveyResponseForm(forms.Form):
                         if answer.selected_choice:
                             self.initial[field_name] = answer.selected_choice.id
 
-                    elif question.question_type == 'MS' or question.question_type == 'TA':
+                    elif question.question_type == 'MS' or question.question_type == 'TA' or question.question_type == 'DY':
                         # Multiple choices
                         self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
 

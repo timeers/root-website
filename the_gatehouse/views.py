@@ -1945,44 +1945,66 @@ def survey_list_view(request):
     return render(request, 'the_gatehouse/surveys/survey_list.html', context)
 
 
-@login_required
-def survey_detail_view(request, slug):
-    """Display survey and handle response submission."""
+@player_required
+def survey_redirect(request, slug):
+    from .models import Survey
+    survey = get_object_or_404(Survey, slug=slug)
+
+    if request.user.is_authenticated and request.user.profile:
+        user_responses = survey.responses.filter(user=request.user.profile)
+        count = user_responses.count()
+        if count == 0:
+            return redirect('survey-take', slug=survey.slug)
+        elif count == 1:
+            only_response = user_responses.first()
+            return redirect('survey-user-response', slug=survey.slug, response_id=only_response.id)
+        else:
+            return redirect('survey-detail', slug=survey.slug)
+    else:
+        messages.warning(request, _('An authentication error occured.'))
+        return redirect('survey-list')
+
+
+@player_required
+def survey_take_view(request, slug):
+    """Take a survey."""
     from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer
     from .forms import SurveyResponseForm
 
     survey = get_object_or_404(Survey, slug=slug)
+    
+
+    user_responses = survey.responses.filter(user=request.user.profile)
+    response_count = user_responses.count()
+    first_response = user_responses.first()
 
     # Check if survey is available
     if not survey.is_available():
-        messages.warning(request, _('This survey is not currently available.'))
-        return redirect('survey-list')
+        if response_count == 1:
+            messages.warning(request, _('This survey is no longer available.'))
+            return redirect('survey-user-response', slug=survey.slug, response_id=first_response.id)
+        elif response_count == 0:
+            messages.warning(request, _('This survey is not currently available.'))
+            return redirect('survey-list')
+        else:
+            messages.warning(request, _('This survey is no longer available.'))
+            return redirect('survey-detail', slug=survey.slug)
 
-    # Check if user has already responded
-    user_response = None
-    is_editing = False
-    if request.user.is_authenticated and request.user.profile:
-        user_response = survey.responses.filter(user=request.user.profile).first()
 
     # Determine if user can edit their response
-    if user_response:
-        if survey.can_edit_response(request.user.profile):
-            is_editing = True
-        elif not survey.allow_multiple_responses:
-            # Show their previous response in read-only mode
-            return render(request, 'the_gatehouse/surveys/survey_response_view.html', {
-                'survey': survey,
-                'response': user_response,
-            })
+    if user_responses and not survey.allow_multiple_responses:
+            messages.warning(request, _('You have already taken this survey.'))
+            return redirect('survey-user-response', slug=survey.slug, response_id=first_response.id)
+
 
     if request.method == 'POST':
-        form = SurveyResponseForm(request.POST, survey=survey, existing_response=user_response if is_editing else None)
+        form = SurveyResponseForm(request.POST, survey=survey)
 
         if form.is_valid():
             # Additional validation for required multiple selection questions
             validation_errors = []
             for question in survey.questions.all():
-                if question.required and question.question_type in ['MS', 'TA']:
+                if question.required and question.question_type in ['MS', 'TA', 'DY']:
                     field_name = f'question_{question.id}'
                     answer_data = form.cleaned_data.get(field_name)
                     if not answer_data or len(answer_data) == 0:
@@ -1991,20 +2013,16 @@ def survey_detail_view(request, slug):
             if validation_errors:
                 for error in validation_errors:
                     messages.error(request, error)
-                return render(request, 'the_gatehouse/surveys/survey_detail.html', {
+                return render(request, 'the_gatehouse/surveys/take_survey.html', {
                     'survey': survey,
                     'form': form,
-                    'is_editing': is_editing,
                 })
 
-            # Update existing response or create new one
-            if is_editing:
-                survey_response = user_response
-            else:
-                survey_response = SurveyResponse.objects.create(
-                    survey=survey,
-                    user=request.user.profile
-                )
+
+            survey_response = SurveyResponse.objects.create(
+                survey=survey,
+                user=request.user.profile
+            )
 
             # Save answers for each question
             for question in survey.questions.all():
@@ -2013,25 +2031,10 @@ def survey_detail_view(request, slug):
 
                 if answer_data:
                     # Get or create answer (for editing vs new response)
-                    if is_editing:
-                        answer, created = Answer.objects.get_or_create(
-                            response=survey_response,
-                            question=question
-                        )
-                        # Clear previous values
-                        answer.text_answer = None
-                        answer.selected_choice = None
-                        answer.numeric_answer = None
-                        answer.date_answer = None
-                        answer.time_answer = None
-                        answer.selected_choices.clear()
-                        # Delete previous ranked answers
-                        RankedAnswer.objects.filter(answer=answer).delete()
-                    else:
-                        answer = Answer.objects.create(
-                            response=survey_response,
-                            question=question
-                        )
+                    answer = Answer.objects.create(
+                        response=survey_response,
+                        question=question
+                    )
 
                     # Save based on question type
                     if question.question_type == 'MC' or question.question_type == 'YN':
@@ -2040,7 +2043,7 @@ def survey_detail_view(request, slug):
                         answer.selected_choice = choice
                         answer.save()
 
-                    elif question.question_type == 'MS' or question.question_type == 'TA':
+                    elif question.question_type == 'MS' or question.question_type == 'TA' or question.question_type == 'DY':
                         # Multiple choices (including time availability)
                         answer.save()  # Save first to enable M2M
                         for choice_id in answer_data:
@@ -2090,16 +2093,182 @@ def survey_detail_view(request, slug):
                             answer.time_answer = answer_data.time()
                         answer.save()
 
-            if is_editing:
-                messages.success(request, _('Your survey response has been updated!'))
-            else:
-                messages.success(request, _('Thank you for completing the survey!'))
+
+            messages.success(request, _('Thank you for completing the survey!'))
 
             # Redirect to results if allowed
             if survey.show_results_to_respondents:
                 return redirect('survey-results', slug=survey.slug)
 
-            return redirect('survey-list')
+            return redirect('survey-detail', survey.slug)
+    else:
+        form = SurveyResponseForm(survey=survey, existing_response=None)
+
+    context = {
+        'survey': survey,
+        'form': form,
+    }
+    return render(request, 'the_gatehouse/surveys/take_survey.html', context)
+
+
+@player_required
+def survey_response_view(request, slug, response_id):
+    """Display survey and handle response submission."""
+    from .models import Survey, SurveyResponse
+
+    survey = get_object_or_404(Survey, slug=slug)
+    user_response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
+    profile = request.user.profile
+
+    if not user_response.can_view_response(profile):
+        raise PermissionDenied
+
+    can_edit_response = survey.can_edit_response(profile)
+    can_see_results = survey.can_see_results(profile)
+
+    # Show their previous response in read-only mode
+    return render(request, 'the_gatehouse/surveys/view_survey_response.html', {
+        'survey': survey,
+        'response': user_response,
+        'can_edit': can_edit_response,
+        'can_see_results': can_see_results,
+    })
+
+
+@player_required
+def survey_response_edit_view(request, slug, response_id):
+    """Display survey and handle response submission."""
+    from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer
+    from .forms import SurveyResponseForm
+    is_editing = True
+    survey = get_object_or_404(Survey, slug=slug)
+    user_response = get_object_or_404(SurveyResponse, id=response_id, user=request.user.profile, survey=survey)
+    
+    # Check if survey is available
+    if not survey.is_available():
+        messages.warning(request, _('This survey is no longer available.'))
+        return redirect('survey-user-response', slug=slug, response_id=user_response.id)
+
+
+    if not survey.can_edit_response(request.user.profile):
+        # Show their previous response in read-only mode
+        messages.warning(request, _('You cannot make changes to your response.'))
+        return redirect('survey-user-response', slug=slug, response_id=user_response.id)
+
+    if request.method == 'POST':
+        form = SurveyResponseForm(request.POST, survey=survey, existing_response=user_response)
+
+        if form.is_valid():
+            # Additional validation for required multiple selection questions
+            validation_errors = []
+            for question in survey.questions.all():
+                if question.required and question.question_type in ['MS', 'TA', 'DY']:
+                    field_name = f'question_{question.id}'
+                    answer_data = form.cleaned_data.get(field_name)
+                    if not answer_data or len(answer_data) == 0:
+                        validation_errors.append(f'{question.text}: Please select at least one option.')
+
+            if validation_errors:
+                for error in validation_errors:
+                    messages.error(request, error)
+                return render(request, 'the_gatehouse/surveys/take_survey.html', {
+                    'survey': survey,
+                    'form': form,
+                    'is_editing': is_editing,
+                })
+
+
+            # Save answers for each question
+            for question in survey.questions.all():
+                field_name = f'question_{question.id}'
+                answer_data = form.cleaned_data.get(field_name)
+
+                if answer_data:
+                    # Get or create answer (for editing vs new response)
+
+                    answer, created = Answer.objects.get_or_create(
+                        response=user_response,
+                        question=question
+                    )
+                    # Clear previous values
+                    answer.text_answer = None
+                    answer.selected_choice = None
+                    answer.numeric_answer = None
+                    answer.date_answer = None
+                    answer.time_answer = None
+                    answer.selected_choices.clear()
+                    # Delete previous ranked answers
+                    RankedAnswer.objects.filter(answer=answer).delete()
+
+
+                    # Save based on question type
+                    if question.question_type == 'MC' or question.question_type == 'YN':
+                        # Single choice
+                        choice = Choice.objects.get(id=int(answer_data))
+                        answer.selected_choice = choice
+                        answer.save()
+
+                    elif question.question_type == 'MS' or question.question_type == 'TA' or question.question_type == 'DY':
+                        # Multiple choices (including time availability)
+                        answer.save()  # Save first to enable M2M
+                        for choice_id in answer_data:
+                            choice = Choice.objects.get(id=int(choice_id))
+                            answer.selected_choices.add(choice)
+
+                    elif question.question_type == 'OE':
+                        # Open ended
+                        answer.text_answer = answer_data
+                        answer.save()
+
+                    elif question.question_type == 'LK':
+                        # Likert/Rating
+                        answer.numeric_answer = int(answer_data)
+                        answer.save()
+
+                    elif question.question_type == 'RK':
+                        # Ranking - parse comma-separated IDs
+                        answer.save()  # Save first
+                        choice_ids = [int(x.strip()) for x in answer_data.split(',') if x.strip().isdigit()]
+                        for rank, choice_id in enumerate(choice_ids, start=1):
+                            try:
+                                choice = question.choices.get(id=choice_id)
+                                RankedAnswer.objects.create(
+                                    answer=answer,
+                                    choice=choice,
+                                    rank=rank
+                                )
+                            except Choice.DoesNotExist:
+                                pass
+
+                    elif question.question_type == 'DA':
+                        # Date only
+                        answer.date_answer = answer_data
+                        answer.save()
+
+                    elif question.question_type == 'TI':
+                        # Time only
+                        answer.time_answer = answer_data
+                        answer.save()
+
+                    elif question.question_type == 'DT':
+                        # Date & Time - split into date and time parts
+                        from datetime import datetime
+                        if isinstance(answer_data, datetime):
+                            answer.date_answer = answer_data.date()
+                            answer.time_answer = answer_data.time()
+                        answer.save()
+
+            # Update the response's updated_at timestamp
+            user_response.save()
+
+            messages.success(request, _('Your survey response has been updated!'))
+
+
+            # Redirect to results if allowed
+            if survey.show_results_to_respondents:
+                return redirect('survey-results', slug=survey.slug)
+
+            return redirect('survey-user-response', slug=slug, response_id=user_response.id)
     else:
         form = SurveyResponseForm(survey=survey, existing_response=user_response if is_editing else None)
 
@@ -2108,24 +2277,63 @@ def survey_detail_view(request, slug):
         'form': form,
         'is_editing': is_editing,
     }
+    return render(request, 'the_gatehouse/surveys/take_survey.html', context)
+
+def survey_detail_view(request, slug):
+    """Display the current user's responses to a survey."""
+    from .models import Survey
+
+    survey = get_object_or_404(Survey, slug=slug)
+
+    if request.user.is_authenticated:
+        profile = request.user.profile
+    else:
+        profile = None
+
+    survey_question_count = survey.question_count()
+    survey_response_count = survey.response_count()
+
+    user_responses = survey.responses.filter(user=profile)
+    user_response_count = user_responses.count()
+    user_first_response = user_responses.first()
+
+    can_edit_response = survey.can_edit_response(profile)
+    can_edit_survey = survey.can_edit_survey(profile)
+    print(can_edit_response)
+    can_see_resutls = survey.can_see_results(profile)
+    
+    can_take = survey.can_take_survey(profile)
+
+    context = {
+        'responses': user_responses,
+        'survey': survey,
+        'can_edit_response': can_edit_response,
+        'can_edit_survey': can_edit_survey,
+        'can_take': can_take,
+        'can_see_resutls': can_see_resutls,
+        'survey_question_count': survey_question_count,
+        'survey_response_count': survey_response_count,
+    }
+
     return render(request, 'the_gatehouse/surveys/survey_detail.html', context)
 
 
-@login_required
+
+@player_required
 def survey_results_view(request, slug):
     """Display aggregated survey results (admin only, or respondents if allowed)."""
-    from .models import Survey, Question
+    from .models import Survey
     from django.db.models import Count
 
     survey = get_object_or_404(Survey, slug=slug)
 
     # Check permissions
-    if not request.user.profile.admin:
+    if not request.user.profile.admin and not request.user.profile == survey.created_by:
         if not survey.show_results_to_respondents:
             raise PermissionDenied
         if not survey.has_user_responded(request.user.profile):
             messages.warning(request, _('You must complete the survey to view results.'))
-            return redirect('survey-detail', slug=survey.slug)
+            return redirect('survey-take', slug=survey.slug)
 
     # Gather results for each question
     questions_with_results = []
@@ -2137,11 +2345,11 @@ def survey_results_view(request, slug):
             'results': []
         }
 
-        if question.question_type in ['MC', 'YN', 'MS', 'TA']:
+        if question.question_type in ['MC', 'YN', 'MS', 'TA', 'DY']:
             # Choice-based questions (including Time Availability)
             results_list = []
             for choice in question.choices.all():
-                if question.question_type in ['MS', 'TA']:
+                if question.question_type in ['MS', 'TA', 'DY']:
                     count = choice.multiple_answers.filter(response__survey=survey).count()
                 else:
                     count = choice.single_answers.filter(response__survey=survey).count()
@@ -2245,7 +2453,6 @@ def my_surveys_view(request, slug):
 def duplicate_survey_view(request, slug):
     """Duplicate an existing survey."""
     from .models import Survey, Question, Choice
-    from django.utils.text import slugify
 
     original_survey = get_object_or_404(Survey, slug=slug)
 
@@ -2254,7 +2461,7 @@ def duplicate_survey_view(request, slug):
         new_survey = Survey.objects.create(
             title=f"{original_survey.title} (Copy)",
             description=original_survey.description,
-            is_active=False,  # Start as inactive
+            is_active=True,
             allow_multiple_responses=original_survey.allow_multiple_responses,
             allow_edit_responses=original_survey.allow_edit_responses,
             show_results_to_respondents=original_survey.show_results_to_respondents,
@@ -2285,20 +2492,24 @@ def duplicate_survey_view(request, slug):
                     )
 
         messages.success(request, f'Survey duplicated successfully as "{new_survey.title}"')
-        return redirect('edit-survey', slug=new_survey.slug)
+        return redirect('survey-edit', slug=new_survey.slug)
 
     except Exception as e:
         messages.error(request, f'Error duplicating survey: {str(e)}')
         return redirect('survey-list')
 
 
-@admin_required
-def preview_survey_view(request, slug):
+@player_required
+def survey_preview_view(request, slug):
     """Preview a survey without submitting responses."""
     from .models import Survey
     from .forms import SurveyResponseForm
+    
 
     survey = get_object_or_404(Survey, slug=slug)
+
+    profile = request.user.profile
+    can_edit_survey = survey.can_edit_survey(profile)
 
     # Create a read-only form for preview
     form = SurveyResponseForm(survey=survey)
@@ -2307,17 +2518,22 @@ def preview_survey_view(request, slug):
         'survey': survey,
         'form': form,
         'is_preview': True,
+        'can_edit': can_edit_survey,
     }
     return render(request, 'the_gatehouse/surveys/survey_preview.html', context)
 
 
-@admin_required
-def edit_survey_view(request, slug):
+@player_required
+def survey_edit_view(request, slug):
     """Edit an existing survey."""
     from .models import Survey, Question, Choice, LikertScale
     import json
 
     survey = get_object_or_404(Survey, slug=slug)
+
+    profile = request.user.profile
+    if not profile.admin and not survey.created_by == profile:
+        raise PermissionDenied
 
     if request.method == 'POST':
         try:
@@ -2417,7 +2633,7 @@ def edit_survey_view(request, slug):
                             choices_to_delete = existing_choice_ids - updated_choice_ids
                             if choices_to_delete:
                                 Choice.objects.filter(id__in=choices_to_delete).delete()
-                        elif q_data['type'] == 'TA':
+                        elif q_data['type'] == 'TA' or q_data['type'] == 'DY':
                             # TIME_AVAILABILITY - keep existing UTC hour choices, don't delete them
                             pass
                         else:
@@ -2462,13 +2678,13 @@ def edit_survey_view(request, slug):
 
             # Check if we should redirect to preview
             if request.POST.get('redirect_to_preview') == 'true':
-                return redirect('preview-survey', slug=survey.slug)
+                return redirect('survey-preview', slug=survey.slug)
 
             return redirect('survey-detail', slug=survey.slug)
 
         except Exception as e:
             messages.error(request, f'Error updating survey: {str(e)}')
-            return redirect('edit-survey', slug=survey.slug)
+            return redirect('survey-edit', slug=survey.slug)
 
     # GET request - show form with existing data
     likert_scales = LikertScale.objects.all()
@@ -2488,7 +2704,7 @@ def edit_survey_view(request, slug):
         }
 
         # Add choices if applicable
-        if question.question_type in ['MC', 'MS', 'YN', 'RK', 'TA']:
+        if question.question_type in ['MC', 'MS', 'YN', 'RK', 'TA', 'DY']:
             for choice in question.choices.all():
                 q_data['choices'].append({
                     'id': choice.id,
@@ -2588,11 +2804,11 @@ def create_survey_view(request):
                                 )
 
             messages.success(request, f'Survey "{title}" created successfully!')
-            return redirect('survey-detail', slug=survey.slug)
+            return redirect('survey-preview', slug=survey.slug)
 
         except Exception as e:
             messages.error(request, f'Error creating survey: {str(e)}')
-            return redirect('create-survey')
+            return redirect('survey-create')
 
     # GET request - show form
     from .models import QuestionTemplate

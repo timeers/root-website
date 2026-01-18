@@ -1,5 +1,7 @@
 import os
 import uuid
+import calendar
+
 from urllib.parse import urlparse
 from django.contrib.auth.models import User
 from io import BytesIO
@@ -409,7 +411,7 @@ class Profile(models.Model):
     admin_onboard = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
-    credit_link = models.CharField(max_length=400, null=True, blank=True)
+    credit_link = models.CharField(max_length=400, null=True, blank=True, help_text="User's external link to their other endeavors.")
     date_modified = models.DateTimeField(auto_now=True)
     guilds = models.ManyToManyField(DiscordGuild, related_name="members", help_text="User's known Root Guilds.", blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
@@ -996,13 +998,24 @@ class Survey(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     slug = models.SlugField(unique=True, max_length=250, null=True, blank=True)
+    
+    # Survey Owner Objects
+    post = models.ForeignKey('the_keep.Post', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Post that this survey is about.")
+    series = models.ForeignKey('the_warroom.Tournament', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Tournament or Series that this survey is about.")
+    series_round = models.ForeignKey('the_warroom.Round', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Tournament Round that this survey is about.")
+
+    is_public = models.BooleanField(default=True, help_text="If False, only certain players can access.")    
+    invited_players = models.ManyToManyField(Profile, blank=True, related_name='survey_invites', help_text="Players invited to take this survey.")
+    guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="Players in this guild will be able to take this survey.")
+
     is_active = models.BooleanField(default=True, help_text="Whether this survey is currently accepting responses")
     created_at = models.DateTimeField(auto_now_add=True)
+    
     start_date = models.DateTimeField(null=True, blank=True, help_text="When survey becomes available")
     end_date = models.DateTimeField(null=True, blank=True, help_text="When survey closes")
-    is_public = models.BooleanField(default=True, help_text="If False, only specific users can access")
-    allow_multiple_responses = models.BooleanField(default=False, help_text="Allow users to submit multiple times")
-    allow_edit_responses = models.BooleanField(default=False, help_text="Allow users to edit their responses while survey is open")
+    
+    allow_multiple_responses = models.BooleanField(default=False, help_text="Allow players to submit multiple times")
+    allow_edit_responses = models.BooleanField(default=False, help_text="Allow players to edit their responses while survey is open")
     show_results_to_respondents = models.BooleanField(default=False, help_text="Allow respondents to view results")
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
 
@@ -1015,7 +1028,7 @@ class Survey(models.Model):
         return self.title
 
     def get_absolute_url(self):
-        return reverse('survey-detail', kwargs={'slug': self.slug})
+        return reverse('survey-redirect', kwargs={'slug': self.slug})
 
     def is_available(self):
         """Check if survey is currently available to take"""
@@ -1027,6 +1040,10 @@ class Survey(models.Model):
         if self.end_date and now > self.end_date:
             return False
         return True
+
+    def question_count(self):
+        """Get total number of questions"""
+        return self.questions.count()
 
     def response_count(self):
         """Get total number of responses"""
@@ -1046,6 +1063,53 @@ class Survey(models.Model):
             return False
         return self.has_user_responded(user_profile)
 
+    def can_edit_survey(self, user_profile):
+        """Check if a user can edit the survey"""
+        if not user_profile:
+            return False
+        return user_profile.admin or user_profile == self.created_by
+
+
+    def can_take_survey(self, user_profile):
+        """Check if a user can take the survey"""
+        if not user_profile:
+            return False
+
+        # Block banned users
+        if user_profile.group == Profile.GroupChoices.BANNED:
+            return False
+
+        # Survey must be open
+        if not self.is_available():
+            return False
+
+        # Respect multiple response rules
+        if self.has_user_responded(user_profile) and not self.allow_multiple_responses:
+            return False
+
+        # Public survey
+        if self.is_public:
+            return True
+
+        # Explicit invite
+        if self.invited_players.filter(pk=user_profile.pk).exists():
+            return True
+
+        # Guild-based access
+        if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
+            return True
+
+        return False
+
+    def can_see_results(self, user_profile):
+        if not user_profile:
+            return False
+        # Admin and creator can see results
+        if user_profile.admin or user_profile == self.created_by:
+            return True
+        if self.has_user_responded(user_profile) and self.show_results_to_respondents:
+            return True
+        return False
 
 class LikertScale(models.Model):
     name = models.CharField(max_length=100, help_text="Name for this scale (e.g., '5-point Agreement')")
@@ -1120,6 +1184,7 @@ class Question(models.Model):
         TIME = 'TI', 'Time'
         DATETIME = 'DT', 'Date & Time'
         TIME_AVAILABILITY = 'TA', 'Time Availability'
+        DAY_AVAILABILITY = 'DY', 'Day Availability'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
     text = models.TextField(help_text="The question text")
@@ -1154,6 +1219,23 @@ class Question(models.Model):
                 order=hour
             )
 
+
+    def create_day_choices(self):
+        """Create 7 day choices for DAY_AVAILABILITY questions"""
+        if self.question_type != self.QuestionType.DAY_AVAILABILITY:
+            return
+
+        # Only create if choices don't already exist
+        if self.choices.exists():
+            return
+
+        for order, day_name in enumerate(calendar.day_name):
+            Choice.objects.create(
+                question=self,
+                text=day_name,   # "Monday", "Tuesday", ...
+                order=order
+            )
+
     def clean(self):
         """Validate that question type matches required fields"""
         super().clean()
@@ -1163,7 +1245,8 @@ class Question(models.Model):
         # Only validate choices if the question has been saved (has a primary key)
         if self.pk:
             if self.question_type in [self.QuestionType.MULTIPLE_CHOICE, self.QuestionType.MULTIPLE_SELECTION,
-                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING, self.QuestionType.TIME_AVAILABILITY]:
+                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING, 
+                                      self.QuestionType.TIME_AVAILABILITY, self.QuestionType.DAY_AVAILABILITY]:
                 if not self.choices.exists():
                     raise ValidationError(f"{self.get_question_type_display()} questions require at least one choice.")
 
@@ -1202,6 +1285,13 @@ class SurveyResponse(models.Model):
         user_display = self.user.name if self.user else "Anonymous"
         return f"{user_display} → {self.survey.title}"
 
+    def can_view_response(self, user_profile):
+        if not user_profile:
+            return False
+        # Admin, survey owner or respondent can view
+        if user_profile == self.user or user_profile.admin or user_profile == self.survey.created_by:
+            return True
+        return False
 
 # An answer to a question that is linked to a user's response
 class Answer(models.Model):
@@ -1252,6 +1342,12 @@ class Answer(models.Model):
             # Check will happen after save for M2M fields
             if self.selected_choice:
                 raise ValidationError("Use 'selected_choices' only for time availability.")
+            
+        # DAY AVAILABILITY - same as multiple selection
+        elif qtype == Question.QuestionType.DAY_AVAILABILITY:
+            # Check will happen after save for M2M fields
+            if self.selected_choice:
+                raise ValidationError("Use 'selected_choices' only for day availability.")
 
         # OPEN ENDED
         elif qtype == Question.QuestionType.OPEN_ENDED:
@@ -1323,6 +1419,9 @@ class Answer(models.Model):
         elif qtype == Question.QuestionType.TIME_AVAILABILITY:
             choices = self.selected_choices.all().order_by('text')
             return ", ".join([f"{c.text}:00 UTC" for c in choices]) if choices else "No answer"
+        elif qtype == Question.QuestionType.DAY_AVAILABILITY:
+            choices = self.selected_choices.all().order_by('text')
+            return ", ".join([c.text for c in choices]) if choices else "No answer"
         elif qtype == Question.QuestionType.OPEN_ENDED:
             return self.text_answer or "No answer"
         elif qtype == Question.QuestionType.BOOLEAN:
@@ -1464,3 +1563,6 @@ def create_time_availability_choices(sender, instance, created, **kwargs):
     """Automatically create 24 UTC hour choices for TIME_AVAILABILITY questions"""
     if instance.question_type == Question.QuestionType.TIME_AVAILABILITY:
         instance.create_utc_hour_choices()
+    """Automatically create weekday choices for DAY_AVAILABILITY questions"""
+    if instance.question_type == Question.QuestionType.DAY_AVAILABILITY:
+        instance.create_day_choices()

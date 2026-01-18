@@ -2,6 +2,9 @@
 
 ## [1.10.3] - 2026-1-16 ?
 
+### New Features
+- Surveys (Multiple Choice, Multiple Selection, Open Ended, Yes/No, Scale, Ranking, Availability, Time, Date)
+
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update
 

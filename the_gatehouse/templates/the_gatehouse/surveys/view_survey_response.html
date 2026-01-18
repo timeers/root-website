@@ -5,21 +5,15 @@
 {% block content %}
 <div class="content-section">
     <div class="mb-4">
-        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        <a href="{% url 'survey-detail' slug=survey.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
         </a>
     </div>
 
-    <div class="alert alert-success">
-        <i class="bi bi-check-circle"></i> {% trans 'You have already completed this survey' %}
-        <br>
-        <small>{% trans 'This survey does not allow multiple responses.' %}</small>
-    </div>
-
     {% if survey.allow_edit_responses and survey.is_available %}
-        <div class="alert alert-info">
+        <div class="alert alert-info d-flex">
             <i class="bi bi-info-circle"></i> {% trans 'You can edit your response while the survey is still open.' %}
-            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-primary ms-3">
+            <a href="{% url 'survey-edit-response' survey.slug response.id %}" class="btn btn-sm btn-primary ms-auto">
                 <i class="bi bi-pencil-square"></i> {% trans 'Edit Response' %}
             </a>
         </div>
@@ -80,6 +74,23 @@
                                     </div>
                                 {% else %}
                                     <em class="text-muted">{% trans 'No times selected' %}</em>
+                                {% endif %}
+                            </div>
+
+                        {# Day Availability #}
+                        {% elif answer.question.question_type == 'DY' %}
+                            <div class="mt-2">
+                                <p class="mb-2"><small class="text-muted">{% trans 'Selected days' %}:</small></p>
+                                {% if answer.selected_choices.exists %}
+                                    <div class="d-flex flex-wrap" style="gap: 0.5rem;">
+                                        {% for choice in answer.selected_choices.all %}
+                                            <div class="btn btn-primary pe-none">
+                                                <span>{{ choice.text }}</span>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <em class="text-muted">{% trans 'No days selected' %}</em>
                                 {% endif %}
                             </div>
 
@@ -165,7 +176,7 @@
         </div>
     {% endfor %}
 
-    {% if survey.show_results_to_respondents %}
+    {% if can_see_results %}
         <hr>
         <div class="text-center">
             <a href="{% url 'survey-results' survey.slug %}" class="btn btn-primary">

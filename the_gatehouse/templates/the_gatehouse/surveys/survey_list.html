@@ -28,19 +28,19 @@
                         <div class="ms-3">
                             {% if user.is_authenticated %}
                                 {% if survey.user_has_responded %}
-                                    <span class="badge bg-success">{% trans 'Completed' %}</span>
                                     {% if survey.allow_multiple_responses %}
-                                        <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-primary mt-2">
+                                        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-outline-primary mt-2">
                                             {% trans 'Take Again' %}
                                         </a>
                                     {% endif %}
+                                    <i class="bi bi-check-circle text-success"></i>
                                 {% else %}
-                                    <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-primary">
+                                    <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary">
                                         {% trans 'Take Survey' %}
                                     </a>
                                 {% endif %}
                             {% else %}
-                                <a href="{% url 'account_login' %}?next={% url 'survey-detail' survey.slug %}" class="btn btn-primary">
+                                <a href="{% url 'account_login' %}?next={% url 'survey-redirect' survey.slug %}" class="btn btn-sm btn-primary">
                                     {% trans 'Login to Participate' %}
                                 </a>
                             {% endif %}

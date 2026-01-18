@@ -5,8 +5,8 @@
 {% block content %}
 <div class="content-section">
     <div class="mb-4">
-        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
         </a>
     </div>
 
@@ -63,6 +63,27 @@
                             <div class="mb-3">
                                 <div class="d-flex justify-content-between mb-1">
                                     <span class="ta-time-label" data-utc-hour="{{ result.choice }}">{{ result.choice }}:00 UTC</span>
+                                    <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-success" role="progressbar"
+                                         style="width: {{ result.percentage }}%;"
+                                         aria-valuenow="{{ result.percentage }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'DY' %}
+                    {# Day Availability - show bar chart with days #}
+                    {% for result in question_data.results %}
+                        {% if result.count > 0 %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="dy-day-label">{{ result.choice }}</span>
                                     <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
                                 </div>
                                 <div class="progress" style="height: 25px;">

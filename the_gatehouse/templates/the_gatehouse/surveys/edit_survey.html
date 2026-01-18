@@ -10,11 +10,11 @@
 {% block content %}
 <div class="content-section">
     <div class="mb-4 d-flex justify-content-between align-items-center">
-        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
         </a>
         <div class="btn-group">
-            <a href="{% url 'preview-survey' survey.slug %}" class="btn btn-sm btn-outline-primary" target="_blank">
+            <a href="{% url 'survey-preview' survey.slug %}" class="btn btn-sm btn-outline-primary" target="_blank">
                 <i class="bi bi-eye"></i> {% trans 'Preview' %}
             </a>
             <button type="button" class="btn btn-sm btn-primary" onclick="saveAndPreview()">
@@ -54,7 +54,7 @@
         <input type="hidden" name="questions_data" id="questions-data">
 
         <div class="d-flex justify-content-between">
-            <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
             <button type="submit" class="btn btn-success btn-lg">
                 <i class="bi bi-check-circle"></i> {% trans 'Save Changes' %}
             </button>

@@ -1,312 +1,191 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags i18n survey_filters %}
+{% load i18n %}
 {% block title %}{{ survey.title }} | {% endblock %}
-
-{% block head %}
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-{% endblock %}
 
 {% block content %}
 <div class="content-section">
-    <div class="mb-4">
-        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
-        </a>
+    <!-- Navigation and Actions -->
+    <div class="d-flex align-items-center mb-4">
+        <div>
+            <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+            </a>
+        </div>
+        <div class="ms-auto d-flex gap-2">
+            {% if can_see_resutls %}
+                <a href="{% url 'survey-results' survey.slug %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
+                </a>
+            {% endif %}
+            {% if can_take %}
+                <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-success">
+                    <i class="bi bi-pencil-square"></i> {% trans 'Take Survey' %}
+                </a>
+            {% endif %}
+            {% if can_edit_survey %}
+                <a href="{% url 'survey-edit' survey.slug %}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
+                </a>
+            {% endif %}
+        </div>
     </div>
 
-    <h1 class="root-title">{{ survey.title }}</h1>
+    <!-- Survey Header -->
+    <div class="mb-4">
+        <h1 class="root-title mb-2">{{ survey.title }}</h1>
+        {% if survey.created_by %}
+            <p class="text-muted mb-1">
+                <i class="bi bi-person-circle"></i> {% trans 'Created by' %} <strong>{{ survey.created_by }}</strong>
+            </p>
+        {% endif %}
+        {% if survey.description %}
+            <p class="lead mt-3">{{ survey.description|linebreaks }}</p>
+        {% endif %}
+    </div>
 
-    {% if is_editing %}
-        <div class="alert alert-info">
-            <i class="bi bi-pencil-square"></i> {% trans 'You are editing your previous response.' %}
+    <!-- Survey Stats Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6">
+            <a href="{% url 'survey-preview' survey.slug %}">
+                <div class="card border-primary h-100">
+                    <div class="card-body text-center">
+                        <i class="bi bi-question-circle fs-2 text-primary"></i>
+                        <h3 class="mb-0 mt-2">{{ survey_question_count }}</h3>
+                        <small class="text-muted">{% trans 'Question' %}{{ survey_question_count|pluralize }}</small>
+                    </div>
+                </div>
+            </a>
         </div>
-    {% endif %}
-
-    {% if survey.description %}
-        <p class="lead">{{ survey.description|linebreaks }}</p>
-    {% endif %}
-
-    <hr>
-
-    <form method="POST">
-        {% csrf_token %}
-
-        {% for question in survey.questions.all %}
-            <div class="card mb-4">
-                <div class="card-body">
-                    <h5 class="card-title">
-                        {{ forloop.counter }}. {{ question.text }}
-                        {% if question.required %}
-                            <span class="text-danger">*</span>
-                        {% endif %}
-                    </h5>
-
-                    {% if question.help_text %}
-                        <p class="text-muted small">{{ question.help_text }}</p>
-                    {% endif %}
-
-                    {# Scale with custom button-style layout #}
-                    {% if question.question_type == 'LK' %}
-                        {% if question.likert_scale %}
-                            <div class="mt-3">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <small class="text-muted">{{ question.likert_scale.min_label }}</small>
-                                    <small class="text-muted">{{ question.likert_scale.max_label }}</small>
-                                </div>
-                                <div class="btn-group d-flex flex-column flex-md-row gap-2" role="group">
-                                    {% for i in question.likert_scale.min_value|make_list_range:question.likert_scale.max_value %}
-                                        <div class="d-flex flex-column align-items-center flex-fill">
-                                            {% with field=form|get_question_field:question.id %}
-                                                <input type="radio" class="btn-check" name="question_{{ question.id }}"
-                                                       value="{{ i }}" id="q{{ question.id }}_{{ i }}"
-                                                       {% if question.required %}required{% endif %}
-                                                       {% if field.value == i %}checked{% endif %}>
-                                            {% endwith %}
-                                            <label class="btn btn-outline-primary w-100" for="q{{ question.id }}_{{ i }}">
-                                                {{ i }}
-                                            </label>
-                                            {% with label=question.likert_scale.labels|get_item:i %}
-                                                {% if label %}
-                                                    <small class="text-muted mt-1 text-center">{{ label }}</small>
-                                                {% endif %}
-                                            {% endwith %}
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        {% endif %}
-
-                    {# Time Availability with timezone conversion #}
-                    {% elif question.question_type == 'TA' %}
-                        <div class="mt-3">
-                            <div class="alert alert-info" id="timezone_info_{{ question.id }}">
-                                <i class="bi bi-clock"></i> <span class="timezone-name">Detecting your timezone...</span>
-                            </div>
-                            <p class="text-muted small mb-2">
-                                <i class="bi bi-check2-square"></i> {% trans 'Select all hours when you are available (times shown in your local timezone):' %}
-                            </p>
-                            {% with field=form|get_question_field:question.id %}
-                                <div class="time-availability-grid" id="time_availability_{{ question.id }}" data-question-id="{{ question.id }}">
-                                    {% for choice in question.choices.all %}
-                                        <div class="time-slot-item" data-utc-hour="{{ choice.text }}" data-choice-id="{{ choice.id }}">
-                                            <input type="checkbox" class="btn-check"
-                                                   name="question_{{ question.id }}"
-                                                   value="{{ choice.id }}"
-                                                   id="time_{{ question.id }}_{{ choice.id }}"
-                                                   {% if question.required %}data-required="true"{% endif %}
-                                                   {% if field.value and choice.id in field.value %}checked{% endif %}>
-                                            <label class="btn btn-outline-primary w-100" for="time_{{ question.id }}_{{ choice.id }}">
-                                                <span class="local-time-display">{{ choice.text }}:00</span>
-                                            </label>
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            {% endwith %}
-                            {% if question.required %}
-                                <div class="invalid-feedback" id="time_error_{{ question.id }}" style="display: none;">
-                                    {% trans 'Please select at least one time slot.' %}
-                                </div>
-                            {% endif %}
-                        </div>
-
-                    {# Ranking questions with drag-and-drop #}
-                    {% elif question.question_type == 'RK' %}
-                        <div class="mt-3">
-                            <p class="text-muted small mb-2">
-                                <i class="bi bi-grip-vertical"></i> {% trans 'Drag and drop to rank these options (1 = highest):' %}
-                            </p>
-                            <div class="ranking-list" id="ranking_{{ question.id }}" data-question-id="{{ question.id }}">
-                                {% for choice in question.choices.all %}
-                                    <div class="ranking-item" data-choice-id="{{ choice.id }}">
-                                        <span class="ranking-number">{{ forloop.counter }}</span>
-                                        <i class="bi bi-grip-vertical ranking-handle"></i>
-                                        <span class="ranking-text">{{ choice.text }}</span>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                            {% with field=form|get_question_field:question.id %}
-                                <input type="hidden" name="question_{{ question.id }}" id="ranking_input_{{ question.id }}"
-                                       {% if question.required %}required{% endif %}
-                                       {% if field.value %}value="{{ field.value }}"{% endif %}>
-                            {% endwith %}
-                        </div>
-
-                    {# All other question types - render form field #}
-                    {% else %}
-                        {% with field=form|get_question_field:question.id %}
-                            {% if field %}
-                                <div class="mt-3">
-                                    {{ field }}
-                                    {% if field.errors %}
-                                        <div class="invalid-feedback d-block">
-                                            {{ field.errors }}
-                                        </div>
-                                    {% endif %}
-                                </div>
-                            {% endif %}
-                        {% endwith %}
-                    {% endif %}
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-success h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-chat-left-text fs-2 text-success"></i>
+                    <h3 class="mb-0 mt-2">{{ survey_response_count }}</h3>
+                    <small class="text-muted">{% trans 'Response' %}{{ survey_response_count|pluralize }}</small>
                 </div>
             </div>
-        {% endfor %}
-
-        <hr>
-
-        <div class="d-flex justify-content-between align-items-center">
-            <small class="text-muted">
-                <span class="text-danger">*</span> {% trans 'Required fields' %}
-            </small>
-            <button type="submit" class="btn btn-primary btn-lg">
-                {% if is_editing %}
-                    <i class="bi bi-pencil-square"></i> {% trans 'Update Response' %}
-                {% else %}
-                    {% trans 'Submit Survey' %}
-                {% endif %}
-            </button>
         </div>
-    </form>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-info h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-calendar-check fs-2 text-info"></i>
+                    <div class="mt-2">
+                        {% if survey.start_date %}
+                            <small class="text-muted d-block">{% trans 'Opens' %}</small>
+                            <strong class="d-block">{{ survey.start_date|date:"M d, Y" }}</strong>
+                        {% else %}
+                            <small class="text-muted">{% trans 'No start date' %}</small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-warning h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-calendar-x fs-2 text-warning"></i>
+                    <div class="mt-2">
+                        {% if survey.end_date %}
+                            <small class="text-muted d-block">{% trans 'Closes' %}</small>
+                            <strong class="d-block">{{ survey.end_date|date:"M d, Y" }}</strong>
+                        {% else %}
+                            <small class="text-muted">{% trans 'No end date' %}</small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Survey Status Badge -->
+    <div class="mb-4">
+        {% if survey.is_active %}
+            {% if survey.is_available %}
+                <span class="badge bg-success">
+                    <i class="bi bi-check-circle"></i> {% trans 'Active' %}
+                </span>
+            {% else %}
+                <span class="badge bg-secondary">
+                    <i class="bi bi-x-circle"></i> {% trans 'Closed' %}
+                </span>
+            {% endif %}
+        {% else %}
+            <span class="badge bg-secondary">
+                <i class="bi bi-x-circle"></i> {% trans 'Inactive' %}
+            </span>
+        {% endif %}
+        {% if survey.allow_multiple_responses %}
+            <span class="badge bg-info">
+                <i class="bi bi-arrow-repeat"></i> {% trans 'Multiple Responses Allowed' %}
+            </span>
+        {% endif %}
+        {% if survey.allow_edit_responses %}
+            <span class="badge bg-primary">
+                <i class="bi bi-pencil"></i> {% trans 'Editable Responses' %}
+            </span>
+        {% endif %}
+        {% if survey.show_results_to_respondents %}
+            <span class="badge bg-warning text-dark">
+                <i class="bi bi-eye"></i> {% trans 'Results Visible to Respondents' %}
+            </span>
+        {% endif %}
+    </div>
+
+    <!-- Your Responses Section -->
+    {% if responses %}
+        <hr class="my-4">
+        <h3 class="mb-3">
+            <i class="bi bi-file-earmark-text"></i> {% trans 'Your Responses' %}
+        </h3>
+        <div class="row g-3">
+            {% for response in responses %}
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-fill">
+                                    <h5 class="card-title mb-2">
+                                        <i class="bi bi-calendar"></i> {{ response.submitted_at|date:"F j, Y" }}
+                                    </h5>
+                                    <p class="card-text text-muted mb-2">
+                                        <small>
+                                            <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
+                                            {% if response.updated_at != response.submitted_at %}
+                                                | <i class="bi bi-pencil"></i> {% trans 'Last updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
+                                            {% endif %}
+                                        </small>
+                                    </p>
+                                </div>
+                                <div class="ms-3 d-flex gap-2">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i> {% trans 'View' %}
+                                    </a>
+                                    {% if can_edit_response %}
+                                        <a href="{% url 'survey-edit-response' survey.slug response.id %}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-pencil"></i> {% trans 'Edit' %}
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <hr class="my-4">
+        <div class="alert alert-info d-flex align-items-center">
+            <i class="bi bi-info-circle fs-4 me-3"></i>
+            <div>
+                <h5 class="alert-heading mb-1">{% trans 'No Responses Yet' %}</h5>
+                <p class="mb-0">{% trans "You haven't submitted any responses to this survey." %}</p>
+                {% if can_take %}
+                    <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
+                        <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
 </div>
 {% endblock content %}
-
-{% block styles %}
-{% include 'the_gatehouse/surveys/partials/survey_styles.html' %}
-<style>
-    /* Template-specific styles */
-    #timezone_info {
-        font-size: 0.9rem;
-        padding: 0.5rem 1rem;
-        margin-bottom: 1rem;
-    }
-</style>
-{% endblock styles %}
-
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Time Availability: Detect timezone and convert hours
-    const timeAvailabilityGrids = document.querySelectorAll('.time-availability-grid');
-
-    timeAvailabilityGrids.forEach(grid => {
-        const questionId = grid.dataset.questionId;
-        const timezoneInfo = document.getElementById(`timezone_info_${questionId}`);
-
-        // Get user's timezone offset in hours
-        const now = new Date();
-        const timezoneOffsetMinutes = now.getTimezoneOffset();
-        const timezoneOffsetHours = -timezoneOffsetMinutes / 60;
-
-        // Get timezone name
-        const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-        // Update timezone info display
-        if (timezoneInfo) {
-            const tzNameSpan = timezoneInfo.querySelector('.timezone-name');
-            const offsetSign = timezoneOffsetHours >= 0 ? '+' : '';
-            tzNameSpan.textContent = `Times shown in ${timezoneName} (UTC${offsetSign}${timezoneOffsetHours})`;
-        }
-
-        // Convert all time slots to local time
-        const timeSlots = grid.querySelectorAll('.time-slot-item');
-        timeSlots.forEach(slot => {
-            const utcHour = parseInt(slot.dataset.utcHour);
-            const localHour = (utcHour + timezoneOffsetHours + 24) % 24;
-
-            // Format hour for display (with AM/PM)
-            const displayTime = formatHour(localHour);
-            const timeDisplay = slot.querySelector('.local-time-display');
-            if (timeDisplay) {
-                timeDisplay.textContent = displayTime;
-            }
-        });
-
-        // Add form validation for required fields
-        const form = grid.closest('form');
-        if (form) {
-            form.addEventListener('submit', function(e) {
-                const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
-                const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
-                const isChecked = Array.from(checkboxes).some(cb => cb.checked);
-
-                if (isRequired && !isChecked) {
-                    e.preventDefault();
-                    const errorDiv = document.getElementById(`time_error_${questionId}`);
-                    if (errorDiv) {
-                        errorDiv.style.display = 'block';
-                    }
-                    grid.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                } else {
-                    const errorDiv = document.getElementById(`time_error_${questionId}`);
-                    if (errorDiv) {
-                        errorDiv.style.display = 'none';
-                    }
-                }
-            });
-        }
-    });
-
-    function formatHour(hour) {
-        const period = hour >= 12 ? 'PM' : 'AM';
-        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-        return `${displayHour}:00 ${period}`;
-    }
-
-    // Initialize Sortable for all ranking questions
-    const rankingLists = document.querySelectorAll('.ranking-list');
-
-    rankingLists.forEach(list => {
-        const questionId = list.dataset.questionId;
-
-        // Check if there's a prepopulated order (for editing)
-        const input = document.getElementById(`ranking_input_${questionId}`);
-        if (input && input.value) {
-            const choiceIds = input.value.split(',').map(id => id.trim());
-            const items = Array.from(list.querySelectorAll('.ranking-item'));
-
-            // Reorder items based on prepopulated data
-            choiceIds.forEach(choiceId => {
-                const item = items.find(el => el.dataset.choiceId === choiceId);
-                if (item) {
-                    list.appendChild(item);
-                }
-            });
-
-            updateRankingNumbers(questionId);
-        }
-
-        new Sortable(list, {
-            animation: 150,
-            handle: '.ranking-item',
-            ghostClass: 'sortable-ghost',
-            dragClass: 'sortable-drag',
-            onEnd: function() {
-                updateRankingNumbers(questionId);
-                updateRankingInput(questionId);
-            }
-        });
-
-        // Initialize the hidden input with initial order
-        updateRankingInput(questionId);
-    });
-
-    function updateRankingNumbers(questionId) {
-        const list = document.getElementById(`ranking_${questionId}`);
-        const items = list.querySelectorAll('.ranking-item');
-
-        items.forEach((item, index) => {
-            const numberSpan = item.querySelector('.ranking-number');
-            numberSpan.textContent = index + 1;
-        });
-    }
-
-    function updateRankingInput(questionId) {
-        const list = document.getElementById(`ranking_${questionId}`);
-        const items = list.querySelectorAll('.ranking-item');
-        const input = document.getElementById(`ranking_input_${questionId}`);
-
-        // Create comma-separated list of choice IDs in their current order
-        const choiceIds = Array.from(items).map(item => item.dataset.choiceId);
-        input.value = choiceIds.join(',');
-    }
-});
-</script>
-{% endblock scripts %}

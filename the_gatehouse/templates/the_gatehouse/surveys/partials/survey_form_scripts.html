@@ -4,13 +4,14 @@ const questionsData = [];
 let sortableInstance = null;
 
 const questionTypes = {
+    'YN': 'Yes/No',
+    'OE': 'Open Ended',
     'MC': 'Multiple Choice',
     'MS': 'Multiple Selection',
-    'OE': 'Open Ended',
-    'YN': 'Yes/No',
     'LK': 'Scale',
     'RK': 'Ranking',
     'TA': 'Time Availability',
+    'DY': 'Day Availability',
     'DA': 'Date',
     'TI': 'Time',
     'DT': 'Date & Time'
@@ -329,6 +330,14 @@ function handleTypeChange(questionId, existingData = null) {
                 <i class="bi bi-clock"></i> <strong>Time Availability Question</strong><br>
                 <small>This question type automatically creates 24 hour slots (0-23 UTC).
                 Respondents will see times in their local timezone, and selections are stored as UTC hours.</small>
+            </div>
+        `;
+    } else if (type === 'DY') {
+        // Day Availability - automatically creates day choices
+        optionsContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-calendar"></i> <strong>Day Availability Question</strong><br>
+                <small>This question type automatically creates 7 day slots (Monday-Sunday).</small>
             </div>
         `;
     } else if (type === 'YN') {

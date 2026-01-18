@@ -22,7 +22,7 @@
                     <div class="d-flex w-100 justify-content-between align-items-start">
                         <div>
                             <h5 class="mb-1">
-                                <a href="{% url 'survey-detail' response.survey.slug %}">
+                                <a href="{% url 'survey-redirect' response.survey.slug %}">
                                     {{ response.survey.title }}
                                 </a>
                             </h5>
@@ -43,7 +43,7 @@
                                 </a>
                             {% endif %}
                             {% if response.survey.allow_multiple_responses %}
-                                <a href="{% url 'survey-detail' response.survey.slug %}" class="btn btn-sm btn-outline-primary">
+                                <a href="{% url 'survey-take' response.survey.slug %}" class="btn btn-sm btn-outline-primary">
                                     <i class="bi bi-arrow-repeat"></i> {% trans 'Take Again' %}
                                 </a>
                             {% endif %}
