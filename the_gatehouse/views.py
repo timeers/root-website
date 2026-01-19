@@ -2167,6 +2167,11 @@ def survey_take_view(request, slug):
                             answer.time_answer = answer_data.time()
                         answer.save()
 
+                    elif question.question_type == 'NU':
+                        # Numeric
+                        answer.numeric_answer = int(answer_data)
+                        answer.save()
+
 
             messages.success(request, _('Thank you for completing the survey!'))
 
@@ -2382,6 +2387,11 @@ def survey_response_edit_view(request, slug, response_id):
                             answer.time_answer = answer_data.time()
                         answer.save()
 
+                    elif question.question_type == 'NU':
+                        # Numeric
+                        answer.numeric_answer = int(answer_data)
+                        answer.save()
+
             # Update the response's updated_at timestamp
             user_response.save()
 
@@ -2450,7 +2460,7 @@ def survey_detail_view(request, slug):
 def survey_results_view(request, slug):
     """Display aggregated survey results (admin only, or respondents if allowed)."""
     from .models import Survey
-    from django.db.models import Count
+    from django.db.models import Count, Avg
 
     survey = get_object_or_404(Survey, slug=slug)
 
@@ -2475,18 +2485,50 @@ def survey_results_view(request, slug):
         if question.question_type in ['MC', 'YN', 'MS', 'TA', 'DY']:
             # Choice-based questions (including Time Availability)
             results_list = []
-            for choice in question.choices.all():
-                if question.question_type in ['MS', 'TA', 'DY']:
-                    count = choice.multiple_answers.filter(response__survey=survey).count()
-                else:
-                    count = choice.single_answers.filter(response__survey=survey).count()
 
-                percentage = (count / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
-                results_list.append({
-                    'choice': choice.text,
-                    'count': count,
-                    'percentage': round(percentage, 1)
-                })
+            # For post-based questions, use selected_post/selected_posts instead of choices
+            if question.post_component:
+                if question.question_type == 'MS':
+                    # Multiple selection - aggregate from selected_posts
+                    from the_keep.models import Post
+                    post_results = Post.objects.filter(
+                        multiple_post_answers__question=question,
+                        multiple_post_answers__response__survey=survey
+                    ).annotate(count=Count('multiple_post_answers')).values('name', 'count')
+                    for result in post_results:
+                        percentage = (result['count'] / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
+                        results_list.append({
+                            'choice': result['name'],
+                            'count': result['count'],
+                            'percentage': round(percentage, 1)
+                        })
+                else:
+                    # Single selection (MC) - aggregate from selected_post
+                    post_results = question.answer_set.filter(
+                        response__survey=survey,
+                        selected_post__isnull=False
+                    ).values('selected_post__title').annotate(count=Count('id'))
+                    for result in post_results:
+                        percentage = (result['count'] / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
+                        results_list.append({
+                            'choice': result['selected_post__title'],
+                            'count': result['count'],
+                            'percentage': round(percentage, 1)
+                        })
+            else:
+                # Standard choice-based questions
+                for choice in question.choices.all():
+                    if question.question_type in ['MS', 'TA', 'DY']:
+                        count = choice.multiple_answers.filter(response__survey=survey).count()
+                    else:
+                        count = choice.single_answers.filter(response__survey=survey).count()
+
+                    percentage = (count / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
+                    results_list.append({
+                        'choice': choice.text,
+                        'count': count,
+                        'percentage': round(percentage, 1)
+                    })
 
             # Sort by count (descending) for better visualization
             question_data['results'] = sorted(results_list, key=lambda x: x['count'], reverse=True)
@@ -2511,6 +2553,38 @@ def survey_results_view(request, slug):
                     for item in distribution
                 ]
 
+        elif question.question_type == 'NU':
+            # Numeric questions - calculate statistics and distribution
+            answers = question.answer_set.filter(response__survey=survey, numeric_answer__isnull=False)
+            numeric_values = list(answers.values_list('numeric_answer', flat=True))
+
+            if numeric_values:
+                # Summary statistics
+                question_data['average'] = round(sum(numeric_values) / len(numeric_values), 2)
+                sorted_values = sorted(numeric_values)
+                mid = len(sorted_values) // 2
+                if len(sorted_values) % 2 == 0:
+                    question_data['median'] = (sorted_values[mid - 1] + sorted_values[mid]) / 2
+                else:
+                    question_data['median'] = sorted_values[mid]
+                question_data['min_value'] = min(numeric_values)
+                question_data['max_value'] = max(numeric_values)
+
+                # Distribution (grouped by value)
+                distribution = answers.values('numeric_answer').annotate(count=Count('id')).order_by('numeric_answer')
+                question_data['results'] = [
+                    {
+                        'value': item['numeric_answer'],
+                        'count': item['count'],
+                        'percentage': round(item['count'] / len(numeric_values) * 100, 1)
+                    }
+                    for item in distribution
+                ]
+
+                # Raw values for collapsible section (limit to first 100 for performance)
+                question_data['raw_values'] = numeric_values[:100]
+                question_data['has_more_values'] = len(numeric_values) > 100
+
         elif question.question_type == 'OE':
             # Open-ended - show all text responses
             answers = question.answer_set.filter(response__survey=survey, text_answer__isnull=False)
@@ -2522,14 +2596,32 @@ def survey_results_view(request, slug):
         elif question.question_type == 'RK':
             # Ranking - show average rank for each choice
             ranking_data = {}
-            for choice in question.choices.all():
-                ranks = choice.rankedanswer_set.filter(answer__response__survey=survey).values_list('rank', flat=True)
-                if ranks:
-                    avg_rank = sum(ranks) / len(ranks)
-                    ranking_data[choice.text] = {
-                        'avg_rank': round(avg_rank, 2),
-                        'count': len(ranks)
+
+            if question.post_component:
+                # Post-based ranking - use RankedPostAnswer
+                from .models import RankedPostAnswer
+                ranked_posts = RankedPostAnswer.objects.filter(
+                    answer__question=question,
+                    answer__response__survey=survey
+                ).values('post__title').annotate(
+                    avg_rank=Avg('rank'),
+                    count=Count('id')
+                )
+                for result in ranked_posts:
+                    ranking_data[result['post__title']] = {
+                        'avg_rank': round(result['avg_rank'], 2),
+                        'count': result['count']
                     }
+            else:
+                # Standard choice-based ranking
+                for choice in question.choices.all():
+                    ranks = choice.rankedanswer_set.filter(answer__response__survey=survey).values_list('rank', flat=True)
+                    if ranks:
+                        avg_rank = sum(ranks) / len(ranks)
+                        ranking_data[choice.text] = {
+                            'avg_rank': round(avg_rank, 2),
+                            'count': len(ranks)
+                        }
 
             question_data['results'] = sorted(ranking_data.items(), key=lambda x: x[1]['avg_rank'])
 
@@ -2997,7 +3089,8 @@ def create_survey_view(request):
                                 )
                     # Add choices for choice-based questions (non-Post)
                     elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
-                        for idx, choice_text in enumerate(q_data['choices']):
+                        for idx, choice_data in enumerate(q_data['choices']):
+                            choice_text = choice_data['text'] if isinstance(choice_data, dict) else choice_data
                             if choice_text.strip():
                                 Choice.objects.create(
                                     question=question,

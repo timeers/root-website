@@ -14,7 +14,8 @@ const questionTypes = {
     'DY': 'Day Availability',
     'DA': 'Date',
     'TI': 'Time',
-    'DT': 'Date & Time'
+    'DT': 'Date & Time',
+    'NU': 'Numeric'
 };
 
 // Component types for Post-based choices
@@ -534,7 +535,7 @@ function handleTypeChange(questionId, existingData = null) {
 function addChoice(questionId, defaultValue = '', existingId = null, readonly = false) {
     const card = document.querySelector(`[data-question-id="${questionId}"]`);
     const choicesList = card.querySelector('.choices-list');
-    const choiceId = `choice-${Date.now()}`;
+    const choiceId = existingId ? `choice-${existingId}` : `choice-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     const choiceHtml = `
         <div class="choice-item" data-choice-id="${choiceId}" ${existingId ? 'data-existing-choice-id="' + existingId + '"' : ''}>

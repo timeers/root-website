@@ -127,6 +127,84 @@
                         </div>
                     {% endfor %}
 
+                {% elif question_data.question.question_type == 'NU' %}
+                    {# Numeric - show statistics and distribution #}
+                    {% if question_data.average %}
+                        <div class="row mb-3">
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Average' %}</small>
+                                        <h4 class="mb-0">{{ question_data.average }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Median' %}</small>
+                                        <h4 class="mb-0">{{ question_data.median }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Min' %}</small>
+                                        <h4 class="mb-0">{{ question_data.min_value }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Max' %}</small>
+                                        <h4 class="mb-0">{{ question_data.max_value }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h6>{% trans 'Distribution' %}:</h6>
+                        {% for result in question_data.results %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span>{{ result.value }}</span>
+                                    <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-primary" role="progressbar"
+                                         style="width: {{ result.percentage }}%;"
+                                         aria-valuenow="{{ result.percentage }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+
+                        {% if question_data.raw_values %}
+                            <div class="mt-3">
+                                <a class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
+                                   href="#raw-values-{{ question_data.question.id }}" role="button">
+                                    <i class="bi bi-list-ol"></i> {% trans 'Show all values' %}
+                                </a>
+                                <div class="collapse mt-2" id="raw-values-{{ question_data.question.id }}">
+                                    <div class="card card-body">
+                                        <small class="text-muted">
+                                            {{ question_data.raw_values|join:", " }}
+                                            {% if question_data.has_more_values %}
+                                                <br><em>{% trans '(showing first 100 values)' %}</em>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
                 {% elif question_data.question.question_type == 'OE' %}
                     {# Open-ended - show all responses #}
                     {% if question_data.results %}

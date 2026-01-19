@@ -506,6 +506,18 @@ class SurveyResponseForm(forms.Form):
                     widget=forms.DateTimeInput(attrs={'type': 'datetime-local'})
                 )
 
+            # Numeric
+            elif question.question_type == 'NU':
+                self.fields[field_name] = forms.IntegerField(
+                    label=question.text,
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.NumberInput(attrs={
+                        'class': 'form-control',
+                        'placeholder': 'Enter a number...'
+                    })
+                )
+
         # Prepopulate with existing response if editing
         if existing_response and not kwargs.get('data'):
             from .models import Answer, RankedAnswer, RankedPostAnswer
@@ -571,6 +583,10 @@ class SurveyResponseForm(forms.Form):
                         if answer.date_answer and answer.time_answer:
                             dt = datetime.combine(answer.date_answer, answer.time_answer)
                             self.initial[field_name] = dt
+
+                    elif question.question_type == 'NU':
+                        # Numeric
+                        self.initial[field_name] = answer.numeric_answer
 
                 except Answer.DoesNotExist:
                     pass

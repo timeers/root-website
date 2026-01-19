@@ -1185,6 +1185,7 @@ class Question(models.Model):
         DATETIME = 'DT', 'Date & Time'
         TIME_AVAILABILITY = 'TA', 'Time Availability'
         DAY_AVAILABILITY = 'DY', 'Day Availability'
+        NUMERIC = 'NU', 'Numeric'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
     text = models.TextField(help_text="The question text")
@@ -1463,6 +1464,13 @@ class Answer(models.Model):
             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
                 raise ValidationError("Only date and time answers are allowed.")
 
+        # NUMERIC
+        elif qtype == Question.QuestionType.NUMERIC:
+            if self.question.required and self.numeric_answer is None:
+                raise ValidationError("Numeric question requires a numeric answer.")
+            if self.selected_choice or self.selected_choices.exists() or self.text_answer:
+                raise ValidationError("Only a numeric answer is allowed for numeric questions.")
+
         # Fallback
         else:
             raise ValidationError("Unsupported question type.")
@@ -1529,6 +1537,8 @@ class Answer(models.Model):
                 dt = datetime.combine(self.date_answer, self.time_answer)
                 return dt.strftime("%B %d, %Y %I:%M %p")
             return "No answer"
+        elif qtype == Question.QuestionType.NUMERIC:
+            return str(self.numeric_answer) if self.numeric_answer is not None else "No answer"
         return "No answer"
 
 
