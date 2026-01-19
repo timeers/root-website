@@ -365,8 +365,8 @@ class SurveyResponseForm(forms.Form):
         if not survey:
             return
 
-        # Create a field for each question in the survey
-        for question in survey.questions.all():
+        # Create a field for each question in the survey (only non-hidden)
+        for question in survey.questions.filter(is_hidden=False):
             field_name = f'question_{question.id}'
 
             # Multiple Choice
@@ -376,7 +376,7 @@ class SurveyResponseForm(forms.Form):
                     posts = question.get_post_choices()
                     choices = [(f'post_{post.id}', post.title) for post in posts]
                 else:
-                    choices = [(choice.id, choice.get_display_text()) for choice in question.choices.all()]
+                    choices = [(choice.id, choice.get_display_text()) for choice in question.get_visible_choices()]
                 self.fields[field_name] = forms.ChoiceField(
                     label=question.text,
                     choices=choices,
@@ -392,7 +392,7 @@ class SurveyResponseForm(forms.Form):
                     posts = question.get_post_choices()
                     choices = [(f'post_{post.id}', post.title) for post in posts]
                 else:
-                    choices = [(choice.id, choice.get_display_text()) for choice in question.choices.all()]
+                    choices = [(choice.id, choice.get_display_text()) for choice in question.get_visible_choices()]
                 self.fields[field_name] = forms.MultipleChoiceField(
                     label=question.text,
                     choices=choices,
@@ -404,7 +404,7 @@ class SurveyResponseForm(forms.Form):
             # Time Availability (handled in template with JavaScript)
             elif question.question_type == 'TA':
                 # Create hidden field - actual UI is rendered in template
-                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                choices = [(choice.id, choice.text) for choice in question.get_visible_choices()]
                 self.fields[field_name] = forms.MultipleChoiceField(
                     label=question.text,
                     choices=choices,
@@ -416,7 +416,7 @@ class SurveyResponseForm(forms.Form):
             # Day Availability
             elif question.question_type == 'DY':
                 # Create hidden field - actual UI is rendered in template
-                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                choices = [(choice.id, choice.text) for choice in question.get_visible_choices()]
                 self.fields[field_name] = forms.MultipleChoiceField(
                     label=question.text,
                     choices=choices,
@@ -441,7 +441,7 @@ class SurveyResponseForm(forms.Form):
 
             # Boolean (Yes/No)
             elif question.question_type == 'YN':
-                choices = [(choice.id, choice.get_display_text()) for choice in question.choices.all()]
+                choices = [(choice.id, choice.get_display_text()) for choice in question.get_visible_choices()]
                 self.fields[field_name] = forms.ChoiceField(
                     label=question.text,
                     choices=choices,
@@ -471,7 +471,7 @@ class SurveyResponseForm(forms.Form):
                     posts = question.get_post_choices()
                     choices_text = ", ".join([post.title for post in posts])
                 else:
-                    choices_text = ", ".join([choice.get_display_text() for choice in question.choices.all()])
+                    choices_text = ", ".join([choice.get_display_text() for choice in question.get_visible_choices()])
                 self.fields[field_name] = forms.CharField(
                     label=question.text,
                     required=question.required,
@@ -521,7 +521,7 @@ class SurveyResponseForm(forms.Form):
         # Prepopulate with existing response if editing
         if existing_response and not kwargs.get('data'):
             from .models import Answer, RankedAnswer, RankedPostAnswer
-            for question in survey.questions.all():
+            for question in survey.questions.filter(is_hidden=False):
                 field_name = f'question_{question.id}'
                 try:
                     answer = Answer.objects.get(response=existing_response, question=question)

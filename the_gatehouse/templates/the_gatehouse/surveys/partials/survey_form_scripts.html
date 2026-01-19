@@ -85,16 +85,37 @@ function loadExistingQuestions() {
         questionCounter++;
         const questionId = `question-${questionCounter}`;
 
+        // Check if question has responses
+        const hasResponses = question.has_responses || false;
+        const responseCount = question.response_count || 0;
+
+        // Build response warning badge
+        const responseBadge = hasResponses ? `
+            <span class="badge bg-warning text-dark ms-2" title="${responseCount} response(s) recorded">
+                <i class="bi bi-exclamation-triangle-fill"></i> ${responseCount} response(s)
+            </span>
+        ` : '';
+
+        // Modify delete button based on responses
+        const deleteButton = hasResponses ? `
+            <button type="button" class="btn btn-sm btn-warning" onclick="confirmHideQuestion('${questionId}')"
+                    title="This question has responses and will be hidden instead of deleted">
+                <i class="bi bi-eye-slash"></i>
+            </button>
+        ` : `
+            <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                <i class="bi bi-trash"></i>
+            </button>
+        `;
+
         const questionHtml = `
-            <div class="card question-card" data-question-id="${questionId}" data-order="${index + 1}" data-existing-id="${question.id}">
-                <div class="question-header">
+            <div class="card question-card ${hasResponses ? 'border-warning' : ''}" data-question-id="${questionId}" data-order="${index + 1}" data-existing-id="${question.id}" data-has-responses="${hasResponses}" data-response-count="${responseCount}">
+                <div class="question-header ${hasResponses ? 'bg-warning-subtle' : ''}">
                     <span class="drag-handle me-2">
                         <i class="bi bi-grip-vertical"></i>
                     </span>
-                    <span class="flex-fill"><strong>Question ${index + 1}</strong></span>
-                    <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                    <span class="flex-fill"><strong>Question ${index + 1}</strong>${responseBadge}</span>
+                    ${deleteButton}
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
@@ -334,6 +355,16 @@ function removeQuestion(questionId) {
     }
 }
 
+function confirmHideQuestion(questionId) {
+    const question = document.querySelector(`[data-question-id="${questionId}"]`);
+    const responseCount = question.dataset.responseCount || 'some';
+
+    if (confirm(`This question has ${responseCount} recorded response(s).\n\nRemoving it will HIDE the question (not delete it) to preserve data integrity.\n\nHidden questions won't appear in the survey but their answers are kept for reporting.\n\nContinue?`)) {
+        question.remove();
+        renumberQuestions();
+    }
+}
+
 function renumberQuestions() {
     const questions = document.querySelectorAll('.question-card');
     questions.forEach((q, idx) => {
@@ -491,7 +522,7 @@ function handleTypeChange(questionId, existingData = null) {
         if (!usePostBased) {
             if (existingData && existingData.choices) {
                 existingData.choices.forEach(choice => {
-                    addChoice(questionId, choice.text, choice.id);
+                    addChoice(questionId, choice.text, choice.id, false, choice);
                 });
             } else {
                 addChoice(questionId);
@@ -532,15 +563,28 @@ function handleTypeChange(questionId, existingData = null) {
     }
 }
 
-function addChoice(questionId, defaultValue = '', existingId = null, readonly = false) {
+function addChoice(questionId, defaultValue = '', existingId = null, readonly = false, choiceData = null) {
     const card = document.querySelector(`[data-question-id="${questionId}"]`);
     const choicesList = card.querySelector('.choices-list');
     const choiceId = existingId ? `choice-${existingId}` : `choice-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+    // Check if choice has responses
+    const hasResponses = choiceData?.has_responses || false;
+
+    // Determine the delete/hide button
+    let actionButton = '';
+    if (!readonly) {
+        if (hasResponses) {
+            actionButton = `<button type="button" class="btn btn-sm btn-outline-warning" onclick="confirmHideChoice('${questionId}', '${choiceId}')" title="This choice has responses - will be hidden, not deleted"><i class="bi bi-eye-slash"></i></button>`;
+        } else {
+            actionButton = `<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeChoice('${questionId}', '${choiceId}')"><i class="bi bi-x"></i></button>`;
+        }
+    }
+
     const choiceHtml = `
-        <div class="choice-item" data-choice-id="${choiceId}" ${existingId ? 'data-existing-choice-id="' + existingId + '"' : ''}>
-            <input type="text" class="form-control" placeholder="Choice text" value="${defaultValue}" ${readonly ? 'readonly' : ''} required>
-            ${!readonly ? '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeChoice(\'' + questionId + '\', \'' + choiceId + '\')"><i class="bi bi-x"></i></button>' : ''}
+        <div class="choice-item ${hasResponses ? 'border-start border-warning border-3 ps-2' : ''}" data-choice-id="${choiceId}" ${existingId ? 'data-existing-choice-id="' + existingId + '"' : ''} data-has-responses="${hasResponses}">
+            <input type="text" class="form-control ${hasResponses ? 'bg-warning-subtle' : ''}" placeholder="Choice text" value="${defaultValue}" ${readonly ? 'readonly' : ''} required>
+            ${actionButton}
         </div>
     `;
 
@@ -553,6 +597,15 @@ function removeChoice(questionId, choiceId) {
 
     // Remove the choice - form validation will check for minimum on submit
     choice.remove();
+}
+
+function confirmHideChoice(questionId, choiceId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const choice = card.querySelector(`[data-choice-id="${choiceId}"]`);
+
+    if (confirm(`This choice has been selected in survey responses.\n\nRemoving it will HIDE the choice to preserve data integrity.\n\nHidden choices won't appear as options but existing answers are preserved.\n\nContinue?`)) {
+        choice.remove();
+    }
 }
 
 function updateLikertPreview(questionId) {

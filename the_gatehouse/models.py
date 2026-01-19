@@ -1042,8 +1042,8 @@ class Survey(models.Model):
         return True
 
     def question_count(self):
-        """Get total number of questions"""
-        return self.questions.count()
+        """Get total number of visible (non-hidden) questions"""
+        return self.questions.filter(is_hidden=False).count()
 
     def response_count(self):
         """Get total number of responses"""
@@ -1194,6 +1194,7 @@ class Question(models.Model):
     order = models.PositiveIntegerField(default=0, help_text="Display order in survey")
     required = models.BooleanField(default=True, help_text="Is this question required?")
     help_text = models.CharField(max_length=300, blank=True, help_text="Optional help text shown to users")
+    is_hidden = models.BooleanField(default=False, help_text="Hidden questions preserve data but are not shown to respondents")
 
     # Post-based choices configuration
     class PostSelectionMode(models.TextChoices):
@@ -1288,6 +1289,14 @@ class Question(models.Model):
             status__lte=4
         ).order_by('title')
 
+    def has_responses(self):
+        """Check if this question has any associated answers"""
+        return self.answer_set.exists()
+
+    def get_visible_choices(self):
+        """Get choices that should be shown to respondents"""
+        return self.choices.filter(is_hidden=False)
+
 
 # For multiple choice questions they will have multiple choices
 class Choice(models.Model):
@@ -1295,10 +1304,11 @@ class Choice(models.Model):
     text = models.CharField(max_length=200, blank=True)  # blank=True since Post can provide text
     order = models.PositiveIntegerField(default=0)
     post = models.ForeignKey(
-        'the_keep.Post', on_delete=models.CASCADE,
+        'the_keep.Post', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='survey_choices',
         help_text="Link to a Post - if set, displays Post title/icon"
     )
+    is_hidden = models.BooleanField(default=False, help_text="Hidden choices preserve data but are not shown to respondents")
 
     class Meta:
         ordering = ['question', 'order', 'id']
@@ -1317,6 +1327,14 @@ class Choice(models.Model):
         super().clean()
         if not self.text and not self.post:
             raise ValidationError("Choice must have either text or a linked Post.")
+
+    def has_responses(self):
+        """Check if this choice has been selected in any answers"""
+        return (
+            self.single_answers.exists() or
+            self.multiple_answers.exists() or
+            self.rankedanswer_set.exists()
+        )
 
 
 # A user's response to a survey is stored here
@@ -1349,7 +1367,7 @@ class SurveyResponse(models.Model):
 # An answer to a question that is linked to a user's response
 class Answer(models.Model):
     response = models.ForeignKey(SurveyResponse, on_delete=models.CASCADE, related_name='answers')
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.PROTECT)
 
     # For open-ended
     text_answer = models.TextField(blank=True, null=True)
@@ -1545,7 +1563,7 @@ class Answer(models.Model):
 class RankedAnswer(models.Model):
     """For ranking questions - stores the rank order of choices"""
     answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_items')
-    choice = models.ForeignKey(Choice, on_delete=models.CASCADE)
+    choice = models.ForeignKey(Choice, on_delete=models.PROTECT)
     rank = models.PositiveIntegerField(help_text="Position in ranking (1 = first choice)")
 
     class Meta:
@@ -1561,7 +1579,7 @@ class RankedAnswer(models.Model):
 class RankedPostAnswer(models.Model):
     """For ranking Post-based questions - stores the rank order of Posts"""
     answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_post_items')
-    post = models.ForeignKey('the_keep.Post', on_delete=models.CASCADE)
+    post = models.ForeignKey('the_keep.Post', on_delete=models.SET_NULL, null=True)
     rank = models.PositiveIntegerField(help_text="Position in ranking (1 = first choice)")
 
     class Meta:

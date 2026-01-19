@@ -2028,9 +2028,12 @@ def survey_take_view(request, slug):
         form = SurveyResponseForm(request.POST, survey=survey)
 
         if form.is_valid():
+            # Get only visible questions for processing
+            visible_questions = survey.questions.filter(is_hidden=False)
+
             # Additional validation for required multiple selection questions
             validation_errors = []
-            for question in survey.questions.all():
+            for question in visible_questions:
                 if question.required and question.question_type in ['MS', 'TA', 'DY']:
                     field_name = f'question_{question.id}'
                     answer_data = form.cleaned_data.get(field_name)
@@ -2043,6 +2046,7 @@ def survey_take_view(request, slug):
                 return render(request, 'the_gatehouse/surveys/take_survey.html', {
                     'survey': survey,
                     'form': form,
+                    'visible_questions': visible_questions,
                 })
 
 
@@ -2052,7 +2056,7 @@ def survey_take_view(request, slug):
             )
 
             # Save answers for each question
-            for question in survey.questions.all():
+            for question in visible_questions:
                 field_name = f'question_{question.id}'
                 answer_data = form.cleaned_data.get(field_name)
 
@@ -2183,9 +2187,13 @@ def survey_take_view(request, slug):
     else:
         form = SurveyResponseForm(survey=survey, existing_response=None)
 
+    # Get only visible (non-hidden) questions for display
+    visible_questions = survey.questions.filter(is_hidden=False)
+
     context = {
         'survey': survey,
         'form': form,
+        'visible_questions': visible_questions,
     }
     return render(request, 'the_gatehouse/surveys/take_survey.html', context)
 
@@ -2738,6 +2746,9 @@ def survey_preview_view(request, slug):
     # Create a read-only form for preview
     form = SurveyResponseForm(survey=survey)
 
+    # Get only visible (non-hidden) questions for display
+    visible_questions = survey.questions.filter(is_hidden=False)
+
     context = {
         'survey': survey,
         'form': form,
@@ -2747,6 +2758,7 @@ def survey_preview_view(request, slug):
         'can_see_resutls': can_see_resutls,
         'back_url': back_url,
         'back_title': back_title,
+        'visible_questions': visible_questions,
     }
     return render(request, 'the_gatehouse/surveys/survey_preview.html', context)
 
@@ -2754,8 +2766,34 @@ def survey_preview_view(request, slug):
 @player_required
 def survey_edit_view(request, slug):
     """Edit an existing survey."""
-    from .models import Survey, Question, Choice, LikertScale
+    from .models import Survey, Question, Choice, LikertScale, Answer, RankedAnswer
     import json
+
+    def get_questions_with_responses(survey):
+        """Return set of question IDs that have answers"""
+        return set(Answer.objects.filter(
+            response__survey=survey
+        ).values_list('question_id', flat=True).distinct())
+
+    def get_choices_with_responses(survey):
+        """Return set of choice IDs that have been selected"""
+        # Single selections
+        single = set(Answer.objects.filter(
+            response__survey=survey,
+            selected_choice__isnull=False
+        ).values_list('selected_choice_id', flat=True))
+
+        # Multiple selections (M2M)
+        multi = set(Answer.selected_choices.through.objects.filter(
+            answer__response__survey=survey
+        ).values_list('choice_id', flat=True))
+
+        # Ranked answers
+        ranked = set(RankedAnswer.objects.filter(
+            answer__response__survey=survey
+        ).values_list('choice_id', flat=True))
+
+        return single | multi | ranked
 
     survey = get_object_or_404(Survey, slug=slug)
 
@@ -2878,10 +2916,17 @@ def survey_edit_view(request, slug):
                                             order=idx
                                         )
 
-                            # Delete choices that were removed
+                            # Delete or hide choices that were removed
                             choices_to_delete = existing_choice_ids - updated_choice_ids
                             if choices_to_delete:
-                                Choice.objects.filter(id__in=choices_to_delete).delete()
+                                choices_with_responses = get_choices_with_responses(survey)
+                                for c_id in choices_to_delete:
+                                    if c_id in choices_with_responses:
+                                        # Choice has responses - hide instead of delete
+                                        Choice.objects.filter(id=c_id).update(is_hidden=True)
+                                    else:
+                                        # Safe to delete
+                                        Choice.objects.filter(id=c_id).delete()
                         elif q_data['type'] == 'TA' or q_data['type'] == 'DY':
                             # TIME_AVAILABILITY - keep existing UTC hour choices, don't delete them
                             pass
@@ -2933,10 +2978,22 @@ def survey_edit_view(request, slug):
 
                         updated_question_ids.add(question.id)
 
-                # Delete questions that were removed
+                # Delete or hide questions that were removed
                 questions_to_delete = existing_question_ids - updated_question_ids
                 if questions_to_delete:
-                    Question.objects.filter(id__in=questions_to_delete).delete()
+                    questions_with_responses = get_questions_with_responses(survey)
+                    hidden_count = 0
+                    for q_id in questions_to_delete:
+                        if q_id in questions_with_responses:
+                            # Question has responses - hide instead of delete
+                            Question.objects.filter(id=q_id).update(is_hidden=True)
+                            hidden_count += 1
+                        else:
+                            # Safe to delete
+                            Question.objects.filter(id=q_id).delete()
+
+                    if hidden_count > 0:
+                        messages.info(request, f'{hidden_count} question(s) with existing responses were hidden instead of deleted to preserve data.')
 
             messages.success(request, f'Survey "{title}" updated successfully!')
 
@@ -2953,9 +3010,17 @@ def survey_edit_view(request, slug):
     # GET request - show form with existing data
     likert_scales = LikertScale.objects.all()
 
-    # Prepare existing questions data for JavaScript
+    # Get response metadata for questions and choices
+    questions_with_responses = get_questions_with_responses(survey)
+    choices_with_responses = get_choices_with_responses(survey)
+
+    # Prepare existing questions data for JavaScript (only non-hidden)
     existing_questions = []
-    for question in survey.questions.all():
+    for question in survey.questions.filter(is_hidden=False):
+        question_response_count = Answer.objects.filter(
+            response__survey=survey, question=question
+        ).count()
+
         q_data = {
             'id': question.id,
             'text': question.text,
@@ -2967,16 +3032,19 @@ def survey_edit_view(request, slug):
             'likert_scale_id': question.likert_scale_id if question.likert_scale else None,
             'post_component': question.post_component or None,
             'post_selection_mode': question.post_selection_mode or None,
-            'post_choices': []
+            'post_choices': [],
+            'has_responses': question.id in questions_with_responses,
+            'response_count': question_response_count,
         }
 
-        # Add choices if applicable
+        # Add choices if applicable (only non-hidden)
         if question.question_type in ['MC', 'MS', 'YN', 'RK', 'TA', 'DY']:
-            for choice in question.choices.all():
+            for choice in question.choices.filter(is_hidden=False):
                 choice_data = {
                     'id': choice.id,
                     'text': choice.text,
-                    'order': choice.order
+                    'order': choice.order,
+                    'has_responses': choice.id in choices_with_responses,
                 }
                 # If choice is linked to a Post, include Post data
                 if choice.post:

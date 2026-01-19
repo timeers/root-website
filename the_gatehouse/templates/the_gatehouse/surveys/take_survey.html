@@ -31,7 +31,7 @@
     <form method="POST">
         {% csrf_token %}
 
-        {% for question in survey.questions.all %}
+        {% for question in visible_questions %}
             <div class="card mb-4">
                 <div class="card-body">
                     <h5 class="card-title">
@@ -87,7 +87,7 @@
                             </p>
                             {% with field=form|get_question_field:question.id %}
                                 <div class="time-availability-grid" id="time_availability_{{ question.id }}" data-question-id="{{ question.id }}">
-                                    {% for choice in question.choices.all %}
+                                    {% for choice in question.get_visible_choices %}
                                         <div class="time-slot-item" data-utc-hour="{{ choice.text }}" data-choice-id="{{ choice.id }}">
                                             <input type="checkbox" class="btn-check"
                                                    name="question_{{ question.id }}"
@@ -118,7 +118,7 @@
                             </p>
                             {% with field=form|get_question_field:question.id %}
                                 <div class="day-availability-grid" id="day_availability_{{ question.id }}" data-question-id="{{ question.id }}">
-                                    {% for choice in question.choices.all %}
+                                    {% for choice in question.get_visible_choices %}
                                         <div class="day-slot-item" data-choice-id="{{ choice.id }}">
                                             <input type="checkbox" class="btn-check"
                                                    name="question_{{ question.id }}"
@@ -162,7 +162,7 @@
                                     {% endfor %}
                                 {% else %}
                                     {# Regular choices (text or Post-linked) #}
-                                    {% for choice in question.choices.all %}
+                                    {% for choice in question.get_visible_choices %}
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" type="radio" name="question_{{ question.id }}"
                                                    value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
@@ -202,7 +202,7 @@
                                     {% endfor %}
                                 {% else %}
                                     {# Regular choices (text or Post-linked) #}
-                                    {% for choice in question.choices.all %}
+                                    {% for choice in question.get_visible_choices %}
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
                                                    value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
@@ -246,7 +246,7 @@
                                     {% endfor %}
                                 {% else %}
                                     {# Choice-based ranking #}
-                                    {% for choice in question.choices.all %}
+                                    {% for choice in question.get_visible_choices %}
                                         <div class="ranking-item" data-choice-id="{{ choice.id }}">
                                             <span class="ranking-number">{{ forloop.counter }}</span>
                                             <i class="bi bi-grip-vertical ranking-handle"></i>
