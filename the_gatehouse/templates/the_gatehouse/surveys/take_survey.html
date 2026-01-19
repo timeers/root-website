@@ -140,6 +140,91 @@
                             {% endif %}
                         </div>
 
+                    {# Multiple Choice with Post icons #}
+                    {% elif question.question_type == 'MC' %}
+                        <div class="mt-3">
+                            {% with field=form|get_question_field:question.id %}
+                                {% if question.uses_all_official_posts %}
+                                    {# Dynamic Posts from get_post_choices #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                                   value="post_{{ post.id }}" id="q{{ question.id }}_p{{ post.id }}"
+                                                   {% if question.required %}required{% endif %}
+                                                   {% if field.value == post.id|stringformat:"s" or field.value == post.id %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
+                                                {% if post.small_icon %}
+                                                    <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ post.title }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Regular choices (text or Post-linked) #}
+                                    {% for choice in question.choices.all %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
+                                                   {% if question.required %}required{% endif %}
+                                                   {% if field.value == choice.id|stringformat:"s" or field.value == choice.id %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
+                                                {% if choice.post and choice.post.small_icon %}
+                                                    <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ choice.get_display_text }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                {% endif %}
+                            {% endwith %}
+                        </div>
+
+                    {# Multiple Selection with Post icons #}
+                    {% elif question.question_type == 'MS' %}
+                        <div class="mt-3">
+                            <div class="ms-checkbox-group" data-question-id="{{ question.id }}" {% if question.required %}data-required="true"{% endif %}>
+                            {% with field=form|get_question_field:question.id %}
+                                {% if question.uses_all_official_posts %}
+                                    {# Dynamic Posts from get_post_choices #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                                   value="post_{{ post.id }}" id="q{{ question.id }}_p{{ post.id }}"
+                                                   {% if field.value and post.id in field.value %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
+                                                {% if post.small_icon %}
+                                                    <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ post.title }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Regular choices (text or Post-linked) #}
+                                    {% for choice in question.choices.all %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
+                                                   {% if field.value and choice.id in field.value %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
+                                                {% if choice.post and choice.post.small_icon %}
+                                                    <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ choice.get_display_text }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                {% endif %}
+                            {% endwith %}
+                            </div>
+                            {% if question.required %}
+                                <div class="invalid-feedback" id="ms_error_{{ question.id }}" style="display: none;">
+                                    {% trans 'Please select at least one option.' %}
+                                </div>
+                            {% endif %}
+                        </div>
+
                     {# Ranking questions with drag-and-drop #}
                     {% elif question.question_type == 'RK' %}
                         <div class="mt-3">
@@ -147,13 +232,31 @@
                                 <i class="bi bi-grip-vertical"></i> {% trans 'Drag and drop to rank these options (1 = highest):' %}
                             </p>
                             <div class="ranking-list" id="ranking_{{ question.id }}" data-question-id="{{ question.id }}">
-                                {% for choice in question.choices.all %}
-                                    <div class="ranking-item" data-choice-id="{{ choice.id }}">
-                                        <span class="ranking-number">{{ forloop.counter }}</span>
-                                        <i class="bi bi-grip-vertical ranking-handle"></i>
-                                        <span class="ranking-text">{{ choice.text }}</span>
-                                    </div>
-                                {% endfor %}
+                                {% if question.uses_all_official_posts %}
+                                    {# Post-based ranking - dynamic Posts #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="ranking-item" data-choice-id="post_{{ post.id }}">
+                                            <span class="ranking-number">{{ forloop.counter }}</span>
+                                            <i class="bi bi-grip-vertical ranking-handle"></i>
+                                            {% if post.small_icon %}
+                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            <span class="ranking-text">{{ post.title }}</span>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Choice-based ranking #}
+                                    {% for choice in question.choices.all %}
+                                        <div class="ranking-item" data-choice-id="{{ choice.id }}">
+                                            <span class="ranking-number">{{ forloop.counter }}</span>
+                                            <i class="bi bi-grip-vertical ranking-handle"></i>
+                                            {% if choice.post and choice.post.small_icon %}
+                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            <span class="ranking-text">{{ choice.get_display_text }}</span>
+                                        </div>
+                                    {% endfor %}
+                                {% endif %}
                             </div>
                             {% with field=form|get_question_field:question.id %}
                                 <input type="hidden" name="question_{{ question.id }}" id="ranking_input_{{ question.id }}"
@@ -329,6 +432,38 @@ document.addEventListener('DOMContentLoaded', function() {
         const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
         return `${displayHour}:00 ${period}`;
     }
+
+    // Multiple Selection validation (at least one checkbox required)
+    const msCheckboxGroups = document.querySelectorAll('.ms-checkbox-group');
+
+    msCheckboxGroups.forEach(group => {
+        const questionId = group.dataset.questionId;
+        const isRequired = group.dataset.required === 'true';
+
+        if (isRequired) {
+            const form = group.closest('form');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    const checkboxes = group.querySelectorAll('input[type="checkbox"]');
+                    const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+
+                    if (!isChecked) {
+                        e.preventDefault();
+                        const errorDiv = document.getElementById(`ms_error_${questionId}`);
+                        if (errorDiv) {
+                            errorDiv.style.display = 'block';
+                        }
+                        group.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } else {
+                        const errorDiv = document.getElementById(`ms_error_${questionId}`);
+                        if (errorDiv) {
+                            errorDiv.style.display = 'none';
+                        }
+                    }
+                });
+            }
+        }
+    });
 
     // Initialize Sortable for all ranking questions
     const rankingLists = document.querySelectorAll('.ranking-list');

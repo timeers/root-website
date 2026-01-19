@@ -5,28 +5,15 @@
 
 {% block content %}
 <div class="content-section">
-    <div class='d-flex'>
-        <div class="mb-4">
-            <a href="{% url 'survey-detail' slug=survey.slug %}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
-            </a>
-        </div>
-        <div class='ms-auto'>
-            {% if can_edit %}
-                <div class="mb-4">
-                    <a href="{% url 'survey-edit' survey.slug %}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-pencil"></i> {% trans 'Edit Survey' %}
-                    </a>
-                </div>
-            {% endif %}
-        </div>
-    </div>
 
-    <div class="alert alert-info">
-        <i class="bi bi-info-circle"></i> {% trans 'This is a preview. Responses will not be saved.' %}
-    </div>
+    {% include 'the_gatehouse/surveys/partials/survey_navigation.html' %}
 
-    <h1 class="root-title">{{ survey.title }}</h1>
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <h1 class="root-title mb-0">{{ survey.title }}</h1>
+        <span class="badge bg-warning text-dark">
+            <i class="bi bi-eye"></i> {% trans 'Preview' %}
+        </span>
+    </div>
 
     {% if survey.description %}
         <p class="lead text-muted">{{ survey.description }}</p>
@@ -52,29 +39,69 @@
                     {# Multiple Choice #}
                     {% if question.question_type == 'MC' or question.question_type == 'YN' %}
                         <div class="mt-3">
-                            {% for choice in question.choices.all %}
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="question_{{ question.id }}"
-                                           id="q{{ question.id }}_c{{ choice.id }}" disabled>
-                                    <label class="form-check-label" for="q{{ question.id }}_c{{ choice.id }}">
-                                        {{ choice.text }}
-                                    </label>
-                                </div>
-                            {% endfor %}
+                            {% if question.uses_all_official_posts %}
+                                {# Dynamic Posts from get_post_choices #}
+                                {% for post in question.get_post_choices %}
+                                    <div class="form-check d-flex align-items-center">
+                                        <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                               id="q{{ question.id }}_p{{ post.id }}" disabled>
+                                        <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
+                                            {% if post.small_icon %}
+                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            {{ post.title }}
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                {# Regular choices (text or Post-linked) #}
+                                {% for choice in question.choices.all %}
+                                    <div class="form-check d-flex align-items-center">
+                                        <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                               id="q{{ question.id }}_c{{ choice.id }}" disabled>
+                                        <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
+                                            {% if choice.post.small_icon %}
+                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            {{ choice.get_display_text }}
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
                         </div>
 
                     {# Multiple Selection #}
                     {% elif question.question_type == 'MS' %}
                         <div class="mt-3">
-                            {% for choice in question.choices.all %}
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
-                                           id="q{{ question.id }}_c{{ choice.id }}" disabled>
-                                    <label class="form-check-label" for="q{{ question.id }}_c{{ choice.id }}">
-                                        {{ choice.text }}
-                                    </label>
-                                </div>
-                            {% endfor %}
+                            {% if question.uses_all_official_posts %}
+                                {# Dynamic Posts from get_post_choices #}
+                                {% for post in question.get_post_choices %}
+                                    <div class="form-check d-flex align-items-center">
+                                        <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                               id="q{{ question.id }}_p{{ post.id }}" disabled>
+                                        <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
+                                            {% if post.small_icon %}
+                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            {{ post.title }}
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                {# Regular choices (text or Post-linked) #}
+                                {% for choice in question.choices.all %}
+                                    <div class="form-check d-flex align-items-center">
+                                        <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                               id="q{{ question.id }}_c{{ choice.id }}" disabled>
+                                        <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
+                                            {% if choice.post.small_icon %}
+                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            {{ choice.get_display_text }}
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
                         </div>
 
                     {# Time Availability #}
@@ -159,12 +186,29 @@
                                 {% trans 'Drag and drop to rank these options (1 = highest):' %}
                             </p>
                             <div class="list-group">
-                                {% for choice in question.choices.all %}
-                                    <div class="list-group-item">
-                                        <i class="bi bi-grip-vertical me-2"></i>
-                                        {{ choice.text }}
-                                    </div>
-                                {% endfor %}
+                                {% if question.uses_all_official_posts %}
+                                    {# Dynamic Posts from get_post_choices #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="list-group-item d-flex align-items-center">
+                                            <i class="bi bi-grip-vertical me-2"></i>
+                                            {% if post.small_icon %}
+                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            {{ post.title }}
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Regular choices (text or Post-linked) #}
+                                    {% for choice in question.choices.all %}
+                                        <div class="list-group-item d-flex align-items-center">
+                                            <i class="bi bi-grip-vertical me-2"></i>
+                                            {% if choice.post.small_icon %}
+                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            {{ choice.get_display_text }}
+                                        </div>
+                                    {% endfor %}
+                                {% endif %}
                             </div>
                         </div>
 
@@ -190,21 +234,15 @@
             </div>
         {% endfor %}
 
-        <div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle"></i>
-            {% trans 'This is preview mode - the submit button is disabled.' %}
+        <hr class="my-4">
+
+        <div class="text-center text-muted">
+            <p class="mb-2">
+                <i class="bi bi-info-circle"></i>
+                {% trans 'Preview mode - responses cannot be submitted' %}
+            </p>
         </div>
 
-        <div class="d-flex justify-content-between">
-            {% if can_edit %}
-            <a href="{% url 'survey-edit' survey.slug %}" class="btn btn-outline-secondary">
-                {% trans 'Back to Edit' %}
-            </a>
-            {% endif %}
-            <button type="button" class="btn btn-primary ms-auto" disabled>
-                <i class="bi bi-check-circle"></i> {% trans 'Submit Survey' %} ({% trans 'Preview' %})
-            </button>
-        </div>
     </form>
 </div>
 

@@ -4,31 +4,7 @@
 
 {% block content %}
 <div class="content-section">
-    <!-- Navigation and Actions -->
-    <div class="d-flex align-items-center mb-4">
-        <div>
-            <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
-            </a>
-        </div>
-        <div class="ms-auto d-flex gap-2">
-            {% if can_see_resutls %}
-                <a href="{% url 'survey-results' survey.slug %}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
-                </a>
-            {% endif %}
-            {% if can_take %}
-                <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-success">
-                    <i class="bi bi-pencil-square"></i> {% trans 'Take Survey' %}
-                </a>
-            {% endif %}
-            {% if can_edit_survey %}
-                <a href="{% url 'survey-edit' survey.slug %}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
-                </a>
-            {% endif %}
-        </div>
-    </div>
+    {% include 'the_gatehouse/surveys/partials/survey_navigation.html' %}
 
     <!-- Survey Header -->
     <div class="mb-4">
@@ -116,17 +92,17 @@
         {% endif %}
         {% if survey.allow_multiple_responses %}
             <span class="badge bg-info">
-                <i class="bi bi-arrow-repeat"></i> {% trans 'Multiple Responses Allowed' %}
+                <i class="bi bi-arrow-repeat"></i> {% trans 'Multiple Responses' %}
             </span>
         {% endif %}
         {% if survey.allow_edit_responses %}
-            <span class="badge bg-primary">
+            <span class="badge bg-warning text-dark">
                 <i class="bi bi-pencil"></i> {% trans 'Editable Responses' %}
             </span>
         {% endif %}
         {% if survey.show_results_to_respondents %}
-            <span class="badge bg-warning text-dark">
-                <i class="bi bi-eye"></i> {% trans 'Results Visible to Respondents' %}
+            <span class="badge bg-primary">
+                <i class="bi bi-bar-chart-line"></i> {% trans 'Results Visible' %}
             </span>
         {% endif %}
     </div>
@@ -150,7 +126,7 @@
                                     <p class="card-text text-muted mb-2">
                                         <small>
                                             <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
-                                            {% if response.updated_at != response.submitted_at %}
+                                            {% if response.updated_at != response.submitted_at and can_edit_response %}
                                                 | <i class="bi bi-pencil"></i> {% trans 'Last updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
                                             {% endif %}
                                         </small>
@@ -179,7 +155,7 @@
             <div>
                 <h5 class="alert-heading mb-1">{% trans 'No Responses Yet' %}</h5>
                 <p class="mb-0">{% trans "You haven't submitted any responses to this survey." %}</p>
-                {% if can_take %}
+                {% if can_take_survey %}
                     <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
                         <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
                     </a>

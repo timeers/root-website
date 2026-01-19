@@ -380,7 +380,7 @@ class QuestionAdmin(admin.ModelAdmin):
     text_preview.short_description = 'Question'
 
 class ChoiceAdmin(admin.ModelAdmin):
-    list_display = ['question_preview', 'text', 'order']
+    list_display = ['question_preview', 'text', 'post__title', 'order']
     list_filter = ['question__survey']
     search_fields = ['text', 'question__text']
 

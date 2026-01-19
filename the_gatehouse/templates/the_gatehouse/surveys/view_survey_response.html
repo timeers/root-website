@@ -52,13 +52,40 @@
 
                         {# Multiple Choice or Boolean #}
                         {% if answer.question.question_type == 'MC' or answer.question.question_type == 'YN' %}
-                            {{ answer.selected_choice.text }}
+                            {% if answer.selected_choice %}
+                                <div class="d-flex align-items-center">
+                                    {% if answer.selected_choice.post and answer.selected_choice.post.small_icon %}
+                                        <img src="{{ answer.selected_choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                    {% endif %}
+                                    {{ answer.selected_choice.get_display_text }}
+                                </div>
+                            {% elif answer.selected_post %}
+                                <div class="d-flex align-items-center">
+                                    {% if answer.selected_post.small_icon %}
+                                        <img src="{{ answer.selected_post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                    {% endif %}
+                                    {{ answer.selected_post.title }}
+                                </div>
+                            {% endif %}
 
                         {# Multiple Selection #}
                         {% elif answer.question.question_type == 'MS' %}
                             <ul class="mb-0 mt-2">
                                 {% for choice in answer.selected_choices.all %}
-                                    <li>{{ choice.text }}</li>
+                                    <li class="d-flex align-items-center mb-1">
+                                        {% if choice.post and choice.post.small_icon %}
+                                            <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                        {% endif %}
+                                        {{ choice.get_display_text }}
+                                    </li>
+                                {% endfor %}
+                                {% for post in answer.selected_posts.all %}
+                                    <li class="d-flex align-items-center mb-1">
+                                        {% if post.small_icon %}
+                                            <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                        {% endif %}
+                                        {{ post.title }}
+                                    </li>
                                 {% endfor %}
                             </ul>
 
@@ -133,7 +160,20 @@
                         {% elif answer.question.question_type == 'RK' %}
                             <ol class="mt-2">
                                 {% for ranked in answer.ranked_items.all %}
-                                    <li>{{ ranked.choice.text }}</li>
+                                    <li class="d-flex align-items-center mb-1">
+                                        {% if ranked.choice.post and ranked.choice.post.small_icon %}
+                                            <img src="{{ ranked.choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                        {% endif %}
+                                        {{ ranked.choice.get_display_text }}
+                                    </li>
+                                {% endfor %}
+                                {% for ranked in answer.ranked_post_items.all %}
+                                    <li class="d-flex align-items-center mb-1">
+                                        {% if ranked.post.small_icon %}
+                                            <img src="{{ ranked.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                        {% endif %}
+                                        {{ ranked.post.title }}
+                                    </li>
                                 {% endfor %}
                             </ol>
 

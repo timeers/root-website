@@ -483,6 +483,17 @@ em, i {
     border-radius: 5px;
   }
 
+.md-faction-icon {
+  max-height: 30px;
+  max-width: 30px; 
+  height: auto;  
+  width: auto;  
+  margin-right: 2px;
+  margin-bottom: 2px;
+  border-radius: 3px;
+}
+
+
 .lg-faction-icon {
   max-height: 40px;
   max-width: 40px; 

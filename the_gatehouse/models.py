@@ -1028,7 +1028,7 @@ class Survey(models.Model):
         return self.title
 
     def get_absolute_url(self):
-        return reverse('survey-redirect', kwargs={'slug': self.slug})
+        return reverse('survey-detail', kwargs={'slug': self.slug})
 
     def is_available(self):
         """Check if survey is currently available to take"""
@@ -1194,6 +1194,23 @@ class Question(models.Model):
     required = models.BooleanField(default=True, help_text="Is this question required?")
     help_text = models.CharField(max_length=300, blank=True, help_text="Optional help text shown to users")
 
+    # Post-based choices configuration
+    class PostSelectionMode(models.TextChoices):
+        ALL_OFFICIAL = 'all_official', 'All Official'
+        INDIVIDUAL = 'individual', 'Select Individual'
+
+    post_component = models.CharField(
+        max_length=20,
+        null=True, blank=True,
+        help_text="Component type for Post-based choices (e.g., Faction, Map)"
+    )
+    post_selection_mode = models.CharField(
+        max_length=20,
+        choices=PostSelectionMode.choices,
+        null=True, blank=True,
+        help_text="How Posts are selected as choices"
+    )
+
     class Meta:
         ordering = ['survey', 'order', 'id']
         verbose_name = 'Question'
@@ -1243,19 +1260,44 @@ class Question(models.Model):
             raise ValidationError("Scale questions require a Likert Scale to be selected.")
 
         # Only validate choices if the question has been saved (has a primary key)
-        if self.pk:
+        # Skip validation for "All Official" mode since choices are loaded dynamically
+        if self.pk and not self.uses_all_official_posts():
             if self.question_type in [self.QuestionType.MULTIPLE_CHOICE, self.QuestionType.MULTIPLE_SELECTION,
-                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING, 
+                                      self.QuestionType.BOOLEAN, self.QuestionType.RANKING,
                                       self.QuestionType.TIME_AVAILABILITY, self.QuestionType.DAY_AVAILABILITY]:
                 if not self.choices.exists():
                     raise ValidationError(f"{self.get_question_type_display()} questions require at least one choice.")
+
+    def is_post_based(self):
+        """Check if this question uses Posts as choices"""
+        return bool(self.post_component)
+
+    def uses_all_official_posts(self):
+        """Check if dynamically loading all official Posts"""
+        return self.post_component and self.post_selection_mode == self.PostSelectionMode.ALL_OFFICIAL
+
+    def get_post_choices(self):
+        """Get Posts for 'all_official' mode"""
+        if not self.uses_all_official_posts():
+            return None
+        Post = apps.get_model('the_keep', 'Post')
+        return Post.objects.filter(
+            component=self.post_component,
+            official=True,
+            status__lte=4
+        ).order_by('title')
 
 
 # For multiple choice questions they will have multiple choices
 class Choice(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choices')
-    text = models.CharField(max_length=200)
+    text = models.CharField(max_length=200, blank=True)  # blank=True since Post can provide text
     order = models.PositiveIntegerField(default=0)
+    post = models.ForeignKey(
+        'the_keep.Post', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='survey_choices',
+        help_text="Link to a Post - if set, displays Post title/icon"
+    )
 
     class Meta:
         ordering = ['question', 'order', 'id']
@@ -1263,7 +1305,17 @@ class Choice(models.Model):
         verbose_name_plural = 'Choices'
 
     def __str__(self):
-        return f"{self.question.text[:30]} - {self.text}"
+        return f"{self.question.text[:30]} - {self.get_display_text()}"
+
+    def get_display_text(self):
+        """Return the text to display for this choice"""
+        return self.post.title if self.post else self.text
+
+    def clean(self):
+        """Validate that either text or post is provided"""
+        super().clean()
+        if not self.text and not self.post:
+            raise ValidationError("Choice must have either text or a linked Post.")
 
 
 # A user's response to a survey is stored here
@@ -1313,6 +1365,17 @@ class Answer(models.Model):
 
     # For rating/likert (stored as integer value)
     numeric_answer = models.IntegerField(blank=True, null=True, help_text="For rating and likert scale questions")
+
+    # For Post-based answers - store Post directly for easier querying/reporting
+    selected_post = models.ForeignKey(
+        'the_keep.Post', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='single_post_answers',
+        help_text="For Post-based single selection questions"
+    )
+    selected_posts = models.ManyToManyField(
+        'the_keep.Post', blank=True, related_name='multiple_post_answers',
+        help_text="For Post-based multiple selection questions"
+    )
 
     class Meta:
         ordering = ['response', 'question__order']
@@ -1411,11 +1474,36 @@ class Answer(models.Model):
         """Return a human-readable version of the answer"""
         qtype = self.question.question_type
 
+        # Handle Post-based questions
+        if self.question.is_post_based():
+            if qtype == Question.QuestionType.MULTIPLE_CHOICE:
+                if self.selected_post:
+                    return self.selected_post.title
+                elif self.selected_choice:
+                    return self.selected_choice.get_display_text()
+                return "No answer"
+            elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
+                posts = self.selected_posts.all()
+                if posts:
+                    return ", ".join([p.title for p in posts])
+                choices = self.selected_choices.all()
+                if choices:
+                    return ", ".join([c.get_display_text() for c in choices])
+                return "No answer"
+            elif qtype == Question.QuestionType.RANKING:
+                ranked_posts = self.ranked_post_items.order_by('rank')
+                if ranked_posts:
+                    return ", ".join([f"{r.rank}. {r.post.title}" for r in ranked_posts])
+                ranked = self.ranked_items.order_by('rank')
+                if ranked:
+                    return ", ".join([f"{r.rank}. {r.choice.get_display_text()}" for r in ranked])
+                return "No answer"
+
         if qtype == Question.QuestionType.MULTIPLE_CHOICE:
-            return self.selected_choice.text if self.selected_choice else "No answer"
+            return self.selected_choice.get_display_text() if self.selected_choice else "No answer"
         elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
             choices = self.selected_choices.all()
-            return ", ".join([c.text for c in choices]) if choices else "No answer"
+            return ", ".join([c.get_display_text() for c in choices]) if choices else "No answer"
         elif qtype == Question.QuestionType.TIME_AVAILABILITY:
             choices = self.selected_choices.all().order_by('text')
             return ", ".join([f"{c.text}:00 UTC" for c in choices]) if choices else "No answer"
@@ -1425,12 +1513,12 @@ class Answer(models.Model):
         elif qtype == Question.QuestionType.OPEN_ENDED:
             return self.text_answer or "No answer"
         elif qtype == Question.QuestionType.BOOLEAN:
-            return self.selected_choice.text if self.selected_choice else "No answer"
+            return self.selected_choice.get_display_text() if self.selected_choice else "No answer"
         elif qtype == Question.QuestionType.SCALE:
             return str(self.numeric_answer) if self.numeric_answer is not None else "No answer"
         elif qtype == Question.QuestionType.RANKING:
             ranked = self.ranked_items.order_by('rank')
-            return ", ".join([f"{r.rank}. {r.choice.text}" for r in ranked]) if ranked else "No answer"
+            return ", ".join([f"{r.rank}. {r.choice.get_display_text()}" for r in ranked]) if ranked else "No answer"
         elif qtype == Question.QuestionType.DATE:
             return str(self.date_answer) if self.date_answer else "No answer"
         elif qtype == Question.QuestionType.TIME:
@@ -1457,7 +1545,23 @@ class RankedAnswer(models.Model):
         verbose_name_plural = 'Ranked Answers'
 
     def __str__(self):
-        return f"Rank {self.rank}: {self.choice.text}"
+        return f"Rank {self.rank}: {self.choice.get_display_text()}"
+
+
+class RankedPostAnswer(models.Model):
+    """For ranking Post-based questions - stores the rank order of Posts"""
+    answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_post_items')
+    post = models.ForeignKey('the_keep.Post', on_delete=models.CASCADE)
+    rank = models.PositiveIntegerField(help_text="Position in ranking (1 = first choice)")
+
+    class Meta:
+        ordering = ['answer', 'rank']
+        unique_together = ('answer', 'rank')
+        verbose_name = 'Ranked Post Answer'
+        verbose_name_plural = 'Ranked Post Answers'
+
+    def __str__(self):
+        return f"Rank {self.rank}: {self.post.title}"
 
 
 # Question Templates - Reusable questions
@@ -1473,6 +1577,23 @@ class QuestionTemplate(models.Model):
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='question_templates')
     created_at = models.DateTimeField(auto_now_add=True)
     is_public = models.BooleanField(default=False, help_text="Make available to all users")
+
+    # Post-based choices configuration
+    post_component = models.CharField(
+        max_length=20,
+        null=True, blank=True,
+        help_text="Component type for Post-based choices"
+    )
+    post_selection_mode = models.CharField(
+        max_length=20,
+        choices=Question.PostSelectionMode.choices,
+        null=True, blank=True,
+        help_text="How Posts are selected as choices"
+    )
+    post_choices = models.ManyToManyField(
+        'the_keep.Post', blank=True, related_name='question_templates',
+        help_text="Pre-selected Posts for 'individual' mode templates"
+    )
 
     class Meta:
         ordering = ['name']
@@ -1494,7 +1615,13 @@ class QuestionTemplate(models.Model):
         if self.question_type == 'LK' and self.likert_scale:
             data['likert_scale_id'] = self.likert_scale_id
 
-        if self.question_type in ['MC', 'MS', 'YN', 'RK'] and self.choices_data:
+        # Handle Post-based templates
+        if self.post_component:
+            data['post_component'] = self.post_component
+            data['post_selection_mode'] = self.post_selection_mode
+            if self.post_selection_mode == Question.PostSelectionMode.INDIVIDUAL:
+                data['post_choices'] = list(self.post_choices.values_list('id', flat=True))
+        elif self.question_type in ['MC', 'MS', 'YN', 'RK'] and self.choices_data:
             data['choices'] = self.choices_data
 
         return data

@@ -17,9 +17,29 @@ const questionTypes = {
     'DT': 'Date & Time'
 };
 
+// Component types for Post-based choices
+const componentTypes = {
+    'Faction': 'Faction',
+    'Map': 'Map',
+    'Deck': 'Deck',
+    'Hireling': 'Hireling',
+    'Vagabond': 'Vagabond',
+    'Landmark': 'Landmark',
+    'Clockwork': 'Clockwork',
+    'Tweak': 'House Rule'
+};
+
 const likertScales = [
     {% for scale in likert_scales %}
-    { id: {{ scale.id }}, name: '{{ scale.name }}' },
+    {
+        id: {{ scale.id }},
+        name: '{{ scale.name }}',
+        min_value: {{ scale.min_value }},
+        max_value: {{ scale.max_value }},
+        min_label: '{{ scale.min_label|escapejs }}',
+        max_label: '{{ scale.max_label|escapejs }}',
+        labels: {{ scale.labels|safe }}
+    },
     {% endfor %}
 ];
 
@@ -223,7 +243,7 @@ function loadQuestionFromTemplate(templateData) {
             optionsContainer.innerHTML = `
                 <div class="mb-3">
                     <label class="form-label">Scale <span class="text-danger">*</span></label>
-                    <select class="form-select likert-scale-select" required>
+                    <select class="form-select likert-scale-select" onchange="updateLikertPreview('${questionId}')" required>
                         <option value="">Select scale...</option>
                         ${scaleOptions}
                     </select>
@@ -231,7 +251,13 @@ function loadQuestionFromTemplate(templateData) {
                         Request additional Scales from an Admin if needed.
                     </small>
                 </div>
+                <div class="likert-preview-container"></div>
             `;
+
+            // Show preview if scale is already selected
+            if (templateData.likert_scale_id) {
+                setTimeout(() => updateLikertPreview(questionId), 0);
+            }
         }
     }
 
@@ -363,25 +389,120 @@ function handleTypeChange(questionId, existingData = null) {
             addChoice(questionId, 'No', null, true);
         }
     } else if (['MC', 'MS', 'RK'].includes(type)) {
-        // Choice-based questions
+        // Choice-based questions - with Post selection option
+        const usePostBased = existingData && existingData.post_component;
+        const postComponent = existingData?.post_component || '';
+        const postSelectionMode = existingData?.post_selection_mode || 'all_official';
+
+        // Show note for Multiple Selection questions
+        const msNote = type === 'MS' ? `
+            <div class="alert alert-info py-2 mb-3">
+                <i class="bi bi-info-circle"></i>
+                <small>If marked as required, respondents must select <strong>at least one</strong> option.</small>
+            </div>
+        ` : '';
+
         optionsContainer.innerHTML = `
-            <div class="choices-section">
-                <label class="form-label">Choices <span class="text-danger">*</span></label>
-                <div class="choices-list"></div>
-                <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
-                    <i class="bi bi-plus"></i> Add Choice
-                </button>
+            ${msNote}
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input use-post-choices" type="checkbox" id="use_posts_${questionId}"
+                           onchange="togglePostChoices('${questionId}')" ${usePostBased ? 'checked' : ''}>
+                    <label class="form-check-label" for="use_posts_${questionId}">
+                        <i class="bi bi-collection"></i> Use game components as choices
+                    </label>
+                </div>
+            </div>
+
+            <div class="post-choices-config" style="display: ${usePostBased ? 'block' : 'none'};">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Component Type <span class="text-danger">*</span></label>
+                        <select class="form-select post-component-select" onchange="updatePostSelectionMode('${questionId}')">
+                            <option value="">Select component...</option>
+                            ${Object.entries(componentTypes).map(([key, value]) =>
+                                '<option value="' + key + '" ' + (postComponent === key ? 'selected' : '') + '>' + value + '</option>'
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Selection Mode</label>
+                        <div class="mt-2">
+                            <div class="form-check">
+                                <input class="form-check-input post-selection-mode" type="radio" name="post_mode_${questionId}"
+                                       id="mode_all_${questionId}" value="all_official"
+                                       onchange="updatePostSelectionMode('${questionId}')"
+                                       ${postSelectionMode === 'all_official' ? 'checked' : ''}>
+                                <label class="form-check-label" for="mode_all_${questionId}">
+                                    All Official
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input post-selection-mode" type="radio" name="post_mode_${questionId}"
+                                       id="mode_individual_${questionId}" value="individual"
+                                       onchange="updatePostSelectionMode('${questionId}')"
+                                       ${postSelectionMode === 'individual' ? 'checked' : ''}>
+                                <label class="form-check-label" for="mode_individual_${questionId}">
+                                    Select Individual (up to 20)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="individual-post-selection" style="display: ${postSelectionMode === 'individual' ? 'block' : 'none'};">
+                    <div class="mb-2">
+                        <label class="form-label">Search and Select Posts</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control post-search-input" placeholder="Search by name..."
+                                   oninput="searchPosts('${questionId}')">
+                            <button class="btn btn-outline-secondary" type="button" onclick="searchPosts('${questionId}')">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="post-search-results mb-2" style="max-height: 200px; overflow-y: auto;"></div>
+                    <div class="selected-posts-list">
+                        <label class="form-label">Selected Posts (<span class="selected-count">0</span>/20)</label>
+                        <div class="selected-posts-container"></div>
+                    </div>
+                </div>
+
+                <div class="all-official-info" style="display: ${postSelectionMode === 'all_official' ? 'block' : 'none'};">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> All official <span class="component-type-display">${postComponent || 'components'}</span> will be loaded as choices.
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-choices-section" style="display: ${usePostBased ? 'none' : 'block'};">
+                <div class="choices-section">
+                    <label class="form-label">Choices <span class="text-danger">*</span></label>
+                    <div class="choices-list"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
+                        <i class="bi bi-plus"></i> Add Choice
+                    </button>
+                </div>
             </div>
         `;
 
-        // Add choices
-        if (existingData && existingData.choices) {
-            existingData.choices.forEach(choice => {
-                addChoice(questionId, choice.text, choice.id);
+        // Add choices (only for manual mode)
+        if (!usePostBased) {
+            if (existingData && existingData.choices) {
+                existingData.choices.forEach(choice => {
+                    addChoice(questionId, choice.text, choice.id);
+                });
+            } else {
+                addChoice(questionId);
+                addChoice(questionId);
+            }
+        }
+
+        // Load existing selected posts for individual mode
+        if (existingData && existingData.post_selection_mode === 'individual' && existingData.post_choices) {
+            existingData.post_choices.forEach(postData => {
+                addSelectedPost(questionId, postData);
             });
-        } else {
-            addChoice(questionId);
-            addChoice(questionId);
         }
     } else if (type === 'LK') {
         // Scale questions
@@ -392,7 +513,7 @@ function handleTypeChange(questionId, existingData = null) {
         optionsContainer.innerHTML = `
             <div class="mb-3">
                 <label class="form-label">Scale <span class="text-danger">*</span></label>
-                <select class="form-select likert-scale-select" required>
+                <select class="form-select likert-scale-select" onchange="updateLikertPreview('${questionId}')" required>
                     <option value="">Select scale...</option>
                     ${scaleOptions}
                 </select>
@@ -400,7 +521,13 @@ function handleTypeChange(questionId, existingData = null) {
                     Request additional Scales from an Admin if needed.
                 </small>
             </div>
+            <div class="likert-preview-container"></div>
         `;
+
+        // Show preview if scale is already selected
+        if (existingData && existingData.likert_scale_id) {
+            setTimeout(() => updateLikertPreview(questionId), 0);
+        }
     }
 }
 
@@ -422,20 +549,281 @@ function addChoice(questionId, defaultValue = '', existingId = null, readonly = 
 function removeChoice(questionId, choiceId) {
     const card = document.querySelector(`[data-question-id="${questionId}"]`);
     const choice = card.querySelector(`[data-choice-id="${choiceId}"]`);
-    const choicesList = card.querySelector('.choices-list');
 
-    // Require at least 2 choices
-    if (choicesList.children.length > 2) {
-        choice.remove();
+    // Remove the choice - form validation will check for minimum on submit
+    choice.remove();
+}
+
+function updateLikertPreview(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const scaleSelect = card.querySelector('.likert-scale-select');
+    const previewContainer = card.querySelector('.likert-preview-container');
+
+    if (!scaleSelect || !previewContainer) return;
+
+    const scaleId = parseInt(scaleSelect.value);
+
+    if (!scaleId) {
+        previewContainer.innerHTML = '';
+        return;
+    }
+
+    const scale = likertScales.find(s => s.id === scaleId);
+
+    if (!scale) {
+        previewContainer.innerHTML = '';
+        return;
+    }
+
+    // Create range of values
+    const values = [];
+    for (let i = scale.min_value; i <= scale.max_value; i++) {
+        values.push(i);
+    }
+
+    // Build preview HTML similar to survey_preview.html
+    let previewHTML = `
+        <div class="card bg-light my-2">
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <small class="text-muted">${scale.min_label}</small>
+                    <small class="text-muted">${scale.max_label}</small>
+                </div>
+                <div class="btn-group d-flex flex-column flex-md-row gap-2" role="group">
+    `;
+
+    values.forEach(value => {
+        const label = scale.labels && scale.labels[value] ? scale.labels[value] : '';
+        previewHTML += `
+            <div class="d-flex flex-column align-items-center flex-fill">
+                <button type="button" class="btn btn-outline-primary w-100" disabled>
+                    ${value}
+                </button>
+                ${label ? `<small class="text-muted mt-1 text-center">${label}</small>` : ''}
+            </div>
+        `;
+    });
+
+    previewHTML += `
+                </div>
+            </div>
+        </div>
+    `;
+
+    previewContainer.innerHTML = previewHTML;
+}
+
+// Post selection functions
+function togglePostChoices(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const usePostsCheckbox = card.querySelector('.use-post-choices');
+    const postConfig = card.querySelector('.post-choices-config');
+    const manualChoices = card.querySelector('.manual-choices-section');
+
+    if (usePostsCheckbox.checked) {
+        postConfig.style.display = 'block';
+        manualChoices.style.display = 'none';
+        // Disable required validation on manual choice inputs
+        const manualInputs = manualChoices.querySelectorAll('input[required]');
+        manualInputs.forEach(input => {
+            input.removeAttribute('required');
+            input.dataset.wasRequired = 'true';
+        });
     } else {
-        alert('At least 2 choices are required.');
+        postConfig.style.display = 'none';
+        manualChoices.style.display = 'block';
+        // Re-enable required validation on manual choice inputs
+        const manualInputs = manualChoices.querySelectorAll('input[data-was-required="true"]');
+        manualInputs.forEach(input => {
+            input.setAttribute('required', '');
+            input.removeAttribute('data-was-required');
+        });
+    }
+}
+
+function updatePostSelectionMode(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const modeRadio = card.querySelector('.post-selection-mode:checked');
+    const individualSection = card.querySelector('.individual-post-selection');
+    const allOfficialInfo = card.querySelector('.all-official-info');
+    const componentSelect = card.querySelector('.post-component-select');
+    const componentDisplay = card.querySelector('.component-type-display');
+
+    const mode = modeRadio ? modeRadio.value : 'all_official';
+    const component = componentSelect ? componentSelect.value : '';
+
+    // Clear validation errors when component is selected
+    if (component) {
+        componentSelect.classList.remove('is-invalid');
+        const errorDiv = componentSelect.parentNode.querySelector('.validation-error');
+        if (errorDiv) {
+            errorDiv.remove();
+        }
+    }
+
+    if (mode === 'individual') {
+        individualSection.style.display = 'block';
+        allOfficialInfo.style.display = 'none';
+    } else {
+        individualSection.style.display = 'none';
+        allOfficialInfo.style.display = 'block';
+    }
+
+    // Update component type display
+    if (componentDisplay && component) {
+        componentDisplay.textContent = componentTypes[component] || component;
+    }
+}
+
+let searchTimeout = null;
+function searchPosts(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const searchInput = card.querySelector('.post-search-input');
+    const componentSelect = card.querySelector('.post-component-select');
+    const resultsContainer = card.querySelector('.post-search-results');
+
+    const query = searchInput.value.trim();
+    const component = componentSelect.value;
+
+    // Clear previous timeout
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
+    }
+
+    // Debounce search
+    searchTimeout = setTimeout(() => {
+        if (!component) {
+            resultsContainer.innerHTML = '<div class="text-muted">Please select a component type first.</div>';
+            return;
+        }
+
+        fetch(`{% url 'search-posts-for-survey' %}?q=${encodeURIComponent(query)}&component=${component}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.posts.length === 0) {
+                    resultsContainer.innerHTML = '<div class="text-muted">No results found.</div>';
+                    return;
+                }
+
+                const selectedIds = getSelectedPostIds(questionId);
+
+                resultsContainer.innerHTML = data.posts.map(post => {
+                    const isSelected = selectedIds.includes(post.id);
+                    return `
+                        <div class="d-flex align-items-center justify-content-between p-2 border-bottom post-result-item"
+                             data-post-id="${post.id}">
+                            <div class="d-flex align-items-center">
+                                ${post.icon_url ? `<img src="${post.icon_url}" alt="" class="mx-2 md-faction-icon">` : ''}
+                                <span>${post.title}</span>
+                                ${post.official ? '<span class="badge bg-success ms-2">Official</span>' : '<span class="badge bg-secondary ms-2">Fan</span>'}
+                            </div>
+                            <button type="button" class="btn btn-sm ${isSelected ? 'btn-secondary' : 'btn-outline-primary'}"
+                                    onclick="addSelectedPost('${questionId}', {id: ${post.id}, title: '${post.title.replace(/'/g, "\\'")}', icon_url: ${post.icon_url ? `'${post.icon_url}'` : 'null'}})"
+                                    ${isSelected ? 'disabled' : ''}>
+                                ${isSelected ? 'Added' : 'Add'}
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .catch(error => {
+                console.error('Search error:', error);
+                resultsContainer.innerHTML = '<div class="text-danger">Error searching posts.</div>';
+            });
+    }, 300);
+}
+
+function getSelectedPostIds(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const selectedContainer = card.querySelector('.selected-posts-container');
+    const items = selectedContainer.querySelectorAll('.selected-post-item');
+    return Array.from(items).map(item => parseInt(item.dataset.postId));
+}
+
+function addSelectedPost(questionId, postData) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const selectedContainer = card.querySelector('.selected-posts-container');
+    const countSpan = card.querySelector('.selected-count');
+    const resultsContainer = card.querySelector('.post-search-results');
+
+    // Check if already selected
+    if (selectedContainer.querySelector(`[data-post-id="${postData.id}"]`)) {
+        return;
+    }
+
+    // Check limit
+    const currentCount = selectedContainer.querySelectorAll('.selected-post-item').length;
+    if (currentCount >= 20) {
+        alert('Maximum 20 posts allowed.');
+        return;
+    }
+
+    const postHtml = `
+        <div class="d-flex align-items-center justify-content-between p-2 border rounded mb-1 selected-post-item"
+             data-post-id="${postData.id}">
+            <div class="d-flex align-items-center">
+                ${postData.icon_url ? `<img src="${postData.icon_url}" alt="" class="mx-2 md-faction-icon">` : ''}
+                <span>${postData.title}</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeSelectedPost('${questionId}', ${postData.id})">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    `;
+
+    selectedContainer.insertAdjacentHTML('beforeend', postHtml);
+    countSpan.textContent = currentCount + 1;
+
+    // Clear validation error if at least 2 posts are selected
+    if (currentCount + 1 >= 2) {
+        const selectedPostsList = card.querySelector('.selected-posts-list');
+        const errorDiv = selectedPostsList.querySelector('.validation-error');
+        if (errorDiv) {
+            errorDiv.remove();
+        }
+    }
+
+    // Update add button in search results
+    const resultItem = resultsContainer.querySelector(`[data-post-id="${postData.id}"]`);
+    if (resultItem) {
+        const btn = resultItem.querySelector('button');
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-secondary');
+        btn.textContent = 'Added';
+        btn.disabled = true;
+    }
+}
+
+function removeSelectedPost(questionId, postId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const selectedContainer = card.querySelector('.selected-posts-container');
+    const countSpan = card.querySelector('.selected-count');
+    const resultsContainer = card.querySelector('.post-search-results');
+
+    const item = selectedContainer.querySelector(`[data-post-id="${postId}"]`);
+    if (item) {
+        item.remove();
+        countSpan.textContent = selectedContainer.querySelectorAll('.selected-post-item').length;
+
+        // Update add button in search results
+        const resultItem = resultsContainer.querySelector(`[data-post-id="${postId}"]`);
+        if (resultItem) {
+            const btn = resultItem.querySelector('button');
+            btn.classList.remove('btn-secondary');
+            btn.classList.add('btn-outline-primary');
+            btn.textContent = 'Add';
+            btn.disabled = false;
+        }
     }
 }
 
 // Serialize form data on submit
 document.getElementById('survey-form').addEventListener('submit', function(e) {
+    console.log('Form submit triggered');
     const questions = [];
     const questionCards = document.querySelectorAll('.question-card');
+    console.log('Found', questionCards.length, 'question cards');
+    let validationErrors = [];
 
     questionCards.forEach(card => {
         const questionData = {
@@ -452,13 +840,74 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         }
 
         // Add type-specific data
-        if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
+        if (['MC', 'MS', 'RK'].includes(questionData.type)) {
+            // Check if using Post-based choices
+            const usePostsCheckbox = card.querySelector('.use-post-choices');
+            if (usePostsCheckbox && usePostsCheckbox.checked) {
+                const componentSelect = card.querySelector('.post-component-select');
+                const modeRadio = card.querySelector('.post-selection-mode:checked');
+
+                questionData.post_component = componentSelect ? componentSelect.value : null;
+                questionData.post_selection_mode = modeRadio ? modeRadio.value : 'all_official';
+
+                // Validation: require component type
+                if (!questionData.post_component) {
+                    validationErrors.push({
+                        questionId: card.dataset.questionId,
+                        questionOrder: questionData.order,
+                        type: 'component',
+                        message: 'Please select a component type.'
+                    });
+                }
+
+                // For individual mode, include selected post IDs and validate
+                if (questionData.post_selection_mode === 'individual') {
+                    const selectedPostIds = getSelectedPostIds(card.dataset.questionId);
+                    console.log('Selected post IDs for question:', selectedPostIds);
+                    questionData.post_choices = selectedPostIds;
+
+                    // Validation: require at least 2 choices for individual mode
+                    if (selectedPostIds.length < 2) {
+                        validationErrors.push({
+                            questionId: card.dataset.questionId,
+                            questionOrder: questionData.order,
+                            type: 'post_choices',
+                            message: 'Please select at least 2 choices.'
+                        });
+                    }
+                }
+                // For "all official" mode, no validation needed (dynamic choices)
+            } else {
+                // Manual choices
+                const choices = [];
+                card.querySelectorAll('.choice-item').forEach(choiceItem => {
+                    const input = choiceItem.querySelector('input');
+                    if (input.value.trim()) {
+                        const choiceData = { text: input.value.trim() };
+                        if (choiceItem.dataset.existingChoiceId) {
+                            choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
+                        }
+                        choices.push(choiceData);
+                    }
+                });
+                questionData.choices = choices;
+
+                // Validation: require at least 2 choices for manual mode
+                if (choices.length < 2) {
+                    validationErrors.push({
+                        questionId: card.dataset.questionId,
+                        questionOrder: questionData.order,
+                        type: 'manual_choices',
+                        message: 'Please add at least 2 choices.'
+                    });
+                }
+            }
+        } else if (questionData.type === 'YN') {
             const choices = [];
             card.querySelectorAll('.choice-item').forEach(choiceItem => {
                 const input = choiceItem.querySelector('input');
                 if (input.value.trim()) {
                     const choiceData = { text: input.value.trim() };
-                    // Include existing choice ID if present (edit mode)
                     if (choiceItem.dataset.existingChoiceId) {
                         choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
                     }
@@ -474,8 +923,69 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         questions.push(questionData);
     });
 
+    // Clear previous validation errors
+    document.querySelectorAll('.validation-error').forEach(el => el.remove());
+    document.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+
+    // Check for validation errors
+    if (validationErrors.length > 0) {
+        e.preventDefault();
+
+        // Display inline validation errors
+        validationErrors.forEach(error => {
+            const card = document.querySelector(`[data-question-id="${error.questionId}"]`);
+
+            if (error.type === 'component') {
+                // Highlight component select and show error
+                const componentSelect = card.querySelector('.post-component-select');
+                componentSelect.classList.add('is-invalid');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'invalid-feedback validation-error';
+                errorDiv.textContent = error.message;
+                componentSelect.parentNode.appendChild(errorDiv);
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    componentSelect.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else if (error.type === 'post_choices') {
+                // Show error under selected posts section
+                const selectedPostsContainer = card.querySelector('.selected-posts-list');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'text-danger small mt-2 validation-error';
+                errorDiv.innerHTML = `<i class="bi bi-exclamation-circle"></i> ${error.message}`;
+                selectedPostsContainer.appendChild(errorDiv);
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    selectedPostsContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else if (error.type === 'manual_choices') {
+                // Show error under choices section
+                const choicesSection = card.querySelector('.choices-section');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'text-danger small mt-2 validation-error';
+                errorDiv.innerHTML = `<i class="bi bi-exclamation-circle"></i> ${error.message}`;
+                choicesSection.appendChild(errorDiv);
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    choicesSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
+
+        return false;
+    }
+
+    console.log('Questions data:', questions);
     // Store as JSON
-    document.getElementById('questions-data').value = JSON.stringify(questions);
+    const jsonData = JSON.stringify(questions);
+    console.log('JSON data:', jsonData);
+    document.getElementById('questions-data').value = jsonData;
 });
 
 {% if existing_questions %}

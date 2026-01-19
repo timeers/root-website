@@ -1923,6 +1923,33 @@ def dismiss_notification(request, notification_id):
 
 
 # Survey Views
+@login_required
+def search_posts_for_survey(request):
+    """AJAX endpoint for searching Posts to add as survey choices."""
+    query = request.GET.get('q', '')
+    component = request.GET.get('component', '')
+
+    posts = Post.objects.filter(status__lte=4)
+
+    if component:
+        posts = posts.filter(component=component)
+    if query:
+        posts = posts.filter(title__icontains=query)
+
+    # Order by official first, then alphabetically
+    posts = posts.order_by('-official', 'title')[:30]
+
+    data = [{
+        'id': p.id,
+        'title': p.title,
+        'component': p.component,
+        'official': p.official,
+        'icon_url': p.small_icon.url if p.small_icon else None,
+    } for p in posts]
+
+    return JsonResponse({'posts': data})
+
+
 def survey_list_view(request):
     """Display list of available surveys."""
     from .models import Survey
@@ -1968,7 +1995,7 @@ def survey_redirect(request, slug):
 @player_required
 def survey_take_view(request, slug):
     """Take a survey."""
-    from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer
+    from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer, RankedPostAnswer
     from .forms import SurveyResponseForm
 
     survey = get_object_or_404(Survey, slug=slug)
@@ -2037,14 +2064,44 @@ def survey_take_view(request, slug):
                     )
 
                     # Save based on question type
-                    if question.question_type == 'MC' or question.question_type == 'YN':
-                        # Single choice
+                    if question.question_type == 'MC':
+                        # Single choice - handle Post-based questions
+                        if question.uses_all_official_posts() and str(answer_data).startswith('post_'):
+                            post_id = int(answer_data.replace('post_', ''))
+                            answer.selected_post = Post.objects.get(id=post_id)
+                            answer.save()
+                        else:
+                            choice = Choice.objects.get(id=int(answer_data))
+                            answer.selected_choice = choice
+                            # Also set selected_post if choice has a linked post
+                            if choice.post:
+                                answer.selected_post = choice.post
+                            answer.save()
+
+                    elif question.question_type == 'YN':
+                        # Boolean - single choice
                         choice = Choice.objects.get(id=int(answer_data))
                         answer.selected_choice = choice
                         answer.save()
 
-                    elif question.question_type == 'MS' or question.question_type == 'TA' or question.question_type == 'DY':
-                        # Multiple choices (including time availability)
+                    elif question.question_type == 'MS':
+                        # Multiple choices - handle Post-based questions
+                        answer.save()  # Save first to enable M2M
+                        if question.uses_all_official_posts():
+                            for item in answer_data:
+                                if str(item).startswith('post_'):
+                                    post_id = int(item.replace('post_', ''))
+                                    answer.selected_posts.add(Post.objects.get(id=post_id))
+                        else:
+                            for choice_id in answer_data:
+                                choice = Choice.objects.get(id=int(choice_id))
+                                answer.selected_choices.add(choice)
+                                # Also add to selected_posts if choice has a linked post
+                                if choice.post:
+                                    answer.selected_posts.add(choice.post)
+
+                    elif question.question_type == 'TA' or question.question_type == 'DY':
+                        # Time/Day availability - multiple choices
                         answer.save()  # Save first to enable M2M
                         for choice_id in answer_data:
                             choice = Choice.objects.get(id=int(choice_id))
@@ -2061,19 +2118,36 @@ def survey_take_view(request, slug):
                         answer.save()
 
                     elif question.question_type == 'RK':
-                        # Ranking - parse comma-separated IDs
+                        # Ranking - parse comma-separated IDs, handle Post-based questions
                         answer.save()  # Save first
-                        choice_ids = [int(x.strip()) for x in answer_data.split(',') if x.strip().isdigit()]
-                        for rank, choice_id in enumerate(choice_ids, start=1):
-                            try:
-                                choice = question.choices.get(id=choice_id)
-                                RankedAnswer.objects.create(
-                                    answer=answer,
-                                    choice=choice,
-                                    rank=rank
-                                )
-                            except Choice.DoesNotExist:
-                                pass
+                        if question.uses_all_official_posts():
+                            # Post-based ranking
+                            items = [x.strip() for x in answer_data.split(',') if x.strip()]
+                            for rank, item in enumerate(items, start=1):
+                                if item.startswith('post_'):
+                                    try:
+                                        post_id = int(item.replace('post_', ''))
+                                        post = Post.objects.get(id=post_id)
+                                        RankedPostAnswer.objects.create(
+                                            answer=answer,
+                                            post=post,
+                                            rank=rank
+                                        )
+                                    except Post.DoesNotExist:
+                                        pass
+                        else:
+                            # Regular choice-based ranking
+                            choice_ids = [int(x.strip()) for x in answer_data.split(',') if x.strip().isdigit()]
+                            for rank, choice_id in enumerate(choice_ids, start=1):
+                                try:
+                                    choice = question.choices.get(id=choice_id)
+                                    RankedAnswer.objects.create(
+                                        answer=answer,
+                                        choice=choice,
+                                        rank=rank
+                                    )
+                                except Choice.DoesNotExist:
+                                    pass
 
                     elif question.question_type == 'DA':
                         # Date only
@@ -2138,7 +2212,7 @@ def survey_response_view(request, slug, response_id):
 @player_required
 def survey_response_edit_view(request, slug, response_id):
     """Display survey and handle response submission."""
-    from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer
+    from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer, RankedPostAnswer
     from .forms import SurveyResponseForm
     is_editing = True
     survey = get_object_or_404(Survey, slug=slug)
@@ -2193,23 +2267,56 @@ def survey_response_edit_view(request, slug, response_id):
                     # Clear previous values
                     answer.text_answer = None
                     answer.selected_choice = None
+                    answer.selected_post = None
                     answer.numeric_answer = None
                     answer.date_answer = None
                     answer.time_answer = None
                     answer.selected_choices.clear()
+                    answer.selected_posts.clear()
                     # Delete previous ranked answers
                     RankedAnswer.objects.filter(answer=answer).delete()
+                    RankedPostAnswer.objects.filter(answer=answer).delete()
 
 
                     # Save based on question type
-                    if question.question_type == 'MC' or question.question_type == 'YN':
-                        # Single choice
+                    if question.question_type == 'MC':
+                        # Single choice - handle Post-based questions
+                        if question.uses_all_official_posts() and str(answer_data).startswith('post_'):
+                            post_id = int(answer_data.replace('post_', ''))
+                            answer.selected_post = Post.objects.get(id=post_id)
+                            answer.save()
+                        else:
+                            choice = Choice.objects.get(id=int(answer_data))
+                            answer.selected_choice = choice
+                            # Also set selected_post if choice has a linked post
+                            if choice.post:
+                                answer.selected_post = choice.post
+                            answer.save()
+
+                    elif question.question_type == 'YN':
+                        # Boolean - single choice
                         choice = Choice.objects.get(id=int(answer_data))
                         answer.selected_choice = choice
                         answer.save()
 
-                    elif question.question_type == 'MS' or question.question_type == 'TA' or question.question_type == 'DY':
-                        # Multiple choices (including time availability)
+                    elif question.question_type == 'MS':
+                        # Multiple choices - handle Post-based questions
+                        answer.save()  # Save first to enable M2M
+                        if question.uses_all_official_posts():
+                            for item in answer_data:
+                                if str(item).startswith('post_'):
+                                    post_id = int(item.replace('post_', ''))
+                                    answer.selected_posts.add(Post.objects.get(id=post_id))
+                        else:
+                            for choice_id in answer_data:
+                                choice = Choice.objects.get(id=int(choice_id))
+                                answer.selected_choices.add(choice)
+                                # Also add to selected_posts if choice has a linked post
+                                if choice.post:
+                                    answer.selected_posts.add(choice.post)
+
+                    elif question.question_type == 'TA' or question.question_type == 'DY':
+                        # Time/Day availability - multiple choices
                         answer.save()  # Save first to enable M2M
                         for choice_id in answer_data:
                             choice = Choice.objects.get(id=int(choice_id))
@@ -2226,19 +2333,36 @@ def survey_response_edit_view(request, slug, response_id):
                         answer.save()
 
                     elif question.question_type == 'RK':
-                        # Ranking - parse comma-separated IDs
+                        # Ranking - parse comma-separated IDs, handle Post-based questions
                         answer.save()  # Save first
-                        choice_ids = [int(x.strip()) for x in answer_data.split(',') if x.strip().isdigit()]
-                        for rank, choice_id in enumerate(choice_ids, start=1):
-                            try:
-                                choice = question.choices.get(id=choice_id)
-                                RankedAnswer.objects.create(
-                                    answer=answer,
-                                    choice=choice,
-                                    rank=rank
-                                )
-                            except Choice.DoesNotExist:
-                                pass
+                        if question.uses_all_official_posts():
+                            # Post-based ranking
+                            items = [x.strip() for x in answer_data.split(',') if x.strip()]
+                            for rank, item in enumerate(items, start=1):
+                                if item.startswith('post_'):
+                                    try:
+                                        post_id = int(item.replace('post_', ''))
+                                        post = Post.objects.get(id=post_id)
+                                        RankedPostAnswer.objects.create(
+                                            answer=answer,
+                                            post=post,
+                                            rank=rank
+                                        )
+                                    except Post.DoesNotExist:
+                                        pass
+                        else:
+                            # Regular choice-based ranking
+                            choice_ids = [int(x.strip()) for x in answer_data.split(',') if x.strip().isdigit()]
+                            for rank, choice_id in enumerate(choice_ids, start=1):
+                                try:
+                                    choice = question.choices.get(id=choice_id)
+                                    RankedAnswer.objects.create(
+                                        answer=answer,
+                                        choice=choice,
+                                        rank=rank
+                                    )
+                                except Choice.DoesNotExist:
+                                    pass
 
                     elif question.question_type == 'DA':
                         # Date only
@@ -2299,20 +2423,23 @@ def survey_detail_view(request, slug):
 
     can_edit_response = survey.can_edit_response(profile)
     can_edit_survey = survey.can_edit_survey(profile)
-    print(can_edit_response)
     can_see_resutls = survey.can_see_results(profile)
-    
-    can_take = survey.can_take_survey(profile)
+    can_take_survey = survey.can_take_survey(profile)
+
+    back_url = reverse('survey-list')
+    back_title = "Back to Surveys"
 
     context = {
         'responses': user_responses,
         'survey': survey,
         'can_edit_response': can_edit_response,
         'can_edit_survey': can_edit_survey,
-        'can_take': can_take,
+        'can_take_survey': can_take_survey,
         'can_see_resutls': can_see_resutls,
         'survey_question_count': survey_question_count,
         'survey_response_count': survey_response_count,
+        'back_url': back_url,
+        'back_title': back_title,
     }
 
     return render(request, 'the_gatehouse/surveys/survey_detail.html', context)
@@ -2510,6 +2637,11 @@ def survey_preview_view(request, slug):
 
     profile = request.user.profile
     can_edit_survey = survey.can_edit_survey(profile)
+    can_take_survey = survey.can_take_survey(profile)
+    can_see_resutls = survey.can_see_results(profile)
+
+    back_url = survey.get_absolute_url()
+    back_title = "Back to Survey"
 
     # Create a read-only form for preview
     form = SurveyResponseForm(survey=survey)
@@ -2518,7 +2650,11 @@ def survey_preview_view(request, slug):
         'survey': survey,
         'form': form,
         'is_preview': True,
-        'can_edit': can_edit_survey,
+        'can_edit_survey': can_edit_survey,
+        'can_take_survey': can_take_survey,
+        'can_see_resutls': can_see_resutls,
+        'back_url': back_url,
+        'back_title': back_title,
     }
     return render(request, 'the_gatehouse/surveys/survey_preview.html', context)
 
@@ -2602,11 +2738,32 @@ def survey_edit_view(request, slug):
                         else:
                             question.likert_scale = None
 
+                        # Update Post-based question fields
+                        if q_data.get('post_component'):
+                            question.post_component = q_data['post_component']
+                            question.post_selection_mode = q_data.get('post_selection_mode', 'all_official')
+                        else:
+                            question.post_component = None
+                            question.post_selection_mode = None
+
                         question.save()
                         updated_question_ids.add(question.id)
 
-                        # Update choices for choice-based questions
-                        if q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
+                        # Handle Post-based questions
+                        if q_data.get('post_component') and q_data.get('post_selection_mode') == 'individual':
+                            # Clear existing choices
+                            question.choices.all().delete()
+                            # Create choices linked to Posts
+                            if q_data.get('post_choices'):
+                                from the_keep.models import Post
+                                for idx, post_id in enumerate(q_data['post_choices']):
+                                    Choice.objects.create(
+                                        question=question,
+                                        post_id=post_id,
+                                        order=idx
+                                    )
+                        # Update choices for choice-based questions (non-Post)
+                        elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
                             # Track existing choice IDs
                             existing_choice_ids = set(question.choices.values_list('id', flat=True))
                             updated_choice_ids = set()
@@ -2656,8 +2813,23 @@ def survey_edit_view(request, slug):
                             question.likert_scale_id = q_data['likert_scale_id']
                             question.save()
 
-                        # Add choices for choice-based questions
-                        if q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
+                        # Handle Post-based questions
+                        if q_data.get('post_component'):
+                            question.post_component = q_data['post_component']
+                            question.post_selection_mode = q_data.get('post_selection_mode', 'all_official')
+                            question.save()
+
+                            # For individual mode, create choices linked to Posts
+                            if q_data.get('post_selection_mode') == 'individual' and q_data.get('post_choices'):
+                                from the_keep.models import Post
+                                for idx, post_id in enumerate(q_data['post_choices']):
+                                    Choice.objects.create(
+                                        question=question,
+                                        post_id=post_id,
+                                        order=idx
+                                    )
+                        # Add choices for choice-based questions (non-Post)
+                        elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
                             for idx, choice_data in enumerate(q_data['choices']):
                                 choice_text = choice_data['text'] if isinstance(choice_data, dict) else choice_data
                                 if choice_text.strip():
@@ -2700,17 +2872,32 @@ def survey_edit_view(request, slug):
             'required': question.required,
             'help_text': question.help_text or '',
             'choices': [],
-            'likert_scale_id': question.likert_scale_id if question.likert_scale else None
+            'likert_scale_id': question.likert_scale_id if question.likert_scale else None,
+            'post_component': question.post_component or None,
+            'post_selection_mode': question.post_selection_mode or None,
+            'post_choices': []
         }
 
         # Add choices if applicable
         if question.question_type in ['MC', 'MS', 'YN', 'RK', 'TA', 'DY']:
             for choice in question.choices.all():
-                q_data['choices'].append({
+                choice_data = {
                     'id': choice.id,
                     'text': choice.text,
                     'order': choice.order
-                })
+                }
+                # If choice is linked to a Post, include Post data
+                if choice.post:
+                    choice_data['post_id'] = choice.post.id
+                    choice_data['post_title'] = choice.post.title
+                    choice_data['post_icon_url'] = choice.post.small_icon.url if choice.post.small_icon else None
+                    # Add full post object to post_choices for JavaScript
+                    q_data['post_choices'].append({
+                        'id': choice.post.id,
+                        'title': choice.post.title,
+                        'icon_url': choice.post.small_icon.url if choice.post.small_icon else None
+                    })
+                q_data['choices'].append(choice_data)
 
         existing_questions.append(q_data)
 
@@ -2793,8 +2980,23 @@ def create_survey_view(request):
                         question.likert_scale_id = q_data['likert_scale_id']
                         question.save()
 
-                    # Add choices for choice-based questions
-                    if q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
+                    # Handle Post-based questions
+                    if q_data.get('post_component'):
+                        question.post_component = q_data['post_component']
+                        question.post_selection_mode = q_data.get('post_selection_mode', 'all_official')
+                        question.save()
+
+                        # For individual mode, create choices linked to Posts
+                        if q_data.get('post_selection_mode') == 'individual' and q_data.get('post_choices'):
+                            from the_keep.models import Post
+                            for idx, post_id in enumerate(q_data['post_choices']):
+                                Choice.objects.create(
+                                    question=question,
+                                    post_id=post_id,
+                                    order=idx
+                                )
+                    # Add choices for choice-based questions (non-Post)
+                    elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
                         for idx, choice_text in enumerate(q_data['choices']):
                             if choice_text.strip():
                                 Choice.objects.create(

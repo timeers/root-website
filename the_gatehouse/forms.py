@@ -371,7 +371,12 @@ class SurveyResponseForm(forms.Form):
 
             # Multiple Choice
             if question.question_type == 'MC':
-                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                # Handle Post-based questions
+                if question.uses_all_official_posts():
+                    posts = question.get_post_choices()
+                    choices = [(f'post_{post.id}', post.title) for post in posts]
+                else:
+                    choices = [(choice.id, choice.get_display_text()) for choice in question.choices.all()]
                 self.fields[field_name] = forms.ChoiceField(
                     label=question.text,
                     choices=choices,
@@ -382,7 +387,12 @@ class SurveyResponseForm(forms.Form):
 
             # Multiple Selection
             elif question.question_type == 'MS':
-                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                # Handle Post-based questions
+                if question.uses_all_official_posts():
+                    posts = question.get_post_choices()
+                    choices = [(f'post_{post.id}', post.title) for post in posts]
+                else:
+                    choices = [(choice.id, choice.get_display_text()) for choice in question.choices.all()]
                 self.fields[field_name] = forms.MultipleChoiceField(
                     label=question.text,
                     choices=choices,
@@ -431,7 +441,7 @@ class SurveyResponseForm(forms.Form):
 
             # Boolean (Yes/No)
             elif question.question_type == 'YN':
-                choices = [(choice.id, choice.text) for choice in question.choices.all()]
+                choices = [(choice.id, choice.get_display_text()) for choice in question.choices.all()]
                 self.fields[field_name] = forms.ChoiceField(
                     label=question.text,
                     choices=choices,
@@ -457,7 +467,11 @@ class SurveyResponseForm(forms.Form):
             elif question.question_type == 'RK':
                 # For ranking, we'll use a text field with instructions
                 # Frontend JavaScript would typically handle drag-and-drop
-                choices_text = ", ".join([choice.text for choice in question.choices.all()])
+                if question.uses_all_official_posts():
+                    posts = question.get_post_choices()
+                    choices_text = ", ".join([post.title for post in posts])
+                else:
+                    choices_text = ", ".join([choice.get_display_text() for choice in question.choices.all()])
                 self.fields[field_name] = forms.CharField(
                     label=question.text,
                     required=question.required,
@@ -494,19 +508,34 @@ class SurveyResponseForm(forms.Form):
 
         # Prepopulate with existing response if editing
         if existing_response and not kwargs.get('data'):
-            from .models import Answer
+            from .models import Answer, RankedAnswer, RankedPostAnswer
             for question in survey.questions.all():
                 field_name = f'question_{question.id}'
                 try:
                     answer = Answer.objects.get(response=existing_response, question=question)
 
-                    if question.question_type == 'MC' or question.question_type == 'YN':
-                        # Single choice
+                    if question.question_type == 'MC':
+                        # Single choice - handle Post-based questions
+                        if question.uses_all_official_posts() and answer.selected_post:
+                            self.initial[field_name] = f'post_{answer.selected_post.id}'
+                        elif answer.selected_choice:
+                            self.initial[field_name] = answer.selected_choice.id
+
+                    elif question.question_type == 'YN':
+                        # Boolean - single choice
                         if answer.selected_choice:
                             self.initial[field_name] = answer.selected_choice.id
 
-                    elif question.question_type == 'MS' or question.question_type == 'TA' or question.question_type == 'DY':
-                        # Multiple choices
+                    elif question.question_type == 'MS':
+                        # Multiple choices - handle Post-based questions
+                        if question.uses_all_official_posts():
+                            post_ids = answer.selected_posts.values_list('id', flat=True)
+                            self.initial[field_name] = [f'post_{pid}' for pid in post_ids]
+                        else:
+                            self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
+
+                    elif question.question_type == 'TA' or question.question_type == 'DY':
+                        # Time/Day availability - multiple choices
                         self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
 
                     elif question.question_type == 'OE':
@@ -518,11 +547,15 @@ class SurveyResponseForm(forms.Form):
                         self.initial[field_name] = answer.numeric_answer
 
                     elif question.question_type == 'RK':
-                        # Ranking - convert back to comma-separated IDs
-                        from .models import RankedAnswer
-                        ranked_answers = RankedAnswer.objects.filter(answer=answer).order_by('rank')
-                        choice_ids = [str(ra.choice.id) for ra in ranked_answers]
-                        self.initial[field_name] = ','.join(choice_ids)
+                        # Ranking - handle Post-based questions
+                        if question.uses_all_official_posts():
+                            ranked_posts = RankedPostAnswer.objects.filter(answer=answer).order_by('rank')
+                            post_ids = [f'post_{rp.post.id}' for rp in ranked_posts]
+                            self.initial[field_name] = ','.join(post_ids)
+                        else:
+                            ranked_answers = RankedAnswer.objects.filter(answer=answer).order_by('rank')
+                            choice_ids = [str(ra.choice.id) for ra in ranked_answers]
+                            self.initial[field_name] = ','.join(choice_ids)
 
                     elif question.question_type == 'DA':
                         # Date only
