@@ -1069,6 +1069,33 @@ class Survey(models.Model):
             return False
         return user_profile.admin or user_profile == self.created_by
 
+    def can_view_survey(self, user_profile):
+        """Check if a user can view the survey"""
+        if not user_profile:
+            return False
+
+        # Block banned users
+        if user_profile.group == Profile.GroupChoices.BANNED:
+            return False
+
+        # Public survey
+        if self.is_public:
+            return True
+
+        # Owner of the survey and admin can view
+        if self.created_by == user_profile or user_profile.admin:
+            return True
+
+        # Explicit invite
+        if self.invited_players.filter(pk=user_profile.pk).exists():
+            return True
+
+        # Guild-based access
+        if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
+            return True
+
+        return False
+
 
     def can_take_survey(self, user_profile):
         """Check if a user can take the survey"""
@@ -1087,15 +1114,14 @@ class Survey(models.Model):
         if self.has_user_responded(user_profile) and not self.allow_multiple_responses:
             return False
 
-        # Public survey
+        # Check participant access (not just view access)
+        # Admin/owner can view but can only take if they meet participant criteria
         if self.is_public:
             return True
 
-        # Explicit invite
         if self.invited_players.filter(pk=user_profile.pk).exists():
             return True
 
-        # Guild-based access
         if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
             return True
 
@@ -1367,7 +1393,7 @@ class SurveyResponse(models.Model):
 # An answer to a question that is linked to a user's response
 class Answer(models.Model):
     response = models.ForeignKey(SurveyResponse, on_delete=models.CASCADE, related_name='answers')
-    question = models.ForeignKey(Question, on_delete=models.PROTECT)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
 
     # For open-ended
     text_answer = models.TextField(blank=True, null=True)

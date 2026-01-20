@@ -1,4 +1,215 @@
+{% load i18n %}
 <script>
+// ============================================
+// Invited Players Management
+// ============================================
+let selectedInvitedPlayers = new Map(); // id -> {id, name, image_url}
+let playerSearchTimeout = null;
+
+function toggleAccessRestrictionsSection() {
+    const isPrivateCheckbox = document.getElementById('is_private');
+    const accessRestrictionsSection = document.getElementById('access-restrictions-section');
+
+    if (isPrivateCheckbox && accessRestrictionsSection) {
+        const hasRestrictions = accessRestrictionsSection.dataset.hasRestrictions === 'true';
+
+        if (isPrivateCheckbox.checked && hasRestrictions) {
+            // Making a public survey private (when it had prior restrictions)
+            if (!confirm('{% trans "This survey will only be available to invited players or guild members. Other users will not be able to access it. Continue?" %}')) {
+                isPrivateCheckbox.checked = false;
+                return;
+            }
+        } else if (!isPrivateCheckbox.checked && hasRestrictions) {
+            // Making a private survey public
+            if (!confirm('{% trans "Making this survey public will remove all access restrictions (guild and invited players). All users will be able to view and take this survey. Continue?" %}')) {
+                isPrivateCheckbox.checked = true;
+                return;
+            }
+        }
+
+        accessRestrictionsSection.style.display = isPrivateCheckbox.checked ? 'block' : 'none';
+    }
+}
+
+// Initialize invited players from existing data on page load
+function initializeInvitedPlayers() {
+    const existingBadges = document.querySelectorAll('#invited-players-summary .invited-player-badge');
+    existingBadges.forEach(badge => {
+        const playerId = parseInt(badge.dataset.playerId);
+        const playerName = badge.textContent.trim();
+        selectedInvitedPlayers.set(playerId, { id: playerId, name: playerName });
+    });
+    updateModalSelectedPlayers();
+}
+
+// Search players with debounce
+document.addEventListener('DOMContentLoaded', function() {
+    initializeInvitedPlayers();
+
+    const searchInput = document.getElementById('player-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const query = this.value.trim();
+
+            if (playerSearchTimeout) {
+                clearTimeout(playerSearchTimeout);
+            }
+
+            if (query.length < 2) {
+                document.getElementById('player-search-results').innerHTML =
+                    '<p class="text-muted small">{% trans "Type at least 2 characters to search..." %}</p>';
+                return;
+            }
+
+            playerSearchTimeout = setTimeout(() => searchPlayers(query), 300);
+        });
+    }
+
+    // Sync modal state when modal opens
+    const modal = document.getElementById('invitePlayersModal');
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function() {
+            updateModalSelectedPlayers();
+        });
+    }
+});
+
+function searchPlayers(query) {
+    const resultsContainer = document.getElementById('player-search-results');
+    resultsContainer.innerHTML = '<p class="text-muted small"><i class="bi bi-hourglass-split"></i> {% trans "Searching..." %}</p>';
+
+    fetch(`{% url 'search-players-for-survey' %}?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.players.length === 0) {
+                resultsContainer.innerHTML = '<p class="text-muted small">{% trans "No players found" %}</p>';
+                return;
+            }
+
+            resultsContainer.innerHTML = data.players.map(player => {
+                const isSelected = selectedInvitedPlayers.has(player.id);
+                return `
+                    <div class="d-flex align-items-center justify-content-between p-2 border-bottom player-result-item"
+                         data-player-id="${player.id}">
+                        <div class="d-flex align-items-center">
+                            ${player.image_url ? `<img src="${player.image_url}" alt="" class="rounded-circle me-2" style="width: 32px; height: 32px; object-fit: cover;">` : '<i class="bi bi-person-circle me-2" style="font-size: 1.5rem;"></i>'}
+                            <div>
+                                <div>${player.name}</div>
+                                ${player.discord ? `<small class="text-muted">${player.discord}</small>` : ''}
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm ${isSelected ? 'btn-secondary' : 'btn-outline-primary'}"
+                                onclick="togglePlayerSelection(${player.id}, '${player.name.replace(/'/g, "\\'")}', ${player.image_url ? `'${player.image_url}'` : 'null'})"
+                                ${isSelected ? 'disabled' : ''}>
+                            ${isSelected ? '{% trans "Added" %}' : '{% trans "Add" %}'}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        })
+        .catch(error => {
+            console.error('Search error:', error);
+            resultsContainer.innerHTML = '<p class="text-danger small">{% trans "Error searching players" %}</p>';
+        });
+}
+
+function togglePlayerSelection(playerId, playerName, imageUrl) {
+    if (selectedInvitedPlayers.has(playerId)) {
+        selectedInvitedPlayers.delete(playerId);
+    } else {
+        selectedInvitedPlayers.set(playerId, { id: playerId, name: playerName, image_url: imageUrl });
+    }
+
+    updateModalSelectedPlayers();
+    updateSearchResultButtons();
+}
+
+function updateModalSelectedPlayers() {
+    const container = document.getElementById('modal-selected-players');
+    const countSpan = document.getElementById('modal-selected-count');
+    const noPlayersMsg = document.getElementById('no-players-message');
+
+    if (!container) return;
+
+    // Clear existing badges but keep the "no players" message element
+    container.querySelectorAll('.badge').forEach(el => el.remove());
+
+    if (selectedInvitedPlayers.size === 0) {
+        if (noPlayersMsg) noPlayersMsg.style.display = 'block';
+    } else {
+        if (noPlayersMsg) noPlayersMsg.style.display = 'none';
+
+        selectedInvitedPlayers.forEach((player, id) => {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-primary d-flex align-items-center gap-1';
+            badge.innerHTML = `
+                ${player.name}
+                <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem;" onclick="togglePlayerSelection(${id}, '', null)"></button>
+            `;
+            container.appendChild(badge);
+        });
+    }
+
+    if (countSpan) countSpan.textContent = selectedInvitedPlayers.size;
+}
+
+function updateSearchResultButtons() {
+    document.querySelectorAll('.player-result-item').forEach(item => {
+        const playerId = parseInt(item.dataset.playerId);
+        const btn = item.querySelector('button');
+        const isSelected = selectedInvitedPlayers.has(playerId);
+
+        btn.classList.remove('btn-outline-primary', 'btn-secondary');
+        btn.classList.add(isSelected ? 'btn-secondary' : 'btn-outline-primary');
+        btn.textContent = isSelected ? '{% trans "Added" %}' : '{% trans "Add" %}';
+        btn.disabled = isSelected;
+    });
+}
+
+function saveInvitedPlayers() {
+    // Update the hidden input
+    const input = document.getElementById('invited-players-input');
+    input.value = Array.from(selectedInvitedPlayers.keys()).join(',');
+
+    // Update the summary display
+    const summary = document.getElementById('invited-players-summary');
+    const countSpan = document.getElementById('invited-players-count');
+
+    summary.innerHTML = '';
+
+    selectedInvitedPlayers.forEach((player, id) => {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-secondary invited-player-badge';
+        badge.dataset.playerId = id;
+        badge.innerHTML = `
+            ${player.name}
+            <button type="button" class="btn-close btn-close-white ms-1" style="font-size: 0.6rem;" onclick="removeInvitedPlayer(${id})"></button>
+        `;
+        summary.appendChild(badge);
+    });
+
+    countSpan.textContent = selectedInvitedPlayers.size;
+}
+
+function removeInvitedPlayer(playerId) {
+    selectedInvitedPlayers.delete(playerId);
+
+    // Update the summary display
+    const badge = document.querySelector(`#invited-players-summary .invited-player-badge[data-player-id="${playerId}"]`);
+    if (badge) badge.remove();
+
+    // Update the hidden input
+    const input = document.getElementById('invited-players-input');
+    input.value = Array.from(selectedInvitedPlayers.keys()).join(',');
+
+    // Update count
+    const countSpan = document.getElementById('invited-players-count');
+    countSpan.textContent = selectedInvitedPlayers.size;
+}
+
+// ============================================
+// Question Management
+// ============================================
 let questionCounter = 0;
 const questionsData = [];
 let sortableInstance = null;
@@ -47,7 +258,57 @@ const likertScales = [
 {% if existing_questions %}
 // Load existing questions on page load (edit mode)
 const existingQuestions = {{ existing_questions|safe }};
+// Hidden questions for restore functionality
+const hiddenQuestions = {{ hidden_questions|safe }};
 {% endif %}
+
+// Series/Round dynamic loading (for create mode)
+function loadSeriesRounds() {
+    const seriesSelect = document.getElementById('series');
+    const roundSelect = document.getElementById('series_round');
+
+    if (!seriesSelect || !roundSelect) return;
+
+    const tournamentId = seriesSelect.value;
+
+    // Reset round dropdown
+    roundSelect.innerHTML = '<option value="">{% trans "All rounds / No specific round" %}</option>';
+
+    if (!tournamentId) {
+        roundSelect.disabled = true;
+        return;
+    }
+
+    // Enable and show loading state
+    roundSelect.disabled = false;
+
+    fetch(`{% url 'get-tournament-rounds' %}?tournament_id=${tournamentId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.rounds && data.rounds.length > 0) {
+                data.rounds.forEach(round => {
+                    const option = document.createElement('option');
+                    option.value = round.id;
+                    option.textContent = round.name;
+                    roundSelect.appendChild(option);
+                });
+            }
+            // If no rounds, dropdown stays at default option
+        })
+        .catch(error => {
+            console.error('Error loading rounds:', error);
+            // Keep dropdown disabled on error
+            roundSelect.disabled = true;
+        });
+}
+
+// Initialize series dropdown on page load (for create mode)
+document.addEventListener('DOMContentLoaded', function() {
+    const seriesSelect = document.getElementById('series');
+    if (seriesSelect && seriesSelect.value && !seriesSelect.disabled) {
+        loadSeriesRounds();
+    }
+});
 
 function initializeSortable() {
     const container = document.getElementById('questions-container');
@@ -98,9 +359,13 @@ function loadExistingQuestions() {
 
         // Modify delete button based on responses
         const deleteButton = hasResponses ? `
-            <button type="button" class="btn btn-sm btn-warning" onclick="confirmHideQuestion('${questionId}')"
-                    title="This question has responses and will be hidden instead of deleted">
+            <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${questionId}')"
+                    title="Hide question (preserves response data)">
                 <i class="bi bi-eye-slash"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="confirmDeleteQuestionWithResponses('${questionId}')"
+                    title="Delete question and all its responses">
+                <i class="bi bi-trash"></i>
             </button>
         ` : `
             <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
@@ -126,12 +391,13 @@ function loadExistingQuestions() {
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label class="form-label">Question Type <span class="text-danger">*</span></label>
-                            <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
+                            <select class="form-select question-type" onchange="handleTypeChange('${questionId}')" ${hasResponses ? 'disabled' : ''}>
                                 <option value="">Select type...</option>
                                 ${Object.entries(questionTypes).map(([key, value]) =>
                                     '<option value="' + key + '" ' + (question.type === key ? 'selected' : '') + '>' + value + '</option>'
                                 ).join('')}
                             </select>
+                            ${hasResponses ? '<small class="text-muted"><i class="bi bi-lock"></i> Type locked - question has responses</small>' : ''}
                         </div>
                         <div class="col-md-6">
                             <div class="form-check mt-4">
@@ -360,6 +626,63 @@ function confirmHideQuestion(questionId) {
     const responseCount = question.dataset.responseCount || 'some';
 
     if (confirm(`This question has ${responseCount} recorded response(s).\n\nRemoving it will HIDE the question (not delete it) to preserve data integrity.\n\nHidden questions won't appear in the survey but their answers are kept for reporting.\n\nContinue?`)) {
+        // Get question data before removing
+        const existingId = question.dataset.existingId;
+        const questionText = question.querySelector('.question-text').value;
+        const questionType = question.querySelector('.question-type').value;
+
+        if (existingId) {
+            // Add to hidden questions dropdown
+            const typeDisplay = questionTypes[questionType] || questionType;
+            addQuestionToHiddenDropdown({
+                id: parseInt(existingId),
+                text: questionText,
+                type: questionType,
+                type_display: typeDisplay,
+                response_count: parseInt(responseCount) || 0
+            });
+
+            // Also add to hiddenQuestions array so it can be restored
+            if (typeof hiddenQuestions !== 'undefined') {
+                hiddenQuestions.push({
+                    id: parseInt(existingId),
+                    text: questionText,
+                    type: questionType,
+                    type_display: typeDisplay,
+                    response_count: parseInt(responseCount) || 0
+                });
+            }
+        }
+
+        question.remove();
+        renumberQuestions();
+    }
+}
+
+function confirmDeleteQuestionWithResponses(questionId) {
+    const question = document.querySelector(`[data-question-id="${questionId}"]`);
+    const responseCount = question.dataset.responseCount || 'some';
+
+    if (confirm(`⚠️ WARNING: This question has ${responseCount} recorded response(s).\n\nDeleting it will PERMANENTLY DELETE the question AND all associated answers.\n\nThis action cannot be undone once the survey is saved.\n\nAre you sure you want to delete this question and its responses?`)) {
+        // Mark for deletion by removing the existing-id (so backend creates new instead of updating)
+        // But we need to track it for actual deletion - add a data attribute
+        const existingId = question.dataset.existingId;
+        if (existingId) {
+            // Add to a hidden field to track questions to delete
+            let deleteField = document.getElementById('questions-to-delete');
+            if (!deleteField) {
+                deleteField = document.createElement('input');
+                deleteField.type = 'hidden';
+                deleteField.id = 'questions-to-delete';
+                deleteField.name = 'questions_to_delete';
+                deleteField.value = '';
+                document.getElementById('survey-form').appendChild(deleteField);
+            }
+            const currentIds = deleteField.value ? deleteField.value.split(',') : [];
+            currentIds.push(existingId);
+            deleteField.value = currentIds.join(',');
+        }
+
         question.remove();
         renumberQuestions();
     }
@@ -502,7 +825,7 @@ function handleTypeChange(questionId, existingData = null) {
 
                 <div class="all-official-info" style="display: ${postSelectionMode === 'all_official' ? 'block' : 'none'};">
                     <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> All official <span class="component-type-display">${postComponent || 'components'}</span> will be loaded as choices.
+                        <i class="bi bi-info-circle"></i> All official <span class="component-type-display">${postComponent || 'components'}</span>s will be loaded as choices.
                     </div>
                 </div>
             </div>
@@ -511,9 +834,20 @@ function handleTypeChange(questionId, existingData = null) {
                 <div class="choices-section">
                     <label class="form-label">Choices <span class="text-danger">*</span></label>
                     <div class="choices-list"></div>
-                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
-                        <i class="bi bi-plus"></i> Add Choice
-                    </button>
+                    <div class="d-flex gap-2 mt-2 flex-wrap align-items-center">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addChoice('${questionId}')">
+                            <i class="bi bi-plus"></i> Add Choice
+                        </button>
+                        <div class="hidden-choices-dropdown" style="display: none;">
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-eye"></i> Restore Hidden (<span class="hidden-count">0</span>)
+                                </button>
+                                <ul class="dropdown-menu hidden-choices-menu">
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -527,6 +861,11 @@ function handleTypeChange(questionId, existingData = null) {
             } else {
                 addChoice(questionId);
                 addChoice(questionId);
+            }
+
+            // Load hidden choices for restore dropdown
+            if (existingData && existingData.hidden_choices && existingData.hidden_choices.length > 0) {
+                loadHiddenChoices(questionId, existingData.hidden_choices);
             }
         }
 
@@ -604,8 +943,310 @@ function confirmHideChoice(questionId, choiceId) {
     const choice = card.querySelector(`[data-choice-id="${choiceId}"]`);
 
     if (confirm(`This choice has been selected in survey responses.\n\nRemoving it will HIDE the choice to preserve data integrity.\n\nHidden choices won't appear as options but existing answers are preserved.\n\nContinue?`)) {
+        // Move choice to hidden dropdown instead of just removing
+        const choiceText = choice.querySelector('input').value;
+        const existingChoiceId = choice.dataset.existingChoiceId;
+
+        if (existingChoiceId) {
+            // Add to hidden choices dropdown
+            addToHiddenDropdown(questionId, {
+                id: parseInt(existingChoiceId),
+                text: choiceText,
+                has_responses: true
+            });
+        }
+
         choice.remove();
     }
+}
+
+// Hidden choices management
+function loadHiddenChoices(questionId, hiddenChoices) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const dropdown = card.querySelector('.hidden-choices-dropdown');
+    const menu = card.querySelector('.hidden-choices-menu');
+    const countSpan = card.querySelector('.hidden-count');
+
+    if (!dropdown || !menu) return;
+
+    menu.innerHTML = '';
+
+    hiddenChoices.forEach(choice => {
+        const displayText = choice.post_title || choice.text;
+        const li = document.createElement('li');
+        li.dataset.choiceId = choice.id;
+        li.innerHTML = `
+            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#"
+               onclick="restoreHiddenChoice('${questionId}', ${choice.id}, '${displayText.replace(/'/g, "\\'")}', ${choice.has_responses}); return false;">
+                <span class="text-truncate me-2" style="max-width: 200px;">${displayText}</span>
+                <i class="bi bi-arrow-counterclockwise text-success"></i>
+            </a>
+        `;
+        menu.appendChild(li);
+    });
+
+    countSpan.textContent = hiddenChoices.length;
+    dropdown.style.display = hiddenChoices.length > 0 ? 'block' : 'none';
+}
+
+function addToHiddenDropdown(questionId, choiceData) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const dropdown = card.querySelector('.hidden-choices-dropdown');
+    const menu = card.querySelector('.hidden-choices-menu');
+    const countSpan = card.querySelector('.hidden-count');
+
+    if (!dropdown || !menu) return;
+
+    const displayText = choiceData.post_title || choiceData.text;
+    const li = document.createElement('li');
+    li.dataset.choiceId = choiceData.id;
+    li.innerHTML = `
+        <a class="dropdown-item d-flex justify-content-between align-items-center" href="#"
+           onclick="restoreHiddenChoice('${questionId}', ${choiceData.id}, '${displayText.replace(/'/g, "\\'")}', ${choiceData.has_responses}); return false;">
+            <span class="text-truncate me-2" style="max-width: 200px;">${displayText}</span>
+            <i class="bi bi-arrow-counterclockwise text-success"></i>
+        </a>
+    `;
+    menu.appendChild(li);
+
+    const currentCount = parseInt(countSpan.textContent) || 0;
+    countSpan.textContent = currentCount + 1;
+    dropdown.style.display = 'block';
+}
+
+function restoreHiddenChoice(questionId, choiceId, choiceText, hasResponses) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const menu = card.querySelector('.hidden-choices-menu');
+    const countSpan = card.querySelector('.hidden-count');
+    const dropdown = card.querySelector('.hidden-choices-dropdown');
+
+    // Add the choice back to the choices list
+    addChoice(questionId, choiceText, choiceId, false, {
+        id: choiceId,
+        text: choiceText,
+        has_responses: hasResponses
+    });
+
+    // Remove from hidden dropdown
+    const menuItem = menu.querySelector(`li[data-choice-id="${choiceId}"]`);
+    if (menuItem) {
+        menuItem.remove();
+    } else {
+        // If no data-choice-id, find by matching onclick
+        const items = menu.querySelectorAll('li');
+        items.forEach(item => {
+            const link = item.querySelector('a');
+            if (link && link.getAttribute('onclick').includes(`${choiceId},`)) {
+                item.remove();
+            }
+        });
+    }
+
+    // Update count
+    const currentCount = parseInt(countSpan.textContent) || 0;
+    const newCount = Math.max(0, currentCount - 1);
+    countSpan.textContent = newCount;
+
+    if (newCount === 0) {
+        dropdown.style.display = 'none';
+    }
+}
+
+// Hidden questions management
+function loadHiddenQuestions(hiddenQuestionsData) {
+    const dropdown = document.querySelector('.hidden-questions-dropdown');
+    const menu = document.querySelector('.hidden-questions-menu');
+    const countSpan = document.querySelector('.hidden-questions-count');
+
+    if (!dropdown || !menu) return;
+
+    menu.innerHTML = '';
+
+    hiddenQuestionsData.forEach(question => {
+        const li = document.createElement('li');
+        li.dataset.questionId = question.id;
+        li.innerHTML = `
+            <a class="dropdown-item d-flex flex-column py-2" href="#"
+               onclick="restoreHiddenQuestion(${question.id}); return false;">
+                <div class="d-flex justify-content-between align-items-center w-100">
+                    <span class="text-truncate me-2" style="max-width: 250px;">${question.text}</span>
+                    <i class="bi bi-arrow-counterclockwise text-success"></i>
+                </div>
+                <small class="text-muted">${question.type_display} · ${question.response_count} response(s)</small>
+            </a>
+        `;
+        menu.appendChild(li);
+    });
+
+    countSpan.textContent = hiddenQuestionsData.length;
+    dropdown.style.display = hiddenQuestionsData.length > 0 ? 'block' : 'none';
+}
+
+function addQuestionToHiddenDropdown(questionData) {
+    const dropdown = document.querySelector('.hidden-questions-dropdown');
+    const menu = document.querySelector('.hidden-questions-menu');
+    const countSpan = document.querySelector('.hidden-questions-count');
+
+    if (!dropdown || !menu) return;
+
+    const li = document.createElement('li');
+    li.dataset.questionId = questionData.id;
+    li.innerHTML = `
+        <a class="dropdown-item d-flex flex-column py-2" href="#"
+           onclick="restoreHiddenQuestion(${questionData.id}); return false;">
+            <div class="d-flex justify-content-between align-items-center w-100">
+                <span class="text-truncate me-2" style="max-width: 250px;">${questionData.text}</span>
+                <i class="bi bi-arrow-counterclockwise text-success"></i>
+            </div>
+            <small class="text-muted">${questionData.type_display} · ${questionData.response_count} response(s)</small>
+        </a>
+    `;
+    menu.appendChild(li);
+
+    const currentCount = parseInt(countSpan.textContent) || 0;
+    countSpan.textContent = currentCount + 1;
+    dropdown.style.display = 'block';
+}
+
+function restoreHiddenQuestion(questionId) {
+    const dropdown = document.querySelector('.hidden-questions-dropdown');
+    const menu = document.querySelector('.hidden-questions-menu');
+    const countSpan = document.querySelector('.hidden-questions-count');
+
+    // Show loading state on the menu item
+    const menuItem = menu.querySelector(`li[data-question-id="${questionId}"]`);
+    if (menuItem) {
+        const link = menuItem.querySelector('a');
+        const originalHtml = link.innerHTML;
+        link.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading...';
+        link.style.pointerEvents = 'none';
+    }
+
+    // Fetch full question data via AJAX
+    fetch(`{% url 'get-question-data' question_id=0 %}`.replace('/0/', `/${questionId}/`))
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to fetch question data');
+            }
+            return response.json();
+        })
+        .then(questionData => {
+            // Now we have full question data including choices
+            questionCounter++;
+            const newQuestionId = `question-${questionCounter}`;
+            const container = document.getElementById('questions-container');
+
+            // Remove "no questions" message if present
+            if (container.querySelector('p.text-muted')) {
+                container.innerHTML = '';
+            }
+
+            const hasResponses = questionData.has_responses;
+            const responseCount = questionData.response_count;
+
+            const questionHtml = `
+                <div class="card question-card border-warning" data-question-id="${newQuestionId}" data-order="${questionCounter}" data-existing-id="${questionData.id}" data-has-responses="${hasResponses}" data-response-count="${responseCount}">
+                    <div class="question-header bg-warning-subtle">
+                        <span class="drag-handle me-2">
+                            <i class="bi bi-grip-vertical"></i>
+                        </span>
+                        <span class="flex-fill"><strong>Question ${questionCounter}</strong>
+                            <span class="badge bg-warning text-dark ms-2" title="${responseCount} response(s) recorded">
+                                <i class="bi bi-exclamation-triangle-fill"></i> ${responseCount} response(s)
+                            </span>
+                        </span>
+                        <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${newQuestionId}')"
+                                title="Hide question (preserves response data)">
+                            <i class="bi bi-eye-slash"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="confirmDeleteQuestionWithResponses('${newQuestionId}')"
+                                title="Delete question and all its responses">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                            <textarea class="form-control question-text" rows="2" required>${questionData.text}</textarea>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                                <select class="form-select question-type" onchange="handleTypeChange('${newQuestionId}')" ${hasResponses ? 'disabled' : ''}>
+                                    <option value="">Select type...</option>
+                                    ${Object.entries(questionTypes).map(([key, value]) =>
+                                        '<option value="' + key + '" ' + (questionData.type === key ? 'selected' : '') + '>' + value + '</option>'
+                                    ).join('')}
+                                </select>
+                                ${hasResponses ? '<small class="text-muted"><i class="bi bi-lock"></i> Type locked - question has responses</small>' : ''}
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input question-required" type="checkbox" ${questionData.required ? 'checked' : ''}>
+                                    <label class="form-check-label">Required</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="type-specific-options"></div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Help Text (optional)</label>
+                            <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${questionData.help_text || ''}">
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            container.insertAdjacentHTML('beforeend', questionHtml);
+
+            // Load type-specific options with full data (including choices)
+            handleTypeChange(newQuestionId, questionData);
+
+            initializeSortable();
+            renumberQuestions();
+
+            // Remove from hidden dropdown
+            if (menuItem) {
+                menuItem.remove();
+            }
+
+            // Remove from hiddenQuestions array
+            const index = hiddenQuestions.findIndex(q => q.id === questionId);
+            if (index > -1) {
+                hiddenQuestions.splice(index, 1);
+            }
+
+            // Update count
+            const currentCount = parseInt(countSpan.textContent) || 0;
+            const newCount = Math.max(0, currentCount - 1);
+            countSpan.textContent = newCount;
+
+            if (newCount === 0) {
+                dropdown.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('Error restoring question:', error);
+            alert('Failed to restore question. Please try again.');
+
+            // Restore the menu item to its original state
+            if (menuItem) {
+                const link = menuItem.querySelector('a');
+                const questionBasicData = hiddenQuestions.find(q => q.id === questionId);
+                if (questionBasicData) {
+                    link.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center w-100">
+                            <span class="text-truncate me-2" style="max-width: 250px;">${questionBasicData.text}</span>
+                            <i class="bi bi-arrow-counterclockwise text-success"></i>
+                        </div>
+                        <small class="text-muted">${questionBasicData.type_display} · ${questionBasicData.response_count} response(s)</small>
+                    `;
+                }
+                link.style.pointerEvents = '';
+            }
+        });
 }
 
 function updateLikertPreview(questionId) {
@@ -1051,6 +1692,11 @@ window.addEventListener('DOMContentLoaded', function() {
         loadExistingQuestions();
     } else {
         console.log('No existing questions to load');
+    }
+
+    // Load hidden questions dropdown
+    if (hiddenQuestions && hiddenQuestions.length > 0) {
+        loadHiddenQuestions(hiddenQuestions);
     }
 });
 

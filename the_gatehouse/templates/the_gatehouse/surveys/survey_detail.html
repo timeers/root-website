@@ -22,24 +22,34 @@
     <!-- Survey Stats Cards -->
     <div class="row g-3 mb-4">
         <div class="col-md-3 col-sm-6">
-            <a href="{% url 'survey-preview' survey.slug %}">
-                <div class="card border-primary h-100">
-                    <div class="card-body text-center">
-                        <i class="bi bi-question-circle fs-2 text-primary"></i>
-                        <h3 class="mb-0 mt-2">{{ survey_question_count }}</h3>
-                        <small class="text-muted">{% trans 'Question' %}{{ survey_question_count|pluralize }}</small>
-                    </div>
+            {% if can_view_survey %}
+                <a href="{% url 'survey-preview' survey.slug %}">
+            {% endif %}
+            <div class="card border-primary h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-question-circle fs-2 text-primary"></i>
+                    <h3 class="mb-0 mt-2">{{ survey_question_count }}</h3>
+                    <small class="text-muted">{% trans 'Question' %}{{ survey_question_count|pluralize }}</small>
                 </div>
-            </a>
+            </div>
+            {% if can_view_survey %}
+                </a>
+            {% endif %}
         </div>
         <div class="col-md-3 col-sm-6">
+            {% if can_edit_survey %}
+                <a href="{% url 'survey-responses' survey.slug %}">
+            {% endif %}
             <div class="card border-success h-100">
                 <div class="card-body text-center">
                     <i class="bi bi-chat-left-text fs-2 text-success"></i>
-                    <h3 class="mb-0 mt-2">{{ survey_response_count }}</h3>
-                    <small class="text-muted">{% trans 'Response' %}{{ survey_response_count|pluralize }}</small>
+                    <h3 class="mb-0 mt-2">{{ survey_user_response_count }}</h3>
+                    <small class="text-muted">{% trans 'Response' %}{{ survey_user_response_count|pluralize }}</small>
                 </div>
             </div>
+            {% if can_edit_survey %}
+                </a>
+            {% endif %}
         </div>
         <div class="col-md-3 col-sm-6">
             <div class="card border-info h-100">
@@ -150,18 +160,26 @@
         </div>
     {% else %}
         <hr class="my-4">
+        {% if can_take_survey %}
         <div class="alert alert-info d-flex align-items-center">
             <i class="bi bi-info-circle fs-4 me-3"></i>
             <div>
-                <h5 class="alert-heading mb-1">{% trans 'No Responses Yet' %}</h5>
-                <p class="mb-0">{% trans "You haven't submitted any responses to this survey." %}</p>
-                {% if can_take_survey %}
-                    <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
-                        <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
-                    </a>
-                {% endif %}
+                <h5 class="alert-heading mb-1">No Response{% if allow_multiple_responses %}s{% endif %} Yet</h5>
+                <p class="mb-0">You haven't submitted {% if allow_multiple_responses %}any responses{% else %}a response{% endif %} to this survey.</p>
+                <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
+                    <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
+                </a>
             </div>
         </div>
+        {% else %}
+        <div class="alert alert-warning d-flex align-items-center">
+            <i class="bi bi-exclamation-circle fs-4 me-3"></i>
+            <div>
+                <h5 class="alert-heading mb-1">Private Survey</h5>
+                <p class="mb-0">You do not have access to take this survey.</p>
+            </div>
+        </div>
+        {% endif %}
     {% endif %}
 </div>
 {% endblock content %}

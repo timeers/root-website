@@ -5,67 +5,247 @@
         <h5 class="mb-0">{% trans 'Survey Information' %}</h5>
     </div>
     <div class="card-body">
+        {# Basic Details Section #}
         <div class="mb-3">
             <label for="title" class="form-label">{% trans 'Title' %} <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" required>
+            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" required maxlength="200">
         </div>
 
-        <div class="mb-3">
+        <div class="mb-4">
             <label for="description" class="form-label">{% trans 'Description' %}</label>
             <textarea class="form-control" id="description" name="description" rows="3">{{ survey.description|default:'' }}</textarea>
         </div>
 
-        <div class="row mb-3">
-            <div class="col-md-6">
-                <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
-                <input type="datetime-local" class="form-control" id="start_date" name="start_date"
-                       value="{% if survey.start_date %}{{ survey.start_date|date:'Y-m-d\TH:i' }}{% endif %}">
-                <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+        {# Access Control Section #}
+        <div class="border rounded p-3 mb-4 bg-light">
+            <h6 class="text-muted mb-3"><i class="bi bi-shield-lock me-2"></i>{% trans 'Access Control' %}</h6>
+
+            {# Private Survey Checkbox #}
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="is_private" name="is_private"
+                           {% if survey and not survey.is_public %}checked{% endif %}
+                           onchange="toggleAccessRestrictionsSection()">
+                    <label class="form-check-label" for="is_private">
+                        {% trans 'Private Survey' %}
+                    </label>
+                </div>
+                <small class="form-text text-muted">{% trans 'If checked, only invited players or guild members can access this survey' %}</small>
             </div>
-            <div class="col-md-6">
-                <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
-                <input type="datetime-local" class="form-control" id="end_date" name="end_date"
-                       value="{% if survey.end_date %}{{ survey.end_date|date:'Y-m-d\TH:i' }}{% endif %}">
-                <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
+
+            {# Access Restrictions Section - Only visible when survey is private #}
+            <div id="access-restrictions-section" style="display: {% if survey and not survey.is_public %}block{% else %}none{% endif %};" data-has-restrictions="{% if survey and survey.guild or survey and survey.invited_players.exists %}true{% else %}false{% endif %}">
+                <div class="row">
+                    {# Invited Players - Left Side #}
+                    <div class="col-md-6">
+                        <label class="form-label">{% trans 'Invited Players' %}</label>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#invitePlayersModal">
+                                <i class="bi bi-person-plus"></i> {% trans 'Manage Invites' %}
+                            </button>
+                            <span class="text-muted small">
+                                <span id="invited-players-count">{% if survey %}{{ survey.invited_players.count }}{% else %}0{% endif %}</span> {% trans 'player(s) invited' %}
+                            </span>
+                        </div>
+                        <div id="invited-players-summary" class="d-flex flex-wrap gap-1">
+                            {% if survey %}
+                                {% for player in survey.invited_players.all %}
+                                <span class="badge bg-secondary invited-player-badge" data-player-id="{{ player.id }}">
+                                    {{ player.name }}
+                                    <button type="button" class="btn-close btn-close-white ms-1" style="font-size: 0.6rem;" onclick="removeInvitedPlayer({{ player.id }})"></button>
+                                </span>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        <input type="hidden" name="invited_players" id="invited-players-input" value="{% if survey %}{% for player in survey.invited_players.all %}{{ player.id }}{% if not forloop.last %},{% endif %}{% endfor %}{% endif %}">
+                    </div>
+
+                    {# Guild Selection - Right Side #}
+                    {% if not is_edit_mode or survey.guild %}
+                    <div class="col-md-6">
+                        <label for="guild" class="form-label">{% trans 'Guild' %}</label>
+                        {% if is_edit_mode %}
+                            <div class="d-flex align-items-center">
+                                {% if survey.guild.icon_hash %}
+                                    <img src="{{ survey.guild.get_icon_url }}" alt="{{ survey.guild.name }}" class="me-2 md-faction-icon">
+                                {% endif %}
+                                <input id="guild" name="guild" type="text" class="form-control" value="{{ survey.guild.name }}" disabled readonly>
+                            </div>
+                        {% else %}
+                            <select class="form-select" id="guild" name="guild">
+                                <option value="">{% trans 'No guild restriction' %}</option>
+                                {% for guild in user_guilds %}
+                                    {% if guild.icon_hash %}
+                                        <option value="{{ guild.id }}" data-icon="{{ guild.get_icon_url|default:'' }}">{{ guild.name }}</option>
+                                    {% else %}
+                                        <option value="{{ guild.id }}" data-icon="">{{ guild.name }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                            <small class="form-text text-muted">{% trans 'Restrict survey to guild members' %}</small>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-md-6 col-lg-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
-                           {% if not survey or survey.is_active %}checked{% endif %}>
-                    <label class="form-check-label" for="is_active">
-                        {% trans 'Active' %}
-                    </label>
+        {# Survey Association Section #}
+        {% if is_edit_mode and survey.series or is_edit_mode and survey.post or not is_edit_mode and user_tournaments or not is_edit_mode and user_posts %}
+        <div class="border rounded p-3 mb-4 bg-light">
+            <h6 class="text-muted mb-3"><i class="bi bi-share me-2"></i>{% trans 'Survey Association' %}</h6>
+            {% if not is_edit_mode %}
+            <small class="text-muted">{% trans 'These settings are permanent and cannot be changed later' %}</small>
+            {% endif %}
+            <div class="row">
+                {% if is_edit_mode and survey.series or not is_edit_mode and user_tournaments %}
+                <div class="col-md-6 mb-3">
+                    <label for="series" class="form-label">{% trans 'Series/Tournament' %}</label>
+                    {% if is_edit_mode %}
+                        <input id="series" name="series" type="text" class="form-control" value="{{ survey.series.name }}" disabled readonly>
+                    {% else %}
+                        <select class="form-select" id="series" name="series" onchange="loadSeriesRounds()">
+                            <option value="">{% trans 'No series association' %}</option>
+                            {% for tournament in user_tournaments %}
+                                <option value="{{ tournament.id }}">{{ tournament.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">{% trans 'Associate with a tournament or series you host' %}</small>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if is_edit_mode and survey.series_round or not is_edit_mode and user_tournaments %}
+                <div class="col-md-6 mb-3">
+                    <label for="series_round" class="form-label">{% trans 'Round' %}</label>
+                    {% if is_edit_mode %}
+                        <input type="text" class="form-control" id="series_round" name="series_round" value="{{ survey.series_round.name|default:survey.series_round }}" disabled readonly>
+                    {% else %}
+                        <select class="form-select" id="series_round" name="series_round" disabled>
+                            <option value="">{% trans 'All rounds / No specific round' %}</option>
+                        </select>
+                        <small class="form-text text-muted">{% trans 'Optionally associate with a specific round' %}</small>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if is_edit_mode and survey.post or not is_edit_mode and user_posts %}
+                <div class="col-md-6 mb-3">
+                    <label for="post" class="form-label">{% trans 'Subject' %}</label>
+                    {% if is_edit_mode %}
+                        <div class="d-flex align-items-center">
+                            {% if survey.post.small_icon %}
+                                <img src="{{ survey.post.small_icon.url }}" alt="{{ survey.post.title }}" class="me-2 md-faction-icon">
+                            {% endif %}
+                            <input id="post" name="post" type="text" class="form-control" value="{{ survey.post.title }}" disabled readonly>
+                        </div>
+                    {% else %}
+                        <select class="form-select" id="post" name="post">
+                            <option value="">{% trans 'No post association' %}</option>
+                            {% for post in user_posts %}
+                                {% if post.small_icon %}
+                                    <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}">{{ post.title }}</option>
+                                {% else %}
+                                    <option value="{{ post.id }}" data-icon="">{{ post.title }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">{% trans 'Associate with an official Root component or one you designed' %}</small>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# Schedule & Settings Section #}
+        <div class="border rounded p-3 bg-light">
+            <h6 class="text-muted mb-3"><i class="bi bi-gear me-2"></i>{% trans 'Schedule & Settings' %}</h6>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
+                    <input type="datetime-local" class="form-control" id="start_date" name="start_date"
+                           value="{% if survey.start_date %}{{ survey.start_date|date:'Y-m-d\TH:i' }}{% endif %}">
+                    <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+                </div>
+                <div class="col-md-6">
+                    <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
+                    <input type="datetime-local" class="form-control" id="end_date" name="end_date"
+                           value="{% if survey.end_date %}{{ survey.end_date|date:'Y-m-d\TH:i' }}{% endif %}">
+                    <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
                 </div>
             </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="allow_multiple_responses" name="allow_multiple_responses"
-                           {% if survey.allow_multiple_responses %}checked{% endif %}>
-                    <label class="form-check-label" for="allow_multiple_responses">
-                        {% trans 'Allow Multiple Responses' %}
-                    </label>
+
+            <div class="row">
+                <div class="col-md-6 col-lg-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
+                               {% if not survey or survey.is_active %}checked{% endif %}>
+                        <label class="form-check-label" for="is_active">
+                            {% trans 'Active' %}
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="allow_multiple_responses" name="allow_multiple_responses"
+                               {% if survey.allow_multiple_responses %}checked{% endif %}>
+                        <label class="form-check-label" for="allow_multiple_responses">
+                            {% trans 'Allow Multiple Responses' %}
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
+                               {% if survey.allow_edit_responses %}checked{% endif %}>
+                        <label class="form-check-label" for="allow_edit_responses">
+                            {% trans 'Allow Edit Responses' %}
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
+                               {% if survey.show_results_to_respondents %}checked{% endif %}>
+                        <label class="form-check-label" for="show_results_to_respondents">
+                            {% trans 'Show Results to Respondents' %}
+                        </label>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
-                           {% if survey.allow_edit_responses %}checked{% endif %}>
-                    <label class="form-check-label" for="allow_edit_responses">
-                        {% trans 'Allow Edit Responses' %}
-                    </label>
+        </div>
+    </div>
+</div>
+
+{# Invite Players Modal #}
+<div class="modal fade" id="invitePlayersModal" tabindex="-1" aria-labelledby="invitePlayersModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="invitePlayersModalLabel">{% trans 'Invite Players' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">{% trans 'Search Players' %}</label>
+                    <input type="text" class="form-control" id="player-search-input" placeholder="{% trans 'Type at least 2 characters to search...' %}">
+                </div>
+                <div id="player-search-results" class="mb-3" style="max-height: 200px; overflow-y: auto;">
+                    <p class="text-muted small">{% trans 'Search results will appear here' %}</p>
+                </div>
+                <hr>
+                <div>
+                    <label class="form-label">{% trans 'Selected Players' %} (<span id="modal-selected-count">0</span>)</label>
+                    <div id="modal-selected-players" class="d-flex flex-wrap gap-2" style="min-height: 40px;">
+                        <p class="text-muted small" id="no-players-message">{% trans 'No players selected yet' %}</p>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
-                           {% if survey.show_results_to_respondents %}checked{% endif %}>
-                    <label class="form-check-label" for="show_results_to_respondents">
-                        {% trans 'Show Results to Respondents' %}
-                    </label>
-                </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Close' %}</button>
+                <button type="button" class="btn btn-primary" onclick="saveInvitedPlayers()" data-bs-dismiss="modal">
+                    <i class="bi bi-check"></i> {% trans 'Save' %}
+                </button>
             </div>
         </div>
     </div>

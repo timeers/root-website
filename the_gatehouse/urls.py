@@ -10,8 +10,9 @@ from .views import (user_settings, player_page_view,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification,
-                    survey_list_view, survey_results_view, my_surveys_view, survey_take_view, survey_response_view, survey_response_edit_view, survey_redirect, survey_detail_view,
-                    create_survey_view, survey_edit_view, survey_preview_view, duplicate_survey_view, search_posts_for_survey)
+                    survey_list_view, survey_results_view, my_surveys_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_redirect, survey_detail_view,
+                    create_survey_view, survey_edit_view, survey_preview_view, duplicate_survey_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
+                    get_question_data, survey_responses_view)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -77,6 +78,9 @@ urlpatterns = [
     path('surveys/', survey_list_view, name='survey-list'),
     path('surveys/create/', create_survey_view, name='survey-create'),
     path('surveys/api/search-posts/', search_posts_for_survey, name='search-posts-for-survey'),
+    path('surveys/api/search-players/', search_players_for_survey, name='search-players-for-survey'),
+    path('surveys/api/tournament-rounds/', get_tournament_rounds, name='get-tournament-rounds'),
+    path('surveys/api/question/<int:question_id>/', get_question_data, name='get-question-data'),
 
     path('surveys/<slug:slug>/', survey_detail_view, name='survey-detail'),
     path('surveys/<slug:slug>/redirect/', survey_redirect, name='survey-redirect'),
@@ -85,12 +89,12 @@ urlpatterns = [
     path('surveys/<slug:slug>/preview/', survey_preview_view, name='survey-preview'),
     path('surveys/<slug:slug>/duplicate/', duplicate_survey_view, name='survey-duplicate'),
     path('surveys/<slug:slug>/results/', survey_results_view, name='survey-results'),
+
+    path('surveys/<slug:slug>/responses/', survey_responses_view, name='survey-responses'),
+    path('surveys/<slug:slug>/responses/<int:response_id>/', survey_user_response_view, name='survey-user-response'),
+    path('surveys/<slug:slug>/responses/<int:response_id>/edit/', survey_user_response_edit_view, name='survey-edit-response'),
+
     path('profile/<slug:slug>/surveys/', my_surveys_view, name='my-surveys'),
-
-    path('surveys/<slug:slug>/responses/<int:response_id>/', survey_response_view, name='survey-user-response'),
-    path('surveys/<slug:slug>/responses/<int:response_id>/edit/', survey_response_edit_view, name='survey-edit-response'),
-
-
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),
 ]

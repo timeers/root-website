@@ -43,7 +43,16 @@
                     <p class="text-muted">{% trans 'No questions added yet. Click "Add Question" to get started.' %}</p>
                 {% endif %}
             </div>
-            <div class="card-footer d-flex justify-content-end align-items-center">
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <div class="hidden-questions-dropdown" style="display: none;">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-eye"></i> {% trans 'Restore Hidden' %} (<span class="hidden-questions-count">0</span>)
+                        </button>
+                        <ul class="dropdown-menu hidden-questions-menu">
+                        </ul>
+                    </div>
+                </div>
                 <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
                     <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
                 </button>
@@ -54,7 +63,7 @@
         <input type="hidden" name="questions_data" id="questions-data">
 
         <div class="d-flex justify-content-between">
-            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-lg btn-outline-secondary">{% trans 'Cancel' %}</a>
             <button type="submit" class="btn btn-success btn-lg">
                 <i class="bi bi-check-circle"></i> {% trans 'Save Changes' %}
             </button>

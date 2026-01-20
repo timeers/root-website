@@ -4,13 +4,9 @@
 
 {% block content %}
 <div class="content-section">
-    <div class="mb-4">
-        <a href="{% url 'survey-detail' slug=survey.slug %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
-        </a>
-    </div>
+    {% include 'the_gatehouse/surveys/partials/survey_navigation.html' %}
 
-    {% if survey.allow_edit_responses and survey.is_available %}
+    {% if can_edit_response %}
         <div class="alert alert-info d-flex">
             <i class="bi bi-info-circle"></i> {% trans 'You can edit your response while the survey is still open.' %}
             <a href="{% url 'survey-edit-response' survey.slug response.id %}" class="btn btn-sm btn-primary ms-auto">

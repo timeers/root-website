@@ -1,0 +1,76 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'Responses' %}: {{ survey.title }} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    {% include 'the_gatehouse/surveys/partials/survey_navigation.html' %}
+
+    <h1 class="root-title mb-2">{{ survey.title }}</h1>
+    <p class="text-muted mb-4">
+        <i class="bi bi-chat-left-text"></i> {{ responses|length }} {% trans 'Response' %}{{ responses|length|pluralize }}
+    </p>
+
+    {% if responses %}
+        <div class="row g-3">
+            {% for response in responses %}
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="d-flex align-items-center flex-fill">
+                                    {% if response.user %}
+                                        {% if response.user.image %}
+                                            <img src="{{ response.user.image.url }}" alt="{{ response.user.name }}" class="lg-faction-icon me-3">
+                                        {% else %}
+                                            <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
+                                        {% endif %}
+                                        <div>
+                                            <h5 class="card-title mb-1">
+                                                <a href="{{ response.user.get_absolute_url }}" class="text-decoration-none">
+                                                    {{ response.user.name }}
+                                                </a>
+                                            </h5>
+                                            <p class="card-text text-muted mb-0">
+                                                <small>
+                                                    <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
+                                                    {% if response.updated_at != response.submitted_at %}
+                                                        | <i class="bi bi-pencil"></i> {% trans 'Updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
+                                                    {% endif %}
+                                                </small>
+                                            </p>
+                                        </div>
+                                    {% else %}
+                                        <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
+                                        <div>
+                                            <h5 class="card-title mb-1 text-muted">{% trans 'Anonymous' %}</h5>
+                                            <p class="card-text text-muted mb-0">
+                                                <small>
+                                                    <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
+                                                </small>
+                                            </p>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <div class="ms-3">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i> {% trans 'View' %}
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info d-flex align-items-center">
+            <i class="bi bi-info-circle fs-4 me-3"></i>
+            <div>
+                <h5 class="alert-heading mb-1">{% trans 'No Responses Yet' %}</h5>
+                <p class="mb-0">{% trans 'This survey has not received any responses yet.' %}</p>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock content %}

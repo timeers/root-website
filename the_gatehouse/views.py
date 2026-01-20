@@ -1,5 +1,7 @@
+import json
+
 from functools import wraps
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from django.apps import apps
 from django.core.paginator import Paginator, EmptyPage
@@ -9,7 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Count, Avg
 from django.http import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -1878,7 +1880,6 @@ def approve_post(request, post_id):
 @admin_required
 def reject_post(request, post_id):
     """Reject a pending post and delete it."""
-    from the_keep.models import StatusChoices
 
     post = get_object_or_404(Post, id=post_id)
 
@@ -1950,6 +1951,144 @@ def search_posts_for_survey(request):
     return JsonResponse({'posts': data})
 
 
+@login_required
+def get_tournament_rounds(request):
+    """AJAX endpoint for fetching rounds of a tournament."""
+
+    tournament_id = request.GET.get('tournament_id')
+
+    if not tournament_id:
+        return JsonResponse({'rounds': []})
+
+    # Get open rounds for the tournament
+    rounds = Round.objects.open().filter(
+        tournament_id=tournament_id
+    ).order_by('round_number')
+
+
+    data = [{
+        'id': r.id,
+        'name': r.name or f"Round {r.round_number}",
+        'round_number': r.round_number,
+    } for r in rounds]
+
+    return JsonResponse({'rounds': data})
+
+
+@login_required
+def search_players_for_survey(request):
+    """AJAX endpoint for searching players to invite to a survey."""
+
+    query = request.GET.get('q', '').strip()
+
+    if len(query) < 2:
+        return JsonResponse({'players': []})
+
+    # Search by display_name or discord username
+    players = Profile.objects.filter(
+        Q(display_name__icontains=query) | Q(discord__icontains=query)
+    ).exclude(
+        user__isnull=True  # Exclude profiles without users
+    ).select_related('user')[:20]
+
+    data = [{
+        'id': p.id,
+        'name': p.name,
+        'discord': p.discord or '',
+        'image_url': p.image.url if p.image else None,
+    } for p in players]
+
+    return JsonResponse({'players': data})
+
+
+@login_required
+def get_question_data(request, question_id):
+    """AJAX endpoint for fetching full question data including choices."""
+    from .models import Question, Choice, Answer, RankedAnswer
+
+    try:
+        question = Question.objects.get(id=question_id)
+    except Question.DoesNotExist:
+        return JsonResponse({'error': 'Question not found'}, status=404)
+
+    # Check permissions - user must be admin or survey creator
+    profile = request.user.profile
+    if not profile.admin and question.survey.created_by != profile:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    # Get choices with response info
+    choices_with_responses = set()
+    # Single selections
+    single = set(Answer.objects.filter(
+        response__survey=question.survey,
+        selected_choice__isnull=False
+    ).values_list('selected_choice_id', flat=True))
+    # Multiple selections (M2M)
+    multi = set(Answer.selected_choices.through.objects.filter(
+        answer__response__survey=question.survey
+    ).values_list('choice_id', flat=True))
+    # Ranked answers
+    ranked = set(RankedAnswer.objects.filter(
+        answer__response__survey=question.survey
+    ).values_list('choice_id', flat=True))
+    choices_with_responses = single | multi | ranked
+
+    # Build choices data
+    choices = []
+    for choice in question.choices.filter(is_hidden=False).order_by('order'):
+        choice_data = {
+            'id': choice.id,
+            'text': choice.text,
+            'order': choice.order,
+            'has_responses': choice.id in choices_with_responses,
+        }
+        if choice.post:
+            choice_data['post_id'] = choice.post.id
+            choice_data['post_title'] = choice.post.title
+            choice_data['post_icon_url'] = choice.post.small_icon.url if choice.post.small_icon else None
+        choices.append(choice_data)
+
+    # Build hidden choices data
+    hidden_choices = []
+    for choice in question.choices.filter(is_hidden=True).order_by('order'):
+        hidden_choice_data = {
+            'id': choice.id,
+            'text': choice.text,
+            'order': choice.order,
+            'has_responses': choice.id in choices_with_responses,
+        }
+        if choice.post:
+            hidden_choice_data['post_id'] = choice.post.id
+            hidden_choice_data['post_title'] = choice.post.title
+            hidden_choice_data['post_icon_url'] = choice.post.small_icon.url if choice.post.small_icon else None
+        hidden_choices.append(hidden_choice_data)
+
+    # Count responses for this question
+    response_count = Answer.objects.filter(
+        response__survey=question.survey,
+        question=question
+    ).count()
+
+    data = {
+        'id': question.id,
+        'text': question.text,
+        'type': question.question_type,
+        'type_display': Question.QuestionType(question.question_type).label,
+        'order': question.order,
+        'required': question.required,
+        'help_text': question.help_text or '',
+        'choices': choices,
+        'hidden_choices': hidden_choices,
+        'likert_scale_id': question.likert_scale_id if question.likert_scale else None,
+        'post_component': question.post_component or None,
+        'post_selection_mode': question.post_selection_mode or None,
+        'has_responses': response_count > 0,
+        'response_count': response_count,
+    }
+
+    return JsonResponse(data)
+
+
 def survey_list_view(request):
     """Display list of available surveys."""
     from .models import Survey
@@ -1999,9 +2138,9 @@ def survey_take_view(request, slug):
     from .forms import SurveyResponseForm
 
     survey = get_object_or_404(Survey, slug=slug)
-    
+    profile = request.user.profile
 
-    user_responses = survey.responses.filter(user=request.user.profile)
+    user_responses = survey.responses.filter(user=profile)
     response_count = user_responses.count()
     first_response = user_responses.first()
 
@@ -2012,16 +2151,21 @@ def survey_take_view(request, slug):
             return redirect('survey-user-response', slug=survey.slug, response_id=first_response.id)
         elif response_count == 0:
             messages.warning(request, _('This survey is not currently available.'))
-            return redirect('survey-list')
+            return redirect('survey-detail', slug=survey.slug)
         else:
             messages.warning(request, _('This survey is no longer available.'))
             return redirect('survey-detail', slug=survey.slug)
-
+            
 
     # Determine if user can edit their response
     if user_responses and not survey.allow_multiple_responses:
             messages.warning(request, _('You have already taken this survey.'))
             return redirect('survey-user-response', slug=survey.slug, response_id=first_response.id)
+
+    # Check if there is any reason the user can't take the survey.
+    if not survey.can_take_survey(profile):
+        messages.error(request, f'You do not have access to take this survey')
+        return redirect('survey-detail', slug=survey.slug)
 
 
     if request.method == 'POST':
@@ -2165,7 +2309,6 @@ def survey_take_view(request, slug):
 
                     elif question.question_type == 'DT':
                         # Date & Time - split into date and time parts
-                        from datetime import datetime
                         if isinstance(answer_data, datetime):
                             answer.date_answer = answer_data.date()
                             answer.time_answer = answer_data.time()
@@ -2199,7 +2342,7 @@ def survey_take_view(request, slug):
 
 
 @player_required
-def survey_response_view(request, slug, response_id):
+def survey_user_response_view(request, slug, response_id):
     """Display survey and handle response submission."""
     from .models import Survey, SurveyResponse
 
@@ -2210,20 +2353,34 @@ def survey_response_view(request, slug, response_id):
     if not user_response.can_view_response(profile):
         raise PermissionDenied
 
-    can_edit_response = survey.can_edit_response(profile)
+    can_edit_response = survey.can_edit_response(profile) and user_response.user == profile
     can_see_results = survey.can_see_results(profile)
+
+    can_edit_survey = survey.can_edit_survey(profile)
+    can_take_survey = survey.can_take_survey(profile)
+
+    if user_response.user == profile:
+        back_title = "Back to Survey"
+        back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+    else:
+        back_title = "Back to Responses"
+        back_url = reverse('survey-responses', kwargs={'slug': survey.slug})
 
     # Show their previous response in read-only mode
     return render(request, 'the_gatehouse/surveys/view_survey_response.html', {
         'survey': survey,
         'response': user_response,
-        'can_edit': can_edit_response,
+        'can_edit_response': can_edit_response,
         'can_see_results': can_see_results,
+        'can_edit_survey': can_edit_survey,
+        'can_take_survey': can_take_survey,
+        'back_title': back_title,
+        'back_url': back_url,
     })
 
 
 @player_required
-def survey_response_edit_view(request, slug, response_id):
+def survey_user_response_edit_view(request, slug, response_id):
     """Display survey and handle response submission."""
     from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer, RankedPostAnswer
     from .forms import SurveyResponseForm
@@ -2389,7 +2546,6 @@ def survey_response_edit_view(request, slug, response_id):
 
                     elif question.question_type == 'DT':
                         # Date & Time - split into date and time parts
-                        from datetime import datetime
                         if isinstance(answer_data, datetime):
                             answer.date_answer = answer_data.date()
                             answer.time_answer = answer_data.time()
@@ -2414,10 +2570,13 @@ def survey_response_edit_view(request, slug, response_id):
     else:
         form = SurveyResponseForm(survey=survey, existing_response=user_response if is_editing else None)
 
+    visible_questions = survey.questions.filter(is_hidden=False)
+
     context = {
         'survey': survey,
         'form': form,
         'is_editing': is_editing,
+        'visible_questions': visible_questions,
     }
     return render(request, 'the_gatehouse/surveys/take_survey.html', context)
 
@@ -2433,7 +2592,7 @@ def survey_detail_view(request, slug):
         profile = None
 
     survey_question_count = survey.question_count()
-    survey_response_count = survey.response_count()
+    survey_user_response_count = survey.response_count()
 
     user_responses = survey.responses.filter(user=profile)
     user_response_count = user_responses.count()
@@ -2441,8 +2600,9 @@ def survey_detail_view(request, slug):
 
     can_edit_response = survey.can_edit_response(profile)
     can_edit_survey = survey.can_edit_survey(profile)
-    can_see_resutls = survey.can_see_results(profile)
+    can_see_results = survey.can_see_results(profile)
     can_take_survey = survey.can_take_survey(profile)
+    can_view_survey = survey.can_view_survey(profile)
 
     back_url = reverse('survey-list')
     back_title = "Back to Surveys"
@@ -2453,9 +2613,10 @@ def survey_detail_view(request, slug):
         'can_edit_response': can_edit_response,
         'can_edit_survey': can_edit_survey,
         'can_take_survey': can_take_survey,
-        'can_see_resutls': can_see_resutls,
+        'can_view_survey': can_view_survey,
+        'can_see_results': can_see_results,
         'survey_question_count': survey_question_count,
-        'survey_response_count': survey_response_count,
+        'survey_user_response_count': survey_user_response_count,
         'back_url': back_url,
         'back_title': back_title,
     }
@@ -2468,7 +2629,6 @@ def survey_detail_view(request, slug):
 def survey_results_view(request, slug):
     """Display aggregated survey results (admin only, or respondents if allowed)."""
     from .models import Survey
-    from django.db.models import Count, Avg
 
     survey = get_object_or_404(Survey, slug=slug)
 
@@ -2498,7 +2658,6 @@ def survey_results_view(request, slug):
             if question.post_component:
                 if question.question_type == 'MS':
                     # Multiple selection - aggregate from selected_posts
-                    from the_keep.models import Post
                     post_results = Post.objects.filter(
                         multiple_post_answers__question=question,
                         multiple_post_answers__response__survey=survey
@@ -2642,7 +2801,6 @@ def survey_results_view(request, slug):
                 elif question.question_type == 'TI' and answer.time_answer:
                     question_data['results'].append({'date': answer.time_answer})
                 elif question.question_type == 'DT' and answer.date_answer and answer.time_answer:
-                    from datetime import datetime
                     dt = datetime.combine(answer.date_answer, answer.time_answer)
                     question_data['results'].append({'date': dt})
 
@@ -2736,9 +2894,15 @@ def survey_preview_view(request, slug):
     survey = get_object_or_404(Survey, slug=slug)
 
     profile = request.user.profile
+
+
+    if not survey.can_view_survey(profile):
+        messages.warning(request, _('You do not have permission to view this survey.'))
+        return redirect('survey-detail', slug=survey.slug)
+
     can_edit_survey = survey.can_edit_survey(profile)
     can_take_survey = survey.can_take_survey(profile)
-    can_see_resutls = survey.can_see_results(profile)
+    can_see_results = survey.can_see_results(profile)
 
     back_url = survey.get_absolute_url()
     back_title = "Back to Survey"
@@ -2755,7 +2919,7 @@ def survey_preview_view(request, slug):
         'is_preview': True,
         'can_edit_survey': can_edit_survey,
         'can_take_survey': can_take_survey,
-        'can_see_resutls': can_see_resutls,
+        'can_see_results': can_see_results,
         'back_url': back_url,
         'back_title': back_title,
         'visible_questions': visible_questions,
@@ -2763,11 +2927,44 @@ def survey_preview_view(request, slug):
     return render(request, 'the_gatehouse/surveys/survey_preview.html', context)
 
 
+@login_required
+def survey_responses_view(request, slug):
+    """View all responses for a survey (admin and survey creator only)."""
+    from .models import Survey, SurveyResponse
+
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    can_edit_survey = survey.can_edit_survey(profile)
+    can_take_survey = survey.can_take_survey(profile)
+    can_see_results = survey.can_see_results(profile)
+
+    # Only admin or survey creator can view all responses
+    if not can_edit_survey:
+        raise PermissionDenied
+
+    responses = SurveyResponse.objects.filter(survey=survey).select_related('user').order_by('-submitted_at')
+
+    back_url = survey.get_absolute_url()
+    back_title = "Back to Survey"
+
+    context = {
+        'survey': survey,
+        'responses': responses,
+        'can_edit_survey': can_edit_survey,
+        'can_take_survey': can_take_survey,
+        'can_see_results': can_see_results,
+        'back_url': back_url,
+        'back_title': back_title,
+        'back_title': back_title,
+    }
+    return render(request, 'the_gatehouse/surveys/survey_responses.html', context)
+
+
 @player_required
 def survey_edit_view(request, slug):
     """Edit an existing survey."""
     from .models import Survey, Question, Choice, LikertScale, Answer, RankedAnswer
-    import json
 
     def get_questions_with_responses(survey):
         """Return set of question IDs that have answers"""
@@ -2804,15 +3001,16 @@ def survey_edit_view(request, slug):
     if request.method == 'POST':
         try:
             # Get survey data
-            title = request.POST.get('title')
+            title = request.POST.get('title', '')[:200]
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
+            is_private = request.POST.get('is_private') == 'on'
+            is_public = not is_private
             allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
             allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
 
             # Get date fields
-            from datetime import datetime
             start_date = request.POST.get('start_date')
             end_date = request.POST.get('end_date')
 
@@ -2832,16 +3030,30 @@ def survey_edit_view(request, slug):
                 except ValueError:
                     pass
 
+            # Get invited players
+            invited_players_str = request.POST.get('invited_players', '')
+            invited_player_ids = [int(id) for id in invited_players_str.split(',') if id.strip()]
+
             # Update survey
             survey.title = title
             survey.description = description
             survey.is_active = is_active
+            survey.is_public = is_public
             survey.allow_multiple_responses = allow_multiple_responses
             survey.allow_edit_responses = allow_edit_responses
             survey.show_results_to_respondents = show_results_to_respondents
             survey.start_date = start_date_obj
             survey.end_date = end_date_obj
-            survey.save()
+
+            # If survey is now public, clear access restrictions
+            if is_public:
+                survey.guild = None
+                survey.save()
+                survey.invited_players.clear()
+            else:
+                survey.save()
+                # Only update invited players if not public
+                survey.invited_players.set(Profile.objects.filter(id__in=invited_player_ids))
 
             # Get questions data from JSON
             questions_json = request.POST.get('questions_data')
@@ -2854,13 +3066,14 @@ def survey_edit_view(request, slug):
 
                 for q_data in questions_data:
                     if q_data.get('id'):
-                        # Update existing question
+                        # Update existing question (or restore if hidden)
                         question = Question.objects.get(id=q_data['id'], survey=survey)
                         question.text = q_data['text']
                         question.question_type = q_data['type']
                         question.order = q_data['order']
                         question.required = q_data.get('required', True)
                         question.help_text = q_data.get('help_text', '')
+                        question.is_hidden = False  # Unhide if restoring
 
                         # Update likert scale if needed
                         if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
@@ -2885,7 +3098,6 @@ def survey_edit_view(request, slug):
                             question.choices.all().delete()
                             # Create choices linked to Posts
                             if q_data.get('post_choices'):
-                                from the_keep.models import Post
                                 for idx, post_id in enumerate(q_data['post_choices']):
                                     Choice.objects.create(
                                         question=question,
@@ -2894,16 +3106,17 @@ def survey_edit_view(request, slug):
                                     )
                         # Update choices for choice-based questions (non-Post)
                         elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
-                            # Track existing choice IDs
+                            # Track existing choice IDs (include hidden ones for restore)
                             existing_choice_ids = set(question.choices.values_list('id', flat=True))
                             updated_choice_ids = set()
 
                             for idx, choice_data in enumerate(q_data['choices']):
                                 if isinstance(choice_data, dict) and choice_data.get('id'):
-                                    # Update existing choice
+                                    # Update existing choice (or restore if hidden)
                                     choice = Choice.objects.get(id=choice_data['id'], question=question)
                                     choice.text = choice_data['text']
                                     choice.order = idx
+                                    choice.is_hidden = False  # Unhide if restoring
                                     choice.save()
                                     updated_choice_ids.add(choice.id)
                                 else:
@@ -2958,7 +3171,6 @@ def survey_edit_view(request, slug):
 
                             # For individual mode, create choices linked to Posts
                             if q_data.get('post_selection_mode') == 'individual' and q_data.get('post_choices'):
-                                from the_keep.models import Post
                                 for idx, post_id in enumerate(q_data['post_choices']):
                                     Choice.objects.create(
                                         question=question,
@@ -2978,8 +3190,18 @@ def survey_edit_view(request, slug):
 
                         updated_question_ids.add(question.id)
 
-                # Delete or hide questions that were removed
-                questions_to_delete = existing_question_ids - updated_question_ids
+                # Handle explicit deletions (user chose to delete questions with responses)
+                explicit_deletes = request.POST.get('questions_to_delete', '')
+                explicit_delete_ids = set()
+                if explicit_deletes:
+                    explicit_delete_ids = set(int(x) for x in explicit_deletes.split(',') if x.strip())
+                    # Delete these questions and their answers (cascade will handle answers)
+                    deleted_count = Question.objects.filter(id__in=explicit_delete_ids, survey=survey).delete()[0]
+                    if deleted_count > 0:
+                        messages.warning(request, f'{deleted_count} question(s) and their responses were permanently deleted.')
+
+                # Delete or hide questions that were removed (but not explicitly deleted)
+                questions_to_delete = existing_question_ids - updated_question_ids - explicit_delete_ids
                 if questions_to_delete:
                     questions_with_responses = get_questions_with_responses(survey)
                     hidden_count = 0
@@ -3059,26 +3281,59 @@ def survey_edit_view(request, slug):
                     })
                 q_data['choices'].append(choice_data)
 
+            # Add hidden choices separately for restore functionality
+            q_data['hidden_choices'] = []
+            for choice in question.choices.filter(is_hidden=True):
+                hidden_choice_data = {
+                    'id': choice.id,
+                    'text': choice.text,
+                    'order': choice.order,
+                    'has_responses': choice.id in choices_with_responses,
+                }
+                if choice.post:
+                    hidden_choice_data['post_id'] = choice.post.id
+                    hidden_choice_data['post_title'] = choice.post.title
+                    hidden_choice_data['post_icon_url'] = choice.post.small_icon.url if choice.post.small_icon else None
+                q_data['hidden_choices'].append(hidden_choice_data)
+
         existing_questions.append(q_data)
+
+    # Prepare hidden questions data for restore functionality
+    hidden_questions = []
+    for question in survey.questions.filter(is_hidden=True):
+        question_response_count = Answer.objects.filter(
+            response__survey=survey, question=question
+        ).count()
+        hq_data = {
+            'id': question.id,
+            'text': question.text,
+            'type': question.question_type,
+            'type_display': Question.QuestionType(question.question_type).label,
+            'response_count': question_response_count,
+        }
+        hidden_questions.append(hq_data)
 
     context = {
         'survey': survey,
         'likert_scales': likert_scales,
         'existing_questions': json.dumps(existing_questions),
+        'hidden_questions': json.dumps(hidden_questions),
+        'is_edit_mode': True,
     }
     return render(request, 'the_gatehouse/surveys/edit_survey.html', context)
 
 
-@admin_required
+@player_required
 def create_survey_view(request):
     """Create a new survey with questions and choices."""
     from .models import Survey, Question, Choice, LikertScale
-    import json
+
+    profile = request.user.profile
 
     if request.method == 'POST':
         try:
             # Get survey data
-            title = request.POST.get('title')
+            title = request.POST.get('title', '')[:200]
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
             allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
@@ -3086,7 +3341,6 @@ def create_survey_view(request):
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
 
             # Get date fields
-            from datetime import datetime
             start_date = request.POST.get('start_date')
             end_date = request.POST.get('end_date')
 
@@ -3106,18 +3360,39 @@ def create_survey_view(request):
                 except ValueError:
                     pass
 
+            # Get optional association fields
+            guild_id = request.POST.get('guild') or None
+            series_id = request.POST.get('series') or None
+            series_round_id = request.POST.get('series_round') or None
+            post_id = request.POST.get('post') or None
+            is_private = request.POST.get('is_private') == 'on'
+            is_public = not is_private
+
+            # Get invited players
+            invited_players_str = request.POST.get('invited_players', '')
+            invited_player_ids = [int(id) for id in invited_players_str.split(',') if id.strip()]
+
             # Create survey
             survey = Survey.objects.create(
                 title=title,
                 description=description,
                 is_active=is_active,
+                is_public=is_public,
                 allow_multiple_responses=allow_multiple_responses,
                 allow_edit_responses=allow_edit_responses,
                 show_results_to_respondents=show_results_to_respondents,
                 start_date=start_date_obj,
                 end_date=end_date_obj,
-                created_by=request.user.profile
+                created_by=profile,
+                guild_id=guild_id,
+                series_id=series_id,
+                series_round_id=series_round_id,
+                post_id=post_id,
             )
+
+            # Add invited players
+            if invited_player_ids:
+                survey.invited_players.set(Profile.objects.filter(id__in=invited_player_ids))
 
             # Get questions data from JSON
             questions_json = request.POST.get('questions_data')
@@ -3148,7 +3423,6 @@ def create_survey_view(request):
 
                         # For individual mode, create choices linked to Posts
                         if q_data.get('post_selection_mode') == 'individual' and q_data.get('post_choices'):
-                            from the_keep.models import Post
                             for idx, post_id in enumerate(q_data['post_choices']):
                                 Choice.objects.create(
                                     question=question,
@@ -3179,7 +3453,7 @@ def create_survey_view(request):
 
     # Get available question templates (public ones or user's own)
     question_templates = QuestionTemplate.objects.filter(
-        Q(is_public=True) | Q(created_by=request.user.profile)
+        Q(is_public=True) | Q(created_by=profile)
     ).order_by('name')
 
     # Convert templates to JSON for JavaScript
@@ -3192,9 +3466,25 @@ def create_survey_view(request):
             'data': template_data
         })
 
+    # Get user's guilds and hosted tournaments for dropdowns
+    user_guilds = profile.guilds.all()
+    if profile.admin:
+        user_tournaments = Tournament.objects.open()
+    else:
+        user_tournaments = profile.hosted_tournaments.open()
+
+    # Get posts the user can associate with the survey (designer or official)
+    user_posts = Post.objects.filter(
+        Q(designer=profile) | Q(official=True)
+    ).distinct()
+
     context = {
         'likert_scales': likert_scales,
         'question_templates': question_templates,
+        'user_guilds': user_guilds,
+        'user_tournaments': user_tournaments,
+        'user_posts': user_posts,
+        'is_edit_mode': False,
     }
     return render(request, 'the_gatehouse/surveys/create_survey.html', context)
 

@@ -29,6 +29,23 @@ class GameQuerySet(models.QuerySet):
         #     Q(landmarks__official=False)
         # )
 
+
+class TournamentQuerySet(models.QuerySet):
+    def open(self):
+        """Return tournaments that are still open (end_date is null or in the future)"""
+        return self.filter(
+            Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
+        )
+
+
+class RoundQuerySet(models.QuerySet):
+    def open(self):
+        """Return rounds that are still open (end_date is null or in the future)"""
+        return self.filter(
+            Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
+        )
+
+
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
 # Currently hidden on the site and not really being used.
 class Tournament(models.Model):
@@ -80,7 +97,7 @@ class Tournament(models.Model):
         choices=CoalitionTypes.choices,
         default=CoalitionTypes.ONE
     )
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='hosted_tournaments')
     description = models.TextField(null=True, blank=True)
 
     start_date = models.DateTimeField(default=timezone.now)
@@ -90,6 +107,15 @@ class Tournament(models.Model):
 
     open_roster = models.BooleanField(default=True)
     open_assets = models.BooleanField(default=True)
+
+    objects = TournamentQuerySet.as_manager()
+
+    @property
+    def is_open(self):
+        """Check if tournament is currently open (end_date is null or in the future)"""
+        if self.end_date is None:
+            return True
+        return timezone.now() < self.end_date
 
     def __str__(self):
         return self.name
@@ -159,6 +185,15 @@ class Round(models.Model):
     players = models.ManyToManyField(Profile, blank=True, related_name='rounds')
     description = models.TextField(null=True, blank=True)
     slug = models.SlugField(null=True, blank=True)
+
+    objects = RoundQuerySet.as_manager()
+
+    @property
+    def is_open(self):
+        """Check if round is currently open (end_date is null or in the future)"""
+        if self.end_date is None:
+            return True
+        return timezone.now() < self.end_date
 
     def get_absolute_url(self):
         return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
