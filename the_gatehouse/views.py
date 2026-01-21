@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection
-from django.db.models import Count, Q, Count, Avg
+from django.db.models import Count, Q, Count, Avg, F
 from django.http import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -29,7 +29,7 @@ from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserMa
 from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest, Survey, TA_DAY_CODES
 from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar, get_discord_invite_info
 from .services.context_service import get_daily_user_summary
-from .utils import build_absolute_uri
+from .utils import build_absolute_uri, plural
 
 
 
@@ -1517,6 +1517,32 @@ def guild_join_request(request, guild_id):
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     profile = request.user.profile
 
+    all_approved_requests = guild.join_requests.filter(status=DiscordGuildJoinRequest.Status.APPROVED)
+
+    # Calculate average approval time
+    avg_approval_time = all_approved_requests.aggregate(
+        avg_time=Avg(F('updated_at') - F('created_at'))
+    )['avg_time']
+
+    if avg_approval_time:
+        # Get total seconds, hours, or days
+        total_seconds = avg_approval_time.total_seconds()
+
+        days = avg_approval_time.days
+        hours = int((total_seconds % 86400) // 3600)
+        minutes = int((total_seconds % 3600 ) // 60)
+        if days != 0:
+            formatted_approval_time = f"{plural(days, "day")}, {plural(hours, "hour")}, {plural(minutes, "minute")}"
+        elif hours != 0:
+            formatted_approval_time = f"{plural(hours, "hour")}, {plural(minutes, "minute")}"
+        else:
+            if total_seconds < 60:
+                formatted_approval_time = "less than a minute"
+            else:
+                formatted_approval_time = f"{plural(minutes, "minute")}"
+    else:
+        formatted_approval_time = None
+
     # Get the next URL from query parameters and resolve it
     next_param = request.GET.get('next', '')
     
@@ -1616,6 +1642,7 @@ def guild_join_request(request, guild_id):
         "form": form,
         "next_url": next_url,
         "title": title,
+        "formatted_approval_time": formatted_approval_time,
     })
 
 @player_required
@@ -2091,25 +2118,149 @@ def get_question_data(request, question_id):
 
 
 def survey_list_view(request):
-    """Display list of available surveys."""
+    """Display list of available surveys grouped by category."""
     from .models import Survey
+    from django.utils import timezone
 
-    # Get all active surveys
-    surveys = Survey.objects.filter(is_active=True)
+    now = timezone.now()
+    profile = request.user.profile if request.user.is_authenticated else None
 
-    # Filter by availability (date range)
-    available_surveys = [s for s in surveys if s.is_available()]
+    # Get all active surveys with related data
+    all_surveys = Survey.objects.filter(is_active=True).select_related(
+        'created_by', 'guild'
+    ).prefetch_related('invited_players')
 
-    # If user is logged in, annotate which surveys they've completed
-    if request.user.is_authenticated:
-        for survey in available_surveys:
-            survey.user_has_responded = survey.has_user_responded(request.user.profile)
-            survey.can_respond = survey.allow_multiple_responses or not survey.user_has_responded
+    # Initialize category lists
+    my_surveys = []
+    private_surveys = []
+    public_surveys = []
+
+    for survey in all_surveys:
+        # Check if survey is past (end_date has passed) - skip these for list view
+        is_past = survey.end_date and now > survey.end_date
+        if is_past:
+            continue
+
+        # Check if survey hasn't started yet
+        not_started = survey.start_date and now < survey.start_date
+
+        # For unauthenticated users, only show public surveys
+        if not profile:
+            if survey.is_public and not not_started:
+                public_surveys.append(survey)
+            continue
+
+        # For authenticated users, check visibility
+        if not survey.can_view_survey(profile):
+            continue
+
+        # Skip surveys that haven't started (unless user is creator/admin)
+        is_creator = survey.created_by == profile
+        is_admin = profile.group == 'A'
+        if not_started and not is_creator and not is_admin:
+            continue
+
+        # Annotate response status
+        survey.user_has_responded = survey.has_user_responded(profile)
+        survey.can_respond = survey.allow_multiple_responses or not survey.user_has_responded
+
+        # Categorize the survey
+        if is_creator:
+            my_surveys.append(survey)
+        elif not survey.is_public:
+            private_surveys.append(survey)
+        else:
+            public_surveys.append(survey)
 
     context = {
-        'surveys': available_surveys,
+        'my_surveys': my_surveys,
+        'private_surveys': private_surveys,
+        'public_surveys': public_surveys,
+        'can_create_survey': profile.player if profile else False,
     }
     return render(request, 'the_gatehouse/surveys/survey_list.html', context)
+
+
+SURVEY_HISTORY_PAGE_SIZE = 10
+
+
+@login_required
+def survey_history_view(request):
+    """Display user's survey history: past responses and archived created surveys."""
+    from .models import Survey, SurveyResponse
+    from django.utils import timezone
+
+    profile = request.user.profile
+    now = timezone.now()
+
+    # Check for HTMX partial requests
+    responses_offset = int(request.GET.get('responses_offset', 0))
+    archived_offset = int(request.GET.get('archived_offset', 0))
+    load_type = request.GET.get('load_type', None)
+
+    # Get all surveys the user has responded to (excluding active ones they can still interact with)
+    my_responses = SurveyResponse.objects.filter(
+        user=profile
+    ).select_related(
+        'survey', 'survey__created_by', 'survey__guild'
+    ).order_by('-submitted_at')
+
+    # Separate into past/inactive responses vs active responses
+    past_responses = []
+    for response in my_responses:
+        survey = response.survey
+        is_past = survey.end_date and now > survey.end_date
+        is_inactive = not survey.is_active
+        if is_past or is_inactive:
+            response.survey.user_has_responded = True
+            past_responses.append(response)
+
+    # Get all surveys created by the user that are past or inactive
+    created_surveys = Survey.objects.filter(
+        created_by=profile
+    ).select_related('guild').prefetch_related('responses')
+
+    archived_surveys = []
+    for survey in created_surveys:
+        is_past = survey.end_date and now > survey.end_date
+        is_inactive = not survey.is_active
+        if is_past or is_inactive:
+            survey.response_count = survey.responses.count()
+            archived_surveys.append(survey)
+
+    # Handle HTMX partial requests for loading more items
+    if load_type == 'responses':
+        items = past_responses[responses_offset:responses_offset + SURVEY_HISTORY_PAGE_SIZE]
+        has_more = len(past_responses) > responses_offset + SURVEY_HISTORY_PAGE_SIZE
+        next_offset = responses_offset + SURVEY_HISTORY_PAGE_SIZE
+        return render(request, 'the_gatehouse/surveys/partials/history_responses_list.html', {
+            'past_responses': items,
+            'has_more_responses': has_more,
+            'responses_offset': next_offset,
+        })
+
+    if load_type == 'archived':
+        items = archived_surveys[archived_offset:archived_offset + SURVEY_HISTORY_PAGE_SIZE]
+        has_more = len(archived_surveys) > archived_offset + SURVEY_HISTORY_PAGE_SIZE
+        next_offset = archived_offset + SURVEY_HISTORY_PAGE_SIZE
+        return render(request, 'the_gatehouse/surveys/partials/history_archived_list.html', {
+            'archived_surveys': items,
+            'has_more_archived': has_more,
+            'archived_offset': next_offset,
+        })
+
+    # Full page load - slice to initial page size
+    context = {
+        'past_responses': past_responses[:SURVEY_HISTORY_PAGE_SIZE],
+        'has_more_responses': len(past_responses) > SURVEY_HISTORY_PAGE_SIZE,
+        'responses_offset': SURVEY_HISTORY_PAGE_SIZE,
+        'total_responses': len(past_responses),
+        'archived_surveys': archived_surveys[:SURVEY_HISTORY_PAGE_SIZE],
+        'has_more_archived': len(archived_surveys) > SURVEY_HISTORY_PAGE_SIZE,
+        'archived_offset': SURVEY_HISTORY_PAGE_SIZE,
+        'total_archived': len(archived_surveys),
+    }
+    return render(request, 'the_gatehouse/surveys/survey_history.html', context)
 
 
 @player_required
@@ -3489,10 +3640,8 @@ def create_survey_view(request):
     else:
         user_tournaments = profile.hosted_tournaments.open()
 
-    # Get posts the user can associate with the survey (designer or official)
-    user_posts = Post.objects.filter(
-        Q(designer=profile) | Q(official=True)
-    ).distinct()
+    # Get public posts that the user designed
+    user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()
 
     context = {
         'likert_scales': likert_scales,

@@ -1,12 +1,13 @@
 # Changelog
 
-## [1.10.3] - 2026-1-16 ?
+## [1.10.3] - 2026-1-16 Surveys
 
 ### New Features
 - Surveys (Multiple Choice, Multiple Selection, Open Ended, Yes/No, Scale, Ranking, Availability, Time, Date)
 
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update
+- Discord Guild invite requests now display average response time.
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences

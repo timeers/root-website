@@ -1,0 +1,57 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'Survey History' %} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    {# Header with Back Link #}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="root-title mb-0">{% trans 'Survey History' %}</h1>
+        <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
+        </a>
+    </div>
+
+    {# MY PAST RESPONSES SECTION #}
+    <div class="mb-4">
+        <h4 class="mb-3">
+            <i class="bi bi-clipboard-check"></i> {% trans 'My Past Responses' %}
+            {% if total_responses %}
+                <span class="badge bg-secondary">{{ total_responses }}</span>
+            {% endif %}
+        </h4>
+        {% if past_responses %}
+            <div class="list-group" id="responses-list">
+                {% include 'the_gatehouse/surveys/partials/history_responses_list.html' %}
+            </div>
+        {% else %}
+            <p class="text-muted">{% trans 'You have no past survey responses.' %}</p>
+        {% endif %}
+    </div>
+
+    {# MY ARCHIVED SURVEYS SECTION #}
+    <div class="mb-4">
+        <h4 class="mb-3">
+            <i class="bi bi-archive"></i> {% trans 'My Archived Surveys' %}
+            {% if total_archived %}
+                <span class="badge bg-secondary">{{ total_archived }}</span>
+            {% endif %}
+        </h4>
+        {% if archived_surveys %}
+            <div class="list-group" id="archived-list">
+                {% include 'the_gatehouse/surveys/partials/history_archived_list.html' %}
+            </div>
+        {% else %}
+            <p class="text-muted">{% trans 'You have no archived surveys.' %}</p>
+        {% endif %}
+    </div>
+
+    {# Empty state if nothing in history #}
+    {% if not past_responses and not archived_surveys %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            {% trans 'Your survey history will appear here once you respond to surveys or create surveys that have ended.' %}
+        </div>
+    {% endif %}
+</div>
+{% endblock content %}

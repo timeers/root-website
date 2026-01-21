@@ -15,16 +15,36 @@
         </div>
 
         <!-- Info Section -->
-        {% if guild.request_message %}
+        {% if guild.request_message or formatted_approval_time %}
         <div class="guild-info-box">
-          <div class="info-icon">
-            <i class="bi bi-info-circle-fill"></i>
+          {% if guild.request_message %}
+          <div class="guild-info-row">
+            <div class="info-icon">
+              <i class="bi bi-info-circle-fill"></i>
+            </div>
+            <div class="info-content">
+              {{ guild.request_message|linebreaks }}
+            </div>
           </div>
-          <div class="info-content">
-            {{ guild.request_message|linebreaks }}
+          {% endif %}
+          {% if formatted_approval_time %}
+          <div class="guild-info-row">
+            <div class="info-icon">
+              <i class="bi bi-clock-fill"></i>
+            </div>
+            <div class="info-content">
+              {% if guild.auto_approve_invite %}
+                Requests are approved automatically. You will receive an invite after submitting this request.
+              {% else %}
+                On average, it takes {{ formatted_approval_time }} to receive a response. You will see an alert once your request is approved.
+              {% endif %}
+            </div>
           </div>
+          {% endif %}
         </div>
         {% endif %}
+
+
 
         <!-- Form Section -->
         <div class="guild-card-body">
@@ -182,8 +202,14 @@
   background: #f7f8fa;
   padding: 20px 28px;
   display: flex;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   border-bottom: 1px solid #e3e5e8;
+}
+
+.guild-info-row {
+  display: flex;
+  gap: 16px;
 }
 
 .info-icon {

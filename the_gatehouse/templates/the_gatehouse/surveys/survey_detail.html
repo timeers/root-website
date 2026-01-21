@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n socialaccount %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
 {% block content %}
@@ -24,6 +24,8 @@
         <div class="col-md-3 col-sm-6">
             {% if can_view_survey %}
                 <a href="{% url 'survey-preview' survey.slug %}">
+            {% elif not user.is_authenticated %}
+                <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
             {% endif %}
             <div class="card border-primary h-100">
                 <div class="card-body text-center">
@@ -32,7 +34,7 @@
                     <small class="text-muted">{% trans 'Question' %}{{ survey_question_count|pluralize }}</small>
                 </div>
             </div>
-            {% if can_view_survey %}
+            {% if can_view_survey or not user.is_authenticated %}
                 </a>
             {% endif %}
         </div>
@@ -171,14 +173,50 @@
                 </a>
             </div>
         </div>
+        {% elif can_view_survey %}
+            {% if survey.has_ended %}
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">No Response</h5>
+                        <p class="mb-0">This survey has closed.</p>
+                    </div>
+                </div>
+            {% elif not survey.has_started %}
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">No Response{% if allow_multiple_responses %}s{% endif %} Yet</h5>
+                        <p class="mb-0">This survey has not started yet.</p>
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">No Response</h5>
+                        <p class="mb-0">This survey is not available.</p>
+                    </div>
+                </div>
+            {% endif %}
+        {% elif survey.is_public and not user.is_authenticated %}
+            <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-door-open fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">Public Survey</h5>
+                        <p class="mb-0">Log in to take this survey.</p>
+                    </div>
+                </div>
+            </a>
         {% else %}
-        <div class="alert alert-warning d-flex align-items-center">
-            <i class="bi bi-shield-exclamation fs-4 me-3"></i>
-            <div>
-                <h5 class="alert-heading mb-1">Private Survey</h5>
-                <p class="mb-0">You do not have access to take this survey.</p>
+            <div class="alert alert-warning d-flex align-items-center">
+                <i class="bi bi-shield-exclamation fs-4 me-3"></i>
+                <div>
+                    <h5 class="alert-heading mb-1">Private Survey</h5>
+                    <p class="mb-0">You do not have access to take this survey.</p>
+                </div>
             </div>
-        </div>
         {% endif %}
     {% endif %}
 </div>

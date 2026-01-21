@@ -4,54 +4,79 @@
 
 {% block content %}
 <div class="content-section">
-    <h1 class="root-title">{% trans 'Available Surveys' %}</h1>
-
-    {% if surveys %}
-        <div class="list-group mt-4">
-            {% for survey in surveys %}
-                <div class="list-group-item">
-                    <div class="d-flex w-100 justify-content-between align-items-start">
-                        <div class="flex-fill">
-                            <h5 class="mb-1">
-                                <a href="{% url 'survey-detail' survey.slug %}">{{ survey.title }}</a>
-                            </h5>
-                            {% if survey.description %}
-                                <p class="mb-1 text-muted">{{ survey.description }}</p>
-                            {% endif %}
-                            <small class="text-secondary">
-                                {{ survey.response_count }} {% trans 'response' %}{{ survey.response_count|pluralize }}
-                                {% if survey.end_date %}
-                                    | {% trans 'Closes' %}: {{ survey.end_date|date:"M d, Y" }}
-                                {% endif %}
-                            </small>
-                        </div>
-                        <div class="ms-3">
-                            {% if user.is_authenticated %}
-                                {% if survey.user_has_responded %}
-                                    {% if survey.allow_multiple_responses %}
-                                        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-outline-primary mt-2">
-                                            {% trans 'Take Again' %}
-                                        </a>
-                                    {% endif %}
-                                    <i class="bi bi-check-circle text-success"></i>
-                                {% else %}
-                                    <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary">
-                                        {% trans 'Take Survey' %}
-                                    </a>
-                                {% endif %}
-                            {% else %}
-                                <a href="{% url 'account_login' %}?next={% url 'survey-redirect' survey.slug %}" class="btn btn-sm btn-primary">
-                                    {% trans 'Login to Participate' %}
-                                </a>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            {% endfor %}
+    {# Header with Create Button #}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="root-title mb-0">{% trans 'Surveys' %}</h1>
+        <div>
+            {% if user.is_authenticated %}
+                <a href="{% url 'survey-history' %}" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-clock-history"></i> {% trans 'History' %}
+                </a>
+            {% endif %}
+            {% if can_create_survey %}
+                <a href="{% url 'survey-create' %}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> {% trans 'Create Survey' %}
+                </a>
+            {% endif %}
         </div>
-    {% else %}
-        <div class="alert alert-info mt-4">
+    </div>
+
+    {% if user.is_authenticated %}
+        {# MY SURVEYS SECTION #}
+        <div class="mb-4">
+            <h4 class="mb-3">
+                <i class="bi bi-person-circle"></i> {% trans 'My Active Surveys' %}
+            </h4>
+            {% if my_surveys %}
+                <div class="list-group">
+                    {% for survey in my_surveys %}
+                        {% include 'the_gatehouse/surveys/partials/survey_list_item.html' with survey=survey show_privacy_badge=True %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted">{% trans 'You have not created any surveys.' %}</p>
+            {% endif %}
+        </div>
+
+        {# PRIVATE SURVEYS SECTION #}
+        <div class="mb-4">
+            <h4 class="mb-3">
+                <i class="bi bi-shield-lock"></i> {% trans 'Private Surveys' %}
+            </h4>
+            {% if private_surveys %}
+                <div class="list-group">
+                    {% for survey in private_surveys %}
+                        {% include 'the_gatehouse/surveys/partials/survey_list_item.html' with survey=survey show_access_type=True %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted">{% trans 'No private surveys available.' %}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {# PUBLIC SURVEYS SECTION #}
+    <div class="mb-4">
+        <h4 class="mb-3">
+            <i class="bi bi-globe"></i> {% trans 'Public Surveys' %}
+        </h4>
+        {% if public_surveys %}
+            <div class="list-group">
+                {% for survey in public_surveys %}
+                    {% include 'the_gatehouse/surveys/partials/survey_list_item.html' with survey=survey %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-muted">{% trans 'No public surveys available.' %}</p>
+        {% endif %}
+    </div>
+
+    {# Empty state for unauthenticated users with no public surveys #}
+    {% if not user.is_authenticated and not public_surveys %}
+        <div class="alert alert-info">
             {% trans 'No surveys are currently available.' %}
+            <a href="{% url 'account_login' %}" class="alert-link">{% trans 'Log in' %}</a>
+            {% trans 'to see private surveys you may have access to.' %}
         </div>
     {% endif %}
 </div>

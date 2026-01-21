@@ -1,0 +1,39 @@
+{% load i18n %}
+{% for response in past_responses %}
+    <a href="{% url 'survey-user-response' response.survey.slug response.id %}"
+       class="list-group-item list-group-item-action list-group-item-light">
+        <div class="d-flex w-100 justify-content-between align-items-start">
+            <div class="flex-fill">
+                <h5 class="mb-1 text-muted">
+                    {{ response.survey.title }}
+                    {% if not response.survey.is_public %}
+                        <i class="bi bi-shield-lock"></i>
+                    {% endif %}
+                </h5>
+                <small class="text-secondary">
+                    {% trans 'Responded' %}: {{ response.submitted_at|date:"M d, Y" }}
+                    {% if response.survey.end_date %}
+                        | {% trans 'Closed' %}: {{ response.survey.end_date|date:"M d, Y" }}
+                    {% endif %}
+                    {% if not response.survey.is_active %}
+                        | <span class="text-warning">{% trans 'Inactive' %}</span>
+                    {% endif %}
+                </small>
+            </div>
+            <div class="ms-3 d-flex align-items-center">
+                <span class="text-success" title="{% trans 'View Response' %}">
+                    <i class="bi bi-eye"></i>
+                </span>
+            </div>
+        </div>
+    </a>
+{% endfor %}
+{% if has_more_responses %}
+    <button type="button"
+            class="list-group-item list-group-item-action text-center text-primary"
+            hx-get="{% url 'survey-history' %}?load_type=responses&responses_offset={{ responses_offset }}"
+            hx-target="this"
+            hx-swap="outerHTML">
+        <i class="bi bi-arrow-down-circle"></i> {% trans 'Load more' %}
+    </button>
+{% endif %}

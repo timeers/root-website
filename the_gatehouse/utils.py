@@ -165,3 +165,5 @@ def format_bulleted_list(items):
     return "\n".join(f"• {item}" for item in items[:20])
 
 
+def plural(value, unit):
+    return f"{value} {unit}" + ("s" if value != 1 else "")

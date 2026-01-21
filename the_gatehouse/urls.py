@@ -10,7 +10,7 @@ from .views import (user_settings, player_page_view,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification,
-                    survey_list_view, survey_results_view, my_surveys_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_redirect, survey_detail_view,
+                    survey_list_view, survey_history_view, survey_results_view, my_surveys_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_redirect, survey_detail_view,
                     create_survey_view, survey_edit_view, survey_preview_view, duplicate_survey_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
                     get_question_data, survey_responses_view)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
@@ -76,6 +76,7 @@ urlpatterns = [
 
     # Survey URLs
     path('surveys/', survey_list_view, name='survey-list'),
+    path('surveys/history/', survey_history_view, name='survey-history'),
     path('surveys/create/', create_survey_view, name='survey-create'),
     path('surveys/api/search-posts/', search_posts_for_survey, name='search-posts-for-survey'),
     path('surveys/api/search-players/', search_players_for_survey, name='search-players-for-survey'),

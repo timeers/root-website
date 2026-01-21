@@ -1041,6 +1041,20 @@ class Survey(models.Model):
             return False
         return True
 
+    def has_started(self):
+        """Check if survey has started"""
+        now = timezone.now()
+        if self.start_date and now < self.start_date:
+            return False
+        return True
+
+    def has_ended(self):
+        """Check if survey has ended"""
+        now = timezone.now()
+        if self.end_date and now > self.end_date:
+            return True
+        return False
+
     def question_count(self):
         """Get total number of visible (non-hidden) questions"""
         return self.questions.filter(is_hidden=False).count()
@@ -1070,7 +1084,7 @@ class Survey(models.Model):
         return user_profile.admin or user_profile == self.created_by
 
     def can_view_survey(self, user_profile):
-        """Check if a user can view the survey"""
+        """Check if a user can view the survey details"""
         if not user_profile:
             return False
 
@@ -1644,7 +1658,7 @@ class Answer(models.Model):
 class RankedAnswer(models.Model):
     """For ranking questions - stores the rank order of choices"""
     answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_items')
-    choice = models.ForeignKey(Choice, on_delete=models.PROTECT)
+    choice = models.ForeignKey(Choice, on_delete=models.CASCADE)
     rank = models.PositiveIntegerField(help_text="Position in ranking (1 = first choice)")
 
     class Meta:
