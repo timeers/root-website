@@ -56,6 +56,9 @@
                     {# Time Availability - show bar chart with timezone conversion #}
                     <div class="alert alert-info mb-3">
                         <i class="bi bi-clock"></i> {% trans 'Times shown in your timezone' %}: <span id="ta-timezone-{{ question_data.question.id }}"></span>
+                        <br><small class="text-muted">
+                            <i class="bi bi-calendar3"></i> {% trans 'Applicable days' %}: {{ question_data.question.get_enabled_days_display }}
+                        </small>
                         <br><small class="text-muted">{% trans 'Sorted by popularity (most selected first)' %}</small>
                     </div>
                     {% for result in question_data.results %}

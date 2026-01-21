@@ -26,7 +26,7 @@ from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, SurveyResponseForm
-from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest, Survey
+from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest, Survey, TA_DAY_CODES
 from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar, get_discord_invite_info
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri
@@ -2084,6 +2084,7 @@ def get_question_data(request, question_id):
         'post_selection_mode': question.post_selection_mode or None,
         'has_responses': response_count > 0,
         'response_count': response_count,
+        'ta_enabled_days': question.ta_enabled_days if question.ta_enabled_days else TA_DAY_CODES,
     }
 
     return JsonResponse(data)
@@ -3089,6 +3090,10 @@ def survey_edit_view(request, slug):
                             question.post_component = None
                             question.post_selection_mode = None
 
+                        # Update Time Availability enabled days
+                        if q_data['type'] == 'TA':
+                            question.ta_enabled_days = q_data.get('ta_enabled_days') or TA_DAY_CODES
+
                         question.save()
                         updated_question_ids.add(question.id)
 
@@ -3161,6 +3166,11 @@ def survey_edit_view(request, slug):
                         # Add likert scale if needed
                         if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
                             question.likert_scale_id = q_data['likert_scale_id']
+                            question.save()
+
+                        # Handle Time Availability enabled days
+                        if q_data['type'] == 'TA':
+                            question.ta_enabled_days = q_data.get('ta_enabled_days') or TA_DAY_CODES
                             question.save()
 
                         # Handle Post-based questions
@@ -3257,6 +3267,7 @@ def survey_edit_view(request, slug):
             'post_choices': [],
             'has_responses': question.id in questions_with_responses,
             'response_count': question_response_count,
+            'ta_enabled_days': question.ta_enabled_days if question.ta_enabled_days else TA_DAY_CODES,
         }
 
         # Add choices if applicable (only non-hidden)
@@ -3413,6 +3424,11 @@ def create_survey_view(request):
                     # Add likert scale if needed
                     if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
                         question.likert_scale_id = q_data['likert_scale_id']
+                        question.save()
+
+                    # Handle Time Availability enabled days
+                    if q_data['type'] == 'TA':
+                        question.ta_enabled_days = q_data.get('ta_enabled_days') or TA_DAY_CODES
                         question.save()
 
                     # Handle Post-based questions

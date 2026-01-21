@@ -706,11 +706,40 @@ function handleTypeChange(questionId, existingData = null) {
 
     if (type === 'TA') {
         // Time Availability - automatically creates 24 UTC hour choices
+        const enabledDays = existingData?.ta_enabled_days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const hasResponses = existingData?.has_responses || false;
+        const dayLabels = {
+            'mon': 'Mon', 'tue': 'Tue', 'wed': 'Wed',
+            'thu': 'Thu', 'fri': 'Fri', 'sat': 'Sat', 'sun': 'Sun'
+        };
+
+        const dayCheckboxes = Object.entries(dayLabels).map(([code, label]) => `
+            <div class="form-check form-check-inline">
+                <input class="form-check-input ta-day-checkbox" type="checkbox"
+                       id="ta_day_${questionId}_${code}" value="${code}"
+                       ${enabledDays.includes(code) ? 'checked' : ''}
+                       ${hasResponses ? 'disabled' : ''}>
+                <label class="form-check-label" for="ta_day_${questionId}_${code}">${label}</label>
+            </div>
+        `).join('');
+
+        const helpText = hasResponses
+            ? '<small class="text-muted"><i class="bi bi-lock"></i> Day selection locked - question has responses.</small>'
+            : '<small class="text-muted">Select which days this question applies to (at least one required).</small>';
+
         optionsContainer.innerHTML = `
             <div class="alert alert-info">
                 <i class="bi bi-clock"></i> <strong>Time Availability Question</strong><br>
                 <small>This question type automatically creates 24 hour slots (0-23 UTC).
                 Respondents will see times in their local timezone, and selections are stored as UTC hours.</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Applicable Days <span class="text-danger">*</span></label>
+                ${helpText}
+                <div class="ta-days-container">${dayCheckboxes}</div>
+                <div class="invalid-feedback" id="ta_days_error_${questionId}" style="display: none;">
+                    Please select at least one day.
+                </div>
             </div>
         `;
     } else if (type === 'DY') {
@@ -1613,6 +1642,21 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         } else if (questionData.type === 'LK') {
             const scaleSelect = card.querySelector('.likert-scale-select');
             questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+        } else if (questionData.type === 'TA') {
+            // Time Availability - collect enabled days
+            const dayCheckboxes = card.querySelectorAll('.ta-day-checkbox:checked');
+            const enabledDays = Array.from(dayCheckboxes).map(cb => cb.value);
+            questionData.ta_enabled_days = enabledDays;
+
+            // Validation: require at least one day
+            if (enabledDays.length === 0) {
+                validationErrors.push({
+                    questionId: card.dataset.questionId,
+                    questionOrder: questionData.order,
+                    type: 'ta_days',
+                    message: 'Please select at least one day for the time availability question.'
+                });
+            }
         }
 
         questions.push(questionData);
@@ -1669,6 +1713,17 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                 // Scroll to first error
                 if (validationErrors.indexOf(error) === 0) {
                     choicesSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else if (error.type === 'ta_days') {
+                // Show error for Time Availability days
+                const errorDiv = card.querySelector(`#ta_days_error_${error.questionId}`);
+                if (errorDiv) {
+                    errorDiv.style.display = 'block';
+                }
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             }
         });

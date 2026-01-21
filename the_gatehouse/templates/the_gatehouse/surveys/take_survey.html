@@ -83,6 +83,9 @@
                                 <i class="bi bi-clock"></i> <span class="timezone-name">Detecting your timezone...</span>
                             </div>
                             <p class="text-muted small mb-2">
+                                <i class="bi bi-calendar3"></i> <strong>{% trans 'Applicable days' %}:</strong> {{ question.get_enabled_days_display }}
+                            </p>
+                            <p class="text-muted small mb-2">
                                 <i class="bi bi-check2-square"></i> {% trans 'Select all relevant hours (times shown in your local timezone):' %}
                             </p>
                             {% with field=form|get_question_field:question.id %}

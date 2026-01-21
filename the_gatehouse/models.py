@@ -1196,6 +1196,18 @@ class LikertScale(models.Model):
         }
 
 
+# Day configuration constants for TIME_AVAILABILITY questions
+TA_DAY_CODES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+TA_DAY_LABELS = {
+    'mon': 'Monday', 'tue': 'Tuesday', 'wed': 'Wednesday',
+    'thu': 'Thursday', 'fri': 'Friday', 'sat': 'Saturday', 'sun': 'Sunday'
+}
+
+def get_default_ta_days():
+    """Return all days enabled by default for TIME_AVAILABILITY questions"""
+    return TA_DAY_CODES.copy()
+
+
 # Each Survey is made up of one or more questions
 # The Type determines what kind of question it is
 class Question(models.Model):
@@ -1237,6 +1249,13 @@ class Question(models.Model):
         choices=PostSelectionMode.choices,
         null=True, blank=True,
         help_text="How Posts are selected as choices"
+    )
+
+    # Day configuration for TIME_AVAILABILITY questions
+    ta_enabled_days = models.JSONField(
+        default=get_default_ta_days,
+        blank=True,
+        help_text="Days of week for TIME_AVAILABILITY questions"
     )
 
     class Meta:
@@ -1322,6 +1341,42 @@ class Question(models.Model):
     def get_visible_choices(self):
         """Get choices that should be shown to respondents"""
         return self.choices.filter(is_hidden=False)
+
+    def get_enabled_days_display(self):
+        """Return comma-separated list of enabled day names for TIME_AVAILABILITY questions"""
+        if self.question_type != self.QuestionType.TIME_AVAILABILITY:
+            return ""
+        days = self.ta_enabled_days if self.ta_enabled_days else TA_DAY_CODES
+
+        # Check for all days
+        all_days = set(TA_DAY_CODES)
+        # Check for weekdays (Monday-Friday)
+        weekdays = ['mon', 'tue', 'wed', 'thu', 'fri']
+        # Check for weekends (Saturday-Sunday)
+        weekends = ['sat', 'sun']
+
+        days_set = set(days)
+        weekdays_set = set(weekdays)
+        weekends_set = set(weekends)
+
+        # If all 7 days are selected
+        if days_set == all_days:
+            return "All Days"
+        # If exactly weekdays are selected
+        elif days_set == weekdays_set:
+            return "Weekdays"
+        # If exactly weekends are selected
+        elif days_set == weekends_set:
+            return "Weekends"
+        # Otherwise, show individual day names with proper formatting
+        else:
+            day_names = [TA_DAY_LABELS.get(d, d) for d in days]
+            if len(day_names) == 1:
+                return day_names[0]
+            elif len(day_names) == 2:
+                return f"{day_names[0]} and {day_names[1]}"
+            else:
+                return ", ".join(day_names[:-1]) + f", and {day_names[-1]}"
 
 
 # For multiple choice questions they will have multiple choices
