@@ -2,19 +2,31 @@
 <!-- Navigation and Actions -->
 <div class="d-flex align-items-center mb-4">
     <div>
+        {% if back_title and back_url %}
         <a href="{{back_url}}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> {{back_title}}
         </a>
+        {% else %}
+        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Surveys
+        </a>
+        {% endif%}
     </div>
-    <div class="ms-auto d-flex gap-2">
-        {% if can_see_results %}
-            <a href="{% url 'survey-results' survey.slug %}" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
+    {% if survey %}
+    <div class="ms-auto d-none d-md-flex gap-2">
+        {% if view_detail_button %}
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-success">
+                <i class="bi bi-eye"></i> {% trans 'View Survey' %}
             </a>
         {% endif %}
         {% if can_take_survey %}
-            <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-success">
+            <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-outline-success">
                 <i class="bi bi-list-check"></i> {% trans 'Take Survey' %}
+            </a>
+        {% endif %}
+        {% if can_see_results %}
+            <a href="{% url 'survey-results' survey.slug %}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
             </a>
         {% endif %}
         {% if can_edit_survey %}
@@ -23,4 +35,40 @@
             </a>
         {% endif %}
     </div>
+
+
+    <div class="dropdown d-md-none ms-auto">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false">
+            {% trans "Actions" %}
+        </button>
+
+        <ul class="dropdown-menu dropdown-menu-end">
+            {% if can_take_survey %}
+                <li>
+                    <a class="dropdown-item" href="{% url 'survey-take' survey.slug %}">
+                        <i class="bi bi-list-check"></i> {% trans 'Take Survey' %}
+                    </a>
+                </li>
+            {% endif %}
+            {% if can_see_results %}
+                <li>
+                    <a class="dropdown-item" href="{% url 'survey-results' survey.slug %}">
+                        <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
+                    </a>
+                </li>
+            {% endif %}
+            {% if can_edit_survey %}
+                <li>
+                    <a class="dropdown-item" href="{% url 'survey-edit' survey.slug %}">
+                        <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
+                    </a>
+                </li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+
 </div>

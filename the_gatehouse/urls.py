@@ -11,7 +11,7 @@ from .views import (user_settings, player_page_view,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification,
                     survey_list_view, survey_history_view, survey_results_view, my_surveys_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_redirect, survey_detail_view,
-                    create_survey_view, survey_edit_view, survey_preview_view, duplicate_survey_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
+                    create_survey_view, survey_edit_view, survey_delete_view, survey_preview_view, duplicate_survey_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
                     get_question_data, survey_responses_view)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
@@ -87,6 +87,7 @@ urlpatterns = [
     path('surveys/<slug:slug>/redirect/', survey_redirect, name='survey-redirect'),
     path('surveys/<slug:slug>/take/', survey_take_view, name='survey-take'),
     path('surveys/<slug:slug>/edit/', survey_edit_view, name='survey-edit'),
+    path('surveys/<slug:slug>/delete/', survey_delete_view, name='survey-delete'),
     path('surveys/<slug:slug>/preview/', survey_preview_view, name='survey-preview'),
     path('surveys/<slug:slug>/duplicate/', duplicate_survey_view, name='survey-duplicate'),
     path('surveys/<slug:slug>/results/', survey_results_view, name='survey-results'),

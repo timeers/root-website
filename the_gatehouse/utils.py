@@ -8,7 +8,7 @@ from django.utils.text import slugify
 
 from randomcolor import RandomColor
 
-RESERVED_SLUGS = {'edit', 'lang', 'add', 'delete', 'create'}
+RESERVED_SLUGS = {'edit', 'lang', 'add', 'delete', 'create', 'history', 'new', 'copy', 'duplicate'}
 
 def generate_neon_color():
     random_color = RandomColor()

@@ -173,7 +173,6 @@ def leaderboard_view(request):
 
 
     # Determine template
-    t0 = time.perf_counter()
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
     else:
@@ -185,11 +184,7 @@ def leaderboard_view(request):
             send_discord_message(f'{get_uuid(request)} viewing The Leaderboard')
         template_name = 'the_warroom/leaderboard_home.html'
     
-    t1 = time.perf_counter()
-    # print(f"[TIMING] template names: {t1 - t0:.4f}s")
-    
     # Build queryset
-    t0 = time.perf_counter()
     if request.user.is_authenticated and not request.user.profile.weird:
         queryset = Game.objects.filter(official=True, final=True).prefetch_related(
             'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
@@ -207,15 +202,9 @@ def leaderboard_view(request):
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
     games = filterset.qs.order_by('-date_posted')
     games_count = games.count()
-    t1 = time.perf_counter()
-    # print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
     
     # Build context
-    t10 = time.perf_counter()
     context = {}
-    
-    t0 = time.perf_counter()
-    # print(f"[TIMING] context start: {t0 - t10:.4f}s")
     
     # Theme
     theme = get_theme(request)
@@ -226,30 +215,24 @@ def leaderboard_view(request):
     context['background_image'] = background_image
     context['foreground_images'] = foreground_images
     context['background_pattern'] = background_pattern
-    
-    t1 = time.perf_counter()
-    # print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
-    
 
     
     # Leaderboard thresholds
     efforts = Effort.objects.filter(game__in=games)
     if leaderboard_threshold == 0:
         if games_count > 5000:
-            leaderboard_threshold = 10
+            leaderboard_threshold = 25
         elif games_count > 2000:
-            leaderboard_threshold = 5
+            leaderboard_threshold = 15
         elif games_count > 1500:
-            leaderboard_threshold = 4
+            leaderboard_threshold = 10
         elif games_count > 1000:
-            leaderboard_threshold = 3
+            leaderboard_threshold = 5
         elif games_count > 500:
-            leaderboard_threshold = 2
+            leaderboard_threshold = 3
         else:
             leaderboard_threshold = 1
         
-    t2 = time.perf_counter()
-    # print(f"[TIMING] context games count: {t2 - t1:.4f}s")
     top_players = Profile.leaderboard(
         limit=leaderboard_places, 
         effort_qs=efforts, 
@@ -261,8 +244,6 @@ def leaderboard_view(request):
         top_quantity=True, 
         game_threshold=leaderboard_threshold, 
         as_json=False)
-    t3 = time.perf_counter()
-    # print(f"[TIMING] context player leaderboard assembly: {t3 - t2:.4f}s")
     top_factions = Faction.leaderboard(
         limit=leaderboard_places, 
         effort_qs=efforts, 
@@ -274,8 +255,6 @@ def leaderboard_view(request):
         top_quantity=True, 
         game_threshold=leaderboard_threshold, 
         as_json=False)
-    t4 = time.perf_counter()
-    # print(f"[TIMING] context faction leaderboard assembly: {t4 - t3:.4f}s")
     # Leaderboard data
     context.update({
         'top_players': top_players,
@@ -293,14 +272,8 @@ def leaderboard_view(request):
         'filterset': filterset,
     })
     
-    t5 = time.perf_counter()
-    # print(f"[TIMING] context update: {t5 - t4:.4f}s")
 
     response = render(request, template_name, context)
-    t6 = time.perf_counter()
-
-    # print(f"[TIMING] render: {t6 - t5:.4f}s")
-    # print(f"[TIMING] total: {t6 - t0:.4f}s")
     
     return response
 

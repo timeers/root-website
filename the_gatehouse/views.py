@@ -2485,10 +2485,15 @@ def survey_take_view(request, slug):
     # Get only visible (non-hidden) questions for display
     visible_questions = survey.questions.filter(is_hidden=False)
 
+    back_title = "Back to Survey"
+    back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+
     context = {
         'survey': survey,
         'form': form,
         'visible_questions': visible_questions,
+        'back_title': back_title,
+        'back_url': back_url,
     }
     return render(request, 'the_gatehouse/surveys/take_survey.html', context)
 
@@ -2511,12 +2516,19 @@ def survey_user_response_view(request, slug, response_id):
     can_edit_survey = survey.can_edit_survey(profile)
     can_take_survey = survey.can_take_survey(profile)
 
-    if user_response.user == profile:
-        back_title = "Back to Survey"
-        back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+    return_to = request.GET.get('return_to')
+    view_detail_button = False
+    if return_to:
+        back_title = "Back to History"
+        back_url = return_to
+        view_detail_button = True
     else:
-        back_title = "Back to Responses"
-        back_url = reverse('survey-responses', kwargs={'slug': survey.slug})
+        if user_response.user == profile:
+            back_title = "Back to Survey"
+            back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+        else:
+            back_title = "Back to Responses"
+            back_url = reverse('survey-responses', kwargs={'slug': survey.slug})
 
     # Show their previous response in read-only mode
     return render(request, 'the_gatehouse/surveys/view_survey_response.html', {
@@ -2528,6 +2540,7 @@ def survey_user_response_view(request, slug, response_id):
         'can_take_survey': can_take_survey,
         'back_title': back_title,
         'back_url': back_url,
+        'view_detail_button': view_detail_button,
     })
 
 
@@ -2756,8 +2769,13 @@ def survey_detail_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_view_survey = survey.can_view_survey(profile)
 
-    back_url = reverse('survey-list')
-    back_title = "Back to Surveys"
+    back_url = request.GET.get('return_to') or reverse('survey-list')
+    # back_url = reverse('survey-list')
+    if back_url == '/surveys/history/':
+        back_title = "Back to History"
+    else:
+        back_title = "Back to Surveys"
+    
 
     context = {
         'responses': user_responses,
@@ -2813,11 +2831,11 @@ def survey_results_view(request, slug):
                     post_results = Post.objects.filter(
                         multiple_post_answers__question=question,
                         multiple_post_answers__response__survey=survey
-                    ).annotate(count=Count('multiple_post_answers')).values('name', 'count')
+                    ).annotate(count=Count('multiple_post_answers')).values('title', 'count')
                     for result in post_results:
                         percentage = (result['count'] / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
                         results_list.append({
-                            'choice': result['name'],
+                            'choice': result['title'],
                             'count': result['count'],
                             'percentage': round(percentage, 1)
                         })
@@ -2958,10 +2976,15 @@ def survey_results_view(request, slug):
 
         questions_with_results.append(question_data)
 
+    back_title = "Back to Survey"
+    back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+
     context = {
         'survey': survey,
         'total_responses': survey.response_count(),
         'questions_with_results': questions_with_results,
+        'back_title': back_title,
+        'back_url': back_url,
     }
     return render(request, 'the_gatehouse/surveys/survey_results.html', context)
 
@@ -2986,49 +3009,72 @@ def my_surveys_view(request, slug):
     return render(request, 'the_gatehouse/surveys/my_surveys.html', context)
 
 
-@admin_required
+@login_required
 def duplicate_survey_view(request, slug):
     """Duplicate an existing survey."""
-    from .models import Survey, Question, Choice
+    from the_gatehouse.models import Survey, Question, Choice
 
     original_survey = get_object_or_404(Survey, slug=slug)
 
+    profile = request.user.profile
+    if not profile.admin and not original_survey.created_by == profile:
+        raise PermissionDenied
+
     try:
+        # Store original survey ID and ManyToMany data
+        original_survey_id = original_survey.id
+        invited_players = list(original_survey.invited_players.all())
+
         # Create a copy of the survey
-        new_survey = Survey.objects.create(
-            title=f"{original_survey.title} (Copy)",
-            description=original_survey.description,
-            is_active=True,
-            allow_multiple_responses=original_survey.allow_multiple_responses,
-            allow_edit_responses=original_survey.allow_edit_responses,
-            show_results_to_respondents=original_survey.show_results_to_respondents,
-            start_date=None,
-            end_date=None,
-            created_by=request.user.profile
+        original_survey.pk = None
+        original_survey.id = None
+        original_survey.slug = None  # Will be auto-generated
+        original_survey.title = f"{original_survey.title} (Copy)"
+        original_survey.is_active = False
+        original_survey.start_date = None
+        original_survey.end_date = None
+        original_survey.created_by = request.user.profile
+        original_survey.save()
+
+        new_survey = original_survey
+
+        # Set ManyToMany field after save
+        new_survey.invited_players.set(invited_players)
+
+        # Fetch original questions from the database
+        original_questions = Question.objects.filter(
+            survey_id=original_survey_id,
+            is_hidden=False
         )
 
-        # Copy all questions
-        for question in original_survey.questions.all():
-            new_question = Question.objects.create(
-                survey=new_survey,
-                text=question.text,
-                question_type=question.question_type,
-                likert_scale=question.likert_scale,
-                order=question.order,
-                required=question.required,
-                help_text=question.help_text
+        # Copy all non-hidden questions
+        for original_question in original_questions:
+            original_question_id = original_question.id
+
+            # Fetch original choices for this question
+            original_choices = Choice.objects.filter(
+                question_id=original_question_id,
+                is_hidden=False
             )
 
-            # Copy choices for choice-based questions
-            if question.question_type in ['MC', 'MS', 'YN', 'RK']:
-                for choice in question.choices.all():
-                    Choice.objects.create(
-                        question=new_question,
-                        text=choice.text,
-                        order=choice.order
-                    )
+            # Copy the question
+            original_question.pk = None
+            original_question.id = None
+            original_question.survey = new_survey
+            original_question.save()
 
-        messages.success(request, f'Survey duplicated successfully as "{new_survey.title}"')
+            new_question = original_question
+
+            # Copy all non-hidden choices for this question
+            # Skip TIME_AVAILABILITY and DAY_AVAILABILITY - these are auto-created by post_save signal
+            if original_question.question_type not in ['TA', 'DY']:
+                for original_choice in original_choices:
+                    original_choice.pk = None
+                    original_choice.id = None
+                    original_choice.question = new_question
+                    original_choice.save()
+
+        messages.success(request, f'"{new_survey.title}" created. Mark as active to publish.')
         return redirect('survey-edit', slug=new_survey.slug)
 
     except Exception as e:
@@ -3481,8 +3527,30 @@ def survey_edit_view(request, slug):
         'existing_questions': json.dumps(existing_questions),
         'hidden_questions': json.dumps(hidden_questions),
         'is_edit_mode': True,
+        'response_count': survey.responses.count(),
     }
     return render(request, 'the_gatehouse/surveys/edit_survey.html', context)
+
+
+@login_required
+def survey_delete_view(request, slug):
+    """Delete a survey and all its responses."""
+    from .models import Survey
+
+    survey = get_object_or_404(Survey, slug=slug)
+
+    profile = request.user.profile
+    if not profile.admin and not survey.created_by == profile:
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        survey_title = survey.title
+        survey.delete()
+        messages.success(request, f'Survey "{survey_title}" has been permanently deleted.')
+        return redirect('survey-list')
+
+    # GET request - show confirmation (handled via modal in edit page)
+    return redirect('survey-edit', slug=slug)
 
 
 @player_required

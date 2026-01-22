@@ -6,11 +6,19 @@
         <div class="flex-fill">
             <h5 class="mb-1">
                 {{ survey.title }}
-                {% if show_privacy_badge and not survey.is_public %}
-                        <i class="bi bi-shield-lock"></i>
-                {% endif %}
             </h5>
-            <small class="text-secondary">
+            {% if show_owner %}
+                <div class="d-flex align-items-center mb-1">
+                        {% if survey.created_by.image %}
+                            <img src="{{ survey.created_by.image.url }}" alt="{{ survey.created_by.name }}"
+                                    class="faction-icon me-1">
+                        {% else %}
+                            <i class="bi bi-people"></i>
+                        {% endif %}
+                        {{ survey.created_by.name }}
+                </div>
+            {% endif %}
+            <small class="text-secondary d-block">
                 {{ survey.response_count }} {% trans 'response' %}{{ survey.response_count|pluralize }}
                 {% if survey.end_date %}
                     {% trans 'Closes' %}: {{ survey.end_date|date:"M d, Y" }}

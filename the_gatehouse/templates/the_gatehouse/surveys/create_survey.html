@@ -9,11 +9,8 @@
 
 {% block content %}
 <div class="content-section">
-    <div class="mb-4">
-        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Surveys' %}
-        </a>
-    </div>
+    {% include 'the_gatehouse/surveys/partials/survey_navigation.html' %}
+
 
     <h1 class="root-title">{% trans 'Create New Survey' %}</h1>
 
@@ -80,7 +77,7 @@
                         </a>
                     {% empty %}
                         <div class="alert alert-info">
-                            {% trans 'No question templates available. Create templates in the admin panel.' %}
+                            {% trans 'No question templates available.' %}
                         </div>
                     {% endfor %}
                 </div>
