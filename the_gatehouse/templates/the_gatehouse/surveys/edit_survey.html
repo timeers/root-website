@@ -53,9 +53,14 @@
                         </ul>
                     </div>
                 </div>
-                <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
-                    <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
-                </button>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#templateModal">
+                        <i class="bi bi-download"></i> {% trans 'Load from Template' %}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
+                        <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -64,16 +69,16 @@
 
         <div class="d-none d-md-flex justify-content-between">
             <div>
-            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-lg btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
             </div>
             <div>
-                <button type="button" class="btn btn-lg btn-outline-warning" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
+                <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
                     <i class="bi bi-copy"></i> {% trans 'Duplicate' %}
                 </button>
-                <button type="button" class="btn btn-lg btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteSurveyModal">
+                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteSurveyModal">
                     <i class="bi bi-trash"></i> {% trans 'Delete' %}
                 </button>
-                <button type="submit" class="btn btn-success btn-lg fw-semibold">
+                <button type="submit" class="btn btn-success fw-semibold">
                     <i class="bi bi-check-circle"></i> {% trans 'Save Changes' %}
                 </button>
             </div>
@@ -97,82 +102,18 @@
     </form>
 </div>
 
+{# Save Question as Template Modal #}
+{% include 'the_gatehouse/surveys/modals/save_template_modal.html' %}
+
+{# Template Selection Modal #}
+{% include 'the_gatehouse/surveys/modals/template_selection_modal.html' %}
+
 {# Duplicate Survey Confirmation Modal #}
-<div class="modal fade" id="duplicateSurveyModal" tabindex="-1" aria-labelledby="duplicateSurveyModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-warning text-dark">
-                <h5 class="modal-title" id="duplicateSurveyModalLabel">
-                    <i class="bi bi-question-diamond"></i> {% trans 'Duplicate Survey' %}
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle-fill"></i>
-                    <strong>{% trans 'This will create a copy of:' %}</strong>
-                    <ul class="mb-0 mt-2">
-                        <li>{% trans 'Survey settings and configuration' %}</li>
-                        <li>{% trans 'All questions (excluding hidden questions)' %}</li>
-                        <li>{% trans 'All question options (excluding hidden options)' %}</li>
-                    </ul>
-                </div>
-
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                    <strong>{% trans 'Note:' %}</strong> {% trans 'The new survey will be set to inactive. Remember to activate it when you are ready to use it.' %}
-                </div>
-
-                <p>{% trans 'Do you want to create a copy of' %} "<strong>{{ survey.title }}</strong>"?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
-                <a href="{% url 'survey-duplicate' survey.slug %}" class="btn btn-warning">
-                    <i class="bi bi-copy"></i> {% trans 'Duplicate Survey' %}
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
+{% include 'the_gatehouse/surveys/modals/duplicate_survey_modal.html' %}
 
 {# Delete Survey Confirmation Modal #}
-<div class="modal fade" id="deleteSurveyModal" tabindex="-1" aria-labelledby="deleteSurveyModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="deleteSurveyModalLabel">
-                    <i class="bi bi-exclamation-triangle"></i> {% trans 'Delete Survey' %}
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                    <strong>{% trans 'Warning:' %}</strong> {% trans 'This action cannot be undone.' %}
-                </div>
+{% include 'the_gatehouse/surveys/modals/delete_survey_modal.html' %}
 
-                {% if response_count > 0 %}
-                <div class="alert alert-danger">
-                    <i class="bi bi-exclamation-octagon-fill"></i>
-                    <strong>{% trans 'This survey has' %} {{ response_count }} {% trans 'response' %}{{ response_count|pluralize }}!</strong>
-                    <p class="mb-0 mt-2">{% trans 'Deleting this survey will permanently remove all responses and their associated data.' %}</p>
-                </div>
-                {% endif %}
-
-                <p>{% trans 'Are you sure you want to permanently delete the survey' %} "<strong>{{ survey.title }}</strong>"?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
-                <form method="POST" action="{% url 'survey-delete' survey.slug %}" style="display: inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-danger">
-                        <i class="bi bi-trash"></i> {% trans 'Delete Permanently' %}
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock content %}
 
 {% block styles %}

@@ -11,8 +11,8 @@ from .views import (user_settings, player_page_view,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification,
                     survey_list_view, survey_history_view, survey_results_view, my_surveys_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_redirect, survey_detail_view,
-                    create_survey_view, survey_edit_view, survey_delete_view, survey_preview_view, duplicate_survey_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
-                    get_question_data, survey_responses_view)
+                    survey_create_view, survey_edit_view, survey_delete_view, survey_preview_view, survey_duplicate_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
+                    get_question_data, survey_responses_view, save_question_template, get_question_template, delete_question_template)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -77,7 +77,11 @@ urlpatterns = [
     # Survey URLs
     path('surveys/', survey_list_view, name='survey-list'),
     path('surveys/history/', survey_history_view, name='survey-history'),
-    path('surveys/create/', create_survey_view, name='survey-create'),
+    path('surveys/create/', survey_create_view, name='survey-create'),
+
+    path('surveys/api/save-question-template/', save_question_template, name='save-question-template'),
+    path('surveys/api/get-question-template/<int:template_id>/', get_question_template, name='get-question-template'),
+    path('surveys/api/delete-question-template/<int:template_id>/', delete_question_template, name='delete-question-template'),
     path('surveys/api/search-posts/', search_posts_for_survey, name='search-posts-for-survey'),
     path('surveys/api/search-players/', search_players_for_survey, name='search-players-for-survey'),
     path('surveys/api/tournament-rounds/', get_tournament_rounds, name='get-tournament-rounds'),
@@ -89,10 +93,10 @@ urlpatterns = [
     path('surveys/<slug:slug>/edit/', survey_edit_view, name='survey-edit'),
     path('surveys/<slug:slug>/delete/', survey_delete_view, name='survey-delete'),
     path('surveys/<slug:slug>/preview/', survey_preview_view, name='survey-preview'),
-    path('surveys/<slug:slug>/duplicate/', duplicate_survey_view, name='survey-duplicate'),
+    path('surveys/<slug:slug>/duplicate/', survey_duplicate_view, name='survey-duplicate'),
     path('surveys/<slug:slug>/results/', survey_results_view, name='survey-results'),
-
     path('surveys/<slug:slug>/responses/', survey_responses_view, name='survey-responses'),
+
     path('surveys/<slug:slug>/responses/<int:response_id>/', survey_user_response_view, name='survey-user-response'),
     path('surveys/<slug:slug>/responses/<int:response_id>/edit/', survey_user_response_edit_view, name='survey-edit-response'),
 

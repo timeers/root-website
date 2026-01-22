@@ -157,6 +157,7 @@
                             <ol class="mt-2">
                                 {% for ranked in answer.ranked_items.all %}
                                     <li class="d-flex align-items-center mb-1">
+                                        <span class="ranking-number me-2">{{ forloop.counter }}</span>
                                         {% if ranked.choice.post and ranked.choice.post.small_icon %}
                                             <img src="{{ ranked.choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
                                         {% endif %}
@@ -165,6 +166,7 @@
                                 {% endfor %}
                                 {% for ranked in answer.ranked_post_items.all %}
                                     <li class="d-flex align-items-center mb-1">
+                                        <span class="ranking-number me-2">{{ forloop.counter }}</span>
                                         {% if ranked.post.small_icon %}
                                             <img src="{{ ranked.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
                                         {% endif %}

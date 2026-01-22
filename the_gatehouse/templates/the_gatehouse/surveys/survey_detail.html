@@ -127,8 +127,12 @@
     <!-- Your Responses Section -->
     {% if responses %}
         <hr class="my-4">
-        <h3 class="mb-3">
+        <h3 class="mb-3 root-title">
+            {% if survey.allow_multiple_responses %}
             <i class="bi bi-file-earmark-text"></i> {% trans 'Your Responses' %}
+            {% else %}
+            <i class="bi bi-file-earmark-text"></i> {% trans 'Your Response' %}
+            {% endif %}
         </h3>
         <div class="row g-3">
             {% for response in responses %}

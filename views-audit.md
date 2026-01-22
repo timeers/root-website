@@ -123,7 +123,7 @@ Record issues found during the audit that need to be fixed or investigated later
 
 ### Surveys
 - [ ] `survey-list` - survey_list_view
-- [ ] `survey-create` - create_survey_view
+- [ ] `survey-create` - survey_create_view
 - [ ] `search-posts-for-survey` - search_posts_for_survey
 - [ ] `get-tournament-rounds` - get_tournament_rounds
 - [ ] `survey-detail` - survey_detail_view
@@ -131,7 +131,7 @@ Record issues found during the audit that need to be fixed or investigated later
 - [ ] `survey-take` - survey_take_view
 - [ ] `survey-edit` - survey_edit_view
 - [ ] `survey-preview` - survey_preview_view
-- [ ] `survey-duplicate` - duplicate_survey_view
+- [ ] `survey-duplicate` - survey_duplicate_view
 - [ ] `survey-results` - survey_results_view
 - [ ] `my-surveys` - my_surveys_view
 - [ ] `survey-user-response` - survey_user_response_view

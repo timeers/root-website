@@ -1,0 +1,43 @@
+{% load i18n %}
+<div class="modal fade" id="saveTemplateModal" tabindex="-1" aria-labelledby="saveTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="saveTemplateModalLabel">
+                    <i class="bi bi-floppy"></i> Save Question as Template
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="template-question-summary" class="alert alert-info mb-3">
+                    <!-- Question summary will be populated here -->
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Template Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="template-name" required 
+                           placeholder="e.g., 'Favorite Faction Question'">
+                </div>
+
+                {% if user.profile.group == 'A' %}
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="template-is-public">
+                        <label class="form-check-label" for="template-is-public">
+                            <i class="bi bi-globe"></i> Make this template public (available to all users)
+                        </label>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div id="template-save-error" class="alert alert-danger d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveQuestionTemplate()">
+                    <i class="bi bi-check-circle"></i> Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1718,6 +1718,13 @@ class QuestionTemplate(models.Model):
         help_text="Pre-selected Posts for 'individual' mode templates"
     )
 
+    # Day configuration for TIME_AVAILABILITY questions
+    ta_enabled_days = models.JSONField(
+        default=get_default_ta_days,
+        blank=True,
+        help_text="Days of week for TIME_AVAILABILITY questions"
+    )
+
     class Meta:
         ordering = ['name']
         verbose_name = 'Question Template'
@@ -1746,6 +1753,10 @@ class QuestionTemplate(models.Model):
                 data['post_choices'] = list(self.post_choices.values_list('id', flat=True))
         elif self.question_type in ['MC', 'MS', 'YN', 'RK'] and self.choices_data:
             data['choices'] = self.choices_data
+
+        # Handle Time Availability templates
+        if self.question_type == 'TA' and self.ta_enabled_days:
+            data['ta_enabled_days'] = self.ta_enabled_days
 
         return data
 

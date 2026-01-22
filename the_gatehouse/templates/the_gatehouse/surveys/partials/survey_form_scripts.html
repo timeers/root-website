@@ -262,8 +262,8 @@ const existingQuestions = {{ existing_questions|safe }};
 const hiddenQuestions = {{ hidden_questions|safe }};
 {% endif %}
 
-// Series/Round dynamic loading (for create mode)
-function loadSeriesRounds() {
+// Series/Round dynamic loading
+function loadSeriesRounds(preselectedRoundId = null) {
     const seriesSelect = document.getElementById('series');
     const roundSelect = document.getElementById('series_round');
 
@@ -290,6 +290,10 @@ function loadSeriesRounds() {
                     const option = document.createElement('option');
                     option.value = round.id;
                     option.textContent = round.name;
+                    // Pre-select the round if it matches
+                    if (preselectedRoundId && round.id == preselectedRoundId) {
+                        option.selected = true;
+                    }
                     roundSelect.appendChild(option);
                 });
             }
@@ -302,11 +306,13 @@ function loadSeriesRounds() {
         });
 }
 
-// Initialize series dropdown on page load (for create mode)
+// Initialize series dropdown on page load
 document.addEventListener('DOMContentLoaded', function() {
     const seriesSelect = document.getElementById('series');
     if (seriesSelect && seriesSelect.value && !seriesSelect.disabled) {
-        loadSeriesRounds();
+        // Get preselected round ID from data attribute if in edit mode
+        const preselectedRoundId = seriesSelect.dataset.preselectedRound || null;
+        loadSeriesRounds(preselectedRoundId);
     }
 });
 
@@ -357,6 +363,16 @@ function loadExistingQuestions() {
             </span>
         ` : '';
 
+        // Build save question to template button
+        const saveTemplateButton = `
+            <button type="button" class="btn btn-sm btn-outline-primary me-1" 
+                    onclick="openSaveTemplateModal('${questionId}')" 
+                    title="Save as template">
+                <i class="bi bi-floppy"></i>
+            </button>
+        `;
+
+
         // Modify delete button based on responses
         const deleteButton = hasResponses ? `
             <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${questionId}')"
@@ -380,6 +396,7 @@ function loadExistingQuestions() {
                         <i class="bi bi-grip-vertical"></i>
                     </span>
                     <span class="flex-fill"><strong>Question ${index + 1}</strong>${responseBadge}</span>
+                    ${saveTemplateButton}
                     ${deleteButton}
                 </div>
                 <div class="card-body">
@@ -446,6 +463,11 @@ function loadQuestionFromTemplate(templateData) {
                     <i class="bi bi-grip-vertical"></i>
                 </span>
                 <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-outline-primary me-1"
+                        onclick="openSaveTemplateModal('${questionId}')"
+                        title="Save as template">
+                    <i class="bi bi-floppy"></i>
+                </button>
                 <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
                     <i class="bi bi-trash"></i>
                 </button>
@@ -488,65 +510,9 @@ function loadQuestionFromTemplate(templateData) {
     container.insertAdjacentHTML('beforeend', questionHtml);
 
     // Load type-specific options if type is set
+    // Use handleTypeChange which handles all question types including TA and post-component
     if (templateData.type) {
-        const card = document.querySelector(`[data-question-id="${questionId}"]`);
-        const optionsContainer = card.querySelector('.type-specific-options');
-
-        if (templateData.type === 'YN') {
-            // Yes/No question - fixed choices
-            optionsContainer.innerHTML = `
-                <div class="choices-section">
-                    <label class="form-label">Choices</label>
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> <strong>Yes/No Question</strong><br>
-                        <small>This question type has fixed choices: "Yes" and "No".</small>
-                    </div>
-                    <div class="choices-list"></div>
-                </div>
-            `;
-
-            // Add fixed Yes/No choices
-            addChoice(questionId, 'Yes', null, true);
-            addChoice(questionId, 'No', null, true);
-        } else if (['MC', 'MS', 'RK'].includes(templateData.type) && templateData.choices) {
-            optionsContainer.innerHTML = `
-                <div class="choices-section">
-                    <label class="form-label">Choices <span class="text-danger">*</span></label>
-                    <div class="choices-list"></div>
-                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addChoice('${questionId}')">
-                        <i class="bi bi-plus"></i> Add Choice
-                    </button>
-                </div>
-            `;
-
-            // Add choices from template
-            templateData.choices.forEach(choiceText => {
-                addChoice(questionId, choiceText);
-            });
-        } else if (templateData.type === 'LK') {
-            const scaleOptions = likertScales.map(s =>
-                '<option value="' + s.id + '" ' + (templateData.likert_scale_id == s.id ? 'selected' : '') + '>' + s.name + '</option>'
-            ).join('');
-
-            optionsContainer.innerHTML = `
-                <div class="mb-3">
-                    <label class="form-label">Scale <span class="text-danger">*</span></label>
-                    <select class="form-select likert-scale-select" onchange="updateLikertPreview('${questionId}')" required>
-                        <option value="">Select scale...</option>
-                        ${scaleOptions}
-                    </select>
-                    <small class="form-text text-muted">
-                        Request additional Scales from an Admin if needed.
-                    </small>
-                </div>
-                <div class="likert-preview-container"></div>
-            `;
-
-            // Show preview if scale is already selected
-            if (templateData.likert_scale_id) {
-                setTimeout(() => updateLikertPreview(questionId), 0);
-            }
-        }
+        handleTypeChange(questionId, templateData);
     }
 
     initializeSortable();
@@ -570,6 +536,11 @@ function addQuestion() {
                     <i class="bi bi-grip-vertical"></i>
                 </span>
                 <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
+                <button type="button" class="btn btn-sm btn-outline-primary me-1"
+                        onclick="openSaveTemplateModal('${questionId}')"
+                        title="Save as template">
+                    <i class="bi bi-floppy"></i>
+                </button>
                 <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
                     <i class="bi bi-trash"></i>
                 </button>
@@ -885,7 +856,12 @@ function handleTypeChange(questionId, existingData = null) {
         if (!usePostBased) {
             if (existingData && existingData.choices) {
                 existingData.choices.forEach(choice => {
-                    addChoice(questionId, choice.text, choice.id, false, choice);
+                    // Handle both object format {text: "...", id: ...} and plain string format
+                    if (typeof choice === 'string') {
+                        addChoice(questionId, choice);
+                    } else {
+                        addChoice(questionId, choice.text, choice.id, false, choice);
+                    }
                 });
             } else {
                 addChoice(questionId);
@@ -901,7 +877,12 @@ function handleTypeChange(questionId, existingData = null) {
         // Load existing selected posts for individual mode
         if (existingData && existingData.post_selection_mode === 'individual' && existingData.post_choices) {
             existingData.post_choices.forEach(postData => {
-                addSelectedPost(questionId, postData);
+                // Handle both object format {id: ..., title: ..., icon_url: ...} and plain ID format
+                if (typeof postData === 'object' && postData.id) {
+                    addSelectedPost(questionId, postData);
+                }
+                // Plain IDs from templates are skipped - user needs to re-select posts
+                // This is a limitation of template loading
             });
         }
     } else if (type === 'LK') {
@@ -1184,6 +1165,11 @@ function restoreHiddenQuestion(questionId) {
                                 <i class="bi bi-exclamation-triangle-fill"></i> ${responseCount} response(s)
                             </span>
                         </span>
+                        <button type="button" class="btn btn-sm btn-outline-primary me-1"
+                                onclick="openSaveTemplateModal('${newQuestionId}')"
+                                title="Save as template">
+                            <i class="bi bi-floppy"></i>
+                        </button>
                         <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${newQuestionId}')"
                                 title="Hide question (preserves response data)">
                             <i class="bi bi-eye-slash"></i>
@@ -1819,33 +1805,297 @@ function saveAndPreview() {
         form.reportValidity();
     }
 }
-{% else %}
-// Template search functionality (create mode only)
-document.getElementById('template-search')?.addEventListener('input', function(e) {
-    const searchTerm = e.target.value.toLowerCase();
-    const templateItems = document.querySelectorAll('.template-item');
-
-    templateItems.forEach(item => {
-        const text = item.textContent.toLowerCase();
-        if (text.includes(searchTerm)) {
-            item.style.display = '';
-        } else {
-            item.style.display = 'none';
-        }
-    });
-});
-
-// Template selection (create mode only)
-document.querySelectorAll('.template-item').forEach(item => {
-    item.addEventListener('click', function(e) {
-        e.preventDefault();
-        const templateData = JSON.parse(this.dataset.templateData);
-        loadQuestionFromTemplate(templateData);
-
-        // Close modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('templateModal'));
-        modal.hide();
-    });
-});
 {% endif %}
+
+// Template search functionality (available in both create and edit modes)
+document.addEventListener('DOMContentLoaded', function() {
+    const templateSearch = document.getElementById('template-search');
+    if (templateSearch) {
+        templateSearch.addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const templateItems = document.querySelectorAll('.template-item');
+
+            templateItems.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    item.classList.remove('d-none');
+                } else {
+                    item.classList.add('d-none');
+                }
+            });
+        });
+    }
+});
+
+// Template selection and deletion (available in both create and edit modes)
+function initTemplateClickHandlers() {
+    // Handle clicking on template to load it
+    document.querySelectorAll('.template-load-trigger').forEach(trigger => {
+        // Remove existing handlers to avoid duplicates
+        const newTrigger = trigger.cloneNode(true);
+        trigger.parentNode.replaceChild(newTrigger, trigger);
+    });
+
+    document.querySelectorAll('.template-load-trigger').forEach(trigger => {
+        trigger.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const templateItem = this.closest('.template-item');
+            const templateId = templateItem.dataset.templateId;
+
+            // Show loading state
+            const originalContent = this.innerHTML;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading...';
+            this.style.pointerEvents = 'none';
+
+            // Fetch full template data via AJAX
+            fetch(`{% url 'get-question-template' template_id=0 %}`.replace('/0/', `/${templateId}/`))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadQuestionFromTemplate(data);
+
+                        // Close modal
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('templateModal'));
+                        modal.hide();
+                    } else {
+                        alert(data.error || 'Failed to load template');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading template:', error);
+                    alert('An error occurred while loading the template');
+                })
+                .finally(() => {
+                    // Restore original content
+                    this.innerHTML = originalContent;
+                    this.style.pointerEvents = '';
+                });
+        });
+    });
+
+    // Handle delete button clicks
+    document.querySelectorAll('.template-delete-btn').forEach(btn => {
+        // Remove existing handlers to avoid duplicates
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+    });
+
+    document.querySelectorAll('.template-delete-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const templateId = this.dataset.templateId;
+            const templateName = this.dataset.templateName;
+
+            if (!confirm(`Are you sure you want to delete the template "${templateName}"?`)) {
+                return;
+            }
+
+            // Show loading state
+            const originalContent = this.innerHTML;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+            this.disabled = true;
+
+            fetch(`{% url 'delete-question-template' template_id=0 %}`.replace('/0/', `/${templateId}/`), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Remove the template item from the list
+                    const templateItem = this.closest('.template-item');
+                    templateItem.remove();
+
+                    // Check if list is now empty
+                    const templateList = document.getElementById('template-list');
+                    if (templateList && !templateList.querySelector('.template-item')) {
+                        templateList.innerHTML = '<div class="alert alert-info" id="no-templates-message">No question templates available.</div>';
+                    }
+                } else {
+                    alert(data.error || 'Failed to delete template');
+                    this.innerHTML = originalContent;
+                    this.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting template:', error);
+                alert('An error occurred while deleting the template');
+                this.innerHTML = originalContent;
+                this.disabled = false;
+            });
+        });
+    });
+}
+
+// Initialize handlers on page load
+initTemplateClickHandlers();
+
+// Save question to template (available in both create and edit modes)
+
+let currentQuestionIdForTemplate = null;
+
+function openSaveTemplateModal(questionId) {
+    currentQuestionIdForTemplate = questionId;
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+
+    // Build summary
+    const questionText = card.querySelector('.question-text').value;
+    const questionType = card.querySelector('.question-type').value;
+    const questionTypeDisplay = questionTypes[questionType] || questionType;
+    const required = card.querySelector('.question-required').checked;
+
+    let summaryHtml = `
+        <strong>Question:</strong> ${questionText || '(No text)'}<br>
+        <strong>Type:</strong> ${questionTypeDisplay}<br>
+        <strong>Required:</strong> ${required ? 'Yes' : 'No'}
+    `;
+
+    // Add choices summary if applicable
+    if (['MC', 'MS', 'RK', 'YN'].includes(questionType)) {
+        const choices = card.querySelectorAll('.choice-item input');
+        if (choices.length > 0) {
+            summaryHtml += `<br><strong>Choices:</strong> ${choices.length} options`;
+        }
+    }
+
+    document.getElementById('template-question-summary').innerHTML = summaryHtml;
+    document.getElementById('template-name').value = '';
+    document.getElementById('template-save-error').classList.add('d-none');
+
+    const modal = new bootstrap.Modal(document.getElementById('saveTemplateModal'));
+    modal.show();
+}
+
+function saveQuestionTemplate() {
+    const questionId = currentQuestionIdForTemplate;
+    if (!questionId) return;
+
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const templateName = document.getElementById('template-name').value.trim();
+
+    if (!templateName) {
+        document.getElementById('template-save-error').textContent = 'Please enter a template name.';
+        document.getElementById('template-save-error').classList.remove('d-none');
+        return;
+    }
+
+    // Collect question data
+    const questionData = {
+        name: templateName,
+        text: card.querySelector('.question-text').value,
+        question_type: card.querySelector('.question-type').value,
+        required: card.querySelector('.question-required').checked,
+        help_text: card.querySelector('.question-help').value,
+        is_public: document.getElementById('template-is-public')?.checked || false
+    };
+
+    // Add type-specific data
+    if (['MC', 'MS', 'RK'].includes(questionData.question_type)) {
+        const usePostsCheckbox = card.querySelector('.use-post-choices');
+        if (usePostsCheckbox && usePostsCheckbox.checked) {
+            questionData.post_component = card.querySelector('.post-component-select')?.value;
+            questionData.post_selection_mode = card.querySelector('.post-selection-mode:checked')?.value;
+            if (questionData.post_selection_mode === 'individual') {
+                questionData.post_choices = getSelectedPostIds(questionId);
+            }
+        } else {
+            const choices = [];
+            card.querySelectorAll('.choice-item input').forEach(input => {
+                if (input.value.trim()) {
+                    choices.push(input.value.trim());
+                }
+            });
+            questionData.choices_data = choices;
+        }
+    } else if (questionData.question_type === 'YN') {
+        questionData.choices_data = ['Yes', 'No'];
+    } else if (questionData.question_type === 'LK') {
+        const scaleSelect = card.querySelector('.likert-scale-select');
+        questionData.likert_scale_id = scaleSelect ? parseInt(scaleSelect.value) : null;
+    } else if (questionData.question_type === 'TA') {
+        // Time Availability - collect enabled days
+        const dayCheckboxes = card.querySelectorAll('.ta-day-checkbox:checked');
+        questionData.ta_enabled_days = Array.from(dayCheckboxes).map(cb => cb.value);
+    }
+
+    // Send to backend
+    fetch('{% url "save-question-template" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify(questionData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('saveTemplateModal'));
+            modal.hide();
+
+            // Add the new template to the template list
+            addTemplateToList(data.template_id, data.template_name, data.template_type_display, data.is_public);
+
+            // Show success message
+            alert('Question template saved successfully!');
+        } else {
+            document.getElementById('template-save-error').textContent = data.error || 'Failed to save template.';
+            document.getElementById('template-save-error').classList.remove('d-none');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving template:', error);
+        document.getElementById('template-save-error').textContent = 'An error occurred while saving.';
+        document.getElementById('template-save-error').classList.remove('d-none');
+    });
+}
+
+function addTemplateToList(templateId, templateName, templateTypeDisplay, isPublic) {
+    const templateList = document.getElementById('template-list');
+    if (!templateList) return;
+
+    // Remove "no templates" message if present
+    const noTemplatesMsg = document.getElementById('no-templates-message');
+    if (noTemplatesMsg) {
+        noTemplatesMsg.remove();
+    }
+
+    // Create the new template item (user always owns templates they just created)
+    const globeIcon = isPublic ? '<i class="bi bi-globe text-primary me-1" title="Public template"></i>' : '<i class="bi bi-person-lock text-dark me-1" title="Private template"></i>';
+    const templateHtml = `
+        <div class="list-group-item list-group-item-action template-item d-flex justify-content-between align-items-center"
+           data-template-id="${templateId}"
+           data-template-name="${templateName}"
+           data-template-public="${isPublic}">
+            <div class="template-load-trigger flex-grow-1" style="cursor: pointer;">
+                <div class="d-flex w-100 justify-content-between align-items-center">
+                    <h6 class="mb-0">
+                        ${globeIcon}
+                        ${templateName}
+                    </h6>
+                    <small class="text-muted">${templateTypeDisplay}</small>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger ms-2 template-delete-btn"
+                    data-template-id="${templateId}"
+                    data-template-name="${templateName}"
+                    title="Delete template">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    `;
+
+    // Add to beginning of list
+    templateList.insertAdjacentHTML('afterbegin', templateHtml);
+
+    // Re-initialize click handlers
+    initTemplateClickHandlers();
+}
 </script>

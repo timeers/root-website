@@ -31,7 +31,7 @@
             <div class="card-footer d-flex justify-content-end align-items-center">
                 <div class="btn-group">
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#templateModal">
-                        <i class="bi bi-files"></i> {% trans 'Load from Template' %}
+                        <i class="bi bi-download"></i> {% trans 'Load from Template' %}
                     </button>
                     <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
                         <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
@@ -44,47 +44,20 @@
         <input type="hidden" name="questions_data" id="questions-data">
 
         <div class="d-flex justify-content-between">
-            <a href="{% url 'survey-list' %}" class="btn btn-lg btn-outline-secondary">{% trans 'Cancel' %}</a>
-            <button type="submit" class="btn btn-success btn-lg">
+            <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <button type="submit" class="btn btn-success">
                 <i class="bi bi-check-circle"></i> {% trans 'Create Survey' %}
             </button>
         </div>
     </form>
 </div>
 
+{# Save Question as Template Modal #}
+{% include 'the_gatehouse/surveys/modals/save_template_modal.html' %}
+
 {# Template Selection Modal #}
-<div class="modal fade" id="templateModal" tabindex="-1" aria-labelledby="templateModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="templateModalLabel">{% trans 'Load Question from Template' %}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <input type="text" class="form-control" id="template-search" placeholder="{% trans 'Search templates...' %}">
-                </div>
-                <div id="template-list" class="list-group">
-                    {% for template in question_templates %}
-                        <a href="#" class="list-group-item list-group-item-action template-item"
-                           data-template-id="{{ template.id }}"
-                           data-template-data="{{ template.to_question_data|to_json }}">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">{{ template.name }}</h6>
-                                <small class="text-muted">{{ template.get_question_type_display }}</small>
-                            </div>
-                            <p class="mb-1 text-muted small">{{ template.text|truncatewords:20 }}</p>
-                        </a>
-                    {% empty %}
-                        <div class="alert alert-info">
-                            {% trans 'No question templates available.' %}
-                        </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+{% include 'the_gatehouse/surveys/modals/template_selection_modal.html' %}
+
 {% endblock content %}
 
 {% block styles %}

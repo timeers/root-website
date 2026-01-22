@@ -2014,9 +2014,7 @@ def search_players_for_survey(request):
     # Search by display_name or discord username
     players = Profile.objects.filter(
         Q(display_name__icontains=query) | Q(discord__icontains=query)
-    ).exclude(
-        user__isnull=True  # Exclude profiles without users
-    ).select_related('user')[:20]
+    )[:20]
 
     data = [{
         'id': p.id,
@@ -3008,9 +3006,136 @@ def my_surveys_view(request, slug):
     }
     return render(request, 'the_gatehouse/surveys/my_surveys.html', context)
 
+@login_required
+def save_question_template(request):
+    """AJAX endpoint to save a question as a template"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    try:
+        data = json.loads(request.body)
+        profile = request.user.profile
+
+        # Create the template
+        from .models import QuestionTemplate
+
+        # Build template kwargs - only include ta_enabled_days if provided
+        template_kwargs = {
+            'name': data['name'],
+            'text': data['text'],
+            'question_type': data['question_type'],
+            'required': data.get('required', True),
+            'help_text': data.get('help_text', ''),
+            'created_by': profile,
+            'is_public': data.get('is_public', False) and profile.group == 'A',  # Only admins can make public
+            'choices_data': data.get('choices_data', []),
+            'post_component': data.get('post_component'),
+            'post_selection_mode': data.get('post_selection_mode'),
+            'likert_scale_id': data.get('likert_scale_id'),
+        }
+
+        # Only include ta_enabled_days if provided (to allow model default to work)
+        if data.get('ta_enabled_days'):
+            template_kwargs['ta_enabled_days'] = data['ta_enabled_days']
+
+        template = QuestionTemplate.objects.create(**template_kwargs)
+
+        # Add post choices if individual mode
+        if data.get('post_choices'):
+            from the_keep.models import Post
+            posts = Post.objects.filter(id__in=data['post_choices'])
+            template.post_choices.set(posts)
+
+        return JsonResponse({
+            'success': True,
+            'template_id': template.id,
+            'template_name': template.name,
+            'template_type': template.question_type,
+            'template_type_display': template.get_question_type_display(),
+            'is_public': template.is_public,
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
 
 @login_required
-def duplicate_survey_view(request, slug):
+def get_question_template(request, template_id):
+    """AJAX endpoint to fetch full question template data for loading"""
+    from .models import QuestionTemplate
+
+    profile = request.user.profile
+
+    try:
+        # User can only access public templates or their own
+        template = QuestionTemplate.objects.get(
+            Q(is_public=True) | Q(created_by=profile),
+            id=template_id
+        )
+    except QuestionTemplate.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Template not found'})
+
+    # Build the template data
+    data = {
+        'success': True,
+        'text': template.text,
+        'type': template.question_type,
+        'required': template.required,
+        'help_text': template.help_text,
+    }
+
+    if template.question_type == 'LK' and template.likert_scale:
+        data['likert_scale_id'] = template.likert_scale_id
+
+    # Handle Post-based templates
+    if template.post_component:
+        data['post_component'] = template.post_component
+        data['post_selection_mode'] = template.post_selection_mode
+        if template.post_selection_mode == 'individual':
+            # Return full post data for individual mode
+            post_choices = []
+            for post in template.post_choices.all():
+                post_choices.append({
+                    'id': post.id,
+                    'title': post.title,
+                    'icon_url': post.small_icon.url if post.small_icon else None,
+                })
+            data['post_choices'] = post_choices
+    elif template.question_type in ['MC', 'MS', 'YN', 'RK'] and template.choices_data:
+        data['choices'] = template.choices_data
+
+    # Handle Time Availability templates
+    if template.question_type == 'TA' and template.ta_enabled_days:
+        data['ta_enabled_days'] = template.ta_enabled_days
+
+    return JsonResponse(data)
+
+
+@login_required
+def delete_question_template(request, template_id):
+    """AJAX endpoint to delete a question template"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+
+    from .models import QuestionTemplate
+
+    profile = request.user.profile
+
+    try:
+        template = QuestionTemplate.objects.get(id=template_id)
+    except QuestionTemplate.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Template not found'})
+
+    # Only allow deletion by the creator or admins
+    if template.created_by != profile and not profile.admin:
+        return JsonResponse({'success': False, 'error': 'You do not have permission to delete this template'})
+
+    template.delete()
+    return JsonResponse({'success': True})
+
+
+@login_required
+def survey_duplicate_view(request, slug):
     """Duplicate an existing survey."""
     from the_gatehouse.models import Survey, Question, Choice
 
@@ -3143,6 +3268,16 @@ def survey_responses_view(request, slug):
 
     responses = SurveyResponse.objects.filter(survey=survey).select_related('user').order_by('-submitted_at')
 
+    invited_players = survey.invited_players.all()
+    unresponded_players = None
+    if survey.invited_players.exists():
+        responded_players = Profile.objects.filter(
+            survey_responses__survey=survey
+        ).distinct()
+        unresponded_players = invited_players.exclude(
+            id__in=responded_players.values_list('id', flat=True)
+        )
+
     back_url = survey.get_absolute_url()
     back_title = "Back to Survey"
 
@@ -3155,6 +3290,7 @@ def survey_responses_view(request, slug):
         'back_url': back_url,
         'back_title': back_title,
         'back_title': back_title,
+        'unresponded_players': unresponded_players,
     }
     return render(request, 'the_gatehouse/surveys/survey_responses.html', context)
 
@@ -3208,6 +3344,12 @@ def survey_edit_view(request, slug):
             allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
 
+            # Get associations
+            guild_id = request.POST.get('guild') or None
+            series_id = request.POST.get('series') or None
+            series_round_id = request.POST.get('series_round') or None
+            post_id = request.POST.get('post') or None
+
             # Get date fields
             start_date = request.POST.get('start_date')
             end_date = request.POST.get('end_date')
@@ -3242,6 +3384,12 @@ def survey_edit_view(request, slug):
             survey.show_results_to_respondents = show_results_to_respondents
             survey.start_date = start_date_obj
             survey.end_date = end_date_obj
+
+            # Update associations
+            survey.guild_id = guild_id
+            survey.series_id = series_id
+            survey.series_round_id = series_round_id
+            survey.post_id = post_id
 
             # If survey is now public, clear access restrictions
             if is_public:
@@ -3439,6 +3587,22 @@ def survey_edit_view(request, slug):
     # GET request - show form with existing data
     likert_scales = LikertScale.objects.all()
 
+    # Get available question templates (public ones or user's own)
+    from .models import QuestionTemplate
+    question_templates = QuestionTemplate.objects.filter(
+        Q(is_public=True) | Q(created_by=profile)
+    ).order_by('name')
+
+    # Get user's guilds and hosted tournaments for dropdowns
+    user_guilds = profile.guilds.all()
+    if profile.admin:
+        user_tournaments = Tournament.objects.open()
+    else:
+        user_tournaments = profile.hosted_tournaments.open()
+
+    # Get public posts that the user designed
+    user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()
+
     # Get response metadata for questions and choices
     questions_with_responses = get_questions_with_responses(survey)
     choices_with_responses = get_choices_with_responses(survey)
@@ -3524,10 +3688,14 @@ def survey_edit_view(request, slug):
     context = {
         'survey': survey,
         'likert_scales': likert_scales,
+        'question_templates': question_templates,
         'existing_questions': json.dumps(existing_questions),
         'hidden_questions': json.dumps(hidden_questions),
         'is_edit_mode': True,
         'response_count': survey.responses.count(),
+        'user_guilds': user_guilds,
+        'user_tournaments': user_tournaments,
+        'user_posts': user_posts,
     }
     return render(request, 'the_gatehouse/surveys/edit_survey.html', context)
 
@@ -3554,7 +3722,7 @@ def survey_delete_view(request, slug):
 
 
 @player_required
-def create_survey_view(request):
+def survey_create_view(request):
     """Create a new survey with questions and choices."""
     from .models import Survey, Question, Choice, LikertScale
 

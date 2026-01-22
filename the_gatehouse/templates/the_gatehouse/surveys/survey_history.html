@@ -12,6 +12,14 @@
         <h1 class="root-title mb-0">{% trans 'Survey History' %}</h1>
     </div>
 
+    {# Empty state if nothing in history #}
+    {% if not past_responses and not archived_surveys %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            {% trans 'Your survey history will appear here once you respond to surveys or create surveys that have ended.' %}
+        </div>
+    {% else %}
+
     {# MY PAST RESPONSES SECTION #}
     <div class="mb-4">
         <h4 class="mb-3 root-title">
@@ -45,13 +53,8 @@
             <p class="text-muted">{% trans 'You have no archived surveys.' %}</p>
         {% endif %}
     </div>
-
-    {# Empty state if nothing in history #}
-    {% if not past_responses and not archived_surveys %}
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i>
-            {% trans 'Your survey history will appear here once you respond to surveys or create surveys that have ended.' %}
-        </div>
+    
     {% endif %}
+
 </div>
 {% endblock content %}

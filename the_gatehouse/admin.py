@@ -437,11 +437,15 @@ class QuestionTemplateAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Template Information', {
-            'fields': ('name', 'text', 'question_type', 'likert_scale', 'help_text', 'required')
+            'fields': ('name', 'text', 'question_type', 'likert_scale', 'ta_enabled_days', 'help_text', 'required')
         }),
         ('Choices', {
             'fields': ('choices_data',),
             'description': 'For multiple choice questions, enter a JSON list of choice texts'
+        }),
+        ('Post Choices', {
+            'fields': ('post_component', 'post_selection_mode', 'post_choices',),
+            'description': 'For questions with post options'
         }),
         ('Settings', {
             'fields': ('is_public', 'created_by', 'created_at')

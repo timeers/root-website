@@ -1,0 +1,38 @@
+{% load i18n %}
+<div class="modal fade" id="deleteSurveyModal" tabindex="-1" aria-labelledby="deleteSurveyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteSurveyModalLabel">
+                    <i class="bi bi-exclamation-triangle"></i> {% trans 'Delete Survey' %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>{% trans 'Warning:' %}</strong> {% trans 'This action cannot be undone.' %}
+                </div>
+
+                {% if response_count > 0 %}
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-octagon-fill"></i>
+                    <strong>{% trans 'This survey has' %} {{ response_count }} {% trans 'response' %}{{ response_count|pluralize }}!</strong>
+                    <p class="mb-0 mt-2">{% trans 'Deleting this survey will permanently remove all responses and their associated data.' %}</p>
+                </div>
+                {% endif %}
+
+                <p>{% trans 'Are you sure you want to permanently delete the survey' %} "<strong>{{ survey.title }}</strong>"?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <form method="POST" action="{% url 'survey-delete' survey.slug %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> {% trans 'Delete Permanently' %}
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

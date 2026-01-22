@@ -61,29 +61,20 @@
                     </div>
 
                     {# Guild Selection - Right Side #}
-                    {% if not is_edit_mode or survey.guild %}
+                    {% if user_guilds %}
                     <div class="col-md-6">
                         <label for="guild" class="form-label">{% trans 'Guild' %}</label>
-                        {% if is_edit_mode %}
-                            <div class="d-flex align-items-center">
-                                {% if survey.guild.icon_hash %}
-                                    <img src="{{ survey.guild.get_icon_url }}" alt="{{ survey.guild.name }}" class="me-2 md-faction-icon">
+                        <select class="form-select" id="guild" name="guild">
+                            <option value="">{% trans 'No guild restriction' %}</option>
+                            {% for guild in user_guilds %}
+                                {% if guild.icon_hash %}
+                                    <option value="{{ guild.id }}" data-icon="{{ guild.get_icon_url|default:'' }}" {% if survey.guild_id == guild.id %}selected{% endif %}>{{ guild.name }}</option>
+                                {% else %}
+                                    <option value="{{ guild.id }}" data-icon="" {% if survey.guild_id == guild.id %}selected{% endif %}>{{ guild.name }}</option>
                                 {% endif %}
-                                <input id="guild" name="guild" type="text" class="form-control" value="{{ survey.guild.name }}" disabled readonly>
-                            </div>
-                        {% else %}
-                            <select class="form-select" id="guild" name="guild">
-                                <option value="">{% trans 'No guild restriction' %}</option>
-                                {% for guild in user_guilds %}
-                                    {% if guild.icon_hash %}
-                                        <option value="{{ guild.id }}" data-icon="{{ guild.get_icon_url|default:'' }}">{{ guild.name }}</option>
-                                    {% else %}
-                                        <option value="{{ guild.id }}" data-icon="">{{ guild.name }}</option>
-                                    {% endif %}
-                                {% endfor %}
-                            </select>
-                            <small class="form-text text-muted">{% trans 'Restrict survey to guild members' %}</small>
-                        {% endif %}
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">{% trans 'Restrict survey to guild members' %}</small>
                     </div>
                     {% endif %}
                 </div>
@@ -91,65 +82,44 @@
         </div>
 
         {# Survey Association Section #}
-        {% if is_edit_mode and survey.series or is_edit_mode and survey.post or not is_edit_mode and user_tournaments or not is_edit_mode and user_posts %}
+        {% if user_tournaments or user_posts %}
         <div class="border rounded p-3 mb-4 bg-light">
             <h6 class="text-muted mb-3"><i class="bi bi-share me-2"></i>{% trans 'Survey Association' %}</h6>
-            {% if not is_edit_mode %}
-            <small class="text-muted">{% trans 'These settings are permanent and cannot be changed later' %}</small>
-            {% endif %}
             <div class="row">
-                {% if is_edit_mode and survey.series or not is_edit_mode and user_tournaments %}
+                {% if user_tournaments %}
                 <div class="col-md-6 mb-3">
                     <label for="series" class="form-label">{% trans 'Series/Tournament' %}</label>
-                    {% if is_edit_mode %}
-                        <input id="series" name="series" type="text" class="form-control" value="{{ survey.series.name }}" disabled readonly>
-                    {% else %}
-                        <select class="form-select" id="series" name="series" onchange="loadSeriesRounds()">
+                        <select class="form-select" id="series" name="series" onchange="loadSeriesRounds()"
+                                {% if survey.series_round_id %}data-preselected-round="{{ survey.series_round_id }}"{% endif %}>
                             <option value="">{% trans 'No series association' %}</option>
                             {% for tournament in user_tournaments %}
-                                <option value="{{ tournament.id }}">{{ tournament.name }}</option>
+                                <option value="{{ tournament.id }}" {% if survey.series_id == tournament.id %}selected{% endif %}>{{ tournament.name }}</option>
                             {% endfor %}
                         </select>
                         <small class="form-text text-muted">{% trans 'Associate with a tournament or series you host' %}</small>
-                    {% endif %}
                 </div>
-                {% endif %}
-                {% if is_edit_mode and survey.series_round or not is_edit_mode and user_tournaments %}
                 <div class="col-md-6 mb-3">
                     <label for="series_round" class="form-label">{% trans 'Round' %}</label>
-                    {% if is_edit_mode %}
-                        <input type="text" class="form-control" id="series_round" name="series_round" value="{{ survey.series_round.name|default:survey.series_round }}" disabled readonly>
-                    {% else %}
-                        <select class="form-select" id="series_round" name="series_round" disabled>
-                            <option value="">{% trans 'All rounds / No specific round' %}</option>
-                        </select>
-                        <small class="form-text text-muted">{% trans 'Optionally associate with a specific round' %}</small>
-                    {% endif %}
+                    <select class="form-select" id="series_round" name="series_round" {% if not survey.series %}disabled{% endif %}>
+                        <option value="">{% trans 'All rounds / No specific round' %}</option>
+                    </select>
+                    <small class="form-text text-muted">{% trans 'Optionally associate with a specific round' %}</small>
                 </div>
                 {% endif %}
-                {% if is_edit_mode and survey.post or not is_edit_mode and user_posts %}
+                {% if user_posts %}
                 <div class="col-md-6 mb-3">
                     <label for="post" class="form-label">{% trans 'Subject' %}</label>
-                    {% if is_edit_mode %}
-                        <div class="d-flex align-items-center">
-                            {% if survey.post.small_icon %}
-                                <img src="{{ survey.post.small_icon.url }}" alt="{{ survey.post.title }}" class="me-2 md-faction-icon">
+                    <select class="form-select" id="post" name="post">
+                        <option value="">{% trans 'No post association' %}</option>
+                        {% for post in user_posts %}
+                            {% if post.small_icon %}
+                                <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
+                            {% else %}
+                                <option value="{{ post.id }}" data-icon="" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
                             {% endif %}
-                            <input id="post" name="post" type="text" class="form-control" value="{{ survey.post.title }}" disabled readonly>
-                        </div>
-                    {% else %}
-                        <select class="form-select" id="post" name="post">
-                            <option value="">{% trans 'No post association' %}</option>
-                            {% for post in user_posts %}
-                                {% if post.small_icon %}
-                                    <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}">{{ post.title }}</option>
-                                {% else %}
-                                    <option value="{{ post.id }}" data-icon="">{{ post.title }}</option>
-                                {% endif %}
-                            {% endfor %}
-                        </select>
-                        <small class="form-text text-muted">{% trans 'Associate with a Root component you designed' %}</small>
-                    {% endif %}
+                        {% endfor %}
+                    </select>
+                    <small class="form-text text-muted">{% trans 'Associate with a Root component you designed' %}</small>
                 </div>
                 {% endif %}
             </div>

@@ -12,6 +12,7 @@
     </p>
 
     {% if responses %}
+        <h5 class='root-title'>Responses</h5>
         <div class="row g-3">
             {% for response in responses %}
                 <div class="col-12">
@@ -71,6 +72,41 @@
                 <p class="mb-0">{% trans 'This survey has not received any responses yet.' %}</p>
             </div>
         </div>
+    {% endif %}
+    {% if unresponded_players %}
+        <h5 class='root-title'>Invites</h5>
+        {% for player in unresponded_players %}
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="d-flex align-items-center flex-fill">
+                                        {% if player.image %}
+                                            <img src="{{ player.image.url }}" alt="{{ player.name }}" class="lg-faction-icon me-3">
+                                        {% else %}
+                                            <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
+                                        {% endif %}
+                                        <div>
+                                            <h5 class="card-title mb-1">
+                                                <a href="{{ player.get_absolute_url }}" class="text-decoration-none">
+                                                    {{ player.name }}
+                                                </a>
+                                            </h5>
+                                            <p class="card-text text-muted mb-0">
+                                                <small>
+                                                    <i class="bi bi-envelope"></i> {% trans 'Invited' %}
+                                                </small>
+                                            </p>
+                                        </div>
+                                </div>
+        
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+
+
     {% endif %}
 </div>
 {% endblock content %}
