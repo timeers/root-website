@@ -27,10 +27,10 @@ from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, SurveyResponseForm
 from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest, Survey, TA_DAY_CODES
-from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar, get_discord_invite_info
+from .services.discordservice import send_new_survey_notification, update_discord_avatar, get_discord_invite_info
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
-
+from .tasks import send_rich_discord_message_task, send_discord_message_task
 
 
 def trigger_error(request):
@@ -806,7 +806,7 @@ def manage_user(request, slug):
             # Save the user if any change was made
             if update_user:
                 user_to_edit.save()
-                send_discord_message(f'{user_to_edit.discord} ({user_to_edit.group}) updated by {request.user.profile.discord}', category='user_updates')
+                send_discord_message_task.delay(f'{user_to_edit.discord} ({user_to_edit.group}) updated by {request.user.profile.discord}', category='user_updates')
 
             # Redirect with a success message
             messages.success(request, update_message)
@@ -901,7 +901,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
                 if not from_user:
                     from_user = "Anonymous User"
             else:
-                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())})'
+                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group})'
 
             fields.append({'name': 'From', 'value': from_user})
 
@@ -910,7 +910,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
                 fields.append({'name': 'Subject', 'value': feedback_subject})
 
             # Send Discord message
-            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
+            send_rich_discord_message_task.delay(message, author_name=author, category=message_category, title=message_title, fields=fields)
 
             # Set success response message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
@@ -994,7 +994,7 @@ def discord_feedback(request):
                     from_user = "Anonymous User"
             else:
                 # author = request.user.profile.discord
-                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())})'
+                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group})'
 
             fields.append({
                     'name': 'From',
@@ -1008,7 +1008,7 @@ def discord_feedback(request):
                     })
                 
             # Call the function to send the message to Discord
-            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
+            send_rich_discord_message_task.delay(message, author_name=author, category=message_category, title=message_title, fields=fields)
             # Redirect and return a success message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
             messages.success(request, response_message)
@@ -1059,7 +1059,7 @@ def post_feedback(request, slug):
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
-@player_required
+@player_onboard_required
 def post_request(request):
 
     if request.user.profile.player:
@@ -1076,7 +1076,7 @@ def post_request(request):
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
 
-@player_required
+@player_onboard_required
 def player_feedback(request, slug):
 
     player = get_object_or_404(Profile, slug=slug.lower())
@@ -1512,7 +1512,7 @@ def changelog_select_view(request, slug):
 
 # Discord Server Invites
 
-@player_required
+@player_onboard_required
 def guild_join_request(request, guild_id):
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     profile = request.user.profile
@@ -1629,7 +1629,7 @@ def guild_join_request(request, guild_id):
                     'value': form.cleaned_data["agreement_message"]
                 })
                 message = f'{profile.discord} would like to join {guild.name}'
-                send_rich_discord_message(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields)
+                send_rich_discord_message_task.delay(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields)
                 messages.info(request, "Your request has been submitted. Please check back here later.")
                 return redirect(next_url)
     else:
@@ -1645,7 +1645,7 @@ def guild_join_request(request, guild_id):
         "formatted_approval_time": formatted_approval_time,
     })
 
-@player_required
+@player_onboard_required
 def guild_invite_view(request, guild_id):
     """Display Discord-style invite card for approved guild"""
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
@@ -1742,7 +1742,7 @@ def approve_guild_invite(request, invite_id):
         )
 
         # Send Discord notification
-        send_discord_message(
+        send_discord_message_task.delay(
             f"Guild invite approved: {invite.profile.name} → {invite.guild.name} (by {request.user.profile.name})",
             'report'
         )
@@ -1796,7 +1796,7 @@ def reject_guild_invite(request, invite_id):
         )
 
         # Send Discord notification
-        send_discord_message(
+        send_discord_message_task.delay(
             f"Guild invite rejected: {invite.profile.name} → {invite.guild.name} (by {request.user.profile.name})",
             'report'
         )
@@ -1883,7 +1883,7 @@ def approve_post(request, post_id):
             )
 
             # Send Discord notification
-            send_discord_message(
+            send_discord_message_task.delay(
                 f"Post approved: {post.title} ({post.get_component_display()}) by {request.user.profile.name}",
                 'report'
             )
@@ -1924,7 +1924,7 @@ def reject_post(request, post_id):
             )
 
             # Send Discord notification
-            send_discord_message(
+            send_discord_message_task.delay(
                 f"Post rejected and deleted: {post_title} ({post_component}) by {request.user.profile.name}",
                 'report'
             )
@@ -2281,7 +2281,7 @@ def survey_redirect(request, slug):
         return redirect('survey-list')
 
 
-@player_required
+@player_onboard_required
 def survey_take_view(request, slug):
     """Take a survey."""
     from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer, RankedPostAnswer
@@ -2469,7 +2469,7 @@ def survey_take_view(request, slug):
                         answer.numeric_answer = int(answer_data)
                         answer.save()
 
-
+            send_discord_message_task.delay(f"[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) took {survey.title}")
             messages.success(request, _('Thank you for completing the survey!'))
 
             # Redirect to results if allowed
@@ -2542,7 +2542,7 @@ def survey_user_response_view(request, slug, response_id):
     })
 
 
-@player_required
+@player_onboard_required
 def survey_user_response_edit_view(request, slug, response_id):
     """Display survey and handle response submission."""
     from .models import Survey, SurveyResponse, Answer, Choice, RankedAnswer, RankedPostAnswer
@@ -2793,7 +2793,7 @@ def survey_detail_view(request, slug):
 
 
 
-@player_required
+@player_onboard_required
 def survey_results_view(request, slug):
     """Display aggregated survey results (admin only, or respondents if allowed)."""
     from .models import Survey
@@ -3295,7 +3295,7 @@ def survey_responses_view(request, slug):
     return render(request, 'the_gatehouse/surveys/survey_responses.html', context)
 
 
-@player_required
+@player_onboard_required
 def survey_edit_view(request, slug):
     """Edit an existing survey."""
     from .models import Survey, Question, Choice, LikertScale, Answer, RankedAnswer
@@ -3573,7 +3573,7 @@ def survey_edit_view(request, slug):
                         messages.info(request, f'{hidden_count} question(s) with existing responses were hidden instead of deleted to preserve data.')
 
             messages.success(request, f'Survey "{title}" updated successfully!')
-
+            send_new_survey_notification(survey=survey, profile=profile, type="Edited")
             # Check if we should redirect to preview
             if request.POST.get('redirect_to_preview') == 'true':
                 return redirect('survey-preview', slug=survey.slug)
@@ -3595,6 +3595,9 @@ def survey_edit_view(request, slug):
 
     # Get user's guilds and hosted tournaments for dropdowns
     user_guilds = profile.guilds.all()
+    if survey.guild:
+        user_guilds = user_guilds | DiscordGuild.objects.filter(pk=survey.guild.pk)
+
     if profile.admin:
         user_tournaments = Tournament.objects.open()
     else:
@@ -3721,7 +3724,7 @@ def survey_delete_view(request, slug):
     return redirect('survey-edit', slug=slug)
 
 
-@player_required
+@player_onboard_required
 def survey_create_view(request):
     """Create a new survey with questions and choices."""
     from .models import Survey, Question, Choice, LikertScale
@@ -3844,6 +3847,7 @@ def survey_create_view(request):
                                 )
 
             messages.success(request, f'Survey "{title}" created successfully!')
+            send_new_survey_notification(survey=survey, profile=profile, type="New")
             return redirect('survey-preview', slug=survey.slug)
 
         except Exception as e:
@@ -3870,11 +3874,12 @@ def survey_create_view(request):
         })
 
     # Get user's guilds and hosted tournaments for dropdowns
-    user_guilds = profile.guilds.all()
     if profile.admin:
         user_tournaments = Tournament.objects.open()
+        user_guilds = DiscordGuild.objects.all()
     else:
         user_tournaments = profile.hosted_tournaments.open()
+        user_guilds = profile.guilds.all()
 
     # Get public posts that the user designed
     user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()

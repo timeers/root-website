@@ -9,7 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from the_gatehouse.utils import format_bulleted_list
-from the_gatehouse.services.discordservice import send_rich_discord_message
+from the_gatehouse.tasks import send_rich_discord_message_task
 
 from .models import Game, Tournament, Round
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
@@ -150,7 +150,7 @@ def import_league_games(limit=25, tournament_name="", days_back=1, date_from=Non
             fields.append(error_field)
 
             # Send error message
-            send_rich_discord_message(
+            send_rich_discord_message_task.delay(
                 message,
                 author_name='RDB Admin',
                 category='report',
@@ -308,7 +308,7 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
             fields.append(error_field)
 
             # Send error message
-            send_rich_discord_message(
+            send_rich_discord_message_task.delay(
                 summary,
                 author_name='RDB Admin',
                 category='report',
@@ -318,7 +318,7 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
 
         # Send main update summary (only if anything happened)
         if updated_count > 0 or error_count > 0:
-            send_rich_discord_message(
+            send_rich_discord_message_task.delay(
                 summary,
                 author_name='RDB Admin',
                 category='rdl-update',
@@ -383,7 +383,7 @@ def check_all_league_rounds(delete=False, list_games=True):
                     'value': f"{value['missing_count']} games missing"
                 })
 
-        send_rich_discord_message(
+        send_rich_discord_message_task.delay(
             f'{total_missing_count} games missing from RDL',
             author_name='RDB Admin',
             category='rdl-delete',

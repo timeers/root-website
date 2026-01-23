@@ -37,7 +37,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
-from the_gatehouse.services.discordservice import send_discord_message, send_rich_discord_message
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
@@ -63,11 +63,11 @@ def game_list_view(request):
         template_name = 'the_warroom/partials/game_list_home.html'
     else:
         if request.user.is_authenticated:
-            send_discord_message(
-                f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Battlefield'
+            send_discord_message_task.delay(
+                f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewing The Battlefield'
             )
         # else:
-        #     send_discord_message(f'{get_uuid(request)} viewing The Battlefield')
+        #     send_discord_message_task.delay(f'{get_uuid(request)} viewing The Battlefield')
         template_name = 'the_warroom/games_home.html'
     
     t1 = time.perf_counter()
@@ -177,11 +177,11 @@ def leaderboard_view(request):
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
     else:
         if request.user.is_authenticated:
-            send_discord_message(
-                f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Leaderboard'
+            send_discord_message_task.delay(
+                f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewing The Leaderboard'
             )
-        else:
-            send_discord_message(f'{get_uuid(request)} viewing The Leaderboard')
+        # else:
+        #     send_discord_message_task.delay(f'{get_uuid(request)} viewing The Leaderboard')
         template_name = 'the_warroom/leaderboard_home.html'
     
     # Build queryset
@@ -686,7 +686,7 @@ def manage_game(request, id=None):
                 parent.final = False  # Save as draft
             else:
                 parent.final = True  # Finalize the game
-                # send_discord_message(f'{user} Recorded a Game')
+                # send_discord_message_task.delay(f'{user} Recorded a Game')
 
             if not id:
                 parent.recorder = request.user.profile  # Set the recorder
@@ -745,7 +745,7 @@ def manage_game(request, id=None):
                 else:
                     game_title = f"{parent.platform} Game"
                 if not initial_game_status and obj.final:
-                    send_rich_discord_message(f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
+                    send_rich_discord_message_task.delay(f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
 
 
             return redirect(parent.get_absolute_url())
@@ -1156,7 +1156,7 @@ def scorecard_detail_view(request, id=None):
 
 
 # Choose from available scorecards to link to a game
-@player_required
+@player_onboard_required
 def scorecard_assign_view(request, id):
     effort_link = get_object_or_404(Effort, id=id)
 
@@ -1193,7 +1193,7 @@ def scorecard_assign_view(request, id):
     return render(request, 'the_warroom/assign_scorecard.html', context)
 
 # Choose from available games to link a scorecard
-@player_required
+@player_onboard_required
 def effort_assign_view(request, id):
 
     scorecard = get_object_or_404(ScoreCard, id=id)
@@ -1242,7 +1242,7 @@ def effort_assign_view(request, id):
     return render(request, 'the_warroom/assign_effort.html', context)
 
 
-@player_required
+@player_onboard_required
 def scorecard_delete_view(request, id=None):
     try:
         obj = ScoreCard.objects.get(id=id, recorder=request.user.profile)
@@ -2084,7 +2084,7 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             return redirect(round.get_absolute_url())
         
 
-@player_required
+@player_onboard_required
 def in_progress_view(request):
     language_code = get_language()
     language_object = Language.objects.filter(code=language_code).first()

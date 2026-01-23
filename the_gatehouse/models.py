@@ -1005,6 +1005,8 @@ class Survey(models.Model):
     series_round = models.ForeignKey('the_warroom.Round', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Tournament Round that this survey is about.")
 
     is_public = models.BooleanField(default=True, help_text="If False, only certain players can access.")    
+    is_pinned = models.BooleanField(default=False, help_text="If True, will appear at the top of lists.")    
+
     invited_players = models.ManyToManyField(Profile, blank=True, related_name='survey_invites', help_text="Players invited to take this survey.")
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="Players in this guild will be able to take this survey.")
 
@@ -1020,7 +1022,7 @@ class Survey(models.Model):
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-is_pinned', '-created_at']
         verbose_name = 'Survey'
         verbose_name_plural = 'Surveys'
 
@@ -1108,6 +1110,20 @@ class Survey(models.Model):
         if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
             return True
 
+        # If Private with Series Round, only allow Round players
+        if self.series_round:
+            if self.series_round.players.filter(pk=user_profile.pk).exists():
+                return True
+            else:
+                return False
+
+        # If Private with Series, only allow Series players
+        if self.series:
+            if self.series.players.filter(pk=user_profile.pk).exists():
+                return True
+            else:
+                return False
+
         return False
 
 
@@ -1128,27 +1144,46 @@ class Survey(models.Model):
         if self.has_user_responded(user_profile) and not self.allow_multiple_responses:
             return False
 
-        # Check participant access (not just view access)
-        # Admin/owner can view but can only take if they meet participant criteria
+        # Public is open to everyone
         if self.is_public:
             return True
 
+        # If private allow invited players
         if self.invited_players.filter(pk=user_profile.pk).exists():
             return True
 
+        # If private allow guild members
         if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
             return True
+
+        # If Private with Series Round, only allow Round players
+        if self.series_round:
+            if self.series_round.players.filter(pk=user_profile.pk).exists():
+                return True
+            else:
+                return False
+
+        # If Private with Series, only allow Series players
+        if self.series:
+            if self.series.players.filter(pk=user_profile.pk).exists():
+                return True
+            else:
+                return False
 
         return False
 
     def can_see_results(self, user_profile):
         if not user_profile:
             return False
+        
         # Admin and creator can see results
         if user_profile.admin or user_profile == self.created_by:
             return True
+        
+        # If show results is true and the user has responded
         if self.has_user_responded(user_profile) and self.show_results_to_respondents:
             return True
+        
         return False
 
 class LikertScale(models.Model):

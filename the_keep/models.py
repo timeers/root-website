@@ -32,7 +32,6 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.translation import gettext_lazy as _
 
 from the_gatehouse.models import Profile, Language
-from the_gatehouse.services.discordservice import send_rich_discord_message
 from the_gatehouse.utils import int_to_alpha, int_to_roman
 
 from .utils import (validate_hex_color, validate_png, 
@@ -559,12 +558,13 @@ class Post(models.Model):
             Post.objects.filter(pk=self.pk).update(designers_list=designers_list)
         # If the post is new and not in submittal status
         if new_post and self.status != StatusChoices.SUBMITTED:
+            from the_gatehouse.tasks import send_rich_discord_message_task
             fields = []
             fields.append({
                     'name': 'By:',
                     'value': self.designers_list
                 })
-            send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
+            send_rich_discord_message_task.delay(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
             
             # If the designer is registered and the post was submitted by an admin, update the designer's profile
             if self.designer.group == "P":

@@ -13,8 +13,9 @@ from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog, Survey
-from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, send_discord_message, update_discord_avatar
+from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, update_discord_avatar
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title
+from .tasks import send_discord_message_task
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
@@ -210,14 +211,14 @@ def manage_profile(sender, instance, created, **kwargs):
 @receiver(user_logged_in)
 def user_logged_in_handler(request, user, **kwargs):
     new_user = False
-    send_discord_message(f'{user} logged in')
+    send_discord_message_task.delay(f'{user} logged in')
 
     if not hasattr(user, 'profile'):
         user.save()
         new_user = True
     
     if user.last_login is None:
-        # send_discord_message(f"{user} first login",category='report')
+        # send_discord_message_task.delay(f"{user} first login",category='report')
         new_user = True
 
     profile = user.profile
@@ -234,7 +235,7 @@ def user_logged_in_handler(request, user, **kwargs):
                 profile_updated = True
             else:
                 # Handle conflict
-                send_discord_message(f"Discord ID {discord_id} already exists for another profile and cannot be assigned to {user}",category='report')
+                send_discord_message_task.delay(f"Discord ID {discord_id} already exists for another profile and cannot be assigned to {user}",category='report')
     # Add discord Avatar if profile is using the default
     update_discord_avatar(user, force=False)
 
@@ -270,7 +271,7 @@ def user_logged_in_handler(request, user, **kwargs):
         profile.save()
 
     if new_user:
-        send_discord_message(f'Profile created for {profile.discord} ({profile.group})', category='user_updates')
+        send_discord_message_task.delay(f'Profile created for {profile.discord} ({profile.group})', category='user_updates')
         if profile.group == "O":
             messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access. Join the Woodland Warriors Discord and log back in to record games.')
         else:
@@ -287,7 +288,7 @@ def user_logged_in_handler(request, user, **kwargs):
         # Add the user to the group
         user.groups.add(group)
         user.is_staff = True
-        send_discord_message(f'User {user} added to {group_name}', category='report')
+        send_discord_message_task.delay(f'User {user} added to {group_name}', category='report')
         user.save()
 
     # If user is not in group A but is in the Admin group (remove from group)
@@ -297,7 +298,7 @@ def user_logged_in_handler(request, user, **kwargs):
         # Remove the user from the group
         user.groups.remove(group)
         # user.is_staff = False
-        send_discord_message(f'User {user} removed from {group_name}', category='report')
+        send_discord_message_task.delay(f'User {user} removed from {group_name}', category='report')
         user.save()
         
 

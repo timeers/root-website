@@ -357,7 +357,7 @@ class SurveyAdmin(admin.ModelAdmin):
             'fields': ('is_active', 'start_date', 'end_date')
         }),
         ('Settings', {
-            'fields': ('is_public', 'allow_multiple_responses', 'show_results_to_respondents')
+            'fields': ('is_public', 'is_pinned','allow_multiple_responses', 'show_results_to_respondents')
         }),
         ('Meta', {
             'fields': ('created_at', 'response_count'),

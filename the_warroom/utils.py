@@ -1,6 +1,6 @@
 import re
 
-from the_gatehouse.services.discordservice import send_discord_message
+from the_gatehouse.tasks import send_discord_message_task
 
 from better_profanity import profanity
 profanity.load_censor_words()
@@ -43,7 +43,7 @@ def clean_nickname(raw_title):
     # If nickname contains profanity, censor it
     if profanity.contains_profanity(nickname):
         new_nickname = profanity.censor(nickname)
-        send_discord_message(f'Nickname "{nickname}" replaced with "{new_nickname}"')
+        send_discord_message_task.delay(f'Nickname "{nickname}" replaced with "{new_nickname}"')
         nickname = new_nickname
         
 

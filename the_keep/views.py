@@ -37,12 +37,13 @@ from django.views.generic import (
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
 from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest
-from the_gatehouse.views import (designer_required_class_based_view, designer_required, tester_required,
+from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
-                                 admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
-from the_gatehouse.services.discordservice import send_discord_message, send_rich_discord_message, get_guild_link_config
-from the_gatehouse.utils import get_uuid, build_absolute_uri, int_to_alpha, int_to_roman
+                                 player_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
+from the_gatehouse.services.discordservice import get_guild_link_config
+from the_gatehouse.utils import build_absolute_uri
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from .tasks import sync_rules_task
 from .models import (
     Post, Expansion,
@@ -384,13 +385,13 @@ class PostCreateView(LoginRequiredMixin, CreateView):
                         'name': 'Designer:',
                         'value': post.designer.name
                     })
-                send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
+                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
             else:
                 fields.append({
                         'name': 'Posted by:',
                         'value': self.request.user.profile.name
                     })
-                send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
+                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
                 
         return response
 
@@ -478,7 +479,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
                 'name': 'Edited by:',
                 'value': self.request.user.profile.name
             })
-        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
+        send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
 
 
         return response
@@ -657,7 +658,7 @@ def home(request, *args, **kwargs):
     # game_count = Game.objects.filter(final=True).count()
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) on Home Page')
     
     context = {
         'title': 'Home',
@@ -734,13 +735,13 @@ def create_post_translation(request, slug, lang=None):
                         'name': 'Posted by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message_task.delay(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
             else:
                 fields.append({
                         'name': 'Edited by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message_task.delay(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
 
 
             # Append the lang query parameter to the URL
@@ -1050,9 +1051,10 @@ def ultimate_component_view(request, slug, component):
 
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {obj.component}: {obj.title} ({language_code})')
+        print('here')
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed {obj.component}: {obj.title} ({language_code})')
     # else:
-    #     send_discord_message(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
+    #     send_discord_message_task.delay(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
 
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
@@ -1579,7 +1581,7 @@ def bookmark_post(request, obj):
 def list_view(request, slug=None):
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Archive')
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewing The Archive')
     
     theme = get_theme(request)
 
@@ -2986,7 +2988,7 @@ def status_check(request, slug):
 
 
 # This view is so that the owner of a Post can mark it as Stable directly
-@player_required
+@player_onboard_required
 def confirm_stable(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
@@ -3028,7 +3030,7 @@ def confirm_stable(request, slug):
     return render(request, 'the_keep/confirm_stable.html', context)
 
 # This view is so that the owner of a Post can mark it as Testing directly
-@player_required
+@player_onboard_required
 def confirm_testing(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
@@ -3098,7 +3100,7 @@ class PNPAssetCreateView(CreateView):
         fields = [
             {'name': 'Posted by:', 'value': self.request.user.profile.name},
         ]
-        send_rich_discord_message(f'{asset}', category='FAQ Law', title='New Asset', fields=fields)
+        send_rich_discord_message_task.delay(f'{asset}', category='FAQ Law', title='New Asset', fields=fields)
         # Redirect to the asset list
         return reverse_lazy('asset-list') 
 
@@ -3143,7 +3145,7 @@ class PNPAssetUpdateView(UpdateView):
         fields = [
             {'name': 'Edited by:', 'value': self.request.user.profile.name},
         ]
-        send_rich_discord_message(f'{asset}', category='FAQ Law', title='Edited Asset', fields=fields)
+        send_rich_discord_message_task.delay(f'{asset}', category='FAQ Law', title='Edited Asset', fields=fields)
         # Redirect to the asset list
         return reverse_lazy('asset-list') 
 
@@ -3254,9 +3256,9 @@ class PNPAssetListView(ListView):
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
 
         if self.request.user.is_authenticated:
-            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')
+            send_discord_message_task.delay(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')
         # else:
-        #     send_discord_message(f'{get_uuid(self.request)} viewing The Workshop')
+        #     send_discord_message_task.delay(f'{get_uuid(self.request)} viewing The Workshop')
 
         return super().render_to_response(context, **response_kwargs)
 
@@ -3907,7 +3909,7 @@ def create_law_group(request, slug):
                 'name': 'Posted by:',
                 'value': request.user.profile.name
             }]
-            send_rich_discord_message(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
+            send_rich_discord_message_task.delay(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
 
             return redirect('law-view', slug=group.slug, language_code=language.code)
     else:
@@ -4938,7 +4940,7 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
 
         post = self.get_post()
         if post:
-            send_rich_discord_message(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
+            send_rich_discord_message_task.delay(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
             return reverse('faq-view', kwargs={'slug': post.slug, 'language_code': language_code})
         return reverse('lang-faq', kwargs={'language_code': language_code})
 

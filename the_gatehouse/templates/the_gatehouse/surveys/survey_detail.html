@@ -215,6 +215,9 @@
                     <div>
                         <h5 class="alert-heading mb-1">Public Survey</h5>
                         <p class="mb-0">Log in to take this survey.</p>
+                        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
+                            {% trans 'Take Survey Now' %}
+                        </a>
                     </div>
                 </div>
             </a>

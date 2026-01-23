@@ -8,7 +8,7 @@ from the_keep.models import Faction, Vagabond, Deck, Map, Landmark, Hireling, Pr
 from the_warroom.models import Game, Effort, PlatformChoices, Tournament, Round
 from the_warroom.utils import clean_nickname
 
-from the_gatehouse.services.discordservice import send_discord_message
+from the_gatehouse.tasks import send_discord_message_task
 
 
 
@@ -423,7 +423,7 @@ def create_efforts_from_api(game, participants):
                         'dwd': standard_player_string
                     }
                 ) 
-                send_discord_message(f'Duplicate user {player} added.', 'user_updates')
+                send_discord_message_task.delay(f'Duplicate user {player} added.', 'user_updates')
             else:
                 player, created = Profile.objects.get_or_create(
                     discord=player_without_number.lower(),

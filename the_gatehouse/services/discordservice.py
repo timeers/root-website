@@ -13,6 +13,10 @@ from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
 from django.urls import reverse
 from django.utils.translation import gettext as _
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
 
@@ -237,6 +241,10 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
         embed_title = "Post Created"
         embed_color = 0x00FF00  # Green color for new
+    elif category == 'survey':
+        webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
+        embed_title = "Created"
+        embed_color = 0xCF9FFF  # Light violet color for surveys
     elif category == 'Post Edited':
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
         embed_title = "Post Edited"
@@ -279,8 +287,8 @@ def apply_discord_category(category):
 
 def send_discord_message(message, category=None):
     # Check if DEBUG is False in the config
-    if config["DEBUG_VALUE"] == "True":
-        return  # Do nothing if DEBUG is True
+    # if config["DEBUG_VALUE"] == "True":
+    #     return  # Do nothing if DEBUG is True
 
     webhook_url, _, _ = apply_discord_category(category=category)
     
@@ -293,8 +301,13 @@ def send_discord_message(message, category=None):
     response = requests.post(webhook_url, json=payload)
     
     if response.status_code != 204:
-        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
-
+        logger.error(
+            "Discord webhook failed",
+            extra={
+                'status_code': response.status_code,
+                'response': response.text,
+            }
+        )
 
 def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
     # Check if DEBUG is False in the config (uncomment this to test it)
@@ -339,10 +352,18 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
     }
 
     # Send POST request to Discord webhook URL
-    response = requests.post(webhook_url, json=payload)
+    response = requests.post(webhook_url, json=payload, timeout=5)
     
     if response.status_code != 204:
-        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
+        logger.error(
+            "Discord webhook failed",
+            extra={
+                'status_code': response.status_code,
+                'response': response.text,
+            }
+        )
+
+
 
 def get_discord_invite_info(invite_code):
     """Fetch Discord server info from invite code"""
@@ -488,3 +509,58 @@ def get_guild_link_config(request, guild_id, object_link):
         'url': url,
         'text': link_text
     }
+
+def send_new_survey_notification(*, profile, survey, type):
+    if not profile or not survey:
+        logger.warning("Missing profile or survey for survey notification")
+        return False
+
+    fields = []
+
+    try:
+        # Core info
+        if survey.pk:
+            fields.append({'name': 'Questions:', 'value': survey.question_count()})
+
+        if survey.post_id:
+            fields.append({'name': 'Post:', 'value': survey.post.title})
+
+        if survey.series_id:
+            fields.append({'name': 'Series:', 'value': survey.series.name})
+
+        if survey.series_round_id:
+            fields.append({'name': 'Round:', 'value': survey.series_round.name})
+
+        if not survey.is_public:
+            if survey.guild_id:
+                fields.append({'name': 'Guild:', 'value': survey.guild.name})
+
+            if survey.invited_players.exists():
+                fields.append({
+                    'name': 'Invited Players:',
+                    'value': survey.invited_players.count()
+                })
+
+        author = profile.discord or profile.user.username if profile.user else "Unknown"
+
+        from the_gatehouse.tasks import send_rich_discord_message_task
+
+        send_rich_discord_message_task.delay(
+            message=survey.title,
+            author_name=author,
+            category='survey',
+            title=f'{type} Survey',
+            fields=fields,
+        )
+
+        return True
+
+    except Exception:
+        logger.exception(
+            "Failed to queue survey notification",
+            extra={
+                'survey_id': survey.pk,
+                'profile_id': profile.pk if profile else None,
+            }
+        )
+        return False

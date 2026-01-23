@@ -6,6 +6,16 @@
 let selectedInvitedPlayers = new Map(); // id -> {id, name, image_url}
 let playerSearchTimeout = null;
 
+function toggleTournamentAccessNote(selectID) {
+    const isPrivateCheckbox = document.getElementById('is_private');
+    const accessNote = document.getElementById(`${selectID}_access_note`);
+    const select = document.getElementById(selectID);
+    if (select && accessNote && isPrivateCheckbox){
+        const shouldShow = isPrivateCheckbox.checked && select.value !== '';
+        accessNote.style.display = shouldShow ? 'block' : 'none';
+    }
+}
+
 function toggleAccessRestrictionsSection() {
     const isPrivateCheckbox = document.getElementById('is_private');
     const accessRestrictionsSection = document.getElementById('access-restrictions-section');
@@ -28,6 +38,7 @@ function toggleAccessRestrictionsSection() {
         }
 
         accessRestrictionsSection.style.display = isPrivateCheckbox.checked ? 'block' : 'none';
+
     }
 }
 
@@ -276,6 +287,7 @@ function loadSeriesRounds(preselectedRoundId = null) {
 
     if (!tournamentId) {
         roundSelect.disabled = true;
+        toggleTournamentAccessNote('series_round');
         return;
     }
 
@@ -298,6 +310,9 @@ function loadSeriesRounds(preselectedRoundId = null) {
                 });
             }
             // If no rounds, dropdown stays at default option
+
+            // Update tournament access note after rounds are loaded
+            toggleTournamentAccessNote('series_round');
         })
         .catch(error => {
             console.error('Error loading rounds:', error);
@@ -314,6 +329,34 @@ document.addEventListener('DOMContentLoaded', function() {
         const preselectedRoundId = seriesSelect.dataset.preselectedRound || null;
         loadSeriesRounds(preselectedRoundId);
     }
+
+    // Add event listeners for toggleTournamentAccessNote
+    const seriesSelectEl = document.getElementById('series');
+    const seriesRoundSelectEl = document.getElementById('series_round');
+    const isPrivateCheckbox = document.getElementById('is_private');
+
+    if (seriesSelectEl) {
+        seriesSelectEl.addEventListener('change', function() {
+            toggleTournamentAccessNote('series');
+        });
+    }
+
+    if (seriesRoundSelectEl) {
+        seriesRoundSelectEl.addEventListener('change', function() {
+            toggleTournamentAccessNote('series_round');
+        });
+    }
+
+    if (isPrivateCheckbox) {
+        isPrivateCheckbox.addEventListener('change', function() {
+            toggleTournamentAccessNote('series');
+            toggleTournamentAccessNote('series_round');
+        });
+    }
+
+    // Call on page load to set initial state for series
+    // (series_round will be called after loadSeriesRounds completes)
+    toggleTournamentAccessNote('series');
 });
 
 function initializeSortable() {
@@ -1727,7 +1770,6 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
 {% if existing_questions %}
 // Load existing questions when page loads (edit mode)
 window.addEventListener('DOMContentLoaded', function() {
-    console.log('DOMContentLoaded - existingQuestions:', existingQuestions);
     if (existingQuestions && existingQuestions.length > 0) {
         console.log('Loading', existingQuestions.length, 'existing questions');
         loadExistingQuestions();

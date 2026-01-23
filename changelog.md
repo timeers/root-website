@@ -11,6 +11,7 @@
 - Changelog page now selects the most recent update or scrolls to the selected update
 - Discord Guild invite requests now display average response time.
 - Leaderboard filter updates url for easier sharing
+- Using Celery for Discord status updates
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences

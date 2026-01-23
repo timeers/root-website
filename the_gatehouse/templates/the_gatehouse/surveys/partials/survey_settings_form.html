@@ -97,6 +97,12 @@
                             {% endfor %}
                         </select>
                         <small class="form-text text-muted">{% trans 'Associate with a tournament or series you host' %}</small>
+                        <div class='alert alert-info' id="series_access_note" style="display: none;">
+                            <i class="bi bi-info-circle"></i>
+                            <small class="form-text text-muted">
+                                {% trans 'Players invited to this tournament will have access' %}
+                            </small>
+                        </div>
                 </div>
                 <div class="col-md-6 mb-3">
                     <label for="series_round" class="form-label">{% trans 'Round' %}</label>
@@ -104,6 +110,12 @@
                         <option value="">{% trans 'All rounds / No specific round' %}</option>
                     </select>
                     <small class="form-text text-muted">{% trans 'Optionally associate with a specific round' %}</small>
+                    <div class='alert alert-info' id="series_round_access_note" style="display: none;">
+                        <i class="bi bi-info-circle"></i>
+                        <small class="form-text text-muted">
+                            {% trans 'Players invited to this round will have access' %}
+                        </small>
+                    </div>
                 </div>
                 {% endif %}
                 {% if user_posts %}
