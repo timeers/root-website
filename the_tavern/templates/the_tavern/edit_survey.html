@@ -29,7 +29,7 @@
         {% csrf_token %}
 
         {# Survey Basic Information - Shared Partial #}
-        {% include 'the_gatehouse/surveys/partials/survey_settings_form.html' %}
+        {% include 'the_tavern/partials/survey_settings_form.html' %}
 
         {# Questions Section #}
         <div class="card mb-4">
@@ -103,23 +103,23 @@
 </div>
 
 {# Save Question as Template Modal #}
-{% include 'the_gatehouse/surveys/modals/save_template_modal.html' %}
+{% include 'the_tavern/modals/save_template_modal.html' %}
 
 {# Template Selection Modal #}
-{% include 'the_gatehouse/surveys/modals/template_selection_modal.html' %}
+{% include 'the_tavern/modals/template_selection_modal.html' %}
 
 {# Duplicate Survey Confirmation Modal #}
-{% include 'the_gatehouse/surveys/modals/duplicate_survey_modal.html' %}
+{% include 'the_tavern/modals/duplicate_survey_modal.html' %}
 
 {# Delete Survey Confirmation Modal #}
-{% include 'the_gatehouse/surveys/modals/delete_survey_modal.html' %}
+{% include 'the_tavern/modals/delete_survey_modal.html' %}
 
 {% endblock content %}
 
 {% block styles %}
-{% include 'the_gatehouse/surveys/partials/survey_styles.html' %}
+{% include 'the_tavern/partials/survey_styles.html' %}
 {% endblock styles %}
 
 {% block scripts %}
-{% include 'the_gatehouse/surveys/partials/survey_form_scripts.html' %}
+{% include 'the_tavern/partials/survey_form_scripts.html' %}
 {% endblock scripts %}

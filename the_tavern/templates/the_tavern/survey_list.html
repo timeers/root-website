@@ -1,6 +1,16 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n static %}
 {% block title %}{% trans 'Surveys' %} | {% endblock %}
+
+{% block meta %}    {# Open Graph tags #}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta%}
 
 {% block content %}
 <div class="content-section">
@@ -36,7 +46,7 @@
             {% if my_surveys %}
                 <div class="list-group">
                     {% for survey in my_surveys %}
-                        {% include 'the_gatehouse/surveys/partials/survey_list_item.html' with survey=survey show_privacy_badge=True %}
+                        {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True %}
                     {% endfor %}
                 </div>
             {% else %}
@@ -52,7 +62,7 @@
             {% if private_surveys %}
                 <div class="list-group">
                     {% for survey in private_surveys %}
-                        {% include 'the_gatehouse/surveys/partials/survey_list_item.html' with survey=survey show_access_type=True show_owner=True %}
+                        {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_access_type=True show_owner=True %}
                     {% endfor %}
                 </div>
             {% else %}
@@ -69,7 +79,7 @@
         {% if public_surveys %}
             <div class="list-group">
                 {% for survey in public_surveys %}
-                    {% include 'the_gatehouse/surveys/partials/survey_list_item.html' with survey=survey show_owner=True %}
+                    {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_owner=True %}
                 {% endfor %}
             </div>
         {% else %}

@@ -1,0 +1,39 @@
+{% load i18n %}
+{% for survey in archived_surveys %}
+    <a href="{% url 'survey-detail' survey.slug %}?return_to={{request.path}}"
+       class="list-group-item list-group-item-action list-group-item-light">
+        <div class="d-flex w-100 justify-content-between align-items-start">
+            <div class="flex-fill">
+                <h5 class="mb-1 text-muted">
+                    {{ survey.title }}
+                    {% if not survey.is_public %}
+                        <i class="bi bi-shield-lock"></i>
+                    {% endif %}
+                </h5>
+                <small class="text-secondary">
+                    {{ survey.response_count }} {% trans 'response' %}{{ survey.response_count|pluralize }}
+                    {% if survey.end_date %}
+                        | {% trans 'Closed' %}: {{ survey.end_date|date:"M d, Y" }}
+                    {% endif %}
+                    {% if not survey.is_active %}
+                        | <span class="text-warning">{% trans 'Inactive' %}</span>
+                    {% endif %}
+                </small>
+            </div>
+            <div class="ms-3 d-flex align-items-center">
+                <span class="text-info" title="{% trans 'View Results' %}">
+                    <i class="bi bi-list-check"></i>
+                </span>
+            </div>
+        </div>
+    </a>
+{% endfor %}
+{% if has_more_archived %}
+    <button type="button"
+            class="list-group-item list-group-item-action text-center text-primary"
+            hx-get="{% url 'survey-history' %}?load_type=archived&archived_offset={{ archived_offset }}"
+            hx-target="this"
+            hx-swap="outerHTML">
+        <i class="bi bi-arrow-down-circle"></i> {% trans 'Load more' %}
+    </button>
+{% endif %}

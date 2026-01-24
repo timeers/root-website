@@ -160,10 +160,10 @@
             <div class="row">
                 <div class="col-md-6 col-lg-3">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
-                               {% if not survey or survey.is_active %}checked{% endif %}>
-                        <label class="form-check-label" for="is_active">
-                            {% trans 'Active' %}
+                        <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
+                               {% if survey.allow_edit_responses %}checked{% endif %}>
+                        <label class="form-check-label" for="allow_edit_responses">
+                            {% trans 'Allow Editing Responses' %}
                         </label>
                     </div>
                 </div>
@@ -178,19 +178,28 @@
                 </div>
                 <div class="col-md-6 col-lg-3">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
-                               {% if survey.allow_edit_responses %}checked{% endif %}>
-                        <label class="form-check-label" for="allow_edit_responses">
-                            {% trans 'Allow Edit Responses' %}
+                        <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
+                               {% if survey.show_results_to_respondents %}checked{% endif %}>
+                        <label class="form-check-label" for="show_results_to_respondents">
+                            {% trans 'Show Results to Respondents' %}
                         </label>
                     </div>
                 </div>
                 <div class="col-md-6 col-lg-3">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
-                               {% if survey.show_results_to_respondents %}checked{% endif %}>
-                        <label class="form-check-label" for="show_results_to_respondents">
-                            {% trans 'Show Results to Respondents' %}
+                        <input class="form-check-input" type="checkbox" id="show_results_on_close" name="show_results_on_close"
+                               {% if survey.show_results_on_close %}checked{% endif %}>
+                        <label class="form-check-label" for="show_results_on_close">
+                            {% trans 'Show Results Once Closed' %}
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
+                               {% if not survey or survey.is_active %}checked{% endif %}>
+                        <label class="form-check-label" for="is_active">
+                            {% trans 'Active' %}
                         </label>
                     </div>
                 </div>

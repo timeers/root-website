@@ -12,7 +12,7 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
-from .models import Profile, ForegroundImage, BackgroundImage, Changelog, Survey
+from .models import Profile, ForegroundImage, BackgroundImage, Changelog
 from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, update_discord_avatar
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title
 from .tasks import send_discord_message_task
@@ -20,6 +20,7 @@ from .tasks import send_discord_message_task
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
                              Expansion, Card, DeckGroup)
+from the_tavern.models import Survey
 
 SMALL_ICON = 100
 BOARD_IMAGE = 1600

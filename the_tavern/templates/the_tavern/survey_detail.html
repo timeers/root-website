@@ -1,10 +1,20 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n socialaccount %}
+{% load i18n socialaccount static %}
 {% block title %}{{ survey.title }} | {% endblock %}
+
+{% block meta %}    {# Open Graph tags #}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta%}
 
 {% block content %}
 <div class="content-section">
-    {% include 'the_gatehouse/surveys/partials/survey_navigation.html' %}
+    {% include 'the_tavern/partials/survey_navigation.html' %}
 
     <!-- Survey Header -->
     <div class="mb-4">
@@ -117,11 +127,11 @@
                 <i class="bi bi-pencil"></i> {% trans 'Editable Responses' %}
             </span>
         {% endif %}
-        {% if survey.show_results_to_respondents %}
+        {% comment %} {% if survey.show_results_to_respondents %}
             <span class="badge bg-primary">
                 <i class="bi bi-bar-chart-line"></i> {% trans 'Results Visible' %}
             </span>
-        {% endif %}
+        {% endif %} {% endcomment %}
     </div>
 
     <!-- Your Responses Section -->

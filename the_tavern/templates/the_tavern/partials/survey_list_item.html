@@ -6,6 +6,9 @@
         <div class="flex-fill">
             <h5 class="mb-1">
                 {{ survey.title }}
+                {% if show_privacy_badge and not survey.is_public %}
+                    <i class="bi bi-shield-lock text-muted small"></i>
+                {% endif %}
             </h5>
             {% if show_owner %}
                 <div class="d-flex align-items-center mb-1">
@@ -32,6 +35,12 @@
                             <i class="bi bi-people"></i>
                         {% endif %}
                         {{ survey.guild.guild_name }}
+                    {% elif survey.series_round %}
+                        | <i class="bi bi-trophy"></i>
+                        {{ survey.series_round.name }}
+                    {% elif survey.series %}
+                        | <i class="bi bi-trophy"></i>
+                        {{ survey.series.name}}
                     {% else %}
                         | <i class="bi bi-envelope"></i> {% trans 'Invited' %}
                     {% endif %}
@@ -43,7 +52,7 @@
             {% if user.is_authenticated %}
                 {% if survey.user_has_responded %}
                     {% if survey.allow_multiple_responses %}
-                        <span class="text-success" title="{% trans 'Completed - Can retake' %}">
+                        <span class="text-primary" title="{% trans 'Completed - Can retake' %}">
                             <i class="bi bi-check-square"></i>
                         </span>
                     {% else %}
@@ -51,9 +60,13 @@
                             <i class="bi bi-check-square"></i>
                         </span>
                     {% endif %}
-                {% else %}
+                {% elif survey.can_take_survey %}
                     <span class="text-primary" title="{% trans 'Not started' %}">
                         <i class="bi bi-square"></i>
+                    </span>
+                {% else %}
+                    <span class="text-warning" title="{% trans 'Private' %}">
+                        <i class="bi bi-dash-square"></i>
                     </span>
                 {% endif %}
 
