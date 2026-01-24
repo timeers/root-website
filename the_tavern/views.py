@@ -347,11 +347,20 @@ def survey_list_view(request):
                 can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
                 # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
                 can_take_survey=Case(
-                    When(Q(is_public=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(user_is_invited=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(user_in_guild=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(series_round__isnull=False) & Q(user_in_round=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(series_round__isnull=True, series__isnull=False) & Q(user_in_series=True) & Q(can_respond=True), then=Value(True)),
+                    # Banned users can't take survey
+                    When(Q(can_respond=False), then=Value(False)),
+                    # Public surveys
+                    When(Q(is_public=True), then=Value(True)),
+                    # Invited players
+                    When(Q(user_is_invited=True), then=Value(True)),
+                    # Guild members
+                    When(Q(user_in_guild=True), then=Value(True)),
+                    # Series round (blocks if has round but user not in it)
+                    When(Q(series_round__isnull=False, user_in_round=True), then=Value(True)),
+                    When(Q(series_round__isnull=False, user_in_round=False), then=Value(False)),
+                    # Series (blocks if has series but user not in it)
+                    When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
+                    When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
                     default=Value(False),
                     output_field=models.BooleanField()
                 ) if not is_banned else Value(False, output_field=models.BooleanField())
@@ -371,11 +380,20 @@ def survey_list_view(request):
                 can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
                 # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
                 can_take_survey=Case(
-                    When(Q(is_public=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(user_is_invited=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(user_in_guild=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(series_round__isnull=False) & Q(user_in_round=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(series_round__isnull=True, series__isnull=False) & Q(user_in_series=True) & Q(can_respond=True), then=Value(True)),
+                    # Banned users can't take survey
+                    When(Q(can_respond=False), then=Value(False)),
+                    # Public surveys
+                    When(Q(is_public=True), then=Value(True)),
+                    # Invited players
+                    When(Q(user_is_invited=True), then=Value(True)),
+                    # Guild members
+                    When(Q(user_in_guild=True), then=Value(True)),
+                    # Series round (blocks if has round but user not in it)
+                    When(Q(series_round__isnull=False, user_in_round=True), then=Value(True)),
+                    When(Q(series_round__isnull=False, user_in_round=False), then=Value(False)),
+                    # Series (blocks if has series but user not in it)
+                    When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
+                    When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
                     default=Value(False),
                     output_field=models.BooleanField()
                 ) if not is_banned else Value(False, output_field=models.BooleanField())
@@ -396,11 +414,20 @@ def survey_list_view(request):
                 can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
                 # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
                 can_take_survey=Case(
-                    When(Q(is_public=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(user_is_invited=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(user_in_guild=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(series_round__isnull=False) & Q(user_in_round=True) & Q(can_respond=True), then=Value(True)),
-                    When(Q(series_round__isnull=True, series__isnull=False) & Q(user_in_series=True) & Q(can_respond=True), then=Value(True)),
+                    # Banned users can't take survey
+                    When(Q(can_respond=False), then=Value(False)),
+                    # Public surveys
+                    When(Q(is_public=True), then=Value(True)),
+                    # Invited players
+                    When(Q(user_is_invited=True), then=Value(True)),
+                    # Guild members
+                    When(Q(user_in_guild=True), then=Value(True)),
+                    # Series round (blocks if has round but user not in it)
+                    When(Q(series_round__isnull=False, user_in_round=True), then=Value(True)),
+                    When(Q(series_round__isnull=False, user_in_round=False), then=Value(False)),
+                    # Series (blocks if has series but user not in it)
+                    When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
+                    When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
                     default=Value(False),
                     output_field=models.BooleanField()
                 ) if not is_banned else Value(False, output_field=models.BooleanField())
@@ -416,13 +443,61 @@ def survey_list_view(request):
     total_private = private_surveys.count()
     total_public = private_surveys.count()
 
+
+    # Handle HTMX partial requests for loading more surveys
+    if load_type == 'my_surveys':
+        selected_surveys = my_surveys[my_surveys_offset:my_surveys_offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = total_my_surveys > my_surveys_offset + SURVEY_LIST_PAGE_SIZE
+        next_offset = my_surveys_offset + SURVEY_LIST_PAGE_SIZE
+        return render(request, 'the_tavern/partials/survey_list_container.html', {
+            'selected_surveys': selected_surveys,
+            'has_more': has_more,
+            'offset': next_offset,
+            'load_type': load_type,
+        })
+
+    if load_type == 'private':
+        selected_surveys = private_surveys[private_offset:private_offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = total_private > private_offset + SURVEY_LIST_PAGE_SIZE
+        next_offset = private_offset + SURVEY_LIST_PAGE_SIZE
+        return render(request, 'the_tavern/partials/survey_list_container.html', {
+            'selected_surveys': selected_surveys,
+            'has_more': has_more,
+            'offset': next_offset,
+            'load_type': load_type,
+        })
+
+    if load_type == 'public':
+        selected_surveys = public_surveys[public_offset:public_offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = total_public > public_offset + SURVEY_LIST_PAGE_SIZE
+        next_offset = public_offset + SURVEY_LIST_PAGE_SIZE
+        return render(request, 'the_tavern/partials/survey_list_container.html', {
+            'selected_surveys': selected_surveys,
+            'has_more': has_more,
+            'offset': next_offset,
+            'load_type': load_type,
+        })
+
+
     meta_title = "Surveys"
     meta_description = "Explore community surveys about the board game Root - or create your own to gather feedback on factions, matchups, house rules, or scheduling availability."
 
     context = {
-        'my_surveys': my_surveys,
-        'private_surveys': private_surveys,
-        'public_surveys': public_surveys,
+        'my_surveys': my_surveys[:SURVEY_LIST_PAGE_SIZE],
+        'has_more_my_surveys': total_my_surveys > SURVEY_LIST_PAGE_SIZE,
+        'my_surveys_offset': SURVEY_LIST_PAGE_SIZE,
+        'total_my_surveys': total_my_surveys,
+
+        'private_surveys': private_surveys[:SURVEY_LIST_PAGE_SIZE],
+        'has_more_private': total_private > SURVEY_LIST_PAGE_SIZE,
+        'private_offset': SURVEY_LIST_PAGE_SIZE,
+        'total_private': total_private,
+
+        'public_surveys': public_surveys[:SURVEY_LIST_PAGE_SIZE],
+        'has_more_public': total_public > SURVEY_LIST_PAGE_SIZE,
+        'public_offset': SURVEY_LIST_PAGE_SIZE,
+        'total_public': total_public,
+
         'can_create_survey': profile.player if profile else False,
         'meta_title': meta_title,
         'meta_description': meta_description,
@@ -430,7 +505,7 @@ def survey_list_view(request):
     return render(request, 'the_tavern/survey_list.html', context)
 
 
-SURVEY_HISTORY_PAGE_SIZE = 5
+SURVEY_LIST_PAGE_SIZE = 10
 
 
 @login_required
@@ -478,9 +553,9 @@ def survey_history_view(request):
 
     # Handle HTMX partial requests for loading more items
     if load_type == 'responses':
-        items = past_responses[responses_offset:responses_offset + SURVEY_HISTORY_PAGE_SIZE]
-        has_more = len(past_responses) > responses_offset + SURVEY_HISTORY_PAGE_SIZE
-        next_offset = responses_offset + SURVEY_HISTORY_PAGE_SIZE
+        items = past_responses[responses_offset:responses_offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = len(past_responses) > responses_offset + SURVEY_LIST_PAGE_SIZE
+        next_offset = responses_offset + SURVEY_LIST_PAGE_SIZE
         return render(request, 'the_tavern/partials/history_responses_list.html', {
             'past_responses': items,
             'has_more_responses': has_more,
@@ -488,9 +563,9 @@ def survey_history_view(request):
         })
 
     if load_type == 'archived':
-        items = archived_surveys[archived_offset:archived_offset + SURVEY_HISTORY_PAGE_SIZE]
-        has_more = len(archived_surveys) > archived_offset + SURVEY_HISTORY_PAGE_SIZE
-        next_offset = archived_offset + SURVEY_HISTORY_PAGE_SIZE
+        items = archived_surveys[archived_offset:archived_offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = len(archived_surveys) > archived_offset + SURVEY_LIST_PAGE_SIZE
+        next_offset = archived_offset + SURVEY_LIST_PAGE_SIZE
         return render(request, 'the_tavern/partials/history_archived_list.html', {
             'archived_surveys': items,
             'has_more_archived': has_more,
@@ -498,10 +573,10 @@ def survey_history_view(request):
         })
 
     if load_type == 'public':
-        items = public_surveys[public_offset:public_offset + SURVEY_HISTORY_PAGE_SIZE]
-        has_more = total_public > public_offset + SURVEY_HISTORY_PAGE_SIZE
+        items = public_surveys[public_offset:public_offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = total_public > public_offset + SURVEY_LIST_PAGE_SIZE
 
-        next_offset = public_offset + SURVEY_HISTORY_PAGE_SIZE
+        next_offset = public_offset + SURVEY_LIST_PAGE_SIZE
         return render(request, 'the_tavern/partials/history_public_list.html', {
             'public_surveys': items,
             'has_more_public': has_more,
@@ -510,19 +585,19 @@ def survey_history_view(request):
 
     # Full page load - slice to initial page size
     context = {
-        'past_responses': past_responses[:SURVEY_HISTORY_PAGE_SIZE],
-        'has_more_responses': total_past_responses > SURVEY_HISTORY_PAGE_SIZE,
-        'responses_offset': SURVEY_HISTORY_PAGE_SIZE,
+        'past_responses': past_responses[:SURVEY_LIST_PAGE_SIZE],
+        'has_more_responses': total_past_responses > SURVEY_LIST_PAGE_SIZE,
+        'responses_offset': SURVEY_LIST_PAGE_SIZE,
         'total_responses': total_past_responses,
 
-        'archived_surveys': archived_surveys[:SURVEY_HISTORY_PAGE_SIZE],
-        'has_more_archived': total_archived > SURVEY_HISTORY_PAGE_SIZE,
-        'archived_offset': SURVEY_HISTORY_PAGE_SIZE,
+        'archived_surveys': archived_surveys[:SURVEY_LIST_PAGE_SIZE],
+        'has_more_archived': total_archived > SURVEY_LIST_PAGE_SIZE,
+        'archived_offset': SURVEY_LIST_PAGE_SIZE,
         'total_archived': total_archived,
 
-        'public_surveys': public_surveys[:SURVEY_HISTORY_PAGE_SIZE],
-        'has_more_public': total_public > SURVEY_HISTORY_PAGE_SIZE,
-        'public_offset': SURVEY_HISTORY_PAGE_SIZE,
+        'public_surveys': public_surveys[:SURVEY_LIST_PAGE_SIZE],
+        'has_more_public': total_public > SURVEY_LIST_PAGE_SIZE,
+        'public_offset': SURVEY_LIST_PAGE_SIZE,
         'total_public': total_public,
     }
     return render(request, 'the_tavern/survey_history.html', context)

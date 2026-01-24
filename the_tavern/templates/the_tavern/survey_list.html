@@ -45,9 +45,7 @@
             </h4>
             {% if my_surveys %}
                 <div class="list-group">
-                    {% for survey in my_surveys %}
-                        {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True %}
-                    {% endfor %}
+                    {% include 'the_tavern/partials/survey_list_container.html' with selected_surveys=my_surveys load_type='my_surveys' offset=my_surveys_offset has_more=has_more_my_surveys show_privacy_badge=True %}
                 </div>
             {% else %}
                 <p class="text-muted">{% trans 'You have not created any surveys.' %}</p>
@@ -61,9 +59,7 @@
             </h4>
             {% if private_surveys %}
                 <div class="list-group">
-                    {% for survey in private_surveys %}
-                        {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_access_type=True show_owner=True %}
-                    {% endfor %}
+                    {% include 'the_tavern/partials/survey_list_container.html' with selected_surveys=private_surveys load_type='private' offset=private_offset has_more=has_more_private show_access_type=True show_owner=True %}
                 </div>
             {% else %}
                 <p class="text-muted">{% trans 'No private surveys available.' %}</p>
@@ -78,9 +74,7 @@
         </h4>
         {% if public_surveys %}
             <div class="list-group">
-                {% for survey in public_surveys %}
-                    {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_owner=True %}
-                {% endfor %}
+                {% include 'the_tavern/partials/survey_list_container.html' with selected_surveys=public_surveys load_type='public' offset=public_offset has_more=has_more_public show_owner=True %}
             </div>
         {% else %}
             <p class="text-muted">{% trans 'No public surveys available.' %}</p>

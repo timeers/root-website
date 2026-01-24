@@ -216,7 +216,10 @@ class Survey(models.Model):
 
 
     def can_take_survey(self, user_profile):
-        """Check if a user can take the survey"""
+        """Check if a user can take the survey
+        NOTE: If this logic is changed, update the annotation 
+        in survey_list_view as well!
+        """
         if not user_profile:
             return False
 

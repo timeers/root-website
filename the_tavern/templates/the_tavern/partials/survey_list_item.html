@@ -52,7 +52,7 @@
             {% if user.is_authenticated %}
                 {% if survey.user_has_responded %}
                     {% if survey.allow_multiple_responses %}
-                        <span class="text-primary" title="{% trans 'Completed - Can retake' %}">
+                        <span class="text-primary" title="{% trans 'Can Take Again' %}">
                             <i class="bi bi-check-square"></i>
                         </span>
                     {% else %}

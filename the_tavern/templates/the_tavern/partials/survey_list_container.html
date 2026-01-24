@@ -1,0 +1,13 @@
+{% load i18n %}
+{% for survey in selected_surveys %}
+    {% include 'the_tavern/partials/survey_list_item.html' %}
+{% endfor %}
+{% if has_more %}
+    <button type="button"
+            class="list-group-item list-group-item-action text-center text-primary"
+            hx-get="{% url 'survey-list' %}?load_type={{ load_type }}&{{ load_type }}_offset={{ offset }}"
+            hx-target="this"
+            hx-swap="outerHTML">
+        <i class="bi bi-arrow-down-circle"></i> {% trans 'Load more' %}
+    </button>
+{% endif %}
