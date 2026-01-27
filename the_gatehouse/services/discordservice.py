@@ -287,8 +287,8 @@ def apply_discord_category(category):
 
 def send_discord_message(message, category=None):
     # Check if DEBUG is False in the config
-    # if config["DEBUG_VALUE"] == "True":
-    #     return  # Do nothing if DEBUG is True
+    if config["DEBUG_VALUE"] == "True":
+        return  # Do nothing if DEBUG is True
 
     webhook_url, _, _ = apply_discord_category(category=category)
     

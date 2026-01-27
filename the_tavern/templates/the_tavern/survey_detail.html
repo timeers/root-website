@@ -38,9 +38,9 @@
     <div class="row g-3 mb-4">
         <div class="col-md-3 col-sm-6">
             {% if can_view_survey %}
-                <a href="{% url 'survey-preview' survey.slug %}">
+                <a href="{% url 'survey-preview' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
             {% elif not user.is_authenticated %}
-                <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
+                <a href="{% provider_login_url 'discord' %}?return_to={{ current_url }}&return_title={{ current_title }}&next={{ request.path }}">
             {% endif %}
             <div class="card border-primary h-100">
                 <div class="card-body text-center">
@@ -55,7 +55,7 @@
         </div>
         <div class="col-md-3 col-sm-6">
             {% if can_edit_survey %}
-                <a href="{% url 'survey-responses' survey.slug %}">
+                <a href="{% url 'survey-responses' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
             {% endif %}
             <div class="card border-success h-100">
                 <div class="card-body text-center">
@@ -164,11 +164,11 @@
                                     </p>
                                 </div>
                                 <div class="ms-3 d-flex gap-2">
-                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-eye"></i> {% trans 'View' %}
                                     </a>
                                     {% if can_edit_response %}
-                                        <a href="{% url 'survey-edit-response' survey.slug response.id %}" class="btn btn-sm btn-outline-secondary">
+                                        <a href="{% url 'survey-edit-response' survey.slug response.id %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-secondary">
                                             <i class="bi bi-pencil"></i> {% trans 'Edit' %}
                                         </a>
                                     {% endif %}
@@ -187,7 +187,7 @@
             <div>
                 <h5 class="alert-heading mb-1">No Response{% if allow_multiple_responses %}s{% endif %} Yet</h5>
                 <p class="mb-0">You haven't submitted {% if allow_multiple_responses %}any responses{% else %}a response{% endif %} to this survey.</p>
-                <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
+                <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-primary mt-2">
                     <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
                 </a>
             </div>
@@ -219,13 +219,13 @@
                 </div>
             {% endif %}
         {% elif survey.is_public and not user.is_authenticated %}
-            <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
+            <a href="{% provider_login_url 'discord' %}?return_to={{ current_url }}&return_title={{ current_title }}&next={{ request.path }}">
                 <div class="alert alert-info d-flex align-items-center">
                     <i class="bi bi-door-open fs-4 me-3"></i>
                     <div>
                         <h5 class="alert-heading mb-1">Public Survey</h5>
                         <p class="mb-0">Log in to take this survey.</p>
-                        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
+                        <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-primary mt-2">
                             {% trans 'Take Survey Now' %}
                         </a>
                     </div>

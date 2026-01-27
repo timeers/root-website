@@ -104,13 +104,13 @@ class Survey(models.Model):
     allow_multiple_responses = models.BooleanField(default=False, help_text="Allow players to submit multiple times")
     allow_edit_responses = models.BooleanField(default=False, help_text="Allow players to edit their responses while survey is open")
     show_results_to_respondents = models.BooleanField(default=False, help_text="Allow respondents to view results")
-    show_results_on_close = models.BooleanField(default=False, help_text="Make results public when closed")
+    show_results_on_close = models.BooleanField(default=True, help_text="Make results public when closed")
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
 
     objects = SurveyQuerySet.as_manager()
 
     class Meta:
-        ordering = ['-is_pinned', '-created_at']
+        ordering = ['-is_pinned', '-created_at', 'id']
         verbose_name = 'Survey'
         verbose_name_plural = 'Surveys'
 

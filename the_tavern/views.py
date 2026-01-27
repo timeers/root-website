@@ -26,14 +26,15 @@ from .models import (Survey, SurveyResponse, Question, QuestionTemplate, Choice,
 from the_gatehouse.services.discordservice import send_new_survey_notification
 from the_gatehouse.utils import build_absolute_uri, plural
 from the_gatehouse.tasks import send_discord_message_task
-from the_gatehouse.views import player_required, player_onboard_required
+from the_gatehouse.views import player_required, player_onboard_required, admin_onboard_required
 from the_gatehouse.models import Profile, DiscordGuild
 
 from the_warroom.models import Tournament, Round, Game
 
 from the_keep.models import Post
 
-
+with open('/etc/config.json') as config_file:
+    config = json.load(config_file)
 
 @login_required
 def game_comment_sent(request, pk):
@@ -443,6 +444,8 @@ def survey_list_view(request):
     total_private = private_surveys.count()
     total_public = private_surveys.count()
 
+    current_url = request.path
+    current_title = "Back to Surveys"
 
     # Handle HTMX partial requests for loading more surveys
     if load_type == 'my_surveys':
@@ -454,6 +457,9 @@ def survey_list_view(request):
             'has_more': has_more,
             'offset': next_offset,
             'load_type': load_type,
+            'current_url': current_url,
+            'current_title': current_title,
+            'show_status': True,
         })
 
     if load_type == 'private':
@@ -465,6 +471,9 @@ def survey_list_view(request):
             'has_more': has_more,
             'offset': next_offset,
             'load_type': load_type,
+            'current_url': current_url,
+            'current_title': current_title,
+            'show_status': True,
         })
 
     if load_type == 'public':
@@ -476,6 +485,9 @@ def survey_list_view(request):
             'has_more': has_more,
             'offset': next_offset,
             'load_type': load_type,
+            'current_url': current_url,
+            'current_title': current_title,
+            'show_status': True,
         })
 
 
@@ -501,6 +513,11 @@ def survey_list_view(request):
         'can_create_survey': profile.player if profile else False,
         'meta_title': meta_title,
         'meta_description': meta_description,
+        'current_url': current_url,
+        'current_title': current_title,
+
+        'profile': profile,
+        'show_status': True,
     }
     return render(request, 'the_tavern/survey_list.html', context)
 
@@ -520,6 +537,11 @@ def survey_history_view(request):
     archived_offset = int(request.GET.get('archived_offset', 0))
     public_offset = int(request.GET.get('public_offset', 0))
     load_type = request.GET.get('load_type', None)
+
+    return_to = request.GET.get('return_to') or reverse('survey-list')
+    return_title = request.GET.get('return_title') or 'Back to Surveys'
+    current_url = request.path
+    current_title = 'Back to History'
 
     # Get all surveys the user has responded to (excluding active ones they can still interact with)
     now = timezone.now()
@@ -560,6 +582,10 @@ def survey_history_view(request):
             'past_responses': items,
             'has_more_responses': has_more,
             'responses_offset': next_offset,
+            'return_to': return_to,
+            'return_title': return_title,
+            'current_url': current_url,
+            'current_title': current_title,
         })
 
     if load_type == 'archived':
@@ -570,6 +596,10 @@ def survey_history_view(request):
             'archived_surveys': items,
             'has_more_archived': has_more,
             'archived_offset': next_offset,
+            'return_to': return_to,
+            'return_title': return_title,
+            'current_url': current_url,
+            'current_title': current_title,
         })
 
     if load_type == 'public':
@@ -581,6 +611,10 @@ def survey_history_view(request):
             'public_surveys': items,
             'has_more_public': has_more,
             'public_offset': next_offset,
+            'return_to': return_to,
+            'return_title': return_title,
+            'current_url': current_url,
+            'current_title': current_title,
         })
 
     # Full page load - slice to initial page size
@@ -599,27 +633,137 @@ def survey_history_view(request):
         'has_more_public': total_public > SURVEY_LIST_PAGE_SIZE,
         'public_offset': SURVEY_LIST_PAGE_SIZE,
         'total_public': total_public,
+
+        'return_to': return_to,
+        'return_title': return_title,
+        'current_url': current_url,
+        'current_title': current_title,
     }
     return render(request, 'the_tavern/survey_history.html', context)
 
+# @admin_onboard_required
+# def survey_admin_view(request):
+#     profile = request.user.profile
+#     if not profile.admin:
+#         PermissionDenied
+#     now = timezone.now()
 
-@player_required
-def survey_redirect(request, slug):
-    survey = get_object_or_404(Survey, slug=slug)
+#     search_query = request.GET.get('q', '').strip()
 
-    if request.user.is_authenticated and request.user.profile:
-        user_responses = survey.responses.filter(user=request.user.profile)
-        count = user_responses.count()
-        if count == 0:
-            return redirect('survey-take', slug=survey.slug)
-        elif count == 1:
-            only_response = user_responses.first()
-            return redirect('survey-user-response', slug=survey.slug, response_id=only_response.id)
-        else:
-            return redirect('survey-detail', slug=survey.slug)
-    else:
-        messages.warning(request, _('An authentication error occured.'))
-        return redirect('survey-list')
+#     surveys = Survey.objects.annotate(
+#         is_available_sort=Case(
+#             When(
+#                 Q(is_active=True) &
+#                 (Q(start_date__isnull=True) | Q(start_date__lte=now)) &
+#                 (Q(end_date__isnull=True) | Q(end_date__gte=now)),
+#                 then=Value(True)
+#             ),
+#             default=Value(False),
+#             output_field=models.BooleanField()
+#         )
+#     )
+
+#     # Filter by search query
+#     if search_query:
+#         surveys = surveys.filter(title__icontains=search_query)
+    
+#     surveys = surveys.order_by('-is_available_sort', '-created_at', 'id')
+
+#     context = {
+#         'selected_surveys': surveys,
+#         'title': 'Survey Admin',
+#     }
+
+#     # Return partial for HTMX requests
+#     if request.htmx:
+#         return render(request, 'the_tavern/partials/survey_admin_list.html', context)
+
+#     return render(request, 'the_tavern/survey_admin.html', context)
+
+@admin_onboard_required
+def survey_admin_view(request):
+    profile = request.user.profile
+    if not profile.admin:
+        raise PermissionDenied
+    now = timezone.now()
+    
+    # Get search query and offset
+    search_query = request.GET.get('q', '').strip()
+    offset = int(request.GET.get('all_offset', 0))
+    load_type = request.GET.get('load_type', None)
+
+    surveys = Survey.objects.annotate(
+        is_available_sort=Case(
+            When(
+                Q(is_active=True) &
+                (Q(start_date__isnull=True) | Q(start_date__lte=now)) &
+                (Q(end_date__isnull=True) | Q(end_date__gte=now)),
+                then=Value(True)
+            ),
+            default=Value(False),
+            output_field=models.BooleanField()
+        )
+    )
+    
+    # Filter by search query
+    if search_query:
+        surveys = surveys.filter(title__icontains=search_query)
+    
+    surveys = surveys.order_by('-is_available_sort', '-created_at', 'id')
+    
+    total = surveys.count()
+
+    return_to = request.GET.get('return_to') or reverse('survey-list')
+    return_title = request.GET.get('return_title') or 'Back to Surveys'
+    current_url = request.path
+    current_title = 'Back to Survey Admin'
+
+    # Handle "Load more" request
+    if load_type:
+        selected_surveys = surveys[offset:offset + SURVEY_LIST_PAGE_SIZE]
+        has_more = total > offset + SURVEY_LIST_PAGE_SIZE
+        next_offset = offset + SURVEY_LIST_PAGE_SIZE
+        return render(request, 'the_tavern/partials/survey_list_container.html', {
+            'selected_surveys': selected_surveys,
+            'has_more': has_more,
+            'offset': next_offset,
+            'load_type': load_type,
+            'url': request.path,
+            'search_query': search_query,
+            'return_title': return_title,
+            'return_to': return_to,
+            'current_title': current_title,
+            'current_url': current_url,
+            'show_privacy_badge': True,
+            'show_owner': True,
+        })
+
+    # Initial load
+    selected_surveys = surveys[:SURVEY_LIST_PAGE_SIZE]
+    has_more = total > SURVEY_LIST_PAGE_SIZE
+
+    context = {
+        'selected_surveys': selected_surveys,
+        'has_more': has_more,
+        'offset': SURVEY_LIST_PAGE_SIZE,
+        'load_type': 'all',
+        'title': 'Survey Admin',
+        'search_query': search_query,
+        'url': request.path,
+        'total': total,
+        'return_title': return_title,
+        'return_to': return_to,
+        'current_title': current_title,
+        'current_url': current_url,
+        'show_privacy_badge': True,
+        'show_owner': True,
+    }
+
+    # Return partial for HTMX requests
+    if request.htmx:
+        return render(request, 'the_tavern/partials/survey_list_container.html', context)
+    
+    return render(request, 'the_tavern/survey_admin.html', context)
 
 
 @player_onboard_required
@@ -822,15 +966,19 @@ def survey_take_view(request, slug):
     # Get only visible (non-hidden) questions for display
     visible_questions = survey.questions.filter(is_hidden=False)
 
-    back_title = "Back to Survey"
-    back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+    return_to = request.GET.get('return_to') or reverse('survey-list')
+    return_title = request.GET.get('return_title') or 'Back to Surveys'
+    current_url = request.path
+    current_title = 'Back to Take Survey'
 
     context = {
         'survey': survey,
         'form': form,
         'visible_questions': visible_questions,
-        'back_title': back_title,
-        'back_url': back_url,
+        'return_title': return_title,
+        'return_to': return_to,
+        'return_title': return_title,
+        'return_to': return_to,
     }
     return render(request, 'the_tavern/take_survey.html', context)
 
@@ -852,19 +1000,14 @@ def survey_user_response_view(request, slug, response_id):
     can_edit_survey = survey.can_edit_survey(profile)
     can_take_survey = survey.can_take_survey(profile)
 
-    return_to = request.GET.get('return_to')
+    return_to = request.GET.get('return_to') or survey.get_absolute_url()
+    return_title = request.GET.get('return_title') or 'Back to Survey'
+    current_url = request.path
+    current_title = 'Back to Response'
     view_detail_button = False
-    if return_to:
-        back_title = "Back to History"
-        back_url = return_to
+
+    if return_title == 'Back to History':
         view_detail_button = True
-    else:
-        if user_response.user == profile:
-            back_title = "Back to Survey"
-            back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
-        else:
-            back_title = "Back to Responses"
-            back_url = reverse('survey-responses', kwargs={'slug': survey.slug})
 
     # Show their previous response in read-only mode
     return render(request, 'the_tavern/view_survey_response.html', {
@@ -874,8 +1017,10 @@ def survey_user_response_view(request, slug, response_id):
         'can_see_results': can_see_results,
         'can_edit_survey': can_edit_survey,
         'can_take_survey': can_take_survey,
-        'back_title': back_title,
-        'back_url': back_url,
+        'return_title': return_title,
+        'return_to': return_to,
+        'current_title': current_title,
+        'current_url': current_url,
         'view_detail_button': view_detail_button,
     })
 
@@ -1101,12 +1246,10 @@ def survey_detail_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_view_survey = survey.can_view_survey(profile)
 
-    back_url = request.GET.get('return_to') or reverse('survey-list')
-    # back_url = reverse('survey-list')
-    if back_url == '/surveys/history/':
-        back_title = "Back to History"
-    else:
-        back_title = "Back to Surveys"
+    return_to = request.GET.get('return_to') or reverse('survey-list')
+    return_title = request.GET.get('return_title') or 'Back to Surveys'
+    current_url = request.path
+    current_title = 'Back to Survey'
 
     meta_title = survey.title
     survey_description = f' | {survey.description}' if survey.description else ''
@@ -1123,8 +1266,10 @@ def survey_detail_view(request, slug):
         'can_see_results': can_see_results,
         'survey_question_count': survey_question_count,
         'survey_user_response_count': survey_user_response_count,
-        'back_url': back_url,
-        'back_title': back_title,
+        'return_to': return_to,
+        'return_title': return_title,
+        'current_url': current_url,
+        'current_title': current_title,
         'meta_title': meta_title,
         'meta_description': meta_description,
     }
@@ -1313,15 +1458,19 @@ def survey_results_view(request, slug):
 
         questions_with_results.append(question_data)
 
-    back_title = "Back to Survey"
-    back_url = reverse('survey-detail', kwargs={'slug': survey.slug})
+    return_to = request.GET.get('return_to') or survey.get_absolute_url()
+    return_title = request.GET.get('return_title') or 'Back to Survey'
+    current_url = request.path
+    current_title = 'Back to Results'
 
     context = {
         'survey': survey,
         'total_responses': survey.response_count(),
         'questions_with_results': questions_with_results,
-        'back_title': back_title,
-        'back_url': back_url,
+        'return_title': return_title,
+        'return_to': return_to,
+        'current_url': current_url,
+        'current_title': current_title,
     }
     return render(request, 'the_tavern/survey_results.html', context)
 
@@ -1537,8 +1686,10 @@ def survey_preview_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_see_results = survey.can_see_results(profile)
 
-    back_url = survey.get_absolute_url()
-    back_title = "Back to Survey"
+    return_to = request.GET.get('return_to') or survey.get_absolute_url()
+    return_title = request.GET.get('return_title') or 'Back to Survey'
+    current_url = request.path
+    current_title = 'Back to Preview'
 
     # Create a read-only form for preview
     form = SurveyResponseForm(survey=survey)
@@ -1553,8 +1704,10 @@ def survey_preview_view(request, slug):
         'can_edit_survey': can_edit_survey,
         'can_take_survey': can_take_survey,
         'can_see_results': can_see_results,
-        'back_url': back_url,
-        'back_title': back_title,
+        'return_to': return_to,
+        'return_title': return_title,
+        'current_url': current_url,
+        'current_title': current_title,
         'visible_questions': visible_questions,
     }
     return render(request, 'the_tavern/survey_preview.html', context)
@@ -1587,8 +1740,11 @@ def survey_responses_view(request, slug):
             id__in=responded_players.values_list('id', flat=True)
         )
 
-    back_url = survey.get_absolute_url()
-    back_title = "Back to Survey"
+
+    return_to = request.GET.get('return_to') or survey.get_absolute_url()
+    return_title = request.GET.get('return_title') or 'Back to Survey'
+    current_url = request.path
+    current_title = 'Back to Responses'
 
     context = {
         'survey': survey,
@@ -1596,9 +1752,10 @@ def survey_responses_view(request, slug):
         'can_edit_survey': can_edit_survey,
         'can_take_survey': can_take_survey,
         'can_see_results': can_see_results,
-        'back_url': back_url,
-        'back_title': back_title,
-        'back_title': back_title,
+        'return_to': return_to,
+        'return_title': return_title,
+        'current_url': current_url,
+        'current_title': current_title,
         'unresponded_players': unresponded_players,
     }
     return render(request, 'the_tavern/survey_responses.html', context)
@@ -1903,7 +2060,7 @@ def survey_edit_view(request, slug):
     ).order_by('name')
 
     # Get user's guilds and hosted tournaments for dropdowns
-    user_guilds = profile.guilds.all()
+    user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
     if survey.guild:
         user_guilds = user_guilds | DiscordGuild.objects.filter(pk=survey.guild.pk)
 
@@ -2187,7 +2344,7 @@ def survey_create_view(request):
         user_guilds = DiscordGuild.objects.all()
     else:
         user_tournaments = profile.hosted_tournaments.open()
-        user_guilds = profile.guilds.all()
+        user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
 
     # Get public posts that the user designed
     user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()

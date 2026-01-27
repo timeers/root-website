@@ -54,7 +54,7 @@
                                     {% endif %}
                                 </div>
                                 <div class="ms-3">
-                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-eye"></i> {% trans 'View' %}
                                     </a>
                                 </div>

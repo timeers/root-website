@@ -30,7 +30,7 @@
                         {% trans 'Private Survey' %}
                     </label>
                 </div>
-                <small class="form-text text-muted">{% trans 'If checked, only invited players or guild members can access this survey' %}</small>
+                <small class="form-text text-muted">If checked, only invited players{% if user_guilds %} or guild members{% endif %} can access this survey</small>
             </div>
 
             {# Access Restrictions Section - Only visible when survey is private #}
@@ -188,7 +188,7 @@
                 <div class="col-md-6 col-lg-3">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="show_results_on_close" name="show_results_on_close"
-                               {% if survey.show_results_on_close %}checked{% endif %}>
+                               {% if not survey or survey.show_results_on_close %}checked{% endif %}>
                         <label class="form-check-label" for="show_results_on_close">
                             {% trans 'Show Results Once Closed' %}
                         </label>

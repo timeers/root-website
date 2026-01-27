@@ -1,7 +1,7 @@
 {# Survey List Item Partial #}
 {# Variables: survey, show_privacy_badge (optional), show_access_type (optional) #}
 {% load i18n %}
-<a href="{% url 'survey-detail' survey.slug %}" class="list-group-item list-group-item-action" style="text-decoration: none;">
+<a href="{% url 'survey-detail' survey.slug %}{% if current_title or current_url %}?return_title={{ current_title }}&return_to={{ current_url }}{% endif %}" class="list-group-item list-group-item-action" style="text-decoration: none;">
     <div class="d-flex w-100 justify-content-between align-items-start">
         <div class="flex-fill">
             <h5 class="mb-1">
@@ -49,7 +49,7 @@
         </div>
         <div class="ms-3 d-flex align-items-center">
             {# Status indicators for authenticated users #}
-            {% if user.is_authenticated %}
+            {% if user.is_authenticated and show_status %}
                 {% if survey.user_has_responded %}
                     {% if survey.allow_multiple_responses %}
                         <span class="text-primary" title="{% trans 'Can Take Again' %}">

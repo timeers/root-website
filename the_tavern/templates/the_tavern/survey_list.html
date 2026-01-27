@@ -21,6 +21,13 @@
         </h1>
 
         <div class="d-flex gap-2 justify-content-center justify-content-md-end">
+            {% if profile.admin %}
+                <a href="{% url 'survey-admin' %}" class="btn btn-secondary btn-sm">
+                    <i class="bi bi-search"></i>
+                    <span class="d-sm-inline">{% trans 'Survey Admin' %}</span>
+                </a>
+            {% endif %}
+
             {% if user.is_authenticated %}
                 <a href="{% url 'survey-history' %}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-clock-history"></i>

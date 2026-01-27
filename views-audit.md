@@ -127,7 +127,7 @@ Record issues found during the audit that need to be fixed or investigated later
 - [ ] `search-posts-for-survey` - search_posts_for_survey
 - [ ] `get-tournament-rounds` - get_tournament_rounds
 - [ ] `survey-detail` - survey_detail_view
-- [ ] `survey-redirect` - survey_redirect
+- [ ] `survey-admin` - survey_admin
 - [ ] `survey-take` - survey_take_view
 - [ ] `survey-edit` - survey_edit_view
 - [ ] `survey-preview` - survey_preview_view

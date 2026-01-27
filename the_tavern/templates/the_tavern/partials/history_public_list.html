@@ -1,6 +1,6 @@
 {% load i18n %}
 {% for survey in public_surveys %}
-    <a href="{% url 'survey-detail' survey.slug %}?return_to={{request.path}}"
+    <a href="{% url 'survey-detail' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}"
        class="list-group-item list-group-item-action list-group-item-light">
         <div class="d-flex w-100 justify-content-between align-items-start">
             <div class="flex-fill">
