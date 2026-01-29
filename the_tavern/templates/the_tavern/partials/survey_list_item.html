@@ -26,6 +26,10 @@
                 {% if survey.end_date %}
                     {% trans 'Closes' %}: {{ survey.end_date|date:"M d, Y" }}
                 {% endif %}
+                {% if survey.is_quiz %}
+                        | <i class="bi bi-clipboard-check"></i>
+                        {% trans 'Quiz' %}
+                {% endif %}
                 {% if show_access_type %}
                     {% if survey.guild %}
                         | {% if survey.guild.get_icon_url %}

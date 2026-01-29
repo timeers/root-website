@@ -27,6 +27,7 @@
 
     <form method="POST">
         {% csrf_token %}
+        <input type="hidden" name="timezone_offset_hours" id="id_timezone_offset_hours" value="">
 
         {% for question in visible_questions %}
             <div class="card mb-4">
@@ -366,6 +367,16 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Capture timezone offset and store in hidden field
+    const now = new Date();
+    const timezoneOffsetMinutes = now.getTimezoneOffset();
+    const timezoneOffsetHours = -timezoneOffsetMinutes / 60;
+
+    const timezoneInput = document.getElementById('id_timezone_offset_hours');
+    if (timezoneInput) {
+        timezoneInput.value = timezoneOffsetHours;
+    }
+
     // Time Availability: Detect timezone and convert hours
     const timeAvailabilityGrids = document.querySelectorAll('.time-availability-grid');
 
@@ -373,12 +384,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const questionId = grid.dataset.questionId;
         const timezoneInfo = document.getElementById(`timezone_info_${questionId}`);
 
-        // Get user's timezone offset in hours
-        const now = new Date();
-        const timezoneOffsetMinutes = now.getTimezoneOffset();
-        const timezoneOffsetHours = -timezoneOffsetMinutes / 60;
-
-        // Get timezone name
+        // Get timezone name (timezoneOffsetHours already calculated above)
         const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
         // Update timezone info display

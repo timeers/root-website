@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from the_gatehouse.models import LikertScale
+from the_tavern.models import LikertScale
 
 
 class Command(BaseCommand):

@@ -34,6 +34,11 @@
                     <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
                 </a>
             {% endif %}
+            {% if can_edit_survey and survey.is_quiz %}
+                <a href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-success">
+                    <i class="bi bi-clipboard-check"></i> {% trans 'Quiz Settings' %}
+                </a>
+            {% endif %}
         </div>
 
         {% if can_take_survey or can_see_results or can_edit_survey %}
@@ -64,6 +69,13 @@
                         <li>
                             <a class="dropdown-item" href="{% url 'survey-edit' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
                                 <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
+                            </a>
+                        </li>
+                    {% endif %}
+                    {% if can_edit_survey and survey.is_quiz %}
+                        <li>
+                            <a class="dropdown-item" href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
+                                <i class="bi bi-clipboard-check"></i> {% trans 'Quiz Settings' %}
                             </a>
                         </li>
                     {% endif %}

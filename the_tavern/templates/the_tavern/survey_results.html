@@ -12,7 +12,29 @@
     <p class="lead text-muted">{% trans 'Survey Results' %}</p>
 
     <div class="alert alert-info">
-        <strong>{% trans 'Total Responses' %}:</strong> {{ total_responses }}
+        <strong>{% trans 'Total Responses' %}:</strong> {{ total_responses }}{% if survey.waitlist_threshold %}/{{survey.waitlist_threshold}}{% endif %}
+
+        {% if required_summary %}
+            <div class="d-flex align-items-center">
+                <i class="bi bi-trophy-fill fs-4 me-3"></i>
+                <div>
+                    <strong>{% trans 'Average Score' %}:</strong>
+                    <span class="fs-5 ms-2">{{ required_summary }} {% trans 'correct' %}</span>
+                    <span class="text-muted ms-2">{{ required_percent }}</span>
+                </div>
+            </div>
+        {% endif %}
+        {% if optional_summary %}
+            <div class="d-flex align-items-center">
+                <i class="bi bi-star-fill fs-4 me-3"></i>
+                <div>
+                    <strong>{% trans 'Optional Questions' %}:</strong>
+                    <span class="fs-5 ms-2">{{ optional_summary }} {% trans 'correct' %}</span>
+                    <span class="text-muted ms-2">{{ optional_percent }}</span>
+                </div>
+            </div>
+        {% endif %}
+
     </div>
 
     {% if survey.description %}
@@ -20,6 +42,8 @@
     {% endif %}
 
     <hr>
+
+
 
     {% for question_data in questions_with_results %}
         <div class="card mb-4">
@@ -31,6 +55,13 @@
                 </small>
             </div>
             <div class="card-body">
+                {% if question_data.has_correct_answer %}
+                    <div class="alert alert-success py-2 mb-3">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <strong>{% trans 'Correct Answer' %}:</strong> {{ question_data.correct_answer_display }}
+                    </div>
+                {% endif %}
+
                 {% if question_data.question.question_type == 'MC' or question_data.question.question_type == 'YN' or question_data.question.question_type == 'MS' %}
                     {# Choice-based questions - show bar chart #}
                     {% for result in question_data.results %}

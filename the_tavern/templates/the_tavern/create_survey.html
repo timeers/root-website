@@ -14,7 +14,7 @@
 
     <h1 class="root-title">{% trans 'Create New Survey' %}</h1>
 
-    <form method="POST" id="survey-form">
+    <form method="POST" id="survey-form" novalidate>
         {% csrf_token %}
 
         {# Survey Basic Information - Shared Partial #}

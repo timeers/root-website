@@ -2,7 +2,7 @@ import calendar
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.urls import reverse
-from django.db.models import Q
+from django.db.models import Q, Avg, Count, Max, Min
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import models
@@ -105,6 +105,13 @@ class Survey(models.Model):
     allow_edit_responses = models.BooleanField(default=False, help_text="Allow players to edit their responses while survey is open")
     show_results_to_respondents = models.BooleanField(default=False, help_text="Allow respondents to view results")
     show_results_on_close = models.BooleanField(default=True, help_text="Make results public when closed")
+    show_correct_answers = models.BooleanField(default=False, help_text="Show correct answers to respondents after submission")
+    show_score_summary = models.BooleanField(default=False, help_text="Show score summary (e.g., '7/10 correct') after submission")
+    is_quiz = models.BooleanField(default=False, help_text="Enable quiz mode to set correct answers")
+    
+    waitlist_threshold = models.IntegerField(null=True, blank=True)
+    has_waitlist = models.BooleanField(default=False)
+
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
 
     objects = SurveyQuerySet.as_manager()
@@ -281,6 +288,85 @@ class Survey(models.Model):
 
         return False
 
+    def get_accepted_response_count(self):
+        """Count responses within threshold (not on waitlist)"""
+        if not self.has_waitlist or not self.waitlist_threshold:
+            return self.responses.count()
+        return self.responses.filter(response_position__lte=self.waitlist_threshold).count()
+
+    def get_available_response_count(self):
+        """Count availability before waitlist"""
+        if not self.has_waitlist or not self.waitlist_threshold:
+            return 0
+        available_spots = self.waitlist_threshold - self.responses.filter(response_position__lte=self.waitlist_threshold).count()
+        return available_spots
+
+    def get_waitlisted_response_count(self):
+        """Count responses on waitlist"""
+        if not self.has_waitlist or not self.waitlist_threshold:
+            return 0
+        return self.responses.filter(response_position__gt=self.waitlist_threshold).count()
+
+    def is_response_waitlisted(self, response):
+        """Check if a specific response is on waitlist"""
+        if not self.has_waitlist or not self.waitlist_threshold:
+            return False
+        return response.response_position > self.waitlist_threshold
+
+    def get_next_response_position(self):
+        """Calculate position for next response (1-indexed, chronological)"""
+        from django.db.models import Max
+        # Count all existing non-deleted responses
+        max_position = self.responses.aggregate(Max('response_position'))['response_position__max']
+        return (max_position or 0) + 1
+
+    def get_score_stats(self):
+        """Get aggregate score statistics for this survey"""
+
+        stats = self.responses.filter(
+            score_total__gt=0  # Only responses with scoreable questions
+        ).aggregate(
+            avg_score=Avg('relative_score'),
+            avg_score_required=Avg('required_score'),
+            avg_score_optional=Avg('optional_score'),
+
+            avg_correct=Avg('score_correct'),
+            avg_correct_required=Avg('score_correct_required'),
+            avg_correct_optional=Avg('score_correct_optional'),
+
+            avg_total=Avg('score_total'),
+            avg_total_required=Avg('score_total_required'),
+            avg_total_optional=Avg('score_total_optional'),
+
+            max_score=Max('relative_score'),
+            min_score=Min('relative_score'),
+            max_required_score=Max('required_score'),
+            min_required_score=Min('required_score'),
+            max_optional_score=Max('optional_score'),
+            min_optional_score=Min('optional_score'),
+            response_count=Count('id')
+        )
+
+        # Return with defaults if no responses
+        return {
+            'avg_score': round(stats['avg_score'], 2) if stats['avg_score'] else 0,
+            'avg_score_required': round(stats['avg_score_required'], 2) if stats['avg_score_required'] else 0,
+            'avg_score_optional': round(stats['avg_score_optional'], 2) if stats['avg_score_optional'] else 0,            
+            
+            'avg_correct': round(stats['avg_correct'], 2) if stats['avg_correct'] else 0,
+            'avg_correct_required': round(stats['avg_correct_required'], 2) if stats['avg_correct_required'] else 0,
+            'avg_correct_optional': round(stats['avg_correct_optional'], 2) if stats['avg_correct_optional'] else 0,
+
+            'avg_total': round(stats['avg_total'], 2) if stats['avg_total'] else 0,
+            'avg_total_required': round(stats['avg_total_required'], 2) if stats['avg_total_required'] else 0,
+            'avg_total_optional': round(stats['avg_total_optional'], 2) if stats['avg_total_optional'] else 0,
+
+            'max_score': stats['max_score'] or 0,
+            'min_score': stats['min_score'] or 0,
+            'response_count': stats['response_count'] or 0,
+        }
+
+
 class LikertScale(models.Model):
     name = models.CharField(max_length=100, help_text="Name for this scale (e.g., '5-point Agreement')")
     min_value = models.IntegerField(default=1, validators=[MinValueValidator(0)], help_text="Minimum value (up to -10)")
@@ -400,6 +486,38 @@ class Question(models.Model):
         default=get_default_ta_days,
         blank=True,
         help_text="Days of week for TIME_AVAILABILITY questions"
+    )
+
+    # Correct answer fields for quiz functionality
+    correct_choice = models.ForeignKey(
+        'Choice', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='correct_for_questions',
+        help_text="Correct choice for MC/YN questions"
+    )
+    correct_post = models.ForeignKey(
+        'the_keep.Post', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='correct_for_questions',
+        help_text="Correct post for Post-based MC questions"
+    )
+    correct_choices = models.ManyToManyField(
+        'Choice', blank=True, related_name='correct_for_ms_questions',
+        help_text="Correct choices for MS questions (all must match)"
+    )
+    correct_posts = models.ManyToManyField(
+        'the_keep.Post', blank=True, related_name='correct_for_ms_questions',
+        help_text="Correct posts for Post-based MS questions (all must match)"
+    )
+    correct_numeric = models.IntegerField(
+        null=True, blank=True,
+        help_text="Correct answer for NU/LK questions (exact match)"
+    )
+    correct_ranking = models.JSONField(
+        null=True, blank=True,
+        help_text="Ordered list of choice IDs for correct ranking"
+    )
+    correct_ranking_posts = models.JSONField(
+        null=True, blank=True,
+        help_text="Ordered list of post IDs for correct ranking"
     )
 
     class Meta:
@@ -522,6 +640,67 @@ class Question(models.Model):
             else:
                 return ", ".join(day_names[:-1]) + f", and {day_names[-1]}"
 
+    def has_correct_answer(self):
+        """Check if this question has a correct answer defined"""
+        qtype = self.question_type
+
+        if qtype in [self.QuestionType.MULTIPLE_CHOICE, self.QuestionType.BOOLEAN]:
+            if self.is_post_based():
+                return self.correct_post is not None
+            return self.correct_choice is not None
+
+        elif qtype == self.QuestionType.MULTIPLE_SELECTION:
+            if self.is_post_based():
+                return self.correct_posts.exists()
+            return self.correct_choices.exists()
+
+        elif qtype in [self.QuestionType.NUMERIC, self.QuestionType.SCALE]:
+            return self.correct_numeric is not None
+
+        elif qtype == self.QuestionType.RANKING:
+            if self.is_post_based():
+                return bool(self.correct_ranking_posts)
+            return bool(self.correct_ranking)
+
+        return False
+
+    def get_correct_answer_display(self):
+        """Return human-readable correct answer"""
+        qtype = self.question_type
+
+        if qtype in [self.QuestionType.MULTIPLE_CHOICE, self.QuestionType.BOOLEAN]:
+            if self.is_post_based() and self.correct_post:
+                return self.correct_post.title
+            elif self.correct_choice:
+                return self.correct_choice.get_display_text()
+
+        elif qtype == self.QuestionType.MULTIPLE_SELECTION:
+            if self.is_post_based():
+                posts = self.correct_posts.all()
+                if posts:
+                    return ", ".join([p.title for p in posts])
+            else:
+                choices = self.correct_choices.all()
+                if choices:
+                    return ", ".join([c.get_display_text() for c in choices])
+
+        elif qtype in [self.QuestionType.NUMERIC, self.QuestionType.SCALE]:
+            if self.correct_numeric is not None:
+                return str(self.correct_numeric)
+
+        elif qtype == self.QuestionType.RANKING:
+            if self.is_post_based() and self.correct_ranking_posts:
+                Post = apps.get_model('the_keep', 'Post')
+                posts = Post.objects.filter(id__in=self.correct_ranking_posts)
+                post_map = {p.id: p.title for p in posts}
+                return ", ".join([f"{i+1}. {post_map.get(pid, '?')}" for i, pid in enumerate(self.correct_ranking_posts)])
+            elif self.correct_ranking:
+                choices = self.choices.filter(id__in=self.correct_ranking)
+                choice_map = {c.id: c.get_display_text() for c in choices}
+                return ", ".join([f"{i+1}. {choice_map.get(cid, '?')}" for i, cid in enumerate(self.correct_ranking)])
+
+        return None
+
 
 # For multiple choice questions they will have multiple choices
 class Choice(models.Model):
@@ -569,6 +748,25 @@ class SurveyResponse(models.Model):
     submitted_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    timezone_offset_hours = models.DecimalField(
+        max_digits=4, decimal_places=2, null=True, blank=True,
+        help_text="UTC offset in hours at submission time (e.g., -5.0, 5.5, -3.5)"
+    )
+
+    response_position = models.IntegerField(default=0)
+
+    score_correct = models.IntegerField(default=0)
+    score_total = models.IntegerField(default=0)
+    score_correct_required = models.IntegerField(default=0)
+    score_total_required = models.IntegerField(default=0)
+    score_correct_optional = models.IntegerField(default=0)
+    score_total_optional = models.IntegerField(default=0)
+    relative_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    required_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    optional_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
+
+
     class Meta:
         ordering = ['-submitted_at']
         verbose_name = 'Survey Response'
@@ -581,6 +779,12 @@ class SurveyResponse(models.Model):
         user_display = self.user.name if self.user else "Anonymous"
         return f"{user_display} → {self.survey.title}"
 
+    @property
+    def was_edited(self):
+        """Check if response was edited after initial submission"""
+        # Compare with 1 second tolerance to account for save timing
+        return (self.updated_at - self.submitted_at).total_seconds() > 1
+
     def can_view_response(self, user_profile):
         if not user_profile:
             return False
@@ -588,6 +792,133 @@ class SurveyResponse(models.Model):
         if user_profile == self.user or user_profile.admin or user_profile == self.survey.created_by:
             return True
         return False
+
+    def calculate_score(self):
+        """Calculate the score for this response"""
+        score_correct = 0
+        score_total = 0
+        score_correct_required = 0
+        score_total_required = 0
+        score_correct_optional = 0
+        score_total_optional = 0
+
+        if self.survey.is_quiz:
+            for question in self.survey.questions.all():
+                if question.has_correct_answer():
+                    answer = self.answers.filter(question=question).first()
+
+                    if question.required:
+                        score_total_required += 1
+                        if answer and answer.is_correct():
+                            score_correct_required += 1
+                    else:
+                        # Only count optional if answered
+                        if answer:
+                            score_total_optional += 1
+                            if answer.is_correct():
+                                score_correct_optional += 1
+
+        score_correct = score_correct_required + score_correct_optional
+        score_total = score_total_required + score_total_optional
+        relative_score = round(score_correct / score_total * 100, 2) if score_total else 0
+        required_score = round(score_correct_required / score_total_required * 100, 2) if score_total_required else 0
+        optional_score = round(score_correct_optional / score_total_optional * 100, 2) if score_total_optional else 0
+
+
+
+        self.score_correct = score_correct
+        self.score_total = score_total
+        self.score_correct_required = score_correct_required
+        self.score_total_required = score_total_required
+        self.score_correct_optional = score_correct_optional
+        self.score_total_optional = score_total_optional
+        self.relative_score = relative_score
+        self.required_score = required_score
+        self.optional_score = optional_score
+        self.save(update_fields=[
+            'score_correct', 'score_total',
+            'score_correct_required', 'score_total_required',
+            'score_correct_optional', 'score_total_optional',
+            'relative_score', 'required_score', 'optional_score'
+        ])
+        return {
+            'score_correct': score_correct,
+            'score_total': score_total,
+            'score_correct_required': score_correct_required,
+            'score_total_required': score_total_required,
+            'score_correct_optional': score_correct_optional,
+            'score_total_optional': score_total_optional,
+            'relative_score': relative_score,
+            'required_score': required_score,
+            'optional_score': optional_score,
+        }
+
+    def get_combined_availability_hours(self):
+        """
+        Compile all TIME_AVAILABILITY answers into a single set of hour-of-week integers,
+        filtered by DAY_AVAILABILITY answers if present.
+
+        Returns:
+            set: Set of hour-of-week integers (0-167) representing when user is available
+
+        Logic:
+        1. Collect all hours from all TA questions
+        2. If any DY questions exist, filter to only include days selected in DY answers
+        3. Return combined set
+
+        Example:
+            TA Q1: User selects Mon 14:00, Tue 14:00 → hours [14, 38]
+            TA Q2: User selects Wed 10:00 → hours [58]
+            DY Q1: User selects Monday, Wednesday
+            Result: {14, 58} (Tue filtered out)
+        """
+        from the_tavern.models import TA_DAY_CODES
+
+        # Collect all hour-of-week values from TA questions
+        all_ta_hours = set()
+        ta_answers = self.answers.filter(question__question_type='TA')
+
+        for answer in ta_answers:
+            hours = answer.get_hour_of_week_list()
+            all_ta_hours.update(hours)
+
+        # If no TA answers, return empty set
+        if not all_ta_hours:
+            return set()
+
+        # Check if there are any DY (Day Availability) questions
+        dy_answers = self.answers.filter(question__question_type='DY')
+
+        if not dy_answers.exists():
+            # No day filtering needed
+            return all_ta_hours
+
+        # Collect selected days from all DY questions
+        selected_day_indices = set()
+        day_name_to_index = {
+            'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+            'Friday': 4, 'Saturday': 5, 'Sunday': 6
+        }
+
+        for dy_answer in dy_answers:
+            for choice in dy_answer.selected_choices.all():
+                day_name = choice.text  # "Monday", "Tuesday", etc.
+                day_index = day_name_to_index.get(day_name)
+                if day_index is not None:
+                    selected_day_indices.add(day_index)
+
+        # If no days selected in DY, return empty (user said they're not available any day)
+        if not selected_day_indices:
+            return set()
+
+        # Filter TA hours to only include selected days
+        filtered_hours = set()
+        for hour_of_week in all_ta_hours:
+            day_index = hour_of_week // 24
+            if day_index in selected_day_indices:
+                filtered_hours.add(hour_of_week)
+
+        return filtered_hours
 
 # An answer to a question that is linked to a user's response
 class Answer(models.Model):
@@ -784,6 +1115,96 @@ class Answer(models.Model):
             return str(self.numeric_answer) if self.numeric_answer is not None else "No answer"
         return "No answer"
 
+    def is_correct(self):
+        """Check if this answer is correct. Returns True/False/None (None if no correct answer defined)"""
+        question = self.question
+        if not question.has_correct_answer():
+            return None
+
+        qtype = question.question_type
+
+        # MC / YN - single choice
+        if qtype in [Question.QuestionType.MULTIPLE_CHOICE, Question.QuestionType.BOOLEAN]:
+            if question.is_post_based():
+                return self.selected_post_id == question.correct_post_id
+            return self.selected_choice_id == question.correct_choice_id
+
+        # MS - all-or-nothing (selected must exactly match correct)
+        elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
+            if question.is_post_based():
+                selected_ids = set(self.selected_posts.values_list('id', flat=True))
+                correct_ids = set(question.correct_posts.values_list('id', flat=True))
+                return selected_ids == correct_ids
+            else:
+                selected_ids = set(self.selected_choices.values_list('id', flat=True))
+                correct_ids = set(question.correct_choices.values_list('id', flat=True))
+                return selected_ids == correct_ids
+
+        # NU / LK - exact match
+        elif qtype in [Question.QuestionType.NUMERIC, Question.QuestionType.SCALE]:
+            return self.numeric_answer == question.correct_numeric
+
+        # RK - exact order match
+        elif qtype == Question.QuestionType.RANKING:
+            if question.is_post_based():
+                user_order = list(self.ranked_post_items.order_by('rank').values_list('post_id', flat=True))
+                return user_order == question.correct_ranking_posts
+            else:
+                user_order = list(self.ranked_items.order_by('rank').values_list('choice_id', flat=True))
+                return user_order == question.correct_ranking
+
+        return None
+
+    def get_hour_of_week_list(self):
+        """
+        Convert TIME_AVAILABILITY answers to hour-of-week integers (0-167).
+        Monday 00:00 UTC = 0, Sunday 23:00 UTC = 167
+
+        Takes into account the user's timezone offset at time of response submission.
+
+        Example: User in EST (UTC-5) selects "14:00" on Tuesday
+        - They see 14:00 in their local time (which is actually 19:00 UTC)
+        - Hour of week = Tuesday(1) * 24 + 19 = 43
+
+        Returns:
+            list: Sorted list of hour-of-week integers (0-167)
+        """
+        if self.question.question_type != Question.QuestionType.TIME_AVAILABILITY:
+            return []
+
+        hours_of_week = []
+        user_offset = float(self.response.timezone_offset_hours) if self.response.timezone_offset_hours else 0
+
+        # Day code to index mapping
+        day_map = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
+
+        # Get the enabled days for this question
+        enabled_days = self.question.ta_enabled_days if self.question.ta_enabled_days else TA_DAY_CODES
+
+        for choice in self.selected_choices.all():
+            local_hour = int(choice.text)  # Hour displayed to user (0-23)
+
+            # Each selected hour applies to all enabled days
+            for day_code in enabled_days:
+                day_index = day_map.get(day_code, 0)
+
+                # Convert local time to UTC
+                utc_hour = local_hour - user_offset
+                utc_day = day_index
+
+                # Handle day wraparound
+                if utc_hour < 0:
+                    utc_hour += 24
+                    utc_day = (utc_day - 1) % 7
+                elif utc_hour >= 24:
+                    utc_hour -= 24
+                    utc_day = (utc_day + 1) % 7
+
+                hour_of_week = utc_day * 24 + int(utc_hour)
+                hours_of_week.append(hour_of_week)
+
+        return sorted(set(hours_of_week))
+
 
 class RankedAnswer(models.Model):
     """For ranking questions - stores the rank order of choices"""
@@ -855,6 +1276,37 @@ class QuestionTemplate(models.Model):
         help_text="Days of week for TIME_AVAILABILITY questions"
     )
 
+    # Correct answer fields for templates
+    correct_choice_index = models.IntegerField(
+        null=True, blank=True,
+        help_text="Index into choices_data for correct MC/YN answer"
+    )
+    correct_choice_indices = models.JSONField(
+        default=list, blank=True,
+        help_text="List of indices into choices_data for correct MS answers"
+    )
+    correct_ranking_indices = models.JSONField(
+        default=list, blank=True,
+        help_text="Ordered list of indices into choices_data for correct RK order"
+    )
+    correct_post = models.ForeignKey(
+        'the_keep.Post', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='correct_for_templates',
+        help_text="Correct post for Post-based MC templates"
+    )
+    correct_posts = models.ManyToManyField(
+        'the_keep.Post', blank=True, related_name='correct_for_ms_templates',
+        help_text="Correct posts for Post-based MS templates"
+    )
+    correct_ranking_posts = models.JSONField(
+        default=list, blank=True,
+        help_text="Ordered list of post IDs for correct RK order"
+    )
+    correct_numeric = models.IntegerField(
+        null=True, blank=True,
+        help_text="Correct answer for NU/LK templates"
+    )
+
     class Meta:
         ordering = ['name']
         verbose_name = 'Question Template'
@@ -881,12 +1333,30 @@ class QuestionTemplate(models.Model):
             data['post_selection_mode'] = self.post_selection_mode
             if self.post_selection_mode == Question.PostSelectionMode.INDIVIDUAL:
                 data['post_choices'] = list(self.post_choices.values_list('id', flat=True))
+            # Correct answers for Post-based templates
+            if self.correct_post_id:
+                data['correct_post_id'] = self.correct_post_id
+            if self.correct_posts.exists():
+                data['correct_post_ids'] = list(self.correct_posts.values_list('id', flat=True))
+            if self.correct_ranking_posts:
+                data['correct_ranking_posts'] = self.correct_ranking_posts
         elif self.question_type in ['MC', 'MS', 'YN', 'RK'] and self.choices_data:
             data['choices'] = self.choices_data
+            # Correct answers for choice-based templates
+            if self.correct_choice_index is not None:
+                data['correct_choice_index'] = self.correct_choice_index
+            if self.correct_choice_indices:
+                data['correct_choice_indices'] = self.correct_choice_indices
+            if self.correct_ranking_indices:
+                data['correct_ranking_indices'] = self.correct_ranking_indices
 
         # Handle Time Availability templates
         if self.question_type == 'TA' and self.ta_enabled_days:
             data['ta_enabled_days'] = self.ta_enabled_days
+
+        # Correct answer for numeric types
+        if self.question_type in ['NU', 'LK'] and self.correct_numeric is not None:
+            data['correct_numeric'] = self.correct_numeric
 
         return data
 

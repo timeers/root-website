@@ -2,15 +2,43 @@
 {% load i18n %}
 {% block title %}{% trans 'Responses' %}: {{ survey.title }} | {% endblock %}
 
+{% block styles %}
+<style>
+.dropdown-item.text-success:hover,
+.dropdown-item.text-success:focus {
+    background-color: #d1e7dd;  /* Light green background */
+    color: #0f5132;  /* Darker green text for better contrast */
+}
+
+.dropdown-item.text-warning:hover,
+.dropdown-item.text-warning:focus {
+    background-color: #fff3cd;  /* Light yellow background */
+    color: #664d03;  /* Darker yellow/brown text */
+}
+
+.dropdown-item.text-danger:hover,
+.dropdown-item.text-danger:focus {
+    background-color: #f8d7da;  /* Light red background */
+    color: #842029;  /* Darker red text */
+}
+</style>
+{% endblock styles %}
+
 {% block content %}
 <div class="content-section">
     {% include 'the_tavern/partials/survey_navigation.html' %}
 
     <h1 class="root-title mb-2">{{ survey.title }}</h1>
-    <p class="text-muted mb-4">
-        <i class="bi bi-chat-left-text"></i> {{ responses|length }} {% trans 'Response' %}{{ responses|length|pluralize }}
-    </p>
-
+    <div class='mb-4'>
+        <div class="text-muted">
+            <i class="bi bi-chat-left-text"></i> {{ responses|length }} {% trans 'Response' %}{{ responses|length|pluralize }}
+        </div>
+        {% comment %} {% if survey.waitlist_threshold %}
+            <div class="text-muted">
+            {{ survey.waitlist_threshold }} Spots
+            </div>
+        {% endif %} {% endcomment %}
+    </div>
     {% if responses %}
         <h5 class='root-title'>Responses</h5>
         <div class="row g-3">
@@ -31,11 +59,19 @@
                                                 <a href="{{ response.user.get_absolute_url }}" class="text-decoration-none">
                                                     {{ response.user.name }}
                                                 </a>
+                                                {% if survey.has_waitlist %}
+                                                    <span class="ms-2 text-muted">#{{ response.response_position }}</span>
+                                                    {% if response.is_waitlisted %}
+                                                        <span class="badge bg-warning text-dark ms-1">{% trans 'Waitlist' %}</span>
+                                                    {% else %}
+                                                        <span class="badge bg-success ms-1">{% trans 'Accepted' %}</span>
+                                                    {% endif %}
+                                                {% endif %}
                                             </h5>
                                             <p class="card-text text-muted mb-0">
                                                 <small>
                                                     <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
-                                                    {% if response.updated_at != response.submitted_at %}
+                                                    {% if response.was_updated %}
                                                         | <i class="bi bi-pencil"></i> {% trans 'Updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
                                                     {% endif %}
                                                 </small>
@@ -53,10 +89,50 @@
                                         </div>
                                     {% endif %}
                                 </div>
-                                <div class="ms-3">
+                                <div class="ms-3 d-flex gap-2">
                                     <a href="{% url 'survey-user-response' survey.slug response.id %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-eye"></i> {% trans 'View' %}
                                     </a>
+
+                                    <!-- Admin Actions Dropdown -->
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            {% if survey.has_waitlist %}
+                                                {% if response.is_waitlisted %}
+                                                    <li>
+                                                        <button class="dropdown-item text-success"
+                                                                data-action="move-accepted"
+                                                                data-response-id="{{ response.id }}"
+                                                                data-url="{% url 'survey-response-move-accepted' survey.slug response.id %}">
+                                                            <i class="bi bi-arrow-up-circle"></i> {% trans 'Move to Accepted' %}
+                                                        </button>
+                                                    </li>
+                                                {% else %}
+                                                    <li>
+                                                        <button class="dropdown-item text-warning"
+                                                                data-action="move-waitlist"
+                                                                data-response-id="{{ response.id }}"
+                                                                data-url="{% url 'survey-response-move-waitlist' survey.slug response.id %}">
+                                                            <i class="bi bi-arrow-down-circle"></i> {% trans 'Move to Waitlist' %}
+                                                        </button>
+                                                    </li>
+                                                {% endif %}
+                                                <li><hr class="dropdown-divider"></li>
+                                            {% endif %}
+                                            <li>
+                                                <button class="dropdown-item text-danger"
+                                                        data-action="delete"
+                                                        data-response-id="{{ response.id }}"
+                                                        data-user-name="{{ response.user.name|default:'Anonymous' }}"
+                                                        data-url="{% url 'survey-response-delete' survey.slug response.id %}">
+                                                    <i class="bi bi-trash"></i> {% trans 'Delete Response' %}
+                                                </button>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -110,3 +186,59 @@
     {% endif %}
 </div>
 {% endblock content %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Event delegation for all action buttons
+    document.addEventListener('click', function(e) {
+        const button = e.target.closest('[data-action]');
+        if (!button) return;
+
+        const action = button.dataset.action;
+        const url = button.dataset.url;
+        const responseId = button.dataset.responseId;
+        const userName = button.dataset.userName;
+
+        if (action === 'move-waitlist') {
+            if (!confirm('{% trans "Are you sure you want to move this response to the waitlist? The first response on the waitlist will be moved up." %}')) {
+                return;
+            }
+            performAction(url, '{% trans "An error occurred while moving the response" %}');
+        } else if (action === 'move-accepted') {
+            if (!confirm('{% trans "Are you sure you want to move this response to accepted? The last response before the waitlist will be moved down." %}')) {
+                return;
+            }
+            performAction(url, '{% trans "An error occurred while moving the response" %}');
+        } else if (action === 'delete') {
+            if (!confirm(`{% trans "Are you sure you want to delete the response from" %} ${userName}? {% trans "This action cannot be undone." %}`)) {
+                return;
+            }
+            performAction(url, '{% trans "An error occurred while deleting the response" %}');
+        }
+    });
+
+    function performAction(url, errorMessage) {
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/json',
+            },
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert(data.error || '{% trans "An error occurred" %}');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert(errorMessage);
+        });
+    }
+});
+</script>
+{% endblock scripts %}

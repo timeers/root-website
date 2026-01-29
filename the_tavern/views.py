@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection, models
-from django.db.models import Count, Q, Count, Avg, Exists, OuterRef, Case, When, Value
+from django.db.models import Count, F, Q, Count, Avg, Exists, OuterRef, Case, When, Value, BooleanField
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -641,44 +641,6 @@ def survey_history_view(request):
     }
     return render(request, 'the_tavern/survey_history.html', context)
 
-# @admin_onboard_required
-# def survey_admin_view(request):
-#     profile = request.user.profile
-#     if not profile.admin:
-#         PermissionDenied
-#     now = timezone.now()
-
-#     search_query = request.GET.get('q', '').strip()
-
-#     surveys = Survey.objects.annotate(
-#         is_available_sort=Case(
-#             When(
-#                 Q(is_active=True) &
-#                 (Q(start_date__isnull=True) | Q(start_date__lte=now)) &
-#                 (Q(end_date__isnull=True) | Q(end_date__gte=now)),
-#                 then=Value(True)
-#             ),
-#             default=Value(False),
-#             output_field=models.BooleanField()
-#         )
-#     )
-
-#     # Filter by search query
-#     if search_query:
-#         surveys = surveys.filter(title__icontains=search_query)
-    
-#     surveys = surveys.order_by('-is_available_sort', '-created_at', 'id')
-
-#     context = {
-#         'selected_surveys': surveys,
-#         'title': 'Survey Admin',
-#     }
-
-#     # Return partial for HTMX requests
-#     if request.htmx:
-#         return render(request, 'the_tavern/partials/survey_admin_list.html', context)
-
-#     return render(request, 'the_tavern/survey_admin.html', context)
 
 @admin_onboard_required
 def survey_admin_view(request):
@@ -826,10 +788,21 @@ def survey_take_view(request, slug):
                     'visible_questions': visible_questions,
                 })
 
+            # Get timezone offset from form
+            timezone_offset = request.POST.get('timezone_offset_hours', '').strip()
+            try:
+                timezone_offset_hours = float(timezone_offset) if timezone_offset else None
+            except (ValueError, TypeError):
+                timezone_offset_hours = None
+
+            # Calculate response position
+            response_position = survey.get_next_response_position()
 
             survey_response = SurveyResponse.objects.create(
                 survey=survey,
-                user=request.user.profile
+                user=request.user.profile,
+                timezone_offset_hours=timezone_offset_hours,
+                response_position=response_position
             )
 
             # Save answers for each question
@@ -954,7 +927,8 @@ def survey_take_view(request, slug):
 
             send_discord_message_task.delay(f"[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) took {survey.title}")
             messages.success(request, _('Thank you for completing the survey!'))
-
+            # Calculate the quiz score if needed
+            survey_response.calculate_score()
             # Redirect to results if allowed
             if survey.show_results_to_respondents:
                 return redirect('survey-results', slug=survey.slug)
@@ -1000,6 +974,8 @@ def survey_user_response_view(request, slug, response_id):
     can_edit_survey = survey.can_edit_survey(profile)
     can_take_survey = survey.can_take_survey(profile)
 
+    is_response_waitlisted = survey.is_response_waitlisted(user_response)
+
     return_to = request.GET.get('return_to') or survey.get_absolute_url()
     return_title = request.GET.get('return_title') or 'Back to Survey'
     current_url = request.path
@@ -1017,11 +993,17 @@ def survey_user_response_view(request, slug, response_id):
         'can_see_results': can_see_results,
         'can_edit_survey': can_edit_survey,
         'can_take_survey': can_take_survey,
+        'is_response_waitlisted': is_response_waitlisted,
         'return_title': return_title,
         'return_to': return_to,
         'current_title': current_title,
         'current_url': current_url,
         'view_detail_button': view_detail_button,
+        'show_correct_answers': survey.show_correct_answers,
+        'show_score_summary': survey.show_score_summary,
+        'score_correct': user_response.score_correct,
+        'score_total': user_response.score_total,
+        'relative_score': user_response.relative_score,
     })
 
 
@@ -1066,6 +1048,15 @@ def survey_user_response_edit_view(request, slug, response_id):
                     'is_editing': is_editing,
                 })
 
+            # Update timezone offset if provided
+            timezone_offset = request.POST.get('timezone_offset_hours', '').strip()
+            try:
+                timezone_offset_hours = float(timezone_offset) if timezone_offset else None
+                if timezone_offset_hours is not None:
+                    user_response.timezone_offset_hours = timezone_offset_hours
+                    user_response.save(update_fields=['timezone_offset_hours'])
+            except (ValueError, TypeError):
+                pass  # Keep existing timezone offset if invalid
 
             # Save answers for each question
             for question in survey.questions.all():
@@ -1206,6 +1197,8 @@ def survey_user_response_edit_view(request, slug, response_id):
 
             messages.success(request, _('Your survey response has been updated!'))
 
+            # Re-calculate the quiz score if needed
+            user_response.calculate_score()
 
             # Redirect to results if allowed
             if survey.show_results_to_respondents:
@@ -1295,12 +1288,20 @@ def survey_results_view(request, slug):
 
     # Gather results for each question
     questions_with_results = []
-
     for question in survey.questions.all():
         question_data = {
             'question': question,
             'total_responses': question.answer_set.count(),
-            'results': []
+            'results': [],
+            'has_correct_answer': question.has_correct_answer(),
+            'correct_answer_display': question.get_correct_answer_display(),
+            'correct_choice_id': question.correct_choice_id,
+            'correct_choice_ids': list(question.correct_choices.values_list('id', flat=True)),
+            'correct_post_id': question.correct_post_id,
+            'correct_post_ids': list(question.correct_posts.values_list('id', flat=True)),
+            'correct_numeric': question.correct_numeric,
+            'correct_ranking': question.correct_ranking,
+            'correct_ranking_posts': question.correct_ranking_posts,
         }
 
         if question.question_type in ['MC', 'YN', 'MS', 'TA', 'DY']:
@@ -1458,6 +1459,20 @@ def survey_results_view(request, slug):
 
         questions_with_results.append(question_data)
 
+    required_summary = None
+    optional_summary = None
+    required_percent = None
+    optional_percent = None
+    if survey.show_score_summary and survey.is_quiz:
+        survey_stats = survey.get_score_stats()
+
+        required_summary = f"{survey_stats['avg_correct_required']} / {survey_stats['avg_total_required']}"
+        required_percent = f"({survey_stats['avg_score_required']}%)"
+        if survey_stats['avg_total_optional']:
+            optional_summary = f"{survey_stats['avg_correct_optional']} / {survey_stats['avg_total_optional']}"
+            optional_percent = f"({survey_stats['avg_score_optional']}%)"
+
+
     return_to = request.GET.get('return_to') or survey.get_absolute_url()
     return_title = request.GET.get('return_title') or 'Back to Survey'
     current_url = request.path
@@ -1471,6 +1486,11 @@ def survey_results_view(request, slug):
         'return_to': return_to,
         'current_url': current_url,
         'current_title': current_title,
+
+        'required_summary': required_summary,
+        'required_percent': required_percent,
+        'optional_summary': optional_summary,
+        'optional_percent': optional_percent,
     }
     return render(request, 'the_tavern/survey_results.html', context)
 
@@ -1638,6 +1658,15 @@ def survey_duplicate_view(request, slug):
         for original_question in original_questions:
             original_question_id = original_question.id
 
+            # Store correct answer data before copying
+            original_correct_choice_id = original_question.correct_choice_id
+            original_correct_choice_ids = list(original_question.correct_choices.values_list('id', flat=True))
+            original_correct_ranking = original_question.correct_ranking
+            original_correct_post_id = original_question.correct_post_id
+            original_correct_post_ids = list(original_question.correct_posts.values_list('id', flat=True))
+            original_correct_ranking_posts = original_question.correct_ranking_posts
+            original_correct_numeric = original_question.correct_numeric
+
             # Fetch original choices for this question
             original_choices = Choice.objects.filter(
                 question_id=original_question_id,
@@ -1648,18 +1677,44 @@ def survey_duplicate_view(request, slug):
             original_question.pk = None
             original_question.id = None
             original_question.survey = new_survey
+            # Clear correct_choice FK before save to avoid referencing old choice
+            original_question.correct_choice = None
             original_question.save()
 
             new_question = original_question
+
+            # Build mapping of old choice IDs to new choice IDs
+            choice_id_map = {}
 
             # Copy all non-hidden choices for this question
             # Skip TIME_AVAILABILITY and DAY_AVAILABILITY - these are auto-created by post_save signal
             if original_question.question_type not in ['TA', 'DY']:
                 for original_choice in original_choices:
+                    old_choice_id = original_choice.id
                     original_choice.pk = None
                     original_choice.id = None
                     original_choice.question = new_question
                     original_choice.save()
+                    choice_id_map[old_choice_id] = original_choice.id
+
+            # Restore correct answer fields with mapped IDs
+            if original_correct_choice_id and original_correct_choice_id in choice_id_map:
+                new_question.correct_choice_id = choice_id_map[original_correct_choice_id]
+
+            if original_correct_choice_ids:
+                new_correct_choice_ids = [choice_id_map[cid] for cid in original_correct_choice_ids if cid in choice_id_map]
+                new_question.correct_choices.set(new_correct_choice_ids)
+
+            if original_correct_ranking:
+                new_question.correct_ranking = [choice_id_map[cid] for cid in original_correct_ranking if cid in choice_id_map]
+
+            # Post-based correct answers don't need mapping - copy directly
+            new_question.correct_post_id = original_correct_post_id
+            if original_correct_post_ids:
+                new_question.correct_posts.set(original_correct_post_ids)
+            new_question.correct_ranking_posts = original_correct_ranking_posts
+            new_question.correct_numeric = original_correct_numeric
+            new_question.save()
 
         messages.success(request, f'"{new_survey.title}" created. Mark as active to publish.')
         return redirect('survey-edit', slug=new_survey.slug)
@@ -1728,7 +1783,19 @@ def survey_responses_view(request, slug):
     if not can_edit_survey:
         raise PermissionDenied
 
-    responses = SurveyResponse.objects.filter(survey=survey).select_related('user').order_by('-submitted_at')
+    # Annotate waitlist status
+    responses = SurveyResponse.objects.filter(survey=survey).select_related('user').annotate(
+        is_waitlisted=Case(
+            When(
+                Q(survey__has_waitlist=True) &
+                Q(survey__waitlist_threshold__isnull=False) &
+                Q(response_position__gt=F('survey__waitlist_threshold')),
+                then=Value(True)
+            ),
+            default=Value(False),
+            output_field=BooleanField()
+        )
+    ).order_by('-submitted_at')
 
     invited_players = survey.invited_players.all()
     unresponded_players = None
@@ -1759,6 +1826,118 @@ def survey_responses_view(request, slug):
         'unresponded_players': unresponded_players,
     }
     return render(request, 'the_tavern/survey_responses.html', context)
+
+
+@player_onboard_required
+def survey_response_move_to_waitlist(request, slug, response_id):
+    """Move a response to waitlist by shifting it to the end and compacting positions."""
+    from django.db.models import Max, F
+
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    # Only admin or survey creator can manage responses
+    if not survey.can_edit_survey(profile):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+
+    if not survey.has_waitlist or not survey.waitlist_threshold:
+        return JsonResponse({'success': False, 'error': 'Survey does not have waitlist enabled'}, status=400)
+
+    response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
+
+    # Check if response is already on waitlist
+    if response.response_position > survey.waitlist_threshold:
+        return JsonResponse({'success': False, 'error': 'Response is already on waitlist'}, status=400)
+
+    old_position = response.response_position
+
+    # Shift all responses after this one up by 1 (fill the gap)
+    survey.responses.filter(
+        response_position__gt=old_position
+    ).update(
+        response_position=F('response_position') - 1
+    )
+
+    # Calculate new position (end of the list)
+    max_position = survey.responses.exclude(id=response_id).aggregate(
+        Max('response_position')
+    )['response_position__max'] or 0
+    response.response_position = max_position + 1
+    response.save()
+
+    return JsonResponse({'success': True})
+
+
+@player_onboard_required
+def survey_response_move_to_accepted(request, slug, response_id):
+    """Move a response from waitlist to accepted by inserting at threshold position."""
+    from django.db.models import F
+
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    # Only admin or survey creator can manage responses
+    if not survey.can_edit_survey(profile):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+
+    if not survey.has_waitlist or not survey.waitlist_threshold:
+        return JsonResponse({'success': False, 'error': 'Survey does not have waitlist enabled'}, status=400)
+
+    response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
+
+    # Check if response is already accepted
+    if response.response_position <= survey.waitlist_threshold:
+        return JsonResponse({'success': False, 'error': 'Response is already accepted'}, status=400)
+
+    old_position = response.response_position
+
+    # Step 1: Shift all responses after the old position up by 1 (fill the gap)
+    survey.responses.filter(
+        response_position__gt=old_position
+    ).update(
+        response_position=F('response_position') - 1
+    )
+
+    # Step 2: Shift all responses at or after threshold down by 1 (make room)
+    survey.responses.filter(
+        response_position__gte=survey.waitlist_threshold
+    ).exclude(id=response_id).update(
+        response_position=F('response_position') + 1
+    )
+
+    # Step 3: Insert this response at the threshold position
+    response.response_position = survey.waitlist_threshold
+    response.save()
+
+    return JsonResponse({'success': True})
+
+
+@player_onboard_required
+def survey_response_delete(request, slug, response_id):
+    """Delete a survey response and shift remaining positions up."""
+    from django.db.models import F
+
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    # Only admin or survey creator can delete responses
+    if not survey.can_edit_survey(profile):
+        return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
+
+    response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
+    deleted_position = response.response_position
+
+    # Delete the response
+    response.delete()
+
+    # Shift all responses after the deleted one up by 1 (fill the gap)
+    survey.responses.filter(
+        response_position__gt=deleted_position
+    ).update(
+        response_position=F('response_position') - 1
+    )
+
+    return JsonResponse({'success': True})
 
 
 @player_onboard_required
@@ -1809,6 +1988,18 @@ def survey_edit_view(request, slug):
             allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
             show_results_on_close = request.POST.get('show_results_on_close') == 'on'
+            is_quiz = request.POST.get('is_quiz') == 'on'
+            has_waitlist = request.POST.get('has_waitlist') == 'on'
+
+            # Get waitlist threshold (validated client-side)
+            waitlist_threshold = None
+            if has_waitlist:
+                threshold_str = request.POST.get('waitlist_threshold', '').strip()
+                if threshold_str:
+                    try:
+                        waitlist_threshold = int(threshold_str)
+                    except ValueError:
+                        waitlist_threshold = None
 
             # Get associations
             guild_id = request.POST.get('guild') or None
@@ -1849,6 +2040,9 @@ def survey_edit_view(request, slug):
             survey.allow_edit_responses = allow_edit_responses
             survey.show_results_to_respondents = show_results_to_respondents
             survey.show_results_on_close = show_results_on_close
+            survey.is_quiz = is_quiz
+            survey.has_waitlist = has_waitlist
+            survey.waitlist_threshold = waitlist_threshold
             survey.start_date = start_date_obj
             survey.end_date = end_date_obj
 
@@ -1921,6 +2115,7 @@ def survey_edit_view(request, slug):
                                         post_id=post_id,
                                         order=idx
                                     )
+                            question.save()
                         # Update choices for choice-based questions (non-Post)
                         elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
                             # Track existing choice IDs (include hidden ones for restore)
@@ -1957,6 +2152,7 @@ def survey_edit_view(request, slug):
                                     else:
                                         # Safe to delete
                                         Choice.objects.filter(id=c_id).delete()
+
                         elif q_data['type'] == 'TA' or q_data['type'] == 'DY':
                             # TIME_AVAILABILITY - keep existing UTC hour choices, don't delete them
                             pass
@@ -1985,6 +2181,9 @@ def survey_edit_view(request, slug):
                             question.ta_enabled_days = q_data.get('ta_enabled_days') or TA_DAY_CODES
                             question.save()
 
+                        # Track created choices for mapping correct answers
+                        created_choices = []
+
                         # Handle Post-based questions
                         if q_data.get('post_component'):
                             question.post_component = q_data['post_component']
@@ -1994,21 +2193,25 @@ def survey_edit_view(request, slug):
                             # For individual mode, create choices linked to Posts
                             if q_data.get('post_selection_mode') == 'individual' and q_data.get('post_choices'):
                                 for idx, post_id in enumerate(q_data['post_choices']):
-                                    Choice.objects.create(
+                                    choice = Choice.objects.create(
                                         question=question,
                                         post_id=post_id,
                                         order=idx
                                     )
+                                    created_choices.append(choice)
+                            question.save()
+
                         # Add choices for choice-based questions (non-Post)
                         elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
                             for idx, choice_data in enumerate(q_data['choices']):
                                 choice_text = choice_data['text'] if isinstance(choice_data, dict) else choice_data
                                 if choice_text.strip():
-                                    Choice.objects.create(
+                                    choice = Choice.objects.create(
                                         question=question,
                                         text=choice_text,
                                         order=idx
                                     )
+                                    created_choices.append(choice)
 
                         updated_question_ids.add(question.id)
 
@@ -2205,6 +2408,18 @@ def survey_create_view(request):
             allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
             show_results_on_close = request.POST.get('show_results_on_close') == 'on'
+            is_quiz = request.POST.get('is_quiz') == 'on'
+            has_waitlist = request.POST.get('has_waitlist') == 'on'
+
+            # Get waitlist threshold (validated client-side)
+            waitlist_threshold = None
+            if has_waitlist:
+                threshold_str = request.POST.get('waitlist_threshold', '').strip()
+                if threshold_str:
+                    try:
+                        waitlist_threshold = int(threshold_str)
+                    except ValueError:
+                        waitlist_threshold = None
 
             # Get date fields
             start_date = request.POST.get('start_date')
@@ -2248,6 +2463,9 @@ def survey_create_view(request):
                 allow_edit_responses=allow_edit_responses,
                 show_results_to_respondents=show_results_to_respondents,
                 show_results_on_close=show_results_on_close,
+                is_quiz=is_quiz,
+                has_waitlist=has_waitlist,
+                waitlist_threshold=waitlist_threshold,
                 start_date=start_date_obj,
                 end_date=end_date_obj,
                 created_by=profile,
@@ -2287,6 +2505,9 @@ def survey_create_view(request):
                         question.ta_enabled_days = q_data.get('ta_enabled_days') or TA_DAY_CODES
                         question.save()
 
+                    # Track created choices for mapping correct answers
+                    created_choices = []
+
                     # Handle Post-based questions
                     if q_data.get('post_component'):
                         question.post_component = q_data['post_component']
@@ -2296,21 +2517,24 @@ def survey_create_view(request):
                         # For individual mode, create choices linked to Posts
                         if q_data.get('post_selection_mode') == 'individual' and q_data.get('post_choices'):
                             for idx, post_id in enumerate(q_data['post_choices']):
-                                Choice.objects.create(
+                                choice = Choice.objects.create(
                                     question=question,
                                     post_id=post_id,
                                     order=idx
                                 )
+                                created_choices.append(choice)
+
                     # Add choices for choice-based questions (non-Post)
                     elif q_data['type'] in ['MC', 'MS', 'YN', 'RK'] and q_data.get('choices'):
                         for idx, choice_data in enumerate(q_data['choices']):
                             choice_text = choice_data['text'] if isinstance(choice_data, dict) else choice_data
                             if choice_text.strip():
-                                Choice.objects.create(
+                                choice = Choice.objects.create(
                                     question=question,
                                     text=choice_text,
                                     order=idx
                                 )
+                                created_choices.append(choice)
 
             messages.success(request, f'Survey "{title}" created successfully!')
             send_new_survey_notification(survey=survey, profile=profile, type="New")
@@ -2358,4 +2582,160 @@ def survey_create_view(request):
         'is_edit_mode': False,
     }
     return render(request, 'the_tavern/create_survey.html', context)
+
+
+@login_required
+def survey_quiz_settings_view(request, slug):
+    """Configure correct answers for a quiz survey."""
+
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    # Only the creator or admin can edit quiz settings
+    if not profile.admin and survey.created_by != profile:
+        raise PermissionDenied
+
+    # Survey must have quiz mode enabled
+    if not survey.is_quiz:
+        messages.error(request, _('Quiz mode is not enabled for this survey.'))
+        return redirect('survey-detail', slug=survey.slug)
+
+    visible_questions = survey.questions.filter(is_hidden=False).prefetch_related('choices')
+
+    if request.method == 'POST':
+        # Handle quiz settings form
+        show_correct_answers = request.POST.get('show_correct_answers') == 'on'
+        show_score_summary = request.POST.get('show_score_summary') == 'on'
+        allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
+        allow_edit_responses = request.POST.get('allow_edit_responses') == 'on'
+
+        survey.show_correct_answers = show_correct_answers
+        survey.show_score_summary = show_score_summary
+        survey.allow_multiple_responses = allow_multiple_responses
+        survey.allow_edit_responses = allow_edit_responses
+        survey.save()
+
+        # Process correct answers for each question
+        for question in visible_questions:
+            # Skip question types that don't support correct answers
+            if question.question_type not in ['MC', 'MS', 'YN', 'NU', 'LK', 'RK']:
+                continue
+
+            field_name = f'correct_{question.id}'
+
+            if question.question_type in ['MC', 'YN']:
+                # Single choice
+                answer_data = request.POST.get(field_name)
+                question.correct_choice = None
+                question.correct_post = None
+
+                if answer_data:
+                    if answer_data.startswith('post_'):
+                        post_id = int(answer_data.replace('post_', ''))
+                        question.correct_post_id = post_id
+                    else:
+                        question.correct_choice_id = int(answer_data)
+                question.save()
+
+            elif question.question_type == 'MS':
+                # Multiple selection - all selected must match exactly
+                answer_data = request.POST.getlist(field_name)
+                question.correct_choices.clear()
+                question.correct_posts.clear()
+
+                choice_ids = []
+                post_ids = []
+                for val in answer_data:
+                    if val.startswith('post_'):
+                        post_ids.append(int(val.replace('post_', '')))
+                    else:
+                        choice_ids.append(int(val))
+
+                if choice_ids:
+                    question.correct_choices.set(Choice.objects.filter(id__in=choice_ids))
+                if post_ids:
+                    question.correct_posts.set(Post.objects.filter(id__in=post_ids))
+
+            elif question.question_type in ['NU', 'LK']:
+                # Numeric/Scale
+                answer_data = request.POST.get(field_name)
+                if answer_data:
+                    try:
+                        question.correct_numeric = int(answer_data)
+                    except ValueError:
+                        question.correct_numeric = None
+                else:
+                    question.correct_numeric = None
+                question.save()
+
+            elif question.question_type == 'RK':
+                # Ranking - save the order
+                ranking_data = request.POST.get(f'{field_name}_order')
+                question.correct_ranking = None
+                question.correct_ranking_posts = None
+
+                if ranking_data:
+                    try:
+                        order = json.loads(ranking_data)
+                        # Separate choice IDs from post IDs
+                        choice_order = []
+                        post_order = []
+                        for item in order:
+                            if str(item).startswith('post_'):
+                                post_order.append(int(str(item).replace('post_', '')))
+                            else:
+                                choice_order.append(int(item))
+
+                        if choice_order:
+                            question.correct_ranking = choice_order
+                        if post_order:
+                            question.correct_ranking_posts = post_order
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                question.save()
+
+        messages.success(request, _('Quiz settings saved successfully.'))
+        return redirect('survey-detail', slug=survey.slug)
+
+    # Build questions data for template
+    questions_data = []
+    for question in visible_questions:
+        q_data = {
+            'question': question,
+            'supports_correct_answer': question.question_type in ['MC', 'MS', 'YN', 'NU', 'LK', 'RK'],
+            'required': question.required,
+        }
+
+        # Get current correct answer
+        if question.question_type in ['MC', 'YN']:
+            q_data['current_correct_choice_id'] = question.correct_choice_id
+            q_data['current_correct_post_id'] = question.correct_post_id
+        elif question.question_type == 'MS':
+            q_data['current_correct_choice_ids'] = list(question.correct_choices.values_list('id', flat=True))
+            q_data['current_correct_post_ids'] = list(question.correct_posts.values_list('id', flat=True))
+        elif question.question_type in ['NU', 'LK']:
+            q_data['current_correct_numeric'] = question.correct_numeric
+        elif question.question_type == 'RK':
+            q_data['current_correct_ranking'] = question.correct_ranking or []
+            q_data['current_correct_ranking_posts'] = question.correct_ranking_posts or []
+
+        questions_data.append(q_data)
+
+    return_to = request.GET.get('return_to') or survey.get_absolute_url()
+    return_title = request.GET.get('return_title') or 'Back to Survey'
+    current_url = request.path
+    current_title = 'Back to Quiz Settings'
+
+    context = {
+        'survey': survey,
+        'questions_data': questions_data,
+        'can_edit_survey': True,
+        'can_take_survey': False,
+        'can_see_results': survey.can_see_results(profile),
+        'return_to': return_to,
+        'return_title': return_title,
+        'current_url': current_url,
+        'current_title': current_title,
+    }
+    return render(request, 'the_tavern/survey_quiz_settings.html', context)
 

@@ -127,12 +127,30 @@
                 <i class="bi bi-pencil"></i> {% trans 'Editable Responses' %}
             </span>
         {% endif %}
+        {% if survey.is_quiz %}
+            <span class="badge bg-success">
+                <i class="bi bi-clipboard-check"></i> {% trans 'Quiz' %}
+            </span>
+        {% endif %}
         {% comment %} {% if survey.show_results_to_respondents %}
             <span class="badge bg-primary">
                 <i class="bi bi-bar-chart-line"></i> {% trans 'Results Visible' %}
             </span>
         {% endif %} {% endcomment %}
     </div>
+
+    <!-- Waitlist Status -->
+    {% if survey.has_waitlist and survey.waitlist_threshold %}
+        <div class="alert alert-info mb-4">
+            {% if survey.get_waitlisted_response_count > 0 %}
+                <i class="bi bi-stopwatch-fill"></i>
+                <strong>{{ survey.get_waitlisted_response_count }} {% trans 'on Waitlist' %}</strong>
+            {% else %}
+            <i class="bi bi-people"></i>
+            <strong>{{ survey.get_available_response_count }} spots left</strong>
+            {% endif %}
+        </div>
+    {% endif %}
 
     <!-- Your Responses Section -->
     {% if responses %}
@@ -157,7 +175,7 @@
                                     <p class="card-text text-muted mb-2">
                                         <small>
                                             <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
-                                            {% if response.updated_at != response.submitted_at and can_edit_response %}
+                                            {% if can_edit_response and response.was_edited %}
                                                 | <i class="bi bi-pencil"></i> {% trans 'Last updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
                                             {% endif %}
                                         </small>

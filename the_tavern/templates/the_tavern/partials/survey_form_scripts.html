@@ -83,6 +83,53 @@ document.addEventListener('DOMContentLoaded', function() {
             updateModalSelectedPlayers();
         });
     }
+
+    // Waitlist and Multiple Responses mutual exclusion
+    const hasWaitlistCheckbox = document.getElementById('has_waitlist');
+    const allowMultipleCheckbox = document.getElementById('allow_multiple_responses');
+    const waitlistThresholdContainer = document.getElementById('waitlist_threshold_container');
+
+    if (hasWaitlistCheckbox && allowMultipleCheckbox) {
+        // Show/hide waitlist threshold input
+        function updateWaitlistThresholdVisibility() {
+            if (waitlistThresholdContainer) {
+                waitlistThresholdContainer.style.display = hasWaitlistCheckbox.checked ? 'block' : 'none';
+            }
+        }
+
+        // Initialize visibility on page load
+        updateWaitlistThresholdVisibility();
+
+        // When waitlist is enabled, disable multiple responses
+        hasWaitlistCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                allowMultipleCheckbox.checked = false;
+                allowMultipleCheckbox.disabled = true;
+            } else {
+                allowMultipleCheckbox.disabled = false;
+            }
+            updateWaitlistThresholdVisibility();
+        });
+
+        // When multiple responses is enabled, disable waitlist
+        allowMultipleCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                hasWaitlistCheckbox.checked = false;
+                hasWaitlistCheckbox.disabled = true;
+                updateWaitlistThresholdVisibility();
+            } else {
+                hasWaitlistCheckbox.disabled = false;
+            }
+        });
+
+        // Initialize disabled states on page load
+        if (hasWaitlistCheckbox.checked) {
+            allowMultipleCheckbox.disabled = true;
+        }
+        if (allowMultipleCheckbox.checked) {
+            hasWaitlistCheckbox.disabled = true;
+        }
+    }
 });
 
 function searchPlayers(query) {
@@ -1691,6 +1738,31 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         questions.push(questionData);
     });
 
+    // Validate waitlist settings
+    const hasWaitlistCheckbox = document.getElementById('has_waitlist');
+    const waitlistThresholdInput = document.getElementById('waitlist_threshold');
+
+    if (hasWaitlistCheckbox && hasWaitlistCheckbox.checked) {
+        const thresholdValue = waitlistThresholdInput ? waitlistThresholdInput.value.trim() : '';
+
+        if (!thresholdValue) {
+            validationErrors.push({
+                type: 'waitlist',
+                field: 'threshold',
+                message: '{% trans "Waitlist threshold is required when waitlist is enabled" %}'
+            });
+        } else {
+            const threshold = parseInt(thresholdValue);
+            if (isNaN(threshold) || threshold < 1) {
+                validationErrors.push({
+                    type: 'waitlist',
+                    field: 'threshold',
+                    message: '{% trans "Waitlist threshold must be a positive number" %}'
+                });
+            }
+        }
+    }
+
     // Clear previous validation errors
     document.querySelectorAll('.validation-error').forEach(el => el.remove());
     document.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
@@ -1753,6 +1825,22 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                 // Scroll to first error
                 if (validationErrors.indexOf(error) === 0) {
                     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else if (error.type === 'waitlist') {
+                // Show error for waitlist threshold
+                const waitlistThresholdInput = document.getElementById('waitlist_threshold');
+                if (waitlistThresholdInput) {
+                    waitlistThresholdInput.classList.add('is-invalid');
+
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'invalid-feedback validation-error';
+                    errorDiv.textContent = error.message;
+                    waitlistThresholdInput.parentNode.appendChild(errorDiv);
+
+                    // Scroll to first error
+                    if (validationErrors.indexOf(error) === 0) {
+                        waitlistThresholdInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
                 }
             }
         });
@@ -2140,4 +2228,61 @@ function addTemplateToList(templateId, templateName, templateTypeDisplay, isPubl
     // Re-initialize click handlers
     initTemplateClickHandlers();
 }
+
+    function updateActiveStatus() {
+        const isActiveCheckbox = document.getElementById('is_active');
+        const startDateInput = document.getElementById('start_date');
+        const endDateInput = document.getElementById('end_date');
+        const statusText = document.getElementById('active-status-text');
+        const container = document.getElementById('active-status-container');
+        const icon = document.getElementById('active-status-icon');
+
+        const isActive = isActiveCheckbox.checked;
+        const now = new Date();
+
+        // Get start and end dates if they exist
+        const startDate = startDateInput.value ? new Date(startDateInput.value) : null;
+        const endDate = endDateInput.value ? new Date(endDateInput.value) : null;
+
+        if (!isActive) {
+            // Survey is inactive
+            statusText.textContent = "{% trans 'Survey is not accepting responses' %}";
+            container.style.backgroundColor = '#f8d7da';
+            icon.className = 'bi bi-x-circle-fill text-danger';
+        } else {
+            // Survey is active, check dates
+            if (startDate && now < startDate) {
+                // Active but hasn't started yet
+                statusText.textContent = "{% trans 'Survey is active but has not started yet' %}";
+                container.style.backgroundColor = '#d1ecf1';
+                icon.className = 'bi bi-info-circle-fill text-info';
+            } else if (endDate && now > endDate) {
+                // Active but has ended
+                statusText.textContent = "{% trans 'Survey is active but has already ended' %}";
+                container.style.backgroundColor = '#fff3cd';
+                icon.className = 'bi bi-exclamation-triangle-fill text-warning';
+            } else {
+                // Active and within date range
+                statusText.textContent = "{% trans 'Survey is accepting responses' %}";
+                container.style.backgroundColor = '#d1e7dd';
+                icon.className = 'bi bi-check-circle-fill text-success';
+            }
+        }
+    }
+
+    // Add event listeners to date inputs to update status when dates change
+    document.addEventListener('DOMContentLoaded', function() {
+        const startDateInput = document.getElementById('start_date');
+        const endDateInput = document.getElementById('end_date');
+
+        if (startDateInput) {
+            startDateInput.addEventListener('change', updateActiveStatus);
+        }
+        if (endDateInput) {
+            endDateInput.addEventListener('change', updateActiveStatus);
+        }
+
+        // Initial status check
+        updateActiveStatus();
+    });
 </script>

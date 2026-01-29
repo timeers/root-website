@@ -27,7 +27,29 @@
         </small>
     </div>
 
+    {% if survey.has_waitlist %}
+        <div class="mb-3">
+            <strong>{% trans 'Position' %}:</strong> #{{ response.response_position }}
+            {% if is_response_waitlisted %}
+                <span class="badge bg-warning text-dark ms-2">{% trans 'On Waitlist' %}</span>
+            {% else %}
+                <span class="badge bg-success ms-2">{% trans 'Accepted' %}</span>
+            {% endif %}
+        </div>
+    {% endif %}
+
     <hr>
+
+    {% if show_score_summary and score_total > 0 %}
+        <div class="alert alert-info d-flex align-items-center mb-4">
+            <i class="bi bi-trophy-fill fs-4 me-3"></i>
+            <div>
+                <strong>{% trans 'Your Score' %}:</strong>
+                <span class="fs-5 ms-2">{{ score_correct }} / {{ score_total }} {% trans 'correct' %}</span>
+                <span class="text-muted ms-2">({{ relative_score }}%)</span>
+            </div>
+        </div>
+    {% endif %}
 
     <h3 class="mb-4">{% trans 'Your Responses' %}</h3>
 
@@ -210,6 +232,30 @@
                         {% endif %}
                     </div>
                 </div>
+
+                {% if show_correct_answers and answer.question.has_correct_answer %}
+                    {% with is_correct=answer.is_correct %}
+                        <div class="mt-3 pt-3 border-top">
+                            {% if is_correct %}
+                                <div class="d-flex align-items-center text-success">
+                                    <i class="bi bi-check-circle-fill fs-5 me-2"></i>
+                                    <strong>{% trans 'Correct!' %}</strong>
+                                </div>
+                            {% else %}
+                                <div class="d-flex align-items-start">
+                                    <i class="bi bi-x-circle-fill fs-5 me-2 text-danger"></i>
+                                    <div>
+                                        <strong class="text-danger">{% trans 'Incorrect' %}</strong>
+                                        <div class="mt-1">
+                                            <small class="text-muted">{% trans 'Correct answer' %}:</small>
+                                            <span class="ms-1"><strong>{{ answer.question.get_correct_answer_display }}</strong></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endwith %}
+                {% endif %}
             </div>
         </div>
     {% endfor %}
