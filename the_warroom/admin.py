@@ -14,7 +14,10 @@ from django.core.exceptions import ObjectDoesNotExist
 from the_keep.models import Deck, Map, Faction, Vagabond, Tweak, Landmark, Hireling
 from the_gatehouse.models import Profile
 
-from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
+from .models import (
+    Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round,
+    GroupingSession, PlayerGroup, PlayerGroupMembership, UngroupedPlayer, SessionPlayer
+)
 from .forms import GameImportForm, EffortImportForm
 
 class CsvImportForm(forms.Form):
@@ -515,3 +518,103 @@ admin.site.register(Tournament, TournamentAdmin)
 admin.site.register(Round, RoundAdmin)
 admin.site.register(ScoreCard, ScoreCardAdmin)
 # admin.site.register(TurnScore)
+
+
+# Player Grouping Admin
+
+# New SessionPlayer inline and admin
+class SessionPlayerInline(admin.TabularInline):
+    model = SessionPlayer
+    extra = 0
+    readonly_fields = ('added_at', 'added_via', 'status')
+    raw_id_fields = ('profile', 'survey_response', 'added_by', 'group', 'best_fit_group')
+    fields = ('profile', 'status', 'group', 'added_via', 'reason', 'best_fit_group', 'best_fit_overlap_hours')
+
+
+class SessionPlayerForGroupInline(admin.TabularInline):
+    model = SessionPlayer
+    extra = 0
+    readonly_fields = ('added_at', 'added_via')
+    raw_id_fields = ('profile', 'survey_response', 'added_by')
+    fields = ('profile', 'added_via', 'added_at')
+    fk_name = 'group'
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.filter(status='grouped')
+
+
+class PlayerGroupInline(admin.TabularInline):
+    model = PlayerGroup
+    extra = 0
+    readonly_fields = ('member_count', 'total_overlap_hours', 'best_consecutive_block')
+    fields = ('group_number', 'name', 'member_count', 'total_overlap_hours', 'best_consecutive_block')
+
+    def member_count(self, obj):
+        return obj.member_count
+    member_count.short_description = 'Members'
+
+
+class GroupingSessionAdmin(admin.ModelAdmin):
+    list_display = (
+        'name_display', 'grouping_type', 'status', 'tournament',
+        'grouped_count', 'ungrouped_count', 'created_at'
+    )
+    list_filter = ('status', 'grouping_type', 'tournament')
+    search_fields = ('name', 'survey__title', 'tournament__name')
+    readonly_fields = ('created_at', 'updated_at', 'total_players', 'grouped_count', 'ungrouped_count')
+    raw_id_fields = ('survey', 'tournament', 'round', 'created_by')
+    inlines = [PlayerGroupInline, SessionPlayerInline]
+
+    def name_display(self, obj):
+        return str(obj)
+    name_display.short_description = 'Session'
+
+
+class PlayerGroupAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'session', 'group_number', 'member_count', 'total_overlap_hours', 'best_consecutive_block')
+    list_filter = ('session__tournament', 'session__status')
+    search_fields = ('name', 'session__name')
+    readonly_fields = ('created_at', 'updated_at', 'total_overlap_hours', 'best_consecutive_block', 'days_with_overlap')
+    raw_id_fields = ('session', 'game')
+    inlines = [SessionPlayerForGroupInline]
+
+    def member_count(self, obj):
+        return obj.member_count
+    member_count.short_description = 'Members'
+
+
+class SessionPlayerAdmin(admin.ModelAdmin):
+    list_display = ('profile', 'session', 'status', 'group', 'added_via', 'reason', 'best_fit_group')
+    list_filter = ('status', 'added_via', 'session__tournament')
+    search_fields = ('profile__display_name', 'profile__discord', 'session__name')
+    raw_id_fields = ('session', 'profile', 'survey_response', 'group', 'best_fit_group', 'added_by')
+
+
+# DEPRECATED: Keep old admins for data migration visibility
+class PlayerGroupMembershipInline(admin.TabularInline):
+    model = PlayerGroupMembership
+    extra = 0
+    readonly_fields = ('added_at', 'added_via')
+    raw_id_fields = ('profile', 'survey_response', 'added_by')
+
+
+class UngroupedPlayerInline(admin.TabularInline):
+    model = UngroupedPlayer
+    extra = 0
+    readonly_fields = ('reason', 'is_waitlist', 'best_fit_overlap_hours')
+    raw_id_fields = ('profile', 'survey_response', 'best_fit_group')
+
+
+class UngroupedPlayerAdmin(admin.ModelAdmin):
+    list_display = ('profile', 'session', 'reason', 'is_waitlist', 'best_fit_group', 'best_fit_overlap_hours')
+    list_filter = ('reason', 'is_waitlist', 'session__tournament')
+    search_fields = ('profile__display_name', 'profile__discord', 'session__name')
+    raw_id_fields = ('session', 'profile', 'survey_response', 'best_fit_group')
+
+
+admin.site.register(GroupingSession, GroupingSessionAdmin)
+admin.site.register(PlayerGroup, PlayerGroupAdmin)
+admin.site.register(SessionPlayer, SessionPlayerAdmin)
+# Keep old models registered for migration visibility
+admin.site.register(UngroupedPlayer, UngroupedPlayerAdmin)

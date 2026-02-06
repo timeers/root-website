@@ -1083,29 +1083,29 @@ def scorecard_manage_view(request, id=None):
         # Check if the "next" button was clicked
         if request.POST.get('next'):
             # Redirect to the update page of the next scorecard
-            return redirect('update-scorecard', next_scorecard.id)
+            return redirect('update-old-scorecard', next_scorecard.id)
         # Check if the "previous" button was clicked
         if request.POST.get('previous'):
             # Redirect to the update page of the next scorecard
-            return redirect('update-scorecard', previous_scorecard.id)
+            return redirect('update-old-scorecard', previous_scorecard.id)
         # Check if the "add_player" button was clicked
         if request.POST.get('add_player'):
             # Redirect to the record page to record new
             game_group = parent.game_group
             encoded_game_group = quote(str(game_group))  # Encode the game_group value
-            return redirect(f'{reverse("record-scorecard")}?game_group={encoded_game_group}')
+            return redirect(f'{reverse("record-old-scorecard")}?game_group={encoded_game_group}')
         if request.POST.get('next-effort'):
             if next_effort_scorecard:
-                return redirect('update-scorecard', next_effort_scorecard.id)
+                return redirect('update-old-scorecard', next_effort_scorecard.id)
             else:
-                url = reverse('record-scorecard')
+                url = reverse('record-old-scorecard')
                 query_string = f'?faction={next_effort.faction.id}&effort={next_effort.id}'
                 return redirect(f'{url}{query_string}')
         if request.POST.get('previous-effort'):
             if previous_effort_scorecard:
-                return redirect('update-scorecard', previous_effort_scorecard.id)
+                return redirect('update-old-scorecard', previous_effort_scorecard.id)
             else:
-                url = reverse('record-scorecard')
+                url = reverse('record-old-scorecard')
                 query_string = f'?faction={previous_effort.faction.id}&effort={previous_effort.id}'
                 return redirect(f'{url}{query_string}')
         context['message'] = "Scores Saved"
@@ -2128,3 +2128,287 @@ def in_progress_view(request):
     }
 
     return render(request, 'the_warroom/in_progress.html', context)
+
+
+# ============================================================================
+# Scorecard Management V2
+# ============================================================================
+
+@player_onboard_required
+def scorecard_manage_v2_view(request, id=None):
+    """
+    Improved scorecard management view with:
+    - TurnScore deletion capability
+    - Better UI for seat/faction selection
+    - Dynamic point totals
+    - Clearer navigation between seats
+    """
+    faction = request.GET.get('faction', None)
+    effort_id = request.GET.get('effort', None)
+    game_group = request.GET.get('game_group', None)
+
+    faction_name = None
+    faction_color = None
+    faction_color_rgb = None
+    faction_obj = None
+
+    if faction:
+        faction_obj = Faction.objects.filter(id=faction).first()
+        if faction_obj:
+            faction_name = faction_obj.title
+            faction_color = faction_obj.color
+            if faction_obj.color_r is not None:
+                faction_color_rgb = f"{faction_obj.color_r}, {faction_obj.color_g}, {faction_obj.color_b}"
+
+    game = None
+    next_scorecard = None
+    previous_scorecard = None
+    next_effort = None
+    previous_effort = None
+    next_effort_scorecard = None
+    previous_effort_scorecard = None
+    all_game_efforts = []
+
+    try:
+        effort = Effort.objects.get(id=effort_id)
+        game = effort.game
+        participants = []
+        for participant_effort in game.efforts.all():
+            participants.append(participant_effort.player)
+        if game.recorder:
+            participants.append(game.recorder)
+        if not request.user.profile in participants:
+            raise PermissionDenied()
+    except Effort.DoesNotExist:
+        effort = None
+
+    if id:
+        obj = get_object_or_404(ScoreCard, id=id)
+        if obj.recorder != request.user.profile:
+            raise PermissionDenied()
+        if obj.faction != None:
+            faction_obj = obj.faction
+            faction = obj.faction.id
+            faction_name = obj.faction.title
+            faction_color = obj.faction.color
+            if obj.faction.color_r is not None:
+                faction_color_rgb = f"{obj.faction.color_r}, {obj.faction.color_g}, {obj.faction.color_b}"
+        if obj.effort != None:
+            effort = obj.effort
+            game = effort.game
+
+        if not obj.effort:
+            grouped_scorecards = ScoreCard.objects.filter(
+                game_group=obj.game_group, effort=None, recorder=request.user.profile
+            ).order_by('date_posted')
+
+            scorecard_list = list(grouped_scorecards)
+            current_index = scorecard_list.index(obj)
+
+            next_scorecard = scorecard_list[(current_index + 1) % len(scorecard_list)]
+            previous_scorecard = scorecard_list[(current_index - 1) % len(scorecard_list)]
+            if next_scorecard == obj:
+                next_scorecard = None
+            if previous_scorecard == obj:
+                previous_scorecard = None
+    else:
+        obj = ScoreCard()
+        if game_group:
+            grouped_scorecards = ScoreCard.objects.filter(
+                game_group=game_group, effort=None, recorder=request.user.profile
+            ).order_by('date_posted')
+            scorecard_list = list(grouped_scorecards)
+            if scorecard_list:
+                next_scorecard = scorecard_list[0]
+                previous_scorecard = scorecard_list[-1]
+
+    if effort and game:
+        game_efforts = Effort.objects.filter(game=game).order_by('seat')
+        effort_list = list(game_efforts)
+        current_index = effort_list.index(effort)
+
+        # Get all efforts for the game (for seat selector)
+        all_game_efforts = [
+            {
+                'effort': e,
+                'scorecard': getattr(e, 'scorecard', None),
+                'is_current': e == effort,
+                'image_url': e.faction.small_icon.url,
+            }
+            for e in effort_list
+        ]
+
+        next_effort = effort_list[(current_index + 1) % len(effort_list)]
+        previous_effort = effort_list[(current_index - 1) % len(effort_list)]
+        next_effort_scorecard = getattr(next_effort, 'scorecard', None)
+        previous_effort_scorecard = getattr(previous_effort, 'scorecard', None)
+
+    user = request.user
+
+    # Handle TurnScore deletion via HTMX
+    if request.method == 'DELETE':
+        turn_id = request.GET.get('turn_id')
+        if turn_id and id:
+            try:
+                turn = TurnScore.objects.get(id=turn_id, scorecard=obj)
+                turn_number = turn.turn_number
+                turn.delete()
+
+                # Renumber remaining turns
+                remaining_turns = obj.turns.filter(turn_number__gt=turn_number).order_by('turn_number')
+                for t in remaining_turns:
+                    t.turn_number -= 1
+                    t.save()
+
+                # Recalculate totals
+                obj.save(recalculate_game_points=True)
+
+                # Return success response for HTMX
+                return HttpResponse(status=200, headers={'HX-Trigger': 'turnDeleted'})
+            except TurnScore.DoesNotExist:
+                return HttpResponse(status=404)
+        return HttpResponse(status=400)
+
+    if id:
+        existing_turns = obj.turns.all()
+        existing_count = existing_turns.count()
+        extra_forms = 0
+    else:
+        existing_count = 0
+        extra_forms = 1
+
+    TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms, can_delete=True)
+    qs = obj.turns.all() if id else TurnScore.objects.none()
+    formset = TurnFormset(request.POST or None, queryset=qs)
+    form_count = extra_forms + existing_count
+    form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user, faction=faction)
+
+    if effort:
+        score = effort.score
+    else:
+        score = None
+
+    if not obj.total_generic_points and obj.id and obj.total_points and obj.total_points != 0:
+        generic_view = False
+    else:
+        generic_view = True
+
+    context = {
+        'form': form,
+        'formset': formset,
+        'object': obj,
+        'form_count': form_count,
+        'faction': faction,
+        'faction_obj': faction_obj,
+        'faction_name': faction_name,
+        'faction_color': faction_color,
+        'faction_color_rgb': faction_color_rgb,
+        'score': score,
+        'next_scorecard': next_scorecard,
+        'previous_scorecard': previous_scorecard,
+        'game_group': game_group,
+        'generic_view': generic_view,
+        'next_effort': next_effort,
+        'next_effort_scorecard': next_effort_scorecard,
+        'previous_effort': previous_effort,
+        'previous_effort_scorecard': previous_effort_scorecard,
+        'game': game,
+        'effort': effort,
+        'all_game_efforts': all_game_efforts,
+    }
+
+    if form.is_valid() and formset.is_valid():
+        # warning_message = False
+        parent = form.save(commit=False)
+        parent.recorder = request.user.profile
+        parent.effort = effort
+        parent.save()
+        dominance = False
+
+        total_points = 0
+
+        for turn_form in formset:
+            turn_dominance = turn_form.cleaned_data.get('dominance')
+            if turn_dominance:
+                dominance = True
+            total_points += turn_form.cleaned_data.get('total_points', 0)
+
+        if effort:
+            final_scorecard = True
+        else:
+            final_scorecard = False
+
+        if effort and total_points != effort.score and effort.score:
+            final_scorecard = False
+
+        elif total_points < 0:
+            final_scorecard = False
+
+        elif effort and effort.score == 0 and total_points != 0 and not effort.dominance and not effort.coalition_with:
+            final_scorecard = False
+
+        if (effort and dominance and not effort.dominance and not effort.coalition_with) or (effort and not dominance and effort.dominance) or (effort and not dominance and effort.coalition_with):
+            final_scorecard = False
+
+        for turn_form in formset:
+            child = turn_form.save(commit=False)
+            child.scorecard = parent
+            child.save()
+
+        if parent.dominance != dominance:
+            parent.dominance = dominance
+
+        if parent.final != final_scorecard:
+            parent.final = final_scorecard
+
+        parent.save(recalculate_game_points=True)
+
+        # Renumber turns after deletions
+        turns = parent.turns.all().order_by('turn_number')
+        for i, turn in enumerate(turns, start=1):
+            if turn.turn_number != i:
+                turn.turn_number = i
+                turn.save()
+
+        if request.POST.get('next'):
+            return redirect('update-v2-scorecard', next_scorecard.id)
+        if request.POST.get('previous'):
+            return redirect('update-v2-scorecard', previous_scorecard.id)
+        if request.POST.get('add_player'):
+            game_group = parent.game_group
+            encoded_game_group = quote(str(game_group))
+            return redirect(f'{reverse("record-v2-scorecard")}?game_group={encoded_game_group}')
+        if request.POST.get('next-effort'):
+            if next_effort_scorecard:
+                return redirect('update-v2-scorecard', next_effort_scorecard.id)
+            else:
+                url = reverse('record-v2-scorecard')
+                query_string = f'?faction={next_effort.faction.id}&effort={next_effort.id}'
+                return redirect(f'{url}{query_string}')
+        if request.POST.get('previous-effort'):
+            if previous_effort_scorecard:
+                return redirect('update-v2-scorecard', previous_effort_scorecard.id)
+            else:
+                url = reverse('record-v2-scorecard')
+                query_string = f'?faction={previous_effort.faction.id}&effort={previous_effort.id}'
+                return redirect(f'{url}{query_string}')
+
+        # Handle seat navigator buttons (goto_scorecard and goto_effort)
+        goto_scorecard_id = request.POST.get('goto_scorecard')
+        if goto_scorecard_id:
+            return redirect('update-v2-scorecard', int(goto_scorecard_id))
+
+        goto_effort_id = request.POST.get('goto_effort')
+        if goto_effort_id:
+            try:
+                target_effort = Effort.objects.get(id=goto_effort_id)
+                url = reverse('record-v2-scorecard')
+                query_string = f'?faction={target_effort.faction.id}&effort={target_effort.id}'
+                return redirect(f'{url}{query_string}')
+            except Effort.DoesNotExist:
+                pass
+
+        context['message'] = "Scores Saved"
+        return redirect(parent.get_absolute_url())
+
+    return render(request, 'the_warroom/record_scores_v2.html', context)

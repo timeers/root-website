@@ -88,10 +88,10 @@ class ChoiceAdmin(admin.ModelAdmin):
     question_preview.short_description = 'Question'
 
 class SurveyResponseAdmin(admin.ModelAdmin):
-    list_display = ['user', 'survey', 'submitted_at', 'answer_count']
+    list_display = ['profile', 'survey', 'submitted_at', 'answer_count']
     list_filter = ['survey', 'submitted_at']
-    search_fields = ['user__display_name', 'user__discord', 'survey__title']
-    readonly_fields = ['survey', 'user', 'submitted_at', 'updated_at']
+    search_fields = ['profile__display_name', 'profile__discord', 'survey__title']
+    readonly_fields = ['survey', 'profile', 'submitted_at', 'updated_at']
     inlines = [AnswerInline]
 
     def answer_count(self, obj):
@@ -105,7 +105,7 @@ class SurveyResponseAdmin(admin.ModelAdmin):
 class AnswerAdmin(admin.ModelAdmin):
     list_display = ['response', 'question_preview', 'answer_preview']
     list_filter = ['response__survey', 'question__question_type']
-    search_fields = ['response__user__display_name', 'question__text']
+    search_fields = ['response__profile__display_name', 'question__text']
     readonly_fields = ['response', 'question', 'get_display_value']
 
     def question_preview(self, obj):

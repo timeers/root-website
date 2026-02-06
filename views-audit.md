@@ -302,9 +302,9 @@ Record issues found during the audit that need to be fixed or investigated later
 - [ ] `leaderboard-view` - leaderboard_view
 
 ### Scorecards
-- [ ] `record-scorecard` - scorecard_manage_view
+- [ ] `record-old-scorecard` - scorecard_manage_view
 - [ ] `detail-scorecard` - scorecard_detail_view
-- [ ] `update-scorecard` - scorecard_manage_view
+- [ ] `update-old-scorecard` - scorecard_manage_view
 - [ ] `delete-scorecard` - scorecard_delete_view
 - [ ] `assign-scorecard` - scorecard_assign_view
 - [ ] `assign-effort` - effort_assign_view

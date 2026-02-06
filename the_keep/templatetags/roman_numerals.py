@@ -1,24 +1,7 @@
 from django import template
+from the_gatehouse.utils import int_to_roman
 
 register = template.Library()
-
-def int_to_roman(num):
-    val = [
-        1000, 900, 500, 400,
-        100, 90, 50, 40,
-        10, 9, 5, 4, 1
-    ]
-    syms = [
-        "M", "CM", "D", "CD",
-        "C", "XC", "L", "XL",
-        "X", "IX", "V", "IV", "I"
-    ]
-    roman_num = ''
-    for i in range(len(val)):
-        count = int(num / val[i])
-        roman_num += syms[i] * count
-        num -= val[i] * count
-    return roman_num
 
 @register.filter
 def roman(value):

@@ -313,6 +313,120 @@ const likertScales = [
     {% endfor %}
 ];
 
+/**
+ * Creates HTML for a question card.
+ * Single source of truth for question card HTML generation.
+ */
+function createQuestionHtml(options) {
+    const {
+        questionId,
+        order,
+        existingId = null,
+        hasResponses = false,
+        responseCount = 0,
+        text = '',
+        type = '',
+        required = true,
+        helpText = ''
+    } = options;
+
+    // Build response warning badge (only if has responses)
+    const responseBadge = hasResponses ? `
+        <span class="badge bg-warning text-dark ms-2" title="${responseCount} response(s) recorded">
+            <i class="bi bi-exclamation-triangle-fill"></i> ${responseCount} response(s)
+        </span>
+    ` : '';
+
+    // Save as template button (always shown)
+    const saveTemplateButton = `
+        <button type="button" class="btn btn-sm btn-outline-primary me-1"
+                onclick="openSaveTemplateModal('${questionId}')"
+                title="Save as template">
+            <i class="bi bi-floppy"></i>
+        </button>
+    `;
+
+    // Build delete/hide buttons based on response state
+    let actionButtons;
+    if (hasResponses) {
+        actionButtons = `
+            <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${questionId}')"
+                    title="Hide question (preserves response data)">
+                <i class="bi bi-eye-slash"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="confirmDeleteQuestionWithResponses('${questionId}')"
+                    title="Delete question and all its responses">
+                <i class="bi bi-trash"></i>
+            </button>
+        `;
+    } else {
+        actionButtons = `
+            <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
+                <i class="bi bi-trash"></i>
+            </button>
+        `;
+    }
+
+    // Build data attributes
+    let dataAttrs = `data-question-id="${questionId}" data-order="${order}"`;
+    if (existingId !== null) {
+        dataAttrs += ` data-existing-id="${existingId}" data-has-responses="${hasResponses}" data-response-count="${responseCount}"`;
+    }
+
+    // Type locked message (only if has responses)
+    const typeLockedMessage = hasResponses
+        ? '<small class="text-muted"><i class="bi bi-lock"></i> Type locked - question has responses</small>'
+        : '';
+
+    // Build type options
+    const typeOptions = Object.entries(questionTypes).map(([key, value]) =>
+        `<option value="${key}" ${type === key ? 'selected' : ''}>${value}</option>`
+    ).join('');
+
+    return `
+        <div class="card question-card ${hasResponses ? 'border-warning' : ''}" ${dataAttrs}>
+            <div class="question-header ${hasResponses ? 'bg-warning-subtle' : ''}">
+                <span class="drag-handle me-2">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <span class="flex-fill"><strong>Question ${order}</strong>${responseBadge}</span>
+                ${saveTemplateButton}
+                ${actionButtons}
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required>${text}</textarea>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
+                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')" ${hasResponses ? 'disabled' : ''}>
+                            <option value="">Select type...</option>
+                            ${typeOptions}
+                        </select>
+                        ${typeLockedMessage}
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input question-required" type="checkbox" ${required ? 'checked' : ''}>
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="type-specific-options"></div>
+
+                <div class="mb-3">
+                    <label class="form-label">Help Text (optional)</label>
+                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${helpText}">
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 {% if existing_questions %}
 // Load existing questions on page load (edit mode)
 const existingQuestions = {{ existing_questions|safe }};
@@ -442,87 +556,17 @@ function loadExistingQuestions() {
         questionCounter++;
         const questionId = `question-${questionCounter}`;
 
-        // Check if question has responses
-        const hasResponses = question.has_responses || false;
-        const responseCount = question.response_count || 0;
-
-        // Build response warning badge
-        const responseBadge = hasResponses ? `
-            <span class="badge bg-warning text-dark ms-2" title="${responseCount} response(s) recorded">
-                <i class="bi bi-exclamation-triangle-fill"></i> ${responseCount} response(s)
-            </span>
-        ` : '';
-
-        // Build save question to template button
-        const saveTemplateButton = `
-            <button type="button" class="btn btn-sm btn-outline-primary me-1" 
-                    onclick="openSaveTemplateModal('${questionId}')" 
-                    title="Save as template">
-                <i class="bi bi-floppy"></i>
-            </button>
-        `;
-
-
-        // Modify delete button based on responses
-        const deleteButton = hasResponses ? `
-            <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${questionId}')"
-                    title="Hide question (preserves response data)">
-                <i class="bi bi-eye-slash"></i>
-            </button>
-            <button type="button" class="btn btn-sm btn-danger" onclick="confirmDeleteQuestionWithResponses('${questionId}')"
-                    title="Delete question and all its responses">
-                <i class="bi bi-trash"></i>
-            </button>
-        ` : `
-            <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
-                <i class="bi bi-trash"></i>
-            </button>
-        `;
-
-        const questionHtml = `
-            <div class="card question-card ${hasResponses ? 'border-warning' : ''}" data-question-id="${questionId}" data-order="${index + 1}" data-existing-id="${question.id}" data-has-responses="${hasResponses}" data-response-count="${responseCount}">
-                <div class="question-header ${hasResponses ? 'bg-warning-subtle' : ''}">
-                    <span class="drag-handle me-2">
-                        <i class="bi bi-grip-vertical"></i>
-                    </span>
-                    <span class="flex-fill"><strong>Question ${index + 1}</strong>${responseBadge}</span>
-                    ${saveTemplateButton}
-                    ${deleteButton}
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Question Text <span class="text-danger">*</span></label>
-                        <textarea class="form-control question-text" rows="2" required>${question.text}</textarea>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Question Type <span class="text-danger">*</span></label>
-                            <select class="form-select question-type" onchange="handleTypeChange('${questionId}')" ${hasResponses ? 'disabled' : ''}>
-                                <option value="">Select type...</option>
-                                ${Object.entries(questionTypes).map(([key, value]) =>
-                                    '<option value="' + key + '" ' + (question.type === key ? 'selected' : '') + '>' + value + '</option>'
-                                ).join('')}
-                            </select>
-                            ${hasResponses ? '<small class="text-muted"><i class="bi bi-lock"></i> Type locked - question has responses</small>' : ''}
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-check mt-4">
-                                <input class="form-check-input question-required" type="checkbox" ${question.required ? 'checked' : ''}>
-                                <label class="form-check-label">Required</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="type-specific-options"></div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Help Text (optional)</label>
-                        <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${question.help_text || ''}">
-                    </div>
-                </div>
-            </div>
-        `;
+        const questionHtml = createQuestionHtml({
+            questionId,
+            order: index + 1,
+            existingId: question.id,
+            hasResponses: question.has_responses || false,
+            responseCount: question.response_count || 0,
+            text: question.text,
+            type: question.type,
+            required: question.required,
+            helpText: question.help_text || ''
+        });
 
         container.insertAdjacentHTML('beforeend', questionHtml);
 
@@ -546,56 +590,14 @@ function loadQuestionFromTemplate(templateData) {
         container.innerHTML = '';
     }
 
-    const questionHtml = `
-        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
-            <div class="question-header">
-                <span class="drag-handle me-2">
-                    <i class="bi bi-grip-vertical"></i>
-                </span>
-                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
-                <button type="button" class="btn btn-sm btn-outline-primary me-1"
-                        onclick="openSaveTemplateModal('${questionId}')"
-                        title="Save as template">
-                    <i class="bi bi-floppy"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
-                    <textarea class="form-control question-text" rows="2" required>${templateData.text || ''}</textarea>
-                </div>
-
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
-                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
-                            <option value="">Select type...</option>
-                            ${Object.entries(questionTypes).map(([key, value]) =>
-                                '<option value="' + key + '" ' + (templateData.type === key ? 'selected' : '') + '>' + value + '</option>'
-                            ).join('')}
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check mt-4">
-                            <input class="form-check-input question-required" type="checkbox" ${templateData.required ? 'checked' : ''}>
-                            <label class="form-check-label">Required</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="type-specific-options"></div>
-
-                <div class="mb-3">
-                    <label class="form-label">Help Text (optional)</label>
-                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${templateData.help_text || ''}">
-                </div>
-
-            </div>
-        </div>
-    `;
+    const questionHtml = createQuestionHtml({
+        questionId,
+        order: questionCounter,
+        text: templateData.text || '',
+        type: templateData.type || '',
+        required: templateData.required || false,
+        helpText: templateData.help_text || ''
+    });
 
     container.insertAdjacentHTML('beforeend', questionHtml);
 
@@ -619,56 +621,11 @@ function addQuestion() {
         container.innerHTML = '';
     }
 
-    const questionHtml = `
-        <div class="card question-card" data-question-id="${questionId}" data-order="${questionCounter}">
-            <div class="question-header">
-                <span class="drag-handle me-2">
-                    <i class="bi bi-grip-vertical"></i>
-                </span>
-                <span class="flex-fill"><strong>Question ${questionCounter}</strong></span>
-                <button type="button" class="btn btn-sm btn-outline-primary me-1"
-                        onclick="openSaveTemplateModal('${questionId}')"
-                        title="Save as template">
-                    <i class="bi bi-floppy"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-danger" onclick="removeQuestion('${questionId}')">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
-                    <textarea class="form-control question-text" rows="2" required></textarea>
-                </div>
-
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Question Type <span class="text-danger">*</span></label>
-                        <select class="form-select question-type" onchange="handleTypeChange('${questionId}')">
-                            <option value="">Select type...</option>
-                            ${Object.entries(questionTypes).map(([key, value]) =>
-                                '<option value="' + key + '">' + value + '</option>'
-                            ).join('')}
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check mt-4">
-                            <input class="form-check-input question-required" type="checkbox" checked>
-                            <label class="form-check-label">Required</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="type-specific-options"></div>
-
-                <div class="mb-3">
-                    <label class="form-label">Help Text (optional)</label>
-                    <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents">
-                </div>
-
-            </div>
-        </div>
-    `;
+    const questionHtml = createQuestionHtml({
+        questionId,
+        order: questionCounter,
+        required: true  // New questions default to required
+    });
 
     container.insertAdjacentHTML('beforeend', questionHtml);
     initializeSortable();
@@ -1241,68 +1198,17 @@ function restoreHiddenQuestion(questionId) {
                 container.innerHTML = '';
             }
 
-            const hasResponses = questionData.has_responses;
-            const responseCount = questionData.response_count;
-
-            const questionHtml = `
-                <div class="card question-card border-warning" data-question-id="${newQuestionId}" data-order="${questionCounter}" data-existing-id="${questionData.id}" data-has-responses="${hasResponses}" data-response-count="${responseCount}">
-                    <div class="question-header bg-warning-subtle">
-                        <span class="drag-handle me-2">
-                            <i class="bi bi-grip-vertical"></i>
-                        </span>
-                        <span class="flex-fill"><strong>Question ${questionCounter}</strong>
-                            <span class="badge bg-warning text-dark ms-2" title="${responseCount} response(s) recorded">
-                                <i class="bi bi-exclamation-triangle-fill"></i> ${responseCount} response(s)
-                            </span>
-                        </span>
-                        <button type="button" class="btn btn-sm btn-outline-primary me-1"
-                                onclick="openSaveTemplateModal('${newQuestionId}')"
-                                title="Save as template">
-                            <i class="bi bi-floppy"></i>
-                        </button>
-                        <button type="button" class="btn btn-sm btn-warning me-1" onclick="confirmHideQuestion('${newQuestionId}')"
-                                title="Hide question (preserves response data)">
-                            <i class="bi bi-eye-slash"></i>
-                        </button>
-                        <button type="button" class="btn btn-sm btn-danger" onclick="confirmDeleteQuestionWithResponses('${newQuestionId}')"
-                                title="Delete question and all its responses">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">Question Text <span class="text-danger">*</span></label>
-                            <textarea class="form-control question-text" rows="2" required>${questionData.text}</textarea>
-                        </div>
-
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Question Type <span class="text-danger">*</span></label>
-                                <select class="form-select question-type" onchange="handleTypeChange('${newQuestionId}')" ${hasResponses ? 'disabled' : ''}>
-                                    <option value="">Select type...</option>
-                                    ${Object.entries(questionTypes).map(([key, value]) =>
-                                        '<option value="' + key + '" ' + (questionData.type === key ? 'selected' : '') + '>' + value + '</option>'
-                                    ).join('')}
-                                </select>
-                                ${hasResponses ? '<small class="text-muted"><i class="bi bi-lock"></i> Type locked - question has responses</small>' : ''}
-                            </div>
-                            <div class="col-md-6">
-                                <div class="form-check mt-4">
-                                    <input class="form-check-input question-required" type="checkbox" ${questionData.required ? 'checked' : ''}>
-                                    <label class="form-check-label">Required</label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="type-specific-options"></div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Help Text (optional)</label>
-                            <input type="text" class="form-control question-help" placeholder="Additional guidance for respondents" value="${questionData.help_text || ''}">
-                        </div>
-                    </div>
-                </div>
-            `;
+            const questionHtml = createQuestionHtml({
+                questionId: newQuestionId,
+                order: questionCounter,
+                existingId: questionData.id,
+                hasResponses: questionData.has_responses,
+                responseCount: questionData.response_count,
+                text: questionData.text,
+                type: questionData.type,
+                required: questionData.required,
+                helpText: questionData.help_text || ''
+            });
 
             container.insertAdjacentHTML('beforeend', questionHtml);
 
@@ -1619,6 +1525,22 @@ function removeSelectedPost(questionId, postId) {
 
 // Serialize form data on submit
 document.getElementById('survey-form').addEventListener('submit', function(e) {
+    
+    // Convert Start and End Date local time to UTC
+    const startInput = document.getElementById('start_date');
+    const endInput = document.getElementById('end_date');
+    
+    if (startInput.value) {
+        const startDate = new Date(startInput.value);
+        document.getElementById('start_date_utc').value = startDate.toISOString().slice(0, 16);
+    }
+    
+    if (endInput.value) {
+        const endDate = new Date(endInput.value);
+        document.getElementById('end_date_utc').value = endDate.toISOString().slice(0, 16);
+    }
+
+    
     console.log('Form submit triggered');
     const questions = [];
     const questionCards = document.querySelectorAll('.question-card');
@@ -2285,4 +2207,26 @@ function addTemplateToList(templateId, templateName, templateTypeDisplay, isPubl
         // Initial status check
         updateActiveStatus();
     });
+
+
+    // Convert UTC to local time for display on page load
+    function utcToLocal(utcString, inputId) {
+        if (!utcString) return;
+        const date = new Date(utcString + 'Z'); // 'Z' indicates UTC
+        const localString = date.getFullYear() + '-' + 
+            String(date.getMonth() + 1).padStart(2, '0') + '-' +
+            String(date.getDate()).padStart(2, '0') + 'T' +
+            String(date.getHours()).padStart(2, '0') + ':' +
+            String(date.getMinutes()).padStart(2, '0');
+        document.getElementById(inputId).value = localString;
+    }
+
+    // Initialize with existing values (converted from UTC to local)
+    {% if survey.start_date %}
+    utcToLocal('{{ survey.start_date|date:"Y-m-d H:i" }}', 'start_date');
+    {% endif %}
+    {% if survey.end_date %}
+    utcToLocal('{{ survey.end_date|date:"Y-m-d H:i" }}', 'end_date');
+    {% endif %}
+
 </script>

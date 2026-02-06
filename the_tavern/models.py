@@ -74,7 +74,7 @@ class SurveyQuerySet(models.QuerySet):
         now = timezone.now()
         return self.filter(
             Q(created_by=profile) |
-            Q(show_results_to_respondents=True, responses__user=profile) |
+            Q(show_results_to_respondents=True, responses__profile=profile) |
             Q(show_results_on_close=True, end_date__lt=now, responses__isnull=False)
         ).distinct()
 
@@ -164,7 +164,7 @@ class Survey(models.Model):
         """Check if a specific user has already responded"""
         if not user_profile:
             return False
-        return self.responses.filter(user=user_profile).exists()
+        return self.responses.filter(profile=user_profile).exists()
 
     def can_edit_response(self, user_profile):
         """Check if a user can edit their response"""
@@ -365,6 +365,16 @@ class Survey(models.Model):
             'min_score': stats['min_score'] or 0,
             'response_count': stats['response_count'] or 0,
         }
+
+    def has_availability_questions(self):
+        """Check if survey has TIME_AVAILABILITY or DAY_AVAILABILITY questions"""
+        from .models import Question
+        return self.questions.filter(
+            question_type__in=[
+                Question.QuestionType.TIME_AVAILABILITY,
+                Question.QuestionType.DAY_AVAILABILITY
+            ]
+        ).exists()
 
 
 class LikertScale(models.Model):
@@ -744,7 +754,7 @@ class Choice(models.Model):
 # A user's response to a survey is stored here
 class SurveyResponse(models.Model):
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='responses')
-    user = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='survey_responses')
+    profile = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='survey_responses')
     submitted_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -772,11 +782,11 @@ class SurveyResponse(models.Model):
         verbose_name = 'Survey Response'
         verbose_name_plural = 'Survey Responses'
         indexes = [
-            models.Index(fields=['survey', 'user']),
+            models.Index(fields=['survey', 'profile']),
         ]
 
     def __str__(self):
-        user_display = self.user.name if self.user else "Anonymous"
+        user_display = self.profile.name if self.profile else "Anonymous"
         return f"{user_display} → {self.survey.title}"
 
     @property
@@ -789,7 +799,7 @@ class SurveyResponse(models.Model):
         if not user_profile:
             return False
         # Admin, survey owner or respondent can view
-        if user_profile == self.user or user_profile.admin or user_profile == self.survey.created_by:
+        if user_profile == self.profile or user_profile.admin or user_profile == self.survey.created_by:
             return True
         return False
 
@@ -872,8 +882,7 @@ class SurveyResponse(models.Model):
             DY Q1: User selects Monday, Wednesday
             Result: {14, 58} (Tue filtered out)
         """
-        from the_tavern.models import TA_DAY_CODES
-
+        
         # Collect all hour-of-week values from TA questions
         all_ta_hours = set()
         ta_answers = self.answers.filter(question__question_type='TA')

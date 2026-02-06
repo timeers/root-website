@@ -446,6 +446,33 @@ em, i {
     border-radius: 2px;
   }
 
+  .avatar-icon {
+    width: 20px;   /* Fixed width */
+    height: 20px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .md-avatar-icon {
+    width: 30px;   /* Fixed width */
+    height: 30px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .lg-avatar-icon {
+    width: 40px;   /* Fixed width */
+    height: 40px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
   .icon-bar {
     display: flex;
     gap: 0; /* optional: explicitly removes space */

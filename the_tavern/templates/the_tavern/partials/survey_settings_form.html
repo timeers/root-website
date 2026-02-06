@@ -1,27 +1,27 @@
 {% load i18n %}
 {# Survey Basic Information Card - Shared between create and edit survey #}
-<div class="card mb-4">
+<div class="card mb-2">
     <div class="card-header">
         <h5 class="mb-0">{% trans 'Survey Information' %}</h5>
     </div>
     <div class="card-body">
         {# Basic Details Section #}
-        <div class="mb-3">
+        <div class="mb-2">
             <label for="title" class="form-label">{% trans 'Title' %} <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" required maxlength="200">
         </div>
 
-        <div class="mb-4">
+        <div class="mb-2">
             <label for="description" class="form-label">{% trans 'Description' %}</label>
             <textarea class="form-control" id="description" name="description" rows="3">{{ survey.description|default:'' }}</textarea>
         </div>
 
         {# Access Control Section #}
-        <div class="border rounded p-3 mb-4 bg-light">
-            <h6 class="text-muted mb-3"><i class="bi bi-shield-lock me-2"></i>{% trans 'Access Control' %}</h6>
+        <div class="border rounded p-3 mb-2 bg-light">
+            <h6 class="text-muted mb-2"><i class="bi bi-shield-lock me-2"></i>{% trans 'Access Control' %}</h6>
 
             {# Private Survey Checkbox #}
-            <div class="mb-3">
+            <div class="mb-2">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="is_private" name="is_private"
                            {% if survey and not survey.is_public %}checked{% endif %}
@@ -83,11 +83,11 @@
 
         {# Survey Association Section #}
         {% if user_tournaments or user_posts %}
-        <div class="border rounded p-3 mb-4 bg-light">
-            <h6 class="text-muted mb-3"><i class="bi bi-share me-2"></i>{% trans 'Survey Association' %}</h6>
+        <div class="border rounded p-3 mb-2 bg-light">
+            <h6 class="text-muted mb-2"><i class="bi bi-share me-2"></i>{% trans 'Survey Association' %}</h6>
             <div class="row">
                 {% if user_tournaments %}
-                <div class="col-md-6 mb-3">
+                <div class="col-md-6 mb-2">
                     <label for="series" class="form-label">{% trans 'Series/Tournament' %}</label>
                         <select class="form-select" id="series" name="series" onchange="loadSeriesRounds()"
                                 {% if survey.series_round_id %}data-preselected-round="{{ survey.series_round_id }}"{% endif %}>
@@ -104,7 +104,7 @@
                             </small>
                         </div>
                 </div>
-                <div class="col-md-6 mb-3">
+                <div class="col-md-6 mb-2">
                     <label for="series_round" class="form-label">{% trans 'Round' %}</label>
                     <select class="form-select" id="series_round" name="series_round" {% if not survey.series %}disabled{% endif %}>
                         <option value="">{% trans 'All rounds / No specific round' %}</option>
@@ -119,7 +119,7 @@
                 </div>
                 {% endif %}
                 {% if user_posts %}
-                <div class="col-md-6 mb-3">
+                <div class="col-md-6 mb-2">
                     <label for="post" class="form-label">{% trans 'Subject' %}</label>
                     <select class="form-select" id="post" name="post">
                         <option value="">{% trans 'No post association' %}</option>
@@ -139,11 +139,23 @@
         {% endif %}
 
         {# Schedule & Settings Section #}
-        <div class="border rounded p-3 bg-light">
-            <h6 class="text-muted mb-3"><i class="bi bi-gear me-2"></i>{% trans 'Schedule & Settings' %}</h6>
+        <div class="border rounded p-3 mb-2 bg-light">
+            <h6 class="text-muted mb-2"><i class="bi bi-calendar me-2"></i>{% trans 'Schedule' %}</h6>
 
-            <div class="row mb-3">
+            <div class="row">
                 <div class="col-md-6">
+                    <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
+                    <input type="datetime-local" class="form-control" id="start_date" name="start_date_display">
+                    <input type="hidden" id="start_date_utc" name="start_date">
+                    <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+                </div>
+                <div class="col-md-6">
+                    <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
+                    <input type="datetime-local" class="form-control" id="end_date" name="end_date_display">
+                    <input type="hidden" id="end_date_utc" name="end_date">
+                    <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
+                </div>
+                {% comment %} <div class="col-md-6">
                     <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
                     <input type="datetime-local" class="form-control" id="start_date" name="start_date"
                            value="{% if survey.start_date %}{{ survey.start_date|date:'Y-m-d\TH:i' }}{% endif %}">
@@ -154,8 +166,13 @@
                     <input type="datetime-local" class="form-control" id="end_date" name="end_date"
                            value="{% if survey.end_date %}{{ survey.end_date|date:'Y-m-d\TH:i' }}{% endif %}">
                     <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
-                </div>
+                </div> {% endcomment %}
             </div>
+
+        </div>
+
+        <div class="border rounded p-3 bg-light">
+            <h6 class="text-muted mb-2"><i class="bi bi-gear me-2"></i>{% trans 'Settings' %}</h6>
 
             <div class="row">
                 <div class="col-md-6 col-lg-3">
@@ -216,12 +233,12 @@
             </div>
 
             <!-- Waitlist Threshold Input -->
-            <div class="row mb-3" id="waitlist_threshold_container" style="display: none;">
+            <div class="row mb-2" id="waitlist_threshold_container" style="display: none;">
                 <div class="col-12">
                     <label for="waitlist_threshold" class="form-label">{% trans 'Response Limit' %}</label>
                     <input type="number" class="form-control" id="waitlist_threshold" name="waitlist_threshold"
                            min="1" placeholder="e.g., 20" value="{{ survey.waitlist_threshold|default:'' }}">
-                    <small class="text-muted">{% trans 'Responses beyond this number will be waitlisted. Multiple responses are not allowed with waitlist enabled.' %}</small>
+                    <small class="text-muted">{% trans 'Responses beyond this number will be waitlisted (Multiple responses are not allowed with waitlist enabled)' %}</small>
                 </div>
             </div>
 
@@ -270,11 +287,11 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3">
+                <div class="mb-2">
                     <label class="form-label">{% trans 'Search Players' %}</label>
                     <input type="text" class="form-control" id="player-search-input" placeholder="{% trans 'Type at least 2 characters to search...' %}">
                 </div>
-                <div id="player-search-results" class="mb-3" style="max-height: 200px; overflow-y: auto;">
+                <div id="player-search-results" class="mb-2" style="max-height: 200px; overflow-y: auto;">
                     <p class="text-muted small">{% trans 'Search results will appear here' %}</p>
                 </div>
                 <hr>

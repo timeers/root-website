@@ -48,21 +48,20 @@
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div class="d-flex align-items-center flex-fill">
-                                    {% if response.user %}
-                                        {% if response.user.image %}
-                                            <img src="{{ response.user.image.url }}" alt="{{ response.user.name }}" class="lg-faction-icon me-3">
+                                    {% if response.profile %}
+                                        {% if response.profile.image %}
+                                            <img src="{{ response.profile.image.url }}" alt="{{ response.profile.name }}" class="lg-faction-icon me-3">
                                         {% else %}
                                             <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
                                         {% endif %}
                                         <div>
                                             <h5 class="card-title mb-1">
-                                                <a href="{{ response.user.get_absolute_url }}" class="text-decoration-none">
-                                                    {{ response.user.name }}
+                                                <a href="{{ response.profile.get_absolute_url }}" class="text-decoration-none">
+                                                    {{ response.profile.name }}
                                                 </a>
                                                 {% if survey.has_waitlist %}
-                                                    <span class="ms-2 text-muted">#{{ response.response_position }}</span>
                                                     {% if response.is_waitlisted %}
-                                                        <span class="badge bg-warning text-dark ms-1">{% trans 'Waitlist' %}</span>
+                                                        <span class="badge bg-warning text-dark ms-1">{% trans 'Waitlist' %} #{{response.waitlist_number}}</span>
                                                     {% else %}
                                                         <span class="badge bg-success ms-1">{% trans 'Accepted' %}</span>
                                                     {% endif %}
@@ -126,7 +125,7 @@
                                                 <button class="dropdown-item text-danger"
                                                         data-action="delete"
                                                         data-response-id="{{ response.id }}"
-                                                        data-user-name="{{ response.user.name|default:'Anonymous' }}"
+                                                        data-user-name="{{ response.profile.name|default:'Anonymous' }}"
                                                         data-url="{% url 'survey-response-delete' survey.slug response.id %}">
                                                     <i class="bi bi-trash"></i> {% trans 'Delete Response' %}
                                                 </button>
@@ -201,12 +200,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const userName = button.dataset.userName;
 
         if (action === 'move-waitlist') {
-            if (!confirm('{% trans "Are you sure you want to move this response to the waitlist? The first response on the waitlist will be moved up." %}')) {
+            if (!confirm('{% trans "Are you sure you want to move this response to the waitlist? The waitlist threshold will be reduced and this response will move to the end." %}')) {
                 return;
             }
             performAction(url, '{% trans "An error occurred while moving the response" %}');
         } else if (action === 'move-accepted') {
-            if (!confirm('{% trans "Are you sure you want to move this response to accepted? The last response before the waitlist will be moved down." %}')) {
+            if (!confirm('{% trans "Are you sure you want to move this response off the waitlist? The waitlist threshold will be increased." %}')) {
                 return;
             }
             performAction(url, '{% trans "An error occurred while moving the response" %}');

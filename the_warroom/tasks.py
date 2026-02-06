@@ -2,7 +2,7 @@ import requests
 import time
 
 from celery import shared_task
-from dateutil import parser, relativedelta
+from dateutil import parser
 from datetime import timedelta
 
 from django.db import transaction

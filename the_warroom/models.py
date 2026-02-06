@@ -7,6 +7,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
 from the_gatehouse.models import Profile, DiscordGuild
+from the_gatehouse.utils import NameConvention
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
 from the_keep.utils import delete_old_image
 
@@ -512,10 +513,562 @@ class TurnScore(models.Model):
             return f"Turn {self.turn_number} - Total Points: {self.total_points}"
     class Meta:
         unique_together = ('scorecard', 'turn_number')  # Ensure each game has only one entry per turn_number
-        ordering = ['scorecard', 'turn_number']   
+        ordering = ['scorecard', 'turn_number']
 
 
-  
+# ============================================================================
+# Player Grouping Models
+# ============================================================================
+
+class GroupingSession(models.Model):
+    """
+    Represents a single grouping operation. Can be created from a survey
+    (for availability-based grouping) or directly from tournament/round players.
+    """
+    class GroupingTypeChoices(models.TextChoices):
+        AVAILABILITY = 'availability', 'Availability-based'
+        MANUAL = 'manual', 'Manual'
+        RANDOM = 'random', 'Random'
+
+    class AlgorithmChoices(models.TextChoices):
+        GREEDY = 'greedy', 'Optimized'
+        RANDOM = 'random', 'Random Assignment'
+
+    class StatusChoices(models.TextChoices):
+        PROCESSING = 'processing', 'Processing'
+        DRAFT = 'draft', 'Draft'
+        FINALIZED = 'finalized', 'Finalized'
+        ARCHIVED = 'archived', 'Archived'
+        ERROR = 'error', 'Error'
+
+    # Source (at least one should be set)
+    survey = models.ForeignKey(
+        'the_tavern.Survey',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='grouping_sessions',
+        help_text="Source survey for availability data (optional)"
+    )
+    tournament = models.ForeignKey(
+        Tournament,
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='grouping_sessions'
+    )
+    round = models.ForeignKey(
+        Round,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='grouping_sessions',
+        help_text="Target round. If null when tournament set, a new round may be created."
+    )
+
+    # Identification
+    name = models.CharField(max_length=100, blank=True, help_text="Session name for identification")
+    grouping_type = models.CharField(
+        max_length=20,
+        choices=GroupingTypeChoices.choices,
+        default=GroupingTypeChoices.AVAILABILITY
+    )
+    naming_convention = models.CharField(
+        max_length=100, 
+        help_text="Convention to user for group names",
+        choices=NameConvention.choices,
+        default=NameConvention.NUMERIC
+        )
+    algorithm = models.CharField(
+        max_length=20,
+        choices=AlgorithmChoices.choices,
+        default=AlgorithmChoices.GREEDY,
+        help_text="Algorithm to use for availability-based grouping"
+    )
+
+    # Configuration (primarily for availability-based grouping)
+    min_group_size = models.PositiveSmallIntegerField(
+        default=4,
+        validators=[MinValueValidator(1), MaxValueValidator(20)]
+    )
+    max_group_size = models.PositiveSmallIntegerField(
+        default=4,
+        validators=[MinValueValidator(1), MaxValueValidator(20)]
+    )
+    min_consecutive_hours = models.PositiveSmallIntegerField(
+        default=4,
+        validators=[MinValueValidator(1), MaxValueValidator(24)],
+        help_text="Minimum consecutive overlapping hours required"
+    )
+    min_days_with_overlap = models.PositiveSmallIntegerField(
+        default=2,
+        validators=[MinValueValidator(1), MaxValueValidator(7)],
+        help_text="Minimum number of days with qualifying time blocks"
+    )
+    include_waitlist = models.BooleanField(
+        default=False,
+        help_text="Whether to include waitlisted survey responses in grouping"
+    )
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=StatusChoices.choices,
+        default=StatusChoices.DRAFT
+    )
+
+    # Metadata
+    created_by = models.ForeignKey(
+        Profile,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='created_grouping_sessions'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Cached statistics
+    total_players = models.PositiveIntegerField(default=0)
+    grouped_count = models.PositiveIntegerField(default=0)
+    ungrouped_count = models.PositiveIntegerField(default=0)
+
+    notes = models.TextField(blank=True, help_text="Admin notes about this grouping session")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Grouping Session'
+        verbose_name_plural = 'Grouping Sessions'
+
+    def __str__(self):
+        if self.name:
+            return self.name
+        source = self.survey.title if self.survey else (self.tournament.name if self.tournament else 'Unknown')
+        return f"Grouping for {source} ({self.created_at.strftime('%Y-%m-%d')})"
+
+    def clean(self):
+        if self.min_group_size > self.max_group_size:
+            raise ValidationError("Minimum group size cannot exceed maximum group size.")
+        if not self.survey and not self.tournament and not self.round:
+            raise ValidationError("At least one of survey, tournament, or round must be specified.")
+        if self.round and self.tournament and self.round.tournament != self.tournament:
+            raise ValidationError("Round must belong to the specified tournament.")
+
+    def recalculate_statistics(self):
+        """Update cached statistics from actual player data."""
+        self.grouped_count = self.session_players.filter(status='grouped').count()
+        self.ungrouped_count = self.session_players.filter(status='ungrouped').count()
+        # Note: waitlist players are in session but not counted in total_players
+        self.total_players = self.grouped_count + self.ungrouped_count
+        self.save(update_fields=['grouped_count', 'ungrouped_count', 'total_players'])
 
 
+class PlayerGroup(models.Model):
+    """
+    A group of players. For availability-based sessions, tracks overlap metrics.
+    """
+    session = models.ForeignKey(
+        GroupingSession,
+        on_delete=models.CASCADE,
+        related_name='groups'
+    )
+
+    # Note: members are accessed via session_players relation with status='grouped'
+    # The members property below provides backward-compatible access
+
+    # Identification
+    group_number = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="Sequential number within the session"
+    )
+    name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Optional custom name for this group"
+    )
+
+    # Availability metrics (for availability-based sessions)
+    all_hours = models.JSONField(
+        default=list,
+        help_text="List of hour-of-week integers (0-167) where any members are available"
+    )
+    overlap_hours = models.JSONField(
+        default=list,
+        help_text="List of hour-of-week integers (0-167) where all members overlap"
+    )
+    total_overlap_hours = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Total number of overlapping hours"
+    )
+    best_consecutive_block = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Length of longest consecutive overlapping block"
+    )
+    days_with_overlap = models.JSONField(
+        default=list,
+        help_text="List of day indices (0-6) that have overlapping hours"
+    )
+
+    # Link to created game (after finalization)
+    game = models.ForeignKey(
+        Game,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='source_player_group',
+        help_text="Game created from this group"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['session', 'group_number']
+        unique_together = ('session', 'group_number')
+        verbose_name = 'Player Group'
+        verbose_name_plural = 'Player Groups'
+
+    def __str__(self):
+        if self.name:
+            return self.name
+        return f"Group {self.group_number}"
+
+    @property
+    def members(self):
+        """Return profiles of grouped players in this group."""
+        return Profile.objects.filter(
+            session_participations__group=self,
+            session_participations__status='grouped'
+        )
+
+    @property
+    def member_count(self):
+        """Return count of grouped players in this group."""
+        return self.session_players.filter(status='grouped').count()
+
+    def recalculate_overlap(self):
+        """
+        Recalculate overlap metrics based on current members.
+        Should be called after adding/removing members.
+        Only meaningful for availability-based sessions.
+        """
+        if self.session.grouping_type != GroupingSession.GroupingTypeChoices.AVAILABILITY:
+            return
+
+        if not self.session.survey:
+            self._clear_overlap_metrics()
+            return
+
+        # Get availability from session_players with status='grouped'
+        grouped_players = self.session_players.filter(status='grouped').select_related('survey_response')
+
+        if not grouped_players.exists():
+            self._clear_overlap_metrics()
+            return
+
+        # Collect availability for each member
+        availability_sets = []
+        for player in grouped_players:
+            if player.availability_hours:
+                availability_sets.append(set(player.availability_hours))
+            elif player.survey_response:
+                hours = player.survey_response.get_combined_availability_hours()
+                if hours:
+                    availability_sets.append(hours)
+
+        if not availability_sets:
+            self._clear_overlap_metrics()
+            return
+
+        # Calculate intersection of all availability (hours where ALL members overlap)
+        overlap = availability_sets[0]
+        for avail_set in availability_sets[1:]:
+            overlap = overlap.intersection(avail_set)
+
+        # Calculate union of all availability (hours where ANY member is available)
+        all_hours = set()
+        for avail_set in availability_sets:
+            all_hours = all_hours.union(avail_set)
+
+        self.all_hours = sorted(list(all_hours))
+        self.overlap_hours = sorted(list(overlap))
+        self.total_overlap_hours = len(overlap)
+        self.best_consecutive_block = self._calculate_best_consecutive(overlap)
+        self.days_with_overlap = self._calculate_days_with_overlap(overlap)
+        self.save(update_fields=[
+            'all_hours', 'overlap_hours', 'total_overlap_hours',
+            'best_consecutive_block', 'days_with_overlap'
+        ])
+
+    def _clear_overlap_metrics(self):
+        self.all_hours = []
+        self.overlap_hours = []
+        self.total_overlap_hours = 0
+        self.best_consecutive_block = 0
+        self.days_with_overlap = []
+        self.save(update_fields=[
+            'all_hours', 'overlap_hours', 'total_overlap_hours',
+            'best_consecutive_block', 'days_with_overlap'
+        ])
+
+    def _calculate_best_consecutive(self, hours_set):
+        """Find longest consecutive run in hour-of-week set."""
+        if not hours_set:
+            return 0
+        sorted_hours = sorted(hours_set)
+        max_consecutive = 1
+        current = 1
+        for i in range(1, len(sorted_hours)):
+            if sorted_hours[i] == sorted_hours[i - 1] + 1:
+                current += 1
+                max_consecutive = max(max_consecutive, current)
+            else:
+                current = 1
+        return max_consecutive
+
+    def _calculate_days_with_overlap(self, hours_set):
+        """Determine which days have overlapping availability."""
+        days = set()
+        for hour in hours_set:
+            day_index = hour // 24
+            days.add(day_index)
+        return sorted(list(days))
+
+    def get_overlap_display(self):
+        """Return human-readable overlap summary."""
+        if not self.total_overlap_hours:
+            return "No overlapping hours"
+
+        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        days_display = ', '.join(day_names[d] for d in self.days_with_overlap if d < 7)
+
+        return f"{self.total_overlap_hours}h across {len(self.days_with_overlap)} days ({days_display}), best block: {self.best_consecutive_block}h"
+
+
+class SessionPlayer(models.Model):
+    """
+    Represents a player's participation in a grouping session.
+    Can be grouped, ungrouped, or on the session waitlist.
+    """
+    class StatusChoices(models.TextChoices):
+        GROUPED = 'grouped', 'In Group'
+        UNGROUPED = 'ungrouped', 'Ungrouped'
+        WAITLIST = 'waitlist', 'On Waitlist'
+
+    class AddedViaChoices(models.TextChoices):
+        ALGORITHM = 'algorithm', 'Algorithm'
+        MANUAL = 'manual', 'Manual'
+        REASSIGNED = 'reassigned', 'Reassigned'
+
+    class ReasonChoices(models.TextChoices):
+        NO_COMPATIBLE = 'no_compatible', 'No compatible groups found'
+        GROUPS_FULL = 'groups_full', 'All compatible groups at max size'
+        LOW_AVAILABILITY = 'low_availability', 'Insufficient availability hours'
+        WAITLIST = 'waitlist', 'On survey waitlist'
+        PENDING = 'pending', 'Pending assignment'
+        MANUAL = 'manual', 'Manually removed from groups'
+
+    session = models.ForeignKey(
+        GroupingSession,
+        on_delete=models.CASCADE,
+        related_name='session_players'
+    )
+    profile = models.ForeignKey(
+        Profile,
+        on_delete=models.CASCADE,
+        related_name='session_participations'
+    )
+    survey_response = models.ForeignKey(
+        'the_tavern.SurveyResponse',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='session_players',
+        help_text="The response that provided this player's availability"
+    )
+    group = models.ForeignKey(
+        PlayerGroup,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='session_players',
+        help_text="The group this player is assigned to (null if ungrouped or waitlist)"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=StatusChoices.choices,
+        default=StatusChoices.UNGROUPED
+    )
+
+    # Assignment metadata
+    added_via = models.CharField(
+        max_length=20,
+        choices=AddedViaChoices.choices,
+        default=AddedViaChoices.ALGORITHM
+    )
+    added_by = models.ForeignKey(
+        Profile,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='+',
+        help_text="Who added this player (for manual additions)"
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    # Ungrouped reason tracking
+    reason = models.CharField(
+        max_length=30,
+        choices=ReasonChoices.choices,
+        null=True, blank=True,
+        help_text="Why this player is ungrouped (for display)"
+    )
+
+    # Best fit tracking (for ungrouped players)
+    best_fit_group = models.ForeignKey(
+        PlayerGroup,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='+',
+        help_text="Group with best compatibility (even if not added)"
+    )
+    best_fit_overlap_hours = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Hours of overlap with best_fit_group"
+    )
+
+    # Cached availability (for display/manual matching)
+    availability_hours = models.JSONField(
+        default=list,
+        help_text="This player's available hours (0-167)"
+    )
+
+    class Meta:
+        unique_together = ('session', 'profile')
+        ordering = ['added_at']
+        verbose_name = 'Session Player'
+        verbose_name_plural = 'Session Players'
+
+    def __str__(self):
+        status_display = self.get_status_display()
+        if self.group:
+            return f"{self.profile.display_name} in {self.group} ({status_display})"
+        return f"{self.profile.display_name} ({status_display})"
+
+
+class PlayerGroupMembership(models.Model):
+    """
+    DEPRECATED: Use SessionPlayer instead.
+    Through model for group membership, storing per-member metadata.
+    Kept for data migration purposes - will be removed after migration.
+    """
+    class AddedViaChoices(models.TextChoices):
+        ALGORITHM = 'algorithm', 'Algorithm'
+        MANUAL = 'manual', 'Manual'
+        REASSIGNED = 'reassigned', 'Reassigned'
+
+    group = models.ForeignKey(
+        PlayerGroup,
+        on_delete=models.CASCADE,
+        related_name='memberships'
+    )
+    profile = models.ForeignKey(
+        Profile,
+        on_delete=models.CASCADE,
+        related_name='player_group_memberships'
+    )
+    survey_response = models.ForeignKey(
+        'the_tavern.SurveyResponse',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='group_memberships',
+        help_text="The response that provided this member's availability"
+    )
+
+    added_at = models.DateTimeField(auto_now_add=True)
+    added_by = models.ForeignKey(
+        Profile,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='added_group_members',
+        help_text="Who added this member (for manual additions)"
+    )
+    added_via = models.CharField(
+        max_length=20,
+        choices=AddedViaChoices.choices,
+        default=AddedViaChoices.ALGORITHM
+    )
+
+    class Meta:
+        unique_together = ('group', 'profile')
+        ordering = ['added_at']
+        verbose_name = 'Group Membership'
+        verbose_name_plural = 'Group Memberships'
+
+    def __str__(self):
+        return f"{self.profile.name} in {self.group}"
+
+
+class UngroupedPlayer(models.Model):
+    """
+    DEPRECATED: Use SessionPlayer with status='ungrouped' or 'waitlist' instead.
+    Players who couldn't be assigned to a group or are waiting assignment.
+    Kept for data migration purposes - will be removed after migration.
+    """
+    class ReasonChoices(models.TextChoices):
+        NO_COMPATIBLE = 'no_compatible', 'No compatible groups found'
+        GROUPS_FULL = 'groups_full', 'All compatible groups at max size'
+        LOW_AVAILABILITY = 'low_availability', 'Insufficient availability hours'
+        WAITLIST = 'waitlist', 'On survey waitlist'
+        PENDING = 'pending', 'Pending assignment'
+        MANUAL = 'manual', 'Manually removed from groups'
+
+    session = models.ForeignKey(
+        GroupingSession,
+        on_delete=models.CASCADE,
+        related_name='ungrouped_players'
+    )
+    profile = models.ForeignKey(
+        Profile,
+        on_delete=models.CASCADE,
+        related_name='ungrouped_sessions'
+    )
+    survey_response = models.ForeignKey(
+        'the_tavern.SurveyResponse',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='ungrouped_records'
+    )
+
+    reason = models.CharField(
+        max_length=30,
+        choices=ReasonChoices.choices,
+        default=ReasonChoices.PENDING
+    )
+    is_waitlist = models.BooleanField(
+        default=False,
+        help_text="True if player was on survey waitlist"
+    )
+
+    # Best fit tracking
+    best_fit_group = models.ForeignKey(
+        PlayerGroup,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='potential_members',
+        help_text="Group with best compatibility (even if not added)"
+    )
+    best_fit_overlap_hours = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Hours of overlap with best_fit_group"
+    )
+
+    # Cached availability (for display/manual matching)
+    availability_hours = models.JSONField(
+        default=list,
+        help_text="This player's available hours (0-167)"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('session', 'profile')
+        ordering = ['created_at']
+        verbose_name = 'Ungrouped Player'
+        verbose_name_plural = 'Ungrouped Players'
+
+    def __str__(self):
+        return f"{self.profile.name} (ungrouped - {self.get_reason_display()})"
 

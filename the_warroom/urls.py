@@ -5,6 +5,7 @@ from .views import (GameUpdateView, game_list_view, leaderboard_view, #GameListV
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game, scorecard_manage_view, scorecard_detail_view,
                     scorecard_assign_view, scorecard_delete_view, scorecard_list_view, effort_assign_view,
+                    scorecard_manage_v2_view,
                     tournament_detail_view, round_detail_view,
                     TournamentCreateView, TournamentUpdateView, TournamentDeleteView, tournaments_home,
                     round_manage_view, tournament_manage_players, tournament_manage_assets,
@@ -32,13 +33,17 @@ urlpatterns = [
 
     path('leaderboard/', leaderboard_view, name='leaderboard-view'),
 
-    path('record/scorecard/', scorecard_manage_view, name='record-scorecard'),
+    path('record/scorecard/', scorecard_manage_view, name='record-old-scorecard'),
     path("scorecard/<int:id>/", scorecard_detail_view, name='detail-scorecard'),
-    path("scorecard/<int:id>/edit", scorecard_manage_view, name='update-scorecard'),
+    path("scorecard/<int:id>/edit", scorecard_manage_view, name='update-old-scorecard'),
     path("scorecard/<int:id>/delete", scorecard_delete_view, name='delete-scorecard'),
     path('scorecard/assign/<int:id>/', scorecard_assign_view, name='assign-scorecard'),
     path('scorecard/<int:id>/assign/', effort_assign_view, name='assign-effort'),
     path('scorecards/', scorecard_list_view, name='scorecard-home'),
+
+    # Scorecard V2 (improved UI)
+    path('record/scorecard/v2/', scorecard_manage_v2_view, name='record-v2-scorecard'),
+    path("scorecard/<int:id>/edit/v2/", scorecard_manage_v2_view, name='update-v2-scorecard'),
 
     path('new/series/', TournamentCreateView.as_view(), name='tournament-create'),
     path('series/<slug:tournament_slug>/', tournament_detail_view, name='tournament-detail'),
