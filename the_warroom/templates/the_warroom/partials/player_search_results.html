@@ -1,0 +1,20 @@
+{% if players %}
+<div class="search-results border rounded p-2 mt-2 bg-light">
+    {% if request.GET.q %}
+    <h6 class="text-muted mb-2">Search Results:</h6>
+    {% else %}
+    <h6 class="text-muted mb-2">Available Players:</h6>
+    {% endif %}
+    {% for player in players %}
+        {% include 'the_warroom/partials/player_card.html' with player=player group='available' %}
+    {% endfor %}
+</div>
+{% elif request.GET.q %}
+<div class="search-results border rounded p-2 mt-2 bg-light">
+    <p class="text-muted mb-0">No players found matching "{{ request.GET.q }}"{% if round %} in {{ tournament.name }}{% endif %}</p>
+</div>
+{% elif round %}
+<div class="search-results border rounded p-2 mt-2 bg-light">
+    <p class="text-muted mb-0">All tournament players have been added to this round.</p>
+</div>
+{% endif %}

@@ -1,6 +1,6 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Round
+from .models import Round, AssetModeChoices
 from the_gatehouse.models import Profile
 from the_keep.models import Map, Faction, Deck, Vagabond, Landmark, Tweak, Hireling
 from django.shortcuts import get_object_or_404
@@ -11,7 +11,7 @@ def get_options_for_tournament(request, pk):
         round = get_object_or_404(Round, id=pk)
         tournament = round.tournament
 
-        if round.tournament.open_assets:
+        if round.tournament.asset_mode == AssetModeChoices.OPEN:
             maps = Map.objects.all()
             factions = Faction.objects.all()
             decks = Deck.objects.all()
@@ -19,6 +19,14 @@ def get_options_for_tournament(request, pk):
             landmarks = Landmark.objects.all()
             tweaks = Tweak.objects.all()
             hirelings = Hireling.objects.all()
+        elif round.tournament.asset_mode == AssetModeChoices.OPEN:
+            maps = Map.objects.filter(official=True)
+            factions = Faction.objects.filter(official=True)
+            decks = Deck.objects.filter(official=True)
+            vagabonds = Vagabond.objects.filter(official=True)
+            landmarks = Landmark.objects.filter(official=True)
+            tweaks = Tweak.objects.filter(official=True)
+            hirelings = Hireling.objects.filter(official=True)
         else:
             maps = tournament.maps
             factions = tournament.factions

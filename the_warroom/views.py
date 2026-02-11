@@ -1,4 +1,5 @@
 import time
+import json
 
 from itertools import groupby
 from django.shortcuts import render
@@ -22,11 +23,15 @@ from django.utils import timezone
 from django.utils.translation import get_language
 from urllib.parse import quote
 
-from .models import Game, Effort, TurnScore, ScoreCard, Round, Tournament
-from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm, 
+from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
+                     GroupingSession, SessionPlayer, PlayerGroup)
+from .services.grouping import GroupingService
+from .forms import (GameCreateForm, GameInfoUpdateForm, EffortCreateForm,
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
-                    TournamentCreateForm, RoundCreateForm, TournamentUpdateForm,
-                    TournamentManagePlayersForm, TournamentManageAssetsForm,
+                    RoundCreateForm,
+                    TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
+                    TournamentManageAssetsForm,
+                    TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
                     RoundManagePlayersForm)
 from .filters import GameFilter, PlayerGameFilter
 
@@ -38,7 +43,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
-from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param
+from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
 from the_tavern.forms import GameCommentCreateForm
@@ -626,7 +631,7 @@ def manage_game(request, id=None):
     initial_game_status = obj.final
 
     # For prepopulating the round
-    round_id = request.GET.get('series')  # Gets the ?round=123 value as a string
+    round_id = request.GET.get('series-round')  # Gets the ?series-round=123 value as a string
     selected_round = None
 
     if round_id:
@@ -844,7 +849,7 @@ def bookmark_game(request, obj):
 
 # Create and edit a scorecard
 @player_onboard_required
-def scorecard_manage_view(request, id=None):
+def scorecard_old_manage_view(request, id=None):
     # existing_scorecard = False
     faction = request.GET.get('faction', None)
     effort_id = request.GET.get('effort', None)
@@ -1345,15 +1350,15 @@ def tournament_detail_view(request, tournament_slug):
     if request.user.is_authenticated:
         playable_rounds = active_rounds.filter(
             Q(
-                Q(tournament__players=request.user.profile) |  # user is a tournament player
+                Q(tournament__grouping_sessions__session_players__profile=request.user.profile) |  # user is a tournament player
                 Q(tournament__designer=request.user.profile)    # or user is the tournament designer
             ),
             Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
             start_date__lt=timezone.now()
         )
         playable_round = playable_rounds.filter(
-            Q(players__isnull=False, players__in=[request.user.profile]) |
-            Q(players__isnull=True) |
+            Q(grouping_sessions__session_players__isnull=False, grouping_sessions__session_players__profile__in=[request.user.profile]) |
+            Q(grouping_sessions__session_players__isnull=True) |
             Q(tournament__designer=request.user.profile)
         ).last()
     else:
@@ -1409,7 +1414,7 @@ def tournament_players_pagination(request, id):
         return HttpResponse(status=404)
     tournament = get_object_or_404(Tournament, id=id)
 
-    players = Profile.objects.filter(Q(efforts__game__round__tournament=tournament)|Q(current_tournaments=tournament))
+    players = Profile.objects.filter(Q(efforts__game__round__tournament=tournament)|Q(session_participations__session__tournament=tournament))
     
     players = players.annotate(
         total_efforts=Count('efforts', distinct=True, filter=Q(efforts__game__round__tournament=tournament, efforts__game__final=True)),
@@ -1449,35 +1454,40 @@ def tournament_players_pagination(request, id):
 
 
 
-@admin_required_class_based_view  
-class TournamentUpdateView(UpdateView):
-    model = Tournament
-    form_class = TournamentCreateForm
+# @admin_required_class_based_view  
+# class TournamentUpdateView(UpdateView):
+#     model = Tournament
+#     form_class = TournamentCreateForm
     
-class TournamentDesignerUpdateView(UserPassesTestMixin, UpdateView):
-    model = Tournament
-    form_class = TournamentUpdateForm
-    template_name = 'the_warroom/tournament_form.html'
+# class TournamentDesignerUpdateView(UserPassesTestMixin, UpdateView):
+#     model = Tournament
+#     form_class = TournamentUpdateForm
+#     template_name = 'the_warroom/tournament_form.html'
 
-    def test_func(self):
-        # This function checks if the user is the designer of the tournament
-        tournament = self.get_object()
-        return tournament.designer == self.request.user.profile 
+#     def test_func(self):
+#         # This function checks if the user is the designer of the tournament
+#         tournament = self.get_object()
+#         return tournament.designer == self.request.user.profile 
 
-@admin_required_class_based_view  
-class TournamentCreateView(CreateView):
-    model = Tournament
-    form_class = TournamentCreateForm
+# @admin_required_class_based_view  
+# class TournamentCreateView(CreateView):
+#     model = Tournament
+#     form_class = TournamentCreateForm
 
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['user'] = self.request.user  # Pass the current user to the form
-        return kwargs
+#     def get_form_kwargs(self):
+#         kwargs = super().get_form_kwargs()
+#         kwargs['user'] = self.request.user  # Pass the current user to the form
+#         return kwargs
     
 @admin_required_class_based_view  
 class TournamentDeleteView(DeleteView):
     model = Tournament
     success_url = reverse_lazy('tournaments-home')  # Redirect to the tournament list or a suitable page
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['tournament'] = self.object
+        return context
 
     def post(self, request, *args, **kwargs):
         # print('Trying to delete')
@@ -1501,146 +1511,525 @@ class TournamentDeleteView(DeleteView):
             return redirect(tournament.get_absolute_url())
 
 
+# ===== New Dynamic Tournament Views with HTMX Support =====
+
+def set_default_tournament_assets(tournament, previous_asset_mode=None, previous_platform=None):
+    """
+    Helper function to set default assets for a tournament based on asset_mode and platform.
+    Only sets defaults when:
+    - asset_mode is not SELECT
+    - Mode is switching from SELECT to another mode
+    - Platform is changing to/from Root Digital
+
+    Args:
+        tournament: Tournament instance to update
+        previous_asset_mode: Previous asset_mode value (for update operations)
+        previous_platform: Previous platform value (for update operations)
+    """
+    from the_warroom.models import PlatformChoices
+
+    # Don't update if asset_mode is SELECT
+    if tournament.asset_mode == AssetModeChoices.SELECTED and tournament.platform != PlatformChoices.DWD:
+        return
+
+    # Check if we should update assets
+    should_update = False
+
+    # Initial creation (no previous values)
+    if previous_asset_mode is None and previous_platform is None:
+        should_update = True
+
+    # Mode changed from SELECT to another mode
+    elif previous_asset_mode == AssetModeChoices.SELECTED and tournament.asset_mode != AssetModeChoices.SELECTED:
+        should_update = True
+
+    # Platform changed to or from Root Digital
+    elif previous_platform != tournament.platform and (
+        previous_platform == PlatformChoices.DWD or tournament.platform == PlatformChoices.DWD
+    ):
+        should_update = True
+
+    if not should_update:
+        return
+
+    # Determine filtering criteria based on platform
+    is_root_digital = tournament.platform == PlatformChoices.DWD
+
+    # Build querysets
+    if is_root_digital:
+        factions_qs = Faction.objects.filter(in_root_digital=True)
+        maps_qs = Map.objects.filter(in_root_digital=True)
+        decks_qs = Deck.objects.filter(in_root_digital=True)
+        hirelings_qs = Hireling.objects.filter(in_root_digital=True)
+        landmarks_qs = Landmark.objects.filter(in_root_digital=True)
+        vagabonds_qs = Vagabond.objects.filter(in_root_digital=True)
+    else:
+        factions_qs = Faction.objects.filter(official=True)
+        maps_qs = Map.objects.filter(official=True)
+        decks_qs = Deck.objects.filter(official=True)
+        hirelings_qs = Hireling.objects.filter(official=True)
+        landmarks_qs = Landmark.objects.filter(official=True)
+        vagabonds_qs = Vagabond.objects.filter(official=True)
+
+    # Exclude clockwork factions if include_clockwork is False
+    if not tournament.include_clockwork:
+        factions_qs = factions_qs.exclude(type='C')
+
+    # Set the assets
+    tournament.factions.set(factions_qs)
+    tournament.maps.set(maps_qs)
+    tournament.decks.set(decks_qs)
+    tournament.hirelings.set(hirelings_qs)
+    tournament.landmarks.set(landmarks_qs)
+    tournament.vagabonds.set(vagabonds_qs)
+
 
 @player_onboard_required
-def tournament_manage_players(request, tournament_slug):
-
-
-    # Fetch the tournament object
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
-
-    if not request.user.profile == tournament.designer and not request.user.profile.admin:
-        messages.error(request, f"You do not have permission to manage the {tournament} roster.")
-        raise PermissionDenied() 
-
-    # Initialize the querysets based on whether fan content is included
-    available_players = Profile.objects.exclude(current_tournaments=tournament)
-
-    # Assets already in the tournament
-    current_players = Profile.objects.filter(current_tournaments=tournament)
-
-
-    # Initialize the form and pass the querysets to it
-    form = TournamentManagePlayersForm(request.POST or None,
-        tournament=tournament,
-        available_players_query=available_players,
-        current_players_query=current_players,
-    )
-
-    # Handle form submission
+def tournament_dynamic_create(request):
+    """
+    Create tournament with dynamic permissions.
+    Non-admin: classification defaults to GROUP, designer auto-set, no guild.
+    Admin: full control over all fields.
+    """
     if request.method == 'POST':
-        # form = TournamentManageAssetsForm(request.POST)
+        form = TournamentDynamicCreateForm(request.POST, request.FILES, user=request.user)
 
         if form.is_valid():
-            
-            # Save the changes made to players
-            form.save()
-            # Redirect or show a success message
-            return redirect(tournament.get_absolute_url())  # or any other success URL
-        # else:
-        #     # If form is invalid, print the errors for debugging
-        #     print("Error")
-        #     print(form.errors)
-        #     print(form.data)
-    # Render the template with the form
-    context = {
-        'form': form,
-        'tournament': tournament,
-        'available_players_count': available_players.count(),
-        'current_players_count': current_players.count(),
-    }
+            tournament = form.save(commit=False)
 
-    return render(request, 'the_warroom/tournament_manage_players.html', context)
+            # Force values for non-admins as security check
+            if not request.user.profile.admin:
+                tournament.classification = Tournament.ClassificationTypes.GROUP
+                tournament.designer = request.user.profile
+                tournament.guild = None
+            tournament.save()
+            form.save_m2m()  # Save ManyToMany relationships
 
+            # Set default assets based on asset_mode and platform
+            set_default_tournament_assets(tournament)
 
-
-@admin_onboard_required
-def tournament_manage_assets(request, tournament_slug):
-    # Fetch the tournament object
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
-
-    # Initialize the querysets based on whether fan content is included
-    if tournament.include_fan_content:
-        if tournament.include_clockwork:
-            available_factions = Faction.objects.exclude(tournaments__id=tournament.id)
-        else:
-            available_factions = Faction.objects.exclude(tournaments__id=tournament.id, type="C")
-        available_decks = Deck.objects.exclude(tournaments__id=tournament.id)
-        available_maps = Map.objects.exclude(tournaments__id=tournament.id)
-        available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id)
-        available_tweaks = Tweak.objects.exclude(tournaments__id=tournament.id)
-        available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id)
-        available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id)
+            messages.success(request, f"Tournament '{tournament.name}' created successfully!")
+            return redirect(tournament.get_absolute_url())
     else:
-        if tournament.include_clockwork:
-            available_factions = Faction.objects.exclude(tournaments__id=tournament.id).filter(official=True)
-        else:
-            available_factions = Faction.objects.exclude(tournaments__id=tournament.id, type="C").filter(official=True)
-        available_decks = Deck.objects.exclude(tournaments__id=tournament.id).filter(official=True)
-        available_maps = Map.objects.exclude(tournaments__id=tournament.id).filter(official=True)
-        available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id).filter(official=True)
-        available_tweaks = Tweak.objects.exclude(tournaments__id=tournament.id).filter(official=True)
-        available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id).filter(official=True)
-        available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id).filter(official=True)
+        form = TournamentDynamicCreateForm(user=request.user)
 
-    # Assets already in the tournament
-    tournament_factions = Faction.objects.filter(tournaments__id=tournament.id)
-    tournament_decks = Deck.objects.filter(tournaments__id=tournament.id)
-    tournament_maps = Map.objects.filter(tournaments__id=tournament.id)
-    tournament_landmarks = Landmark.objects.filter(tournaments__id=tournament.id)
-    tournament_tweaks = Tweak.objects.filter(tournaments__id=tournament.id)
-    tournament_hirelings = Hireling.objects.filter(tournaments__id=tournament.id)
-    tournament_vagabonds = Vagabond.objects.filter(tournaments__id=tournament.id)
+    context = {
+        'form': form,
+        'is_admin': request.user.profile.admin,
+        'action': 'Create'
+    }
+    return render(request, 'the_warroom/tournament_dynamic_form.html', context)
 
-    # Initialize the form and pass the querysets to it
-    form = TournamentManageAssetsForm(request.POST or None,
-        tournament=tournament,
-        available_factions_query=available_factions,
-        tournament_factions_query=tournament_factions,
-        available_decks_query=available_decks,
-        tournament_decks_query=tournament_decks,
-        available_maps_query=available_maps,
-        tournament_maps_query=tournament_maps,
-        available_landmarks_query=available_landmarks,
-        tournament_landmarks_query=tournament_landmarks,
-        available_tweaks_query=available_tweaks,
-        tournament_tweaks_query=tournament_tweaks,
-        available_hirelings_query=available_hirelings,
-        tournament_hirelings_query=tournament_hirelings,
-        available_vagabonds_query=available_vagabonds,
-        tournament_vagabonds_query=tournament_vagabonds
-    )
 
-    # Handle form submission
+@player_onboard_required
+def tournament_dynamic_update(request, slug):
+    """
+    Update tournament with inline player/asset management.
+    Non-admin: can update basic fields + manage players/assets.
+    Admin: full control including classification, designer, guild.
+    """
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        messages.error(request, f"You do not have permission to edit {tournament.name}.")
+        raise PermissionDenied()
+
     if request.method == 'POST':
-        # form = TournamentManageAssetsForm(request.POST)
-        
+        form = TournamentDynamicUpdateForm(
+            user=request.user,
+            data=request.POST,
+            files=request.FILES,
+            instance=tournament
+        )
+
         if form.is_valid():
-            
-            # Save the changes made to assets (factions, decks, maps, etc.)
-            form.save()
-            # form.save_m2m()
-            # Redirect or show a success message
-            return redirect(tournament.get_absolute_url())  # or any other success URL
-        # else:
-        #     # If form is invalid, print the errors for debugging
-        #     print("Error")
-        #     print(form.errors)
-        #     print(form.data)
-    # Render the template with the form
+            # Capture previous values before saving
+            original = Tournament.objects.get(pk=tournament.pk)
+            previous_asset_mode = original.asset_mode
+            previous_platform = original.platform
+
+            tournament = form.save(commit=False)
+
+            # Security: prevent non-admins from changing restricted fields
+            if not request.user.profile.admin:
+                tournament.classification = original.classification
+                tournament.designer = original.designer
+                tournament.guild = original.guild
+
+            tournament.save()
+            form.save_m2m()
+
+            # Set default assets if mode/platform changed appropriately
+            set_default_tournament_assets(tournament, previous_asset_mode, previous_platform)
+
+            messages.success(request, f"Tournament '{tournament.name}' updated successfully!")
+            return redirect(tournament.get_absolute_url())
+    else:
+        form = TournamentDynamicUpdateForm(instance=tournament, user=request.user)
+
     context = {
         'form': form,
         'tournament': tournament,
-        'available_factions_count': available_factions.count(),
-        'available_decks_count': available_decks.count(),
-        'available_maps_count': available_maps.count(),
-        'available_vagabonds_count': available_vagabonds.count(),
-        'available_hirelings_count': available_hirelings.count(),
-        'available_landmarks_count': available_landmarks.count(),
-        'available_tweaks_count': available_tweaks.count(),
+        'is_admin': request.user.profile.admin,
+        'action': 'Update',
+    }
+    return render(request, 'the_warroom/tournament_dynamic_form.html', context)
+
+
+# ===== HTMX Endpoints for Player Management =====
+
+@player_required
+def tournament_search_players(request, slug):
+    """HTMX endpoint: Search for players to add"""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    query = request.GET.get('q', '')
+
+    # Get players not in tournament (excluding those in any session for this tournament)
+    available_players = Profile.objects.exclude(
+        session_participations__session__tournament=tournament
+    )
+
+    if query:
+        available_players = available_players.filter(
+            Q(discord__icontains=query) |
+            Q(display_name__icontains=query)
+        )
+
+    available_players = available_players[:10]
+
+    return render(request, 'the_warroom/partials/player_search_results.html', {
+        'players': available_players,
+        'tournament': tournament
+    })
+
+
+@player_required
+def tournament_move_player(request, slug):
+    """JavaScript/AJAX endpoint: Move player between groups (players/waitlist/eliminated)"""
+    if request.method != 'POST':
+        return HttpResponse("Method not allowed", status=405)
+
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    import json
+    data = json.loads(request.body)
+    player_id = data.get('player_id')
+    from_group = data.get('from_group')
+    to_group = data.get('to_group')
+
+    player = get_object_or_404(Profile, id=player_id)
+
+    # Map group names to SessionPlayer statuses
+    status_map = {
+        'players': 'ungrouped',
+        'waitlist': 'waitlist',
+        'eliminated': 'eliminated'
     }
 
-    return render(request, 'the_warroom/tournament_manage_assets.html', context)
+    from_status = status_map.get(from_group)
+    to_status = status_map.get(to_group)
+
+    tournament.move_player(player, from_status, to_status)
+
+    # Return updated player card
+    return render(request, 'the_warroom/partials/player_card.html', {
+        'player': player,
+        'tournament': tournament,
+        'group': to_group
+    })
+
+
+@player_required
+def round_search_players(request, tournament_slug, round_slug):
+    """HTMX endpoint: Search for players to add to round (only from tournament players, excluding eliminated)"""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    query = request.GET.get('q', '')
+
+    # Get players from tournament's master session (ungrouped only, not eliminated or waitlisted)
+    tournament_session = tournament.master_session
+    tournament_player_ids = tournament_session.session_players.filter(
+        status='ungrouped'  # Only active players
+    ).values_list('profile_id', flat=True)
+
+    # Exclude players already in the round's session
+    round_session = round.master_session
+    if round_session:
+        existing_player_ids = round_session.session_players.values_list('profile_id', flat=True)
+    else:
+        existing_player_ids = []
+
+    # Get available players (in tournament, ungrouped, not in round)
+    available_players = Profile.objects.filter(
+        id__in=tournament_player_ids
+    ).exclude(
+        id__in=existing_player_ids
+    )
+
+    if query:
+        # Filter by search query and limit to 10 results
+        available_players = available_players.filter(
+            Q(discord__icontains=query) |
+            Q(display_name__icontains=query)
+        )[:10]
+    # If no query, show all available players (no limit since it's from tournament pool)
+
+    return render(request, 'the_warroom/partials/player_search_results.html', {
+        'players': available_players,
+        'tournament': tournament,
+        'round': round
+    })
+
+
+@player_required
+def round_move_player(request, tournament_slug, round_slug):
+    """JavaScript/AJAX endpoint: Move player between groups for round"""
+    if request.method != 'POST':
+        return HttpResponse("Method not allowed", status=405)
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    data = json.loads(request.body)
+    player_id = data.get('player_id')
+    from_group = data.get('from_group')
+    to_group = data.get('to_group')
+
+    player = get_object_or_404(Profile, id=player_id)
+
+    # Map group names to SessionPlayer statuses
+    status_map = {
+        'players': 'ungrouped',
+        'waitlist': 'waitlist',
+        'eliminated': 'eliminated'
+    }
+
+    from_status = status_map.get(from_group)
+    to_status = status_map.get(to_group)
+
+    round.move_player(player, from_status, to_status)
+
+    # Return updated player card
+    return render(request, 'the_warroom/partials/player_card.html', {
+        'player': player,
+        'tournament': tournament,
+        'round': round,
+        'group': to_group
+    })
+
+
+# ===== HTMX Endpoints for Asset Management =====
+
+@player_onboard_required
+def tournament_search_assets(request, slug, asset_type):
+    """HTMX endpoint: Search for assets to add"""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    query = request.GET.get('q', '')
+
+    # Get the appropriate model
+    asset_models = {
+        'faction': Faction,
+        'map': Map,
+        'deck': Deck,
+        'hireling': Hireling,
+        'landmark': Landmark,
+        'tweak': Tweak,
+        'vagabond': Vagabond,
+    }
+
+    if asset_type not in asset_models:
+        return HttpResponse("Invalid asset type", status=400)
+
+    model = asset_models[asset_type]
+
+    # Asset search only available in SELECTED mode
+    if tournament.asset_mode != AssetModeChoices.SELECTED:
+        return HttpResponse("Asset search only available in Selected mode", status=400)
+
+    # In SELECTED mode, all assets are available for selection
+    if tournament.platform == "Root Digital":
+        queryset = model.objects.filter(in_root_digital=True)
+    else:
+        queryset = model.objects.all()
+
+    # Exclude already added assets
+    queryset = queryset.exclude(**{f'tournaments': tournament})
+
+    # Apply search filter
+    if query:
+        queryset = queryset.filter(title__icontains=query)
+
+    queryset = queryset[:10]
+
+    return render(request, 'the_warroom/partials/asset_search_results.html', {
+        'assets': queryset,
+        'asset_type': asset_type,
+        'tournament': tournament
+    })
+
+
+@player_onboard_required
+def tournament_add_asset(request, slug, asset_type, asset_id):
+    """HTMX endpoint: Add asset (faction/map/deck/etc) to tournament"""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    # Get the appropriate model and relationship
+    asset_models = {
+        'faction': (Faction, tournament.factions),
+        'map': (Map, tournament.maps),
+        'deck': (Deck, tournament.decks),
+        'hireling': (Hireling, tournament.hirelings),
+        'landmark': (Landmark, tournament.landmarks),
+        'tweak': (Tweak, tournament.tweaks),
+        'vagabond': (Vagabond, tournament.vagabonds),
+    }
+
+    if asset_type not in asset_models:
+        return HttpResponse("Invalid asset type", status=400)
+
+    model, relation = asset_models[asset_type]
+    asset = get_object_or_404(model, id=asset_id)
+    relation.add(asset)
+
+    return render(request, 'the_warroom/partials/asset_tag.html', {
+        'asset': asset,
+        'asset_type': asset_type,
+        'tournament': tournament
+    })
+
+
+@player_onboard_required
+def tournament_remove_asset(request, slug, asset_type, asset_id):
+    """HTMX endpoint: Remove asset from tournament"""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        return HttpResponse("Permission denied", status=403)
+
+    # Get the appropriate model and relationship
+    asset_models = {
+        'faction': (Faction, tournament.factions),
+        'map': (Map, tournament.maps),
+        'deck': (Deck, tournament.decks),
+        'hireling': (Hireling, tournament.hirelings),
+        'landmark': (Landmark, tournament.landmarks),
+        'tweak': (Tweak, tournament.tweaks),
+        'vagabond': (Vagabond, tournament.vagabonds),
+    }
+
+    if asset_type not in asset_models:
+        return HttpResponse("Invalid asset type", status=400)
+
+    model, relation = asset_models[asset_type]
+    asset = get_object_or_404(model, id=asset_id)
+    relation.remove(asset)
+
+    # Return empty response (HTMX will remove the element)
+    return HttpResponse('')
+
+
+
+# @admin_onboard_required
+# def tournament_manage_assets(request, tournament_slug):
+#     # Fetch the tournament object
+#     tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+#     # Initialize available assets based on asset_mode
+#     # OPEN and OFFICIAL modes don't need asset management
+#     if tournament.asset_mode != AssetModeChoices.SELECTED:
+#         return redirect('tournament-manage-assets-v2', slug=tournament_slug)
+
+#     # SELECTED mode: all assets are available for selection
+#     if tournament.include_clockwork:
+#         available_factions = Faction.objects.exclude(tournaments__id=tournament.id)
+#     else:
+#         available_factions = Faction.objects.exclude(tournaments__id=tournament.id).exclude(type="C")
+#     available_decks = Deck.objects.exclude(tournaments__id=tournament.id)
+#     available_maps = Map.objects.exclude(tournaments__id=tournament.id)
+#     available_landmarks = Landmark.objects.exclude(tournaments__id=tournament.id)
+#     available_tweaks = Tweak.objects.exclude(tournaments__id=tournament.id)
+#     available_hirelings = Hireling.objects.exclude(tournaments__id=tournament.id)
+#     available_vagabonds = Vagabond.objects.exclude(tournaments__id=tournament.id)
+
+#     # Assets already in the tournament
+#     tournament_factions = Faction.objects.filter(tournaments__id=tournament.id)
+#     tournament_decks = Deck.objects.filter(tournaments__id=tournament.id)
+#     tournament_maps = Map.objects.filter(tournaments__id=tournament.id)
+#     tournament_landmarks = Landmark.objects.filter(tournaments__id=tournament.id)
+#     tournament_tweaks = Tweak.objects.filter(tournaments__id=tournament.id)
+#     tournament_hirelings = Hireling.objects.filter(tournaments__id=tournament.id)
+#     tournament_vagabonds = Vagabond.objects.filter(tournaments__id=tournament.id)
+
+#     # Initialize the form and pass the querysets to it
+#     form = TournamentManageAssetsForm(request.POST or None,
+#         tournament=tournament,
+#         available_factions_query=available_factions,
+#         tournament_factions_query=tournament_factions,
+#         available_decks_query=available_decks,
+#         tournament_decks_query=tournament_decks,
+#         available_maps_query=available_maps,
+#         tournament_maps_query=tournament_maps,
+#         available_landmarks_query=available_landmarks,
+#         tournament_landmarks_query=tournament_landmarks,
+#         available_tweaks_query=available_tweaks,
+#         tournament_tweaks_query=tournament_tweaks,
+#         available_hirelings_query=available_hirelings,
+#         tournament_hirelings_query=tournament_hirelings,
+#         available_vagabonds_query=available_vagabonds,
+#         tournament_vagabonds_query=tournament_vagabonds
+#     )
+
+#     # Handle form submission
+#     if request.method == 'POST':
+#         # form = TournamentManageAssetsForm(request.POST)
+#         if form.is_valid():
+            
+#             form.save()
+#             return redirect(tournament.get_absolute_url())  # or any other success URL
+
+#     # Render the template with the form
+#     context = {
+#         'form': form,
+#         'tournament': tournament,
+#         'available_factions_count': available_factions.count(),
+#         'available_decks_count': available_decks.count(),
+#         'available_maps_count': available_maps.count(),
+#         'available_vagabonds_count': available_vagabonds.count(),
+#         'available_hirelings_count': available_hirelings.count(),
+#         'available_landmarks_count': available_landmarks.count(),
+#         'available_tweaks_count': available_tweaks.count(),
+#     }
+
+#     return render(request, 'the_warroom/tournament_manage_assets.html', context)
 
 
 def tournaments_home(request):
@@ -1708,12 +2097,20 @@ def tournaments_home(request):
 # ============================
 # Round Views (Individual Round/Season of a Tournament)
 # ============================
-def user_can_access_round(round, user):
+def user_can_access_round(tournament_round, user):
     now = timezone.now()
-    is_active = (round.start_date < now) and (round.end_date is None or round.end_date > now)
-    is_designer = round.tournament.designer == user.profile
-    is_player = round.players.exists() and user.profile in round.players.all()
-    is_open = not round.players.exists()  # If no players assigned, assume open round
+    is_active = (tournament_round.start_date < now) and (tournament_round.end_date is None or tournament_round.end_date > now)
+    is_designer = tournament_round.tournament.designer == user.profile
+
+    # Check if user is a player in any of the tournament_round's grouping sessions
+    from the_warroom.models import SessionPlayer
+    is_player = SessionPlayer.objects.filter(
+        session__tournament_round=tournament_round,
+        profile=user.profile
+    ).exists()
+
+    # If no session players exist for this tournament_round, assume it's open
+    is_open = not SessionPlayer.objects.filter(session__tournament_round=tournament_round).exists()
 
     return is_active and (is_designer or is_player or is_open)
 
@@ -1877,7 +2274,7 @@ def round_players_pagination(request, id):
     round = get_object_or_404(Round, id=id)
 
     if round.players.count() == 0:
-        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(current_tournaments=round.tournament)).distinct()
+        players = Profile.objects.filter(Q(efforts__game__round=round)|Q(session_participations__session__tournament=round.tournament)).distinct()
     else:
         players = Profile.objects.filter(Q(efforts__game__round=round)|Q(rounds=round)).distinct()
 
@@ -1989,61 +2386,40 @@ def round_manage_view(request, tournament_slug, round_slug=None):
 
 @admin_onboard_required
 def round_manage_players(request, round_slug, tournament_slug):
-    # Fetch the tournament object
-    selected_round = get_object_or_404(Round, slug=round_slug)
-    tournament = selected_round.tournament
+    """Dedicated round player management page with settings + HTMX player groups."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
 
-    if tournament.players.count() == 0:
-        return redirect('tournament-players', tournament_slug=tournament.slug)
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        raise PermissionDenied()
 
-    round_number = selected_round.round_number
+    # Redirect to tournament player management if no tournament session players exist
+    if tournament.master_session.session_players.count() == 0:
+        return redirect('tournament-manage-players', slug=tournament_slug)
 
-    # QS of players in tournament that are not in this round.
-    available_players = Profile.objects.exclude(rounds=selected_round).filter(current_tournaments=tournament)
+    # Ensure round has master session - create if needed
+    if not round.master_session:
+        round.create_round_session()
 
-    # Find players already in the same tournament round.
-    other_rounds = Round.objects.filter(tournament=tournament, round_number=round_number).exclude(id=selected_round.id)
-    taken_players = []
-    if other_rounds:
-        for round in other_rounds:
-            taken_players = taken_players + list(round.players.all())
-    exclude_ids = [obj.id for obj in taken_players] 
-    # Remove players from the available list if they are already in another concurrent round
-    available_players = available_players.exclude(id__in=exclude_ids)
+    # if request.method == 'POST':
+    #     form = TournamentPlayerSettingsForm(request.POST, instance=tournament)
+    #     if form.is_valid():
+    #         form.save()
+    #         messages.success(request, "Player settings updated.")
+    #         return redirect('round-players', tournament_slug=tournament_slug, round_slug=round_slug)
+    # else:
+    #     form = TournamentPlayerSettingsForm(instance=tournament)
 
-    # Players already in this round that can be removed.
-    current_players = Profile.objects.filter(rounds=selected_round)
-
-
-    # Initialize the form and pass the querysets to it
-    form = RoundManagePlayersForm(request.POST or None,
-        round=selected_round,
-        available_players_query=available_players,
-        current_players_query=current_players,
-    )
-
-    # Handle form submission
-    if request.method == 'POST':
-        # form = TournamentManageAssetsForm(request.POST)
-        if form.is_valid():
-            # Save the changes made to players
-            form.save()
-            # Redirect or show a success message
-            return redirect(selected_round.get_absolute_url())  # or any other success URL
-        # else:
-        #     # If form is invalid, print the errors for debugging
-        #     print("Error")
-        #     print(form.errors)
-        #     print(form.data)
-    # Render the template with the form
     context = {
-        'form': form,
         'tournament': tournament,
-        'round': selected_round,
-        'available_players_count': available_players.count(),
-        'current_players_count': current_players.count(),
+        'round': round,
+        'object': round,
+        # 'form': form,
+        'players': round.get_players_queryset(),
+        'waitlist_players': round.get_waitlist_players_queryset(),
+        'eliminated_players': round.get_eliminated_players_queryset(),
     }
-
     return render(request, 'the_warroom/tournament_manage_players.html', context)
 
 
@@ -2056,6 +2432,12 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         # Only allow access if the logged-in user is the designer of the object
         return self.request.user.profile == obj.tournament.designer or self.request.user.profile.admin
     
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['round'] = self.object
+        context['tournament'] = self.object.tournament
+        return context
+
     # Dynamically set the success URL based on the round's tournament
     def get_success_url(self):
         # Redirect to the tournament detail page using the tournament slug
@@ -2135,7 +2517,7 @@ def in_progress_view(request):
 # ============================================================================
 
 @player_onboard_required
-def scorecard_manage_v2_view(request, id=None):
+def scorecard_manage_view(request, id=None):
     """
     Improved scorecard management view with:
     - TurnScore deletion capability
@@ -2371,38 +2753,38 @@ def scorecard_manage_v2_view(request, id=None):
                 turn.save()
 
         if request.POST.get('next'):
-            return redirect('update-v2-scorecard', next_scorecard.id)
+            return redirect('update-scorecard', next_scorecard.id)
         if request.POST.get('previous'):
-            return redirect('update-v2-scorecard', previous_scorecard.id)
+            return redirect('update-scorecard', previous_scorecard.id)
         if request.POST.get('add_player'):
             game_group = parent.game_group
             encoded_game_group = quote(str(game_group))
-            return redirect(f'{reverse("record-v2-scorecard")}?game_group={encoded_game_group}')
+            return redirect(f'{reverse("record-scorecard")}?game_group={encoded_game_group}')
         if request.POST.get('next-effort'):
             if next_effort_scorecard:
-                return redirect('update-v2-scorecard', next_effort_scorecard.id)
+                return redirect('update-scorecard', next_effort_scorecard.id)
             else:
-                url = reverse('record-v2-scorecard')
+                url = reverse('record-scorecard')
                 query_string = f'?faction={next_effort.faction.id}&effort={next_effort.id}'
                 return redirect(f'{url}{query_string}')
         if request.POST.get('previous-effort'):
             if previous_effort_scorecard:
-                return redirect('update-v2-scorecard', previous_effort_scorecard.id)
+                return redirect('update-scorecard', previous_effort_scorecard.id)
             else:
-                url = reverse('record-v2-scorecard')
+                url = reverse('record-scorecard')
                 query_string = f'?faction={previous_effort.faction.id}&effort={previous_effort.id}'
                 return redirect(f'{url}{query_string}')
 
         # Handle seat navigator buttons (goto_scorecard and goto_effort)
         goto_scorecard_id = request.POST.get('goto_scorecard')
         if goto_scorecard_id:
-            return redirect('update-v2-scorecard', int(goto_scorecard_id))
+            return redirect('update-scorecard', int(goto_scorecard_id))
 
         goto_effort_id = request.POST.get('goto_effort')
         if goto_effort_id:
             try:
                 target_effort = Effort.objects.get(id=goto_effort_id)
-                url = reverse('record-v2-scorecard')
+                url = reverse('record-scorecard')
                 query_string = f'?faction={target_effort.faction.id}&effort={target_effort.id}'
                 return redirect(f'{url}{query_string}')
             except Effort.DoesNotExist:
@@ -2412,3 +2794,685 @@ def scorecard_manage_v2_view(request, id=None):
         return redirect(parent.get_absolute_url())
 
     return render(request, 'the_warroom/record_scores_v2.html', context)
+
+
+# ============================
+# Tournament Management Views (v2)
+# ============================
+
+@player_onboard_required
+def tournament_manage_players(request, slug):
+    """Dedicated player management page with settings + HTMX player groups."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        raise PermissionDenied()
+
+    if request.method == 'POST':
+        form = TournamentPlayerSettingsForm(request.POST, instance=tournament)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Player settings updated.")
+            return redirect('tournament-manage-players', slug=slug)
+    else:
+        form = TournamentPlayerSettingsForm(instance=tournament)
+
+    context = {
+        'tournament': tournament,
+        'object': tournament,  # For template title
+        'form': form,
+        'players': tournament.get_players_queryset(),
+        'waitlist_players': tournament.get_waitlist_players_queryset(),
+        'eliminated_players': tournament.get_eliminated_players_queryset(),
+    }
+    return render(request, 'the_warroom/tournament_manage_players.html', context)
+
+
+@player_onboard_required
+def tournament_manage_assets_v2(request, slug):
+    """Dedicated asset management page with settings + HTMX asset categories."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        raise PermissionDenied()
+
+    if request.method == 'POST':
+        form = TournamentAssetSettingsForm(request.POST, instance=tournament)
+        if form.is_valid():
+            original = Tournament.objects.get(pk=tournament.pk)
+            previous_asset_mode = original.asset_mode
+            previous_platform = original.platform
+            form.save()
+            set_default_tournament_assets(tournament, previous_asset_mode, previous_platform)
+            messages.success(request, "Asset settings updated.")
+            return redirect('tournament-manage-assets', slug=slug)
+    else:
+        form = TournamentAssetSettingsForm(instance=tournament)
+
+    # Determine UI visibility based on asset mode
+    show_asset_management = tournament.asset_mode == AssetModeChoices.SELECTED
+
+    context = {
+        'tournament': tournament,
+        'form': form,
+        'show_asset_management': show_asset_management,
+        'asset_mode_choices': AssetModeChoices,
+        'asset_types': [
+            ('faction', 'Factions', tournament.factions.all(), 'bi-shield'),
+            ('map', 'Maps', tournament.maps.all(), 'bi-map'),
+            ('deck', 'Decks', tournament.decks.all(), 'bi-stack'),
+            ('hireling', 'Hirelings', tournament.hirelings.all(), 'bi-person-badge'),
+            ('landmark', 'Landmarks', tournament.landmarks.all(), 'bi-geo-alt'),
+            ('tweak', 'House Rules', tournament.tweaks.all(), 'bi-wrench'),
+            ('vagabond', 'Vagabonds', tournament.vagabonds.all(), 'bi-person-walking'),
+        ],
+    }
+    return render(request, 'the_warroom/tournament_manage_assets_v2.html', context)
+
+
+@player_onboard_required
+def tournament_settings_hub(request, slug):
+    """Settings hub page with links to all tournament management tools."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        raise PermissionDenied()
+
+    context = {
+        'object_type': 'Series',
+        'tournament': tournament,
+        'object': tournament,  # For template title
+    }
+    return render(request, 'the_warroom/settings_hub.html', context)
+
+
+@player_onboard_required
+def round_settings_hub(request, tournament_slug, round_slug):
+    """Settings hub page with links to all round management tools."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+
+    # Permission check
+    if not (request.user.profile == tournament.designer or request.user.profile.admin):
+        raise PermissionDenied()
+
+    context = {
+        'tournament': tournament,
+        'round': round,
+        'object': round,  # For template title
+        'object_type': 'Round',
+    }
+    return render(request, 'the_warroom/settings_hub.html', context)
+
+
+# Round Grouping Views
+
+@login_required
+def round_grouping_setup_view(request, tournament_slug, round_slug):
+    """
+    Round grouping view - shows setup form and organize interface.
+    Each round has only one GroupingSession (excluding the master session used for player management).
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    # Only tournament creator or admin can access grouping
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    # Ensure round has master session (for player roster)
+    if not round.master_session:
+        round.create_round_session()
+
+    # Get the single grouping session for this round (excluding master session)
+    session = GroupingSession.objects.filter(
+        round=round
+    ).exclude(
+        # Exclude master session (it has grouping_type='manual' and is for player management)
+        id=round.master_session.id if round.master_session else None
+    ).first()
+
+    # Check for availability data
+    has_availability = False
+    if round.master_session:
+        has_availability = round.master_session.session_players.filter(
+            status=SessionPlayer.StatusChoices.UNGROUPED
+        ).exclude(
+            availability_hours=[]
+        ).exists()
+
+    # Calculate stats
+    master_session = round.master_session
+    total_players = master_session.session_players.filter(
+        status=SessionPlayer.StatusChoices.UNGROUPED
+    ).count() if master_session else 0
+
+    session_waitlist_count = master_session.session_players.filter(
+        status=SessionPlayer.StatusChoices.WAITLIST
+    ).count() if master_session else 0
+
+    if session:
+        group_count = session.groups.count()
+    else:
+        group_count = 0
+
+    # Handle POST actions
+    if request.method == 'POST':
+        action = request.POST.get('action', 'generate')
+
+        # Reset session - clear groups and return players to appropriate status
+        if action == 'reset_session':
+            if session:
+                # Delete all groups
+                session.groups.all().delete()
+
+                # Get tournament master session to check waitlist status
+                tournament_master = round.tournament.master_session
+                tournament_waitlist_profile_ids = set()
+                if tournament_master:
+                    tournament_waitlist_profile_ids = set(
+                        tournament_master.session_players.filter(
+                            status=SessionPlayer.StatusChoices.WAITLIST
+                        ).values_list('profile_id', flat=True)
+                    )
+
+                # Return all session players to ungrouped or waitlist
+                for sp in session.session_players.all():
+                    if sp.profile_id in tournament_waitlist_profile_ids:
+                        # Player is on tournament waitlist - restore to waitlist
+                        sp.status = SessionPlayer.StatusChoices.WAITLIST
+                        sp.reason = SessionPlayer.ReasonChoices.WAITLIST
+                    else:
+                        # Regular player - set to ungrouped
+                        sp.status = SessionPlayer.StatusChoices.UNGROUPED
+                        sp.reason = SessionPlayer.ReasonChoices.MANUAL
+                    sp.group = None
+                    sp.save(update_fields=['status', 'group', 'reason'])
+
+                # Update session status
+                session.status = GroupingSession.StatusChoices.DRAFT
+                session.recalculate_statistics()
+                session.save()
+
+                messages.success(request, 'Grouping session reset successfully.')
+            return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
+
+        # Generate/regenerate groups with new settings
+        elif action == 'generate':
+            # Parse form data
+            min_group_size = int(request.POST.get('min_group_size', 3))
+            max_group_size = int(request.POST.get('max_group_size', 5))
+            grouping_type = request.POST.get('grouping_type', 'random')
+            algorithm = request.POST.get('algorithm', 'random')
+            naming_convention = request.POST.get('naming_convention', 'numeric')
+
+            # Determine grouping type based on availability
+            if not has_availability:
+                grouping_type = request.POST.get('grouping_type', 'random')
+
+            if session:
+                # Can't regenerate if finalized
+                if session.status == GroupingSession.StatusChoices.FINALIZED:
+                    messages.error(request, 'Cannot modify a finalized session. Reset it first.')
+                    return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
+
+                # Update existing session with new parameters
+                session.grouping_type = grouping_type
+                session.algorithm = algorithm
+                session.min_group_size = min_group_size
+                session.max_group_size = max_group_size
+                session.status = GroupingSession.StatusChoices.PROCESSING
+                session.total_players = total_players
+                session.naming_convention = naming_convention
+                session.save()
+
+                # Clear existing groups and players
+                session.groups.all().delete()
+                session.session_players.all().delete()
+            else:
+                # Create new session
+                session = GroupingSession.objects.create(
+                    tournament=tournament,
+                    round=round,
+                    name=f"{round.name} - Groups" if round.name else f"Round {round.round_number} - Groups",
+                    grouping_type=grouping_type,
+                    algorithm=algorithm,
+                    min_group_size=min_group_size,
+                    max_group_size=max_group_size,
+                    status=GroupingSession.StatusChoices.PROCESSING,
+                    created_by=profile,
+                    total_players=total_players,
+                    naming_convention=naming_convention,
+                )
+
+            # Queue grouping based on type
+            if grouping_type == 'availability':
+                # Use async task for availability-based grouping
+                from the_tavern.tasks import generate_grouping_async
+                generate_grouping_async.delay(session.id)
+            elif grouping_type == 'random':
+                GroupingService.populate_ungrouped_from_round_session(session, round)
+                GroupingService.generate_random_groups(session)
+                session.status = GroupingSession.StatusChoices.DRAFT
+                session.save(update_fields=['status'])
+            else:  # manual
+                GroupingService.populate_ungrouped_from_round_session(session, round)
+                session.status = GroupingSession.StatusChoices.DRAFT
+                session.save(update_fields=['status'])
+
+            return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
+
+    # Build context for template
+    groups = []
+    ungrouped_players = []
+    session_waitlist_players = []
+    is_processing = False
+    is_finalized = False
+    has_error = False
+
+    if session:
+        is_processing = session.status == GroupingSession.StatusChoices.PROCESSING
+        is_finalized = session.status == GroupingSession.StatusChoices.FINALIZED
+        has_error = session.status == GroupingSession.StatusChoices.ERROR
+
+        if not is_processing:
+            # Get groups with members
+            groups = session.groups.prefetch_related(
+                'session_players__profile'
+            ).order_by('group_number')
+
+            # Get ungrouped players
+            ungrouped_players = session.session_players.filter(
+                status=SessionPlayer.StatusChoices.UNGROUPED
+            ).select_related(
+                'profile', 'best_fit_group'
+            ).order_by('-best_fit_overlap_hours')
+
+            # Get session waitlist players
+            session_waitlist_players = session.session_players.filter(
+                status=SessionPlayer.StatusChoices.WAITLIST
+            ).select_related('profile')
+
+    # Navigation context
+    return_to = round.get_absolute_url()
+
+    context = {
+        'tournament': tournament,
+        'round': round,
+        'session': session,
+        'groups': groups,
+        'ungrouped_players': ungrouped_players,
+        'session_waitlist_players': session_waitlist_players,
+        'ungrouped_count': len(ungrouped_players) if ungrouped_players else 0,
+        'session_waitlist_count': len(session_waitlist_players),
+        'total_players': total_players,
+        'group_count': group_count,
+        'has_availability': has_availability,
+        'show_availability_options': has_availability,
+        'is_processing': is_processing,
+        'is_finalized': is_finalized,
+        'has_error': has_error,
+        'return_to': return_to,
+        'naming_conventions': NameConvention.choices,
+        'base_url': f'/series/{tournament.slug}/round/{round.slug}/grouping/',
+    }
+    return render(request, 'the_warroom/round_grouping.html', context)
+
+
+# Round Grouping AJAX Views
+
+@login_required
+@require_http_methods(['GET'])
+def round_grouping_status(request, tournament_slug, round_slug, session_id):
+    """Check session status (for HTMX polling)."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    # If still processing, return status indicator
+    if session.status == GroupingSession.StatusChoices.PROCESSING:
+        return render(request, 'the_warroom/partials/grouping_processing.html', {
+            'session': session,
+            'round': round,
+            'tournament': tournament,
+        })
+
+    # If done, trigger a full page refresh via HX-Refresh header
+    response = HttpResponse(status=200)
+    response['HX-Refresh'] = 'true'
+    return response
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_move_player(request, tournament_slug, round_slug, session_id):
+    """Move a player from one group to another."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session is not editable'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        player_id = data.get('player_id')
+        from_group_id = data.get('from_group_id')
+        to_group_id = data.get('to_group_id')
+
+        session_player = get_object_or_404(SessionPlayer, id=player_id, session=session)
+        from_group = get_object_or_404(PlayerGroup, id=from_group_id, session=session) if from_group_id else None
+        to_group = get_object_or_404(PlayerGroup, id=to_group_id, session=session)
+
+        GroupingService.assign_player_to_group(session_player, to_group, moved_by=profile)
+
+        response = {'success': True}
+        if from_group:
+            response['from_group'] = {
+                'id': from_group.id,
+                'member_count': from_group.member_count,
+                'total_overlap_hours': from_group.total_overlap_hours,
+                'best_consecutive_block': from_group.best_consecutive_block,
+            }
+        response['to_group'] = {
+            'id': to_group.id,
+            'member_count': to_group.member_count,
+            'total_overlap_hours': to_group.total_overlap_hours,
+            'best_consecutive_block': to_group.best_consecutive_block,
+        }
+        return JsonResponse(response)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_add_to_group(request, tournament_slug, round_slug, session_id):
+    """Add an ungrouped or waitlisted player to a group."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session is not editable'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        player_id = data.get('player_id')
+        group_id = data.get('group_id')
+
+        session_player = get_object_or_404(
+            SessionPlayer,
+            id=player_id,
+            session=session
+        )
+        group = get_object_or_404(PlayerGroup, id=group_id, session=session)
+
+        GroupingService.assign_player_to_group(session_player, group, moved_by=profile)
+
+        return JsonResponse({
+            'success': True,
+            'group': {
+                'id': group.id,
+                'member_count': group.member_count,
+                'total_overlap_hours': group.total_overlap_hours,
+                'best_consecutive_block': group.best_consecutive_block,
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_remove_from_group(request, tournament_slug, round_slug, session_id):
+    """Remove a player from a group and set to ungrouped."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session is not editable'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        player_id = data.get('player_id')
+
+        session_player = get_object_or_404(
+            SessionPlayer,
+            id=player_id,
+            session=session,
+            status=SessionPlayer.StatusChoices.GROUPED
+        )
+
+        old_group = session_player.group
+
+        GroupingService.remove_from_group(session_player)
+
+        result = {
+            'success': True,
+            'session_player': {
+                'id': session_player.id,
+                'status': session_player.status,
+            },
+        }
+
+        if old_group:
+            result['from_group'] = {
+                'id': old_group.id,
+                'member_count': old_group.member_count,
+                'total_overlap_hours': old_group.total_overlap_hours,
+                'best_consecutive_block': old_group.best_consecutive_block,
+            }
+
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_create_group(request, tournament_slug, round_slug, session_id):
+    """Create a new group, optionally with initial players."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session is not editable'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        player_id = data.get('player_id')  # Optional: SessionPlayer id to add to new group
+
+        # Get next group number
+        max_group_num = session.groups.aggregate(models.Max('group_number'))['group_number__max'] or 0
+        new_group_num = max_group_num + 1
+
+        # Create new group
+        new_group = PlayerGroup.objects.create(
+            session=session,
+            group_number=new_group_num,
+            name=generate_name(new_group_num, NameConvention(session.naming_convention)),
+        )
+
+        # If player_id provided, add/move that player to the new group
+        if player_id:
+            session_player = SessionPlayer.objects.filter(
+                session=session,
+                id=player_id
+            ).first()
+            if session_player:
+                GroupingService.assign_player_to_group(session_player, new_group, moved_by=profile)
+
+        # Recalculate session statistics
+        session.recalculate_statistics()
+
+        return JsonResponse({
+            'success': True,
+            'group': {
+                'id': new_group.id,
+                'group_number': new_group.group_number,
+                'member_count': new_group.member_count,
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_delete_group(request, tournament_slug, round_slug, session_id):
+    """Delete an empty group."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session is not editable'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        group_id = data.get('group_id')
+
+        group = get_object_or_404(PlayerGroup, id=group_id, session=session)
+
+        if group.members.exists():
+            return JsonResponse({'error': 'Cannot delete group with members'}, status=400)
+
+        group.delete()
+
+        return JsonResponse({'success': True})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_move_from_waitlist(request, tournament_slug, round_slug, session_id):
+    """Move a player from the session waitlist to ungrouped or a group."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session is not editable'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        player_id = data.get('player_id')
+        group_id = data.get('group_id')  # Optional: add directly to a group
+
+        session_player = get_object_or_404(
+            SessionPlayer,
+            id=player_id,
+            session=session,
+            status=SessionPlayer.StatusChoices.WAITLIST
+        )
+
+        to_group = None
+        if group_id:
+            to_group = get_object_or_404(PlayerGroup, id=group_id, session=session)
+
+        GroupingService.move_from_waitlist(session_player, to_group=to_group)
+
+        result = {
+            'success': True,
+            'session_player': {
+                'id': session_player.id,
+                'status': session_player.status,
+            },
+            'total_players': session.total_players,
+        }
+
+        if to_group:
+            result['to_group'] = {
+                'id': to_group.id,
+                'member_count': to_group.member_count,
+                'total_overlap_hours': to_group.total_overlap_hours,
+                'best_consecutive_block': to_group.best_consecutive_block,
+            }
+
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_finalize(request, tournament_slug, round_slug, session_id):
+    """Finalize the grouping session."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    profile = request.user.profile
+
+    if not profile.admin and tournament.designer != profile:
+        raise PermissionDenied
+
+    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+
+    if session.status != GroupingSession.StatusChoices.DRAFT:
+        return JsonResponse({'error': 'Session cannot be finalized'}, status=400)
+
+    try:
+        GroupingService.finalize_session(session, target_round=round)
+
+        return JsonResponse({
+            'success': True,
+            'status': 'finalized',
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)

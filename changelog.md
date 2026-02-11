@@ -1,20 +1,25 @@
 # Changelog
 
-## [1.10.3] - 2026-1-21 Surveys
+## [1.11.0] - 2026-2-8 Surveys, Series & Scorecards
+This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design. 
 
 ### New Features
 - Surveys (Multiple Choice, Multiple Selection, Open Ended, Yes/No, Scale, Ranking, Availability, Time, Date)
 - Public, Private, and Discord Guild locked Surveys
 - Survey History to view your responses and past surveys
+- Create groups of players from your survey's responses based on availability questions
 
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update
 - Discord Guild invite requests now display average response time.
 - Leaderboard filter updates url for easier sharing
 - Using Celery for Discord status updates
+- Scorecards have a more modern look and improved UI
+- Improved Series' Asset and Player managment pages
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences
+- It is now possible to delete turns from an existing Scorecard
 
 ## [1.10.2] - 2026-1-14 Battlefield Unification
 The Battlefield now has a new tab structure to quickly navigate between games, leaderboards, series and your submitted games. A similar tab structure is added to the Workshop.

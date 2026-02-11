@@ -690,7 +690,7 @@
                     <i class="bi bi-trash"></i> {% trans 'Delete' %}
                 </a>
                 {% elif previous_scorecard and not object.id %}
-                <a class="btn btn-outline-secondary" href="{% url 'update-v2-scorecard' previous_scorecard.id %}">{% trans 'Cancel' %}</a>
+                <a class="btn btn-outline-secondary" href="{% url 'update-scorecard' previous_scorecard.id %}">{% trans 'Cancel' %}</a>
                 {% elif game %}
                 <a class="btn btn-outline-secondary" href="{{ game.get_absolute_url }}">{% trans 'Cancel' %}</a>
                 {% else %}

@@ -790,18 +790,26 @@ class GroupingService:
         # Clear existing session players
         session.session_players.all().delete()
 
-        # Get players from round or tournament
-        if session.round and session.round.players.exists():
-            players = session.round.players.all()
+        # Get source master session (read from SessionPlayer)
+        source_session = None
+        if session.round:
+            # Try round's master session first
+            source_session = session.round.master_session
+            # If round has no session, it inherits from tournament
+            if not source_session and session.tournament:
+                source_session = session.tournament.master_session
         elif session.tournament:
-            players = session.tournament.players.all()
-        else:
+            # Use tournament's master session
+            source_session = session.tournament.master_session
+
+        if not source_session:
             return
 
-        for player in players:
+        # Copy ungrouped players from source master session
+        for sp in source_session.session_players.filter(status='ungrouped'):
             SessionPlayer.objects.create(
                 session=session,
-                profile=player,
+                profile=sp.profile,
                 status=SessionPlayer.StatusChoices.UNGROUPED,
                 reason=SessionPlayer.ReasonChoices.PENDING
             )
@@ -857,7 +865,46 @@ class GroupingService:
             )
 
         session.recalculate_statistics()
-            
+
+    @classmethod
+    def populate_ungrouped_from_round_session(cls, session, round):
+        """
+        Populate a grouping session with players from the round's master session.
+        Only includes SessionPlayers with status='ungrouped' from the master session.
+        SessionPlayers with status='waitlist' are NOT included automatically.
+        IMPORTANT: Preserves availability_hours from master session if present.
+        """
+        if not round:
+            raise ValueError("Round must be provided")
+
+        # Clear existing session players
+        session.session_players.all().delete()
+
+        # Get round's master session
+        master_session = round.master_session
+        if not master_session:
+            # No players to populate
+            session.recalculate_statistics()
+            return
+
+        # Get ungrouped players from master session
+        master_ungrouped = master_session.session_players.filter(
+            status=SessionPlayer.StatusChoices.UNGROUPED
+        ).select_related('profile')
+
+        # Create SessionPlayer in grouping session for each
+        for master_sp in master_ungrouped:
+            SessionPlayer.objects.create(
+                session=session,
+                profile=master_sp.profile,
+                status=SessionPlayer.StatusChoices.UNGROUPED,
+                added_via=SessionPlayer.AddedViaChoices.MANUAL,
+                availability_hours=master_sp.availability_hours,  # Preserve availability data
+            )
+
+        # Recalculate statistics
+        session.recalculate_statistics()
+
     @classmethod
     @transaction.atomic
     def generate_random_groups(cls, session):
@@ -1362,6 +1409,55 @@ class GroupingService:
 
     @classmethod
     @transaction.atomic
+    def assign_player_to_group(cls, session_player, to_group, moved_by=None):
+        """
+        Universal method to assign a player to a group or ungrouped status.
+        Handles all transitions: ungrouped→group, waitlist→group, group→group,
+        group→ungrouped, group→waitlist.
+
+        Args:
+            session_player: SessionPlayer instance to move
+            to_group: PlayerGroup to assign to (None for ungrouped status)
+            moved_by: Profile making the change (optional)
+        """
+        # Track the source group if player is currently grouped
+        from_group = session_player.group if session_player.status == SessionPlayer.StatusChoices.GROUPED else None
+
+        # Update session player
+        session_player.group = to_group
+
+        # Set status based on target
+        if to_group is None:
+            session_player.status = SessionPlayer.StatusChoices.UNGROUPED
+            session_player.added_via = SessionPlayer.AddedViaChoices.MANUAL
+        else:
+            session_player.status = SessionPlayer.StatusChoices.GROUPED
+            # Determine added_via based on previous state
+            if from_group:
+                session_player.added_via = SessionPlayer.AddedViaChoices.REASSIGNED
+            else:
+                session_player.added_via = SessionPlayer.AddedViaChoices.MANUAL
+
+        session_player.added_by = moved_by
+        session_player.reason = None
+        session_player.best_fit_group = None
+        session_player.best_fit_overlap_hours = 0
+        session_player.save(update_fields=[
+            'group', 'status', 'added_by', 'added_via',
+            'reason', 'best_fit_group', 'best_fit_overlap_hours'
+        ])
+
+        # Recalculate overlaps for affected groups
+        if from_group:
+            from_group.recalculate_overlap()
+        if to_group:
+            to_group.recalculate_overlap()
+
+        # Recalculate session statistics
+        session_player.session.recalculate_statistics()
+
+    @classmethod
+    @transaction.atomic
     def remove_from_group(cls, session_player, reason=None):
         """
         Remove a player from a group and set to ungrouped.
@@ -1424,13 +1520,9 @@ class GroupingService:
                 ]
             ).delete()
 
-        # Add all grouped members to round.players if round exists
-        if session.round:
-            grouped_players = session.session_players.filter(
-                status=SessionPlayer.StatusChoices.GROUPED
-            ).select_related('profile')
-            for session_player in grouped_players:
-                session.round.players.add(session_player.profile)
+        # NOTE: Removed write-back to round.players M2M field
+        # The round.players property now reads FROM this session's SessionPlayer records
+        # No need to write back to M2M - the master session pattern makes this unnecessary
 
     @classmethod
     @transaction.atomic

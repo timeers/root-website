@@ -1,0 +1,221 @@
+{% extends 'the_keep/base.html' %}
+{% block title %}{{ action }} Series | {% endblock %}
+{% load crispy_forms_tags i18n %}
+
+{% block content %}
+    <div class="content-section">
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <fieldset class="mb-3">
+                <legend class="border-bottom mb-4">{{ action }} Series{% if tournament %}: {{ tournament.name }}{% endif %}</legend>
+
+                {% if action == 'Create' %}
+                <p class="text-muted">
+                    A Series can be an ongoing or limited series of games. Once created you can schedule and create new Rounds for the Series.
+                    A League, Tournament or Playtest are examples of a Series and can have multiple Rounds.
+                    Each Series has an overall Leaderboard as well as Season/Round Leaderboards.
+                </p>
+                {% endif %}
+
+                <!-- Basic Information Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>{% trans 'Basic Information' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.name|as_crispy_field }}
+                            </div>
+                            {% if is_admin %}
+                            <div class="col-md-6 mb-2">
+                                {{ form.classification|as_crispy_field }}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        {% if is_admin %}
+                        <div class="border rounded p-3 mb-2 bg-light">
+                            <h6 class="text-muted mb-2"><i class="bi bi-shield-lock me-2"></i>{% trans 'Administration' %}</h6>
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    {{ form.designer|as_crispy_field }}
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                    {{ form.guild|as_crispy_field }}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <div class="row">
+                            <div class="col-md-12 mb-2">
+                                {{ form.description|as_crispy_field }}
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.picture|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dates & Visibility Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-calendar me-2"></i>{% trans 'Schedule & Visibility' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.start_date|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.end_date|as_crispy_field }}
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.publicly_visible|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Player Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'Player Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="border rounded p-3 mb-2 bg-light">
+                            <h6 class="text-muted mb-2"><i class="bi bi-person-badge me-2"></i>{% trans 'Player Count Restrictions' %}</h6>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="id_enforce_player_count" name="enforce_player_count"
+                                       {% if form.instance.enforce_player_count %}checked{% endif %}
+                                       onchange="togglePlayerCountFields()">
+                                <label class="form-check-label" for="id_enforce_player_count">
+                                    {% trans 'Restrict Player Count' %}
+                                </label>
+                            </div>
+                            <small class="form-text text-muted">{% trans 'Enable to set minimum and maximum player limits for this series' %}</small>
+
+                            <div id="player-count-fields" style="display: {% if form.instance.enforce_player_count %}block{% else %}none{% endif %};" class="mt-3">
+                                <div class="row">
+                                    <div class="col-md-6 mb-2">
+                                        {{ form.min_players|as_crispy_field }}
+                                    </div>
+                                    <div class="col-md-6 mb-2">
+                                        {{ form.max_players|as_crispy_field }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.open_roster|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Game & Asset Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-controller me-2"></i>{% trans 'Game & Asset Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+
+                            {% include 'the_warroom/partials/platform_toggle.html' with tournament_form=form %}
+     
+                            {% include 'the_warroom/partials/asset_mode_toggle.html' with tournament_form=form %}
+          
+                    </div>
+                </div>
+
+                <!-- Leaderboard Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>{% trans 'Leaderboard Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.leaderboard_positions|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.game_threshold|as_crispy_field }}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                                <!-- Leaderboard Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-pencil me-2"></i>{% trans 'Game Submission Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.teams|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.link_required|as_crispy_field }}
+                            </div>
+                        </div>
+                        {% include 'the_warroom/partials/coalition_toggle.html' with tournament_form=form %}
+
+                    </div>
+                </div>
+            </fieldset>
+
+            <!-- Save/Cancel Buttons -->
+            <div class="mb-3">
+                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+                {% if tournament %}
+                <a class="btn btn-secondary" href="{% url 'tournament-detail' tournament.slug %}">{% trans 'Cancel' %}</a>
+                {% else %}
+                <a class="btn btn-secondary" href="{% url 'tournaments-home' %}">{% trans 'Cancel' %}</a>
+                {% endif %}
+            </div>
+        </form>
+
+    </div>
+{% endblock content %}
+
+{% block scripts %}
+
+{% include 'the_warroom/partials/asset_mode_scripts.html' %}
+
+<script>
+    // Initialize Select2 for designer and guild fields
+    if ($('#id_designer').length) {
+        $('#id_designer').select2();
+    }
+    if ($('#id_guild').length) {
+        $('#id_guild').select2();
+    }
+
+    // Initialize datepickers
+    $(document).ready(function(){
+        $(".datepicker").datepicker({
+            dateFormat: "yy-mm-dd",
+            changeMonth: true,
+            changeYear: true,
+            yearRange: "c-100:c+10"
+        });
+    });
+
+    // Toggle player count fields visibility
+    function togglePlayerCountFields() {
+        const checkbox = document.getElementById('id_enforce_player_count');
+        const fields = document.getElementById('player-count-fields');
+        fields.style.display = checkbox.checked ? 'block' : 'none';
+    }
+
+</script>
+{% endblock %}

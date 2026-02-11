@@ -1,91 +1,256 @@
 {% extends 'the_keep/base.html' %}
-{% block title %}Players | {% endblock %}
 {% load crispy_forms_tags %}
+
+{% block title %}Manage Players - {{ object.name }}{% endblock %}
+
 {% block content %}
-<h1>{{ tournament.name }}</h1>
-{% if round %}
-<h2>{{ round.name }}</h2>
-{% endif %}
-<h3>Manage Players</h3>
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament_slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            {% if round %}
+            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            {% endif %}
+            <li class="breadcrumb-item active">Manage Players</li>
+        </ol>
+    </nav>
 
-<form method="POST">
-    {% csrf_token %}
-    {% if available_players_count > 0 %}
-    <div>
-        <h4>Add Players</h4>
-        {{ form.available_players }}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="bi bi-people me-2"></i>Manage Players</h2>
         {% if round %}
-        {{ form.add_all_players }} Add All
-        {% endif %}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            Players selected will be added to {{ tournament.name }}{% if round %} - {{ round.name }}{% endif %} and be able to record games.
-        </ul>
-    </div>
-    {% endif %}
-    {% if current_players_count > 0 %}
-    {% if not round %}
-
-    <div>
-        <h4>Eliminate Players</h4>
-        {{ form.eliminated_players }}
-    </div>
-    <div class="alert alert-warning mt-1" role="alert">
-        <ul>
-            Players selected will remain on the tournament roster but will be unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}.{% endif %}
-        </ul>
-    </div>
-
-
-    {% endif %}
-    <div>
-        <h4>Remove Players</h4>
-        {{ form.current_players }}
-        {% if tournament.name != "Root TTS League" %}
-            {{ form.remove_all_players }} Remove All
-        {% endif %}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            Players selected will be removed and unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}.{% endif %}
-        </ul>
-    </div>
-    {% endif %}
-    <button class="btn btn-primary" type="submit">Save Changes</button>
-</form>
-{% if round %}
-    <small>By default all series players are added to each series round. If you add players above only those players will be able to record games for this round.</small>
-{% endif %}
-{% if tournament.players.count %}
-<details>
-    <summary>Current Players</summary>
-    {% if round %}
-        {% if round.players.count %}
-            {% for player in round.players.all %}
-            <ul>{{ player.name }}</ul>
-            {% endfor %}
+        <a href="{% url 'round-settings' tournament_slug=tournament.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
         {% else %}
-            <ul>All Series Players</ul>
+        <a href="{% url 'tournament-settings' slug=tournament.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
         {% endif %}
-    {% else %}
-        {% for player in tournament.players.all %}
-        <ul>{{ player.name }}</ul>
-        {% endfor %}
+    </div>
+    {% if not round %}
+    <!-- Settings Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="bi bi-gear me-2"></i>Player Settings
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="align-items-end">
+                    <div>
+                        {{ form.open_roster|as_crispy_field }}
+                    </div>
+                    <div>
+                        <div class="form-check mb-3">
+                            <input type="checkbox" class="form-check-input" id="id_enforce_player_count"
+                                   name="enforce_player_count" {% if form.instance.enforce_player_count %}checked{% endif %}>
+                            <label class="form-check-label" for="id_enforce_player_count">Restrict Player Count</label>
+                        </div>
+                    </div>
+
+                </div>
+                <div id="player-count-fields" class="row mt-3" style="display: {% if form.instance.enforce_player_count %}flex{% else %}none{% endif %};">
+                    <div class="col-md-6">
+                        {{ form.min_players|as_crispy_field }}
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.max_players|as_crispy_field }}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>Save Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
     {% endif %}
-</details>
+    <!-- Search to Add Players -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="bi bi-search me-2"></i>Add Players
+        </div>
+        <div class="card-body">
+            <input type="text"
+                   class="form-control"
+                   placeholder="Search players by Discord username..."
+                   {% if round %}
+                   hx-get="{% url 'round-search-players' tournament_slug=tournament.slug round_slug=round.slug %}"
+                   hx-trigger="load, keyup changed delay:500ms"
+                   {% else %}
+                   hx-get="{% url 'tournament-search-players' slug=tournament.slug %}"
+                   hx-trigger="keyup changed delay:500ms"
+                   {% endif %}
+                   hx-target="#player-search-results"
+                   name="q">
+            <div id="player-search-results" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Three Column Player Groups -->
+    <div class="row">
+        <!-- Players Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-person-check me-2"></i>Players</span>
+                    <span class="badge bg-white text-success" id="players-count">{{ players.count }}</span>
+                </div>
+                <div class="card-body" id="players-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for player in players %}
+                        {% include 'the_warroom/partials/player_card.html' with group='players' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="players-empty">No players yet</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Waitlist Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-warning d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-clock me-2"></i>Waitlist</span>
+                    <span class="badge bg-dark" id="waitlist-count">{{ waitlist_players.count }}</span>
+                </div>
+                <div class="card-body" id="waitlist-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for player in waitlist_players %}
+                        {% include 'the_warroom/partials/player_card.html' with group='waitlist' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="waitlist-empty">No players on waitlist</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Eliminated Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-person-x me-2"></i>Eliminated</span>
+                    <span class="badge bg-white text-danger" id="eliminated-count">{{ eliminated_players.count }}</span>
+                </div>
+                <div class="card-body" id="eliminated-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for player in eliminated_players %}
+                        {% include 'the_warroom/partials/player_card.html' with group='eliminated' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="eliminated-empty">No eliminated players</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Toggle player count fields
+function togglePlayerCountFields() {
+    const checkbox = document.getElementById('id_enforce_player_count');
+    const fields = document.getElementById('player-count-fields');
+    fields.style.display = checkbox.checked ? 'flex' : 'none';
+}
+document.getElementById('id_enforce_player_count').addEventListener('change', togglePlayerCountFields);
+
+// Move player between groups via JavaScript/fetch
+function movePlayer(playerId, fromGroup, toGroup) {
+    {% if round %}
+    const moveUrl = "{% url 'round-move-player' tournament_slug=tournament.slug round_slug=round.slug %}";
+    {% else %}
+    const moveUrl = "{% url 'tournament-move-player' slug=tournament.slug %}";
+    {% endif %}
+
+    fetch(moveUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            from_group: fromGroup,
+            to_group: toGroup
+        })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Failed to move player');
+        return response.text();
+    })
+    .then(html => {
+        // Remove from current list (use 'available' if fromGroup is empty for search results)
+        const sourceGroup = fromGroup || 'available';
+        const playerCard = document.getElementById(`player-${playerId}-${sourceGroup}`);
+        if (playerCard) playerCard.remove();
+
+        // Add to target list (if toGroup is not empty, meaning not a delete)
+        if (toGroup) {
+            const targetList = document.getElementById(`${toGroup}-list`);
+            if (targetList) {
+                // Remove empty message if present
+                const emptyMsg = document.getElementById(`${toGroup}-empty`);
+                if (emptyMsg) emptyMsg.remove();
+
+                targetList.insertAdjacentHTML('beforeend', html);
+            }
+        }
+
+        updatePlayerCounts();
+
+        // Refresh search results if player was removed (toGroup is empty) and we're in round view
+        {% if round %}
+        if (!toGroup) {
+            refreshSearchResults();
+        }
+        {% endif %}
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+// Refresh search results (for rounds only)
+{% if round %}
+function refreshSearchResults() {
+    const searchInput = document.querySelector('input[name="q"]');
+    if (searchInput) {
+        // Get the current search query
+        const searchQuery = searchInput.value;
+        const searchUrl = "{% url 'round-search-players' tournament_slug=tournament.slug round_slug=round.slug %}";
+
+        // Make HTMX request with current query
+        fetch(`${searchUrl}?q=${encodeURIComponent(searchQuery)}`)
+            .then(response => response.text())
+            .then(html => {
+                document.getElementById('player-search-results').innerHTML = html;
+            })
+            .catch(error => console.error('Error refreshing search:', error));
+    }
+}
 {% endif %}
 
+// Update badge counts
+function updatePlayerCounts() {
+    const playersList = document.getElementById('players-list');
+    const waitlistList = document.getElementById('waitlist-list');
+    const eliminatedList = document.getElementById('eliminated-list');
 
-{% endblock %}
+    document.getElementById('players-count').textContent =
+        playersList.querySelectorAll('.player-card').length;
+    document.getElementById('waitlist-count').textContent =
+        waitlistList.querySelectorAll('.player-card').length;
+    document.getElementById('eliminated-count').textContent =
+        eliminatedList.querySelectorAll('.player-card').length;
+}
 
- {% block scripts %}
- <script>
-    $('#id_available_players').select2();
-    $('#id_current_players').select2();
-    if ($('#id_eliminated_players').length) {
-        $('#id_eliminated_players').select2();
+// Handle HTMX after player is added from search
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.successful && evt.detail.elt.closest('#player-search-results')) {
+        // Remove empty message from players list
+        const emptyMsg = document.getElementById('players-empty');
+        if (emptyMsg) emptyMsg.remove();
+
+        updatePlayerCounts();
     }
- </script>
-    
- {% endblock scripts %}
+});
+</script>
+{% endblock %}

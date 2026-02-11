@@ -1,0 +1,47 @@
+<div class="player-card border rounded p-2 mb-2 d-flex justify-content-between align-items-center bg-white"
+     id="player-{{ player.id }}-{{ group }}">
+    <div class="d-flex align-items-center flex-grow-1 me-2" style="min-width: 0;">
+        {% if player.image %}
+        <img src="{{ player.image.url }}" class="md-avatar-icon me-2 flex-shrink-0">
+        {% else %}
+        <i class="bi bi-person-circle me-2 text-muted flex-shrink-0" style="font-size: 1.5rem;"></i>
+        {% endif %}
+        <span class="text-truncate">{{ player.display_name }}</span>
+    </div>
+    <div class="btn-group btn-group-sm">
+        {% if group == 'available' %}
+            <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, '', 'players')" title="Add to players">
+                <i class="bi bi-check-circle"></i>
+            </button>
+            <button class="btn btn-outline-warning" onclick="movePlayer({{ player.id }}, '', 'waitlist')" title="Move to waitlist">
+                <i class="bi bi-clock"></i>
+            </button>
+        {% elif group == 'players' %}
+            <button class="btn btn-outline-warning" onclick="movePlayer({{ player.id }}, 'players', 'waitlist')" title="Move to waitlist">
+                <i class="bi bi-clock"></i>
+            </button>
+            <button class="btn btn-outline-danger" onclick="movePlayer({{ player.id }}, 'players', 'eliminated')" title="Eliminate">
+                <i class="bi bi-x-circle"></i>
+            </button>
+        {% elif group == 'waitlist' %}
+            <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, 'waitlist', 'players')" title="Add to players">
+                <i class="bi bi-check-circle"></i>
+            </button>
+            <button class="btn btn-outline-danger" onclick="movePlayer({{ player.id }}, 'waitlist', 'eliminated')" title="Eliminate">
+                <i class="bi bi-x-circle"></i>
+            </button>
+        {% elif group == 'eliminated' %}
+            <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, 'eliminated', 'players')" title="Add to players">
+                <i class="bi bi-check-circle"></i>
+            </button>
+            <button class="btn btn-outline-warning" onclick="movePlayer({{ player.id }}, 'eliminated', 'waitlist')" title="Move to waitlist">
+                <i class="bi bi-clock"></i>
+            </button>
+        {% endif %}
+        {% if group != 'available' %}
+        <button class="btn btn-outline-secondary" onclick="movePlayer({{ player.id }}, '{{group}}', '')" title="Move to waitlist">
+            <i class="bi bi-trash"></i>
+        </button>
+        {% endif %}
+    </div>
+</div>

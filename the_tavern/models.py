@@ -59,11 +59,19 @@ class SurveyQuerySet(models.QuerySet):
         )
     
     def user_has_invite(self, profile):
+        """
+        Return surveys where the user has an invite.
+        Checks:
+        - Direct invite (invited_players)
+        - Series membership (player in any series GroupingSession, no round)
+        - Round membership (player in any round GroupingSession)
+        - Guild membership
+        """
         return self.filter(
             Q(is_public=False) & (
                 Q(invited_players=profile) |
-                Q(series__players=profile, series_round__isnull=True) |
-                Q(series_round__players=profile) |
+                Q(series__grouping_sessions__session_players__profile=profile, series_round__isnull=True) |
+                Q(series_round__grouping_sessions__session_players__profile=profile) |
                 Q(guild__members=profile)
             )
         ).exclude(

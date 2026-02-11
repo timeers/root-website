@@ -7,8 +7,11 @@
     <div class="card-body">
         {# Basic Details Section #}
         <div class="mb-2">
-            <label for="title" class="form-label">{% trans 'Title' %} <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" required maxlength="200">
+            <label for="title" class="form-label">{% trans 'Title' %} <span id="title-required-indicator">*</span></label>
+            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" maxlength="200">
+            <div class="invalid-feedback d-none" id="title-error">
+                {% trans 'Survey title is required' %}
+            </div>
         </div>
 
         <div class="mb-2">

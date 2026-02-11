@@ -302,9 +302,9 @@ Record issues found during the audit that need to be fixed or investigated later
 - [ ] `leaderboard-view` - leaderboard_view
 
 ### Scorecards
-- [ ] `record-old-scorecard` - scorecard_manage_view
+- [ ] `record-old-scorecard` - scorecard_old_manage_view
 - [ ] `detail-scorecard` - scorecard_detail_view
-- [ ] `update-old-scorecard` - scorecard_manage_view
+- [ ] `update-old-scorecard` - scorecard_old_manage_view
 - [ ] `delete-scorecard` - scorecard_delete_view
 - [ ] `assign-scorecard` - scorecard_assign_view
 - [ ] `assign-effort` - effort_assign_view
@@ -317,7 +317,7 @@ Record issues found during the audit that need to be fixed or investigated later
 - [ ] `tournament-designer-update` - TournamentDesignerUpdateView
 - [ ] `tournament-delete` - TournamentDeleteView
 - [ ] `tournament-players` - tournament_manage_players
-- [ ] `tournament-assets` - tournament_manage_assets
+- [ ] `tournament-manage-assets` - tournament_manage_assets
 - [ ] `tournaments-home` - tournaments_home
 
 ### HTMX Pagination

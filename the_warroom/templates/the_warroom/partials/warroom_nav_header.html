@@ -44,9 +44,9 @@
                         </button>
                         <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
-                            <li><a class="dropdown-item" href="{% url 'record-v2-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
-                            {% if user.profile.admin and active_page == 'series' %}
-                            <li><a class="dropdown-item" href="{% url 'tournament-create' %}">{% trans 'New Series' %}</a></li>
+                            <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
+                            {% if user.profile.player and active_page == 'series' %}
+                            <li><a class="dropdown-item" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a></li>
                             {% endif %}
                         </ul>
                     </div>
@@ -60,9 +60,9 @@
                         </button>
                         <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
-                            <li><a class="dropdown-item" href="{% url 'record-v2-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
-                            {% if user.profile.admin and active_page == 'series' %}
-                            <li><a class="dropdown-item" href="{% url 'tournament-create' %}">{% trans 'New Series' %}</a></li>
+                            <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
+                            {% if user.profile.player and active_page == 'series' %}
+                            <li><a class="dropdown-item" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a></li>
                             {% endif %}
                         </ul>
                     </div>

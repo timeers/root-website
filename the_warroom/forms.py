@@ -1,6 +1,6 @@
 from django import forms
 from django.utils import timezone
-from .models import Effort, Game, TurnScore, ScoreCard, Round, Tournament
+from .models import Effort, Game, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
@@ -129,7 +129,7 @@ class GameCreateForm(forms.ModelForm):
             if user.profile.admin:
                 # Select all active tournament roundds (Admin can record games for any tournament)
                 active_rounds = Round.objects.filter(
-                    Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now())
+                    Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now()).distinct()
             else:
                 
                 active_rounds = Round.objects.filter(
@@ -146,7 +146,7 @@ class GameCreateForm(forms.ModelForm):
                     Q(players__isnull=False, players__in=[user.profile]) |
                     Q(players__isnull=True) |
                     Q(tournament__designer=user.profile)
-                )
+                ).distinct()
 
 
             self.fields['round'].queryset = active_rounds
@@ -177,7 +177,7 @@ class GameCreateForm(forms.ModelForm):
             # Check that the deck, landmarks, hirelings and map are registered for the tournament
             tournament_maps = round.tournament.maps.all()
             tournament_decks = round.tournament.decks.all()
-            if not round.tournament.open_assets:
+            if not round.tournament.asset_mode == AssetModeChoices.OPEN:
                 if landmarks:
                     tournament_landmarks = round.tournament.landmarks.all()
                     for landmark in landmarks:
@@ -384,7 +384,7 @@ class GameCreateForm(forms.ModelForm):
                             #     validation_errors_to_display.append(f'{player} was previously eliminated from {round.tournament}')
                             # else:
                             validation_errors_to_display.append(f'{player} is not registered for {round.tournament}')
-                if not round.tournament.open_assets:
+                if not round.tournament.asset_mode == AssetModeChoices.OPEN:
                     for faction in faction_roster:
                         if faction not in tournament_factions:
                             validation_errors_to_display.append(f'The Faction {faction} is not playable in {round.tournament}')
@@ -712,9 +712,155 @@ class AssignEffortForm(forms.ModelForm):
 
 
 
-class TournamentCreateForm(forms.ModelForm):
+# class TournamentCreateForm(forms.ModelForm):
+#     PLATFORM_CHOICES = [
+#         (None, 'Any platform'),  # Represents the null choice
+#         ('Tabletop Simulator', 'Tabletop Simulator'),
+#         ('Root Digital', 'Root Digital'),
+#         ('In Person', 'In Person'),
+#     ]
+#     COALITION_CHOICES = [
+#         ('None', 'No Coalitions'),
+#         ('One', 'Single Coalitions Only'),
+#         ('All', 'Double Coalitions Allowed'),
+#     ]
+#     platform = forms.ChoiceField(
+#         choices=PLATFORM_CHOICES,
+#         initial=None,  # Set the default choice to None
+#         required=False,
+#         label='Required Platform'
+#     )
+#     coalition_type = forms.ChoiceField(
+#         choices=COALITION_CHOICES,
+#         initial='One',  # Set the default choice to One
+#         required=False,
+#         label='Allowed Coalitions'
+#     )
+#     picture = forms.ImageField(required=False)
+    
+#     class Meta:
+#         model = Tournament
+#         fields = ['name', 'designer', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'asset_mode', 'include_clockwork', 'link_required', 'coalition_type', 'teams', 'picture']
+#         labels = {
+#             'name': 'Series Name',
+#             'designer': 'Owner (will be able to edit Rounds)',
+#             'start_date': 'Start Date',
+#             'end_date': 'End Date (Optional)',
+#             'leaderboard_positions': 'Leaderboard Positions',
+#             'game_threshold': 'Leaderboard Game Threshold',
+#             'link_required': 'Require Link with Game Submission',
+#             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
+#             'description': 'Description (Optional)',
+#             'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
+#             'asset_mode': 'Asset Mode',
+#             'include_clockwork': 'Include Clockwork Factions',
+#             'picture': 'Series Image',
+#         }
+#     def __init__(self, user=None, *args, **kwargs):
+#         super(TournamentCreateForm, self).__init__(*args, **kwargs)
+#         self.fields['description'].widget.attrs.update({
+#             'placeholder': 'Give a brief description of the series.',
+#             'rows': '2'
+#             })
+#         # Set the initial value for 'start_date' to the current time
+#         if not self.instance.pk:  # Only set this if the instance is new
+#             self.fields['start_date'].initial = timezone.now()
+
+#         if not self.instance.pk:
+#             self.fields['designer'].initial = user.profile.id
+            
+#         self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
+#         self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
+
+            
+#     def save(self, commit=True):
+#         """
+#         Save the round, associating it with the tournament if it's a new round.
+#         If updating an existing round, retain the current tournament association.
+#         """
+#         instance = super().save(commit=False)
+
+#         # Check if this is a new tournament to set the default assets
+#         set_default_assets = False
+#         if not instance.pk:
+#             # New round - set initial assets
+#             set_default_assets = True
+#         else:
+#             # Existing round — check if any related assets are missing
+#             if (
+#                 not instance.factions.exists() or
+#                 not instance.maps.exists() or
+#                 not instance.decks.exists() or
+#                 not instance.vagabonds.exists()
+#             ):
+#                 set_default_assets = True
+#         if commit:
+#             instance.save()
+
+#         if set_default_assets:
+#             if instance.platform == "Root Digital":
+#                 instance.factions.set(Faction.objects.filter(in_root_digital=True).exclude(type="C"))
+#                 instance.maps.set(Map.objects.filter(in_root_digital=True))
+#                 instance.decks.set(Deck.objects.filter(in_root_digital=True))
+#                 instance.vagabonds.set(Vagabond.objects.filter(in_root_digital=True))
+#             else:
+#                 instance.factions.set(Faction.objects.filter(official=True, status='1').exclude(type="C"))
+#                 instance.maps.set(Map.objects.filter(official=True, status='1'))
+#                 instance.decks.set(Deck.objects.filter(official=True, status='1'))
+#                 instance.vagabonds.set(Vagabond.objects.filter(official=True, status='1'))
+
+#         return instance
+
+# view for non admin tournament hosts
+# class TournamentUpdateForm(forms.ModelForm):
+#     PLATFORM_CHOICES = [
+#         (None, 'Any platform'),  # Represents the null choice
+#         ('Tabletop Simulator', 'Tabletop Simulator'),
+#         ('Root Digital', 'Root Digital'),
+#         ('In Person', 'In Person'),
+#     ]
+#     COALITION_CHOICES = [
+#         ('None', 'No Coalitions'),
+#         ('One', 'Single Coalitions Only'),
+#         ('All', 'Double Coalitions Allowed'),
+#     ]
+#     platform = forms.ChoiceField(
+#         choices=PLATFORM_CHOICES,
+#         initial=None,  # Set the default choice to None
+#         required=False,
+#         label='Required Platform'
+#     )
+#     coalition_type = forms.ChoiceField(
+#         choices=COALITION_CHOICES,
+#         initial='One',  # Set the default choice to One
+#         required=False,
+#         label='Allowed Coalitions'
+#     )
+#     class Meta:
+#         model = Tournament
+#         fields = ['name', 'description', 'leaderboard_positions', 'game_threshold', 'platform', 'coalition_type']
+#         labels = {
+#             'name': 'Series Name',
+#             'description': 'Description (Optional)',
+#             'leaderboard_positions': 'Leaderboard Positions',
+#             'game_threshold': 'Leaderboard Game Threshold',
+#             'coalition_type': 'Allowed Coalitions',
+#             'platform': 'Required Platform'
+#         }
+
+#     def __init__(self, *args, **kwargs):
+#         super(TournamentUpdateForm, self).__init__(*args, **kwargs)
+#         # Optionally update widgets, add placeholder text, etc.
+#         self.fields['description'].widget.attrs.update({
+#             'placeholder': 'Brief description of the series.',
+#             'rows': '2',
+#         })
+
+
+# Dynamic forms for new tournament create/update views with permission-based field access
+class TournamentDynamicCreateForm(forms.ModelForm):
     PLATFORM_CHOICES = [
-        (None, 'Any platform'),  # Represents the null choice
+        (None, 'Any platform'),
         ('Tabletop Simulator', 'Tabletop Simulator'),
         ('Root Digital', 'Root Digital'),
         ('In Person', 'In Person'),
@@ -726,68 +872,84 @@ class TournamentCreateForm(forms.ModelForm):
     ]
     platform = forms.ChoiceField(
         choices=PLATFORM_CHOICES,
-        initial=None,  # Set the default choice to None
+        initial=None,
         required=False,
         label='Required Platform'
     )
     coalition_type = forms.ChoiceField(
         choices=COALITION_CHOICES,
-        initial='One',  # Set the default choice to One
+        initial='One',
         required=False,
         label='Allowed Coalitions'
     )
     picture = forms.ImageField(required=False)
-    
+
     class Meta:
         model = Tournament
-        fields = ['name', 'designer', 'description', 'start_date', 'end_date', 'max_players', 'min_players', 'open_roster', 'leaderboard_positions', 'game_threshold', 'platform', 'open_assets', 'include_fan_content', 'include_clockwork', 'link_required', 'coalition_type', 'teams', 'picture']
+        fields = [
+            'name', 'classification', 'designer', 'guild', 'description',
+            'start_date', 'end_date', 'publicly_visible',
+            'max_players', 'min_players', 'enforce_player_count', 'open_roster',
+            'platform', 'link_required',
+            'asset_mode', 'include_clockwork',
+            'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
+            'picture'
+        ]
         labels = {
             'name': 'Series Name',
+            'classification': 'Classification',
             'designer': 'Owner (will be able to edit Rounds)',
+            'guild': 'Discord Guild',
             'start_date': 'Start Date',
             'end_date': 'End Date (Optional)',
+            'publicly_visible': 'Display on Series home page',
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
             'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
-            'open_assets': 'Allow all Official and Fan Content',
-            'include_fan_content': 'Include Fan Content',
+            'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'picture': 'Series Image',
         }
+
     def __init__(self, user=None, *args, **kwargs):
-        super(TournamentCreateForm, self).__init__(*args, **kwargs)
+        super(TournamentDynamicCreateForm, self).__init__(*args, **kwargs)
+
+        # Set initial values for new tournaments
+        if not self.instance.pk:
+            self.fields['start_date'].initial = timezone.now()
+            if user:
+                self.fields['designer'].initial = user.profile.id
+                self.fields['classification'].initial = Tournament.ClassificationTypes.GROUP
+
+        # Add CSS classes for date fields
+        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
+        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
+
+        # Add placeholder for description
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief description of the series.',
             'rows': '2'
-            })
-        # Set the initial value for 'start_date' to the current time
-        if not self.instance.pk:  # Only set this if the instance is new
-            self.fields['start_date'].initial = timezone.now()
+        })
 
-        if not self.instance.pk:
-            self.fields['designer'].initial = user.profile.id
-            
-        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
-        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
+        # Remove admin-only fields for non-admins
+        if user and not user.profile.admin:
+            self.fields.pop('classification', None)
+            self.fields.pop('designer', None)
+            self.fields.pop('guild', None)
 
-            
     def save(self, commit=True):
-        """
-        Save the round, associating it with the tournament if it's a new round.
-        If updating an existing round, retain the current tournament association.
-        """
+        """Save tournament and set default assets based on platform"""
         instance = super().save(commit=False)
 
         # Check if this is a new tournament to set the default assets
         set_default_assets = False
         if not instance.pk:
-            # New round - set initial assets
             set_default_assets = True
         else:
-            # Existing round — check if any related assets are missing
+            # Existing tournament - check if any related assets are missing
             if (
                 not instance.factions.exists() or
                 not instance.maps.exists() or
@@ -795,9 +957,11 @@ class TournamentCreateForm(forms.ModelForm):
                 not instance.vagabonds.exists()
             ):
                 set_default_assets = True
+
         if commit:
             instance.save()
 
+        # Set default assets based on platform
         if set_default_assets:
             if instance.platform == "Root Digital":
                 instance.factions.set(Faction.objects.filter(in_root_digital=True).exclude(type="C"))
@@ -812,10 +976,10 @@ class TournamentCreateForm(forms.ModelForm):
 
         return instance
 
-# view for non admin tournament hosts
-class TournamentUpdateForm(forms.ModelForm):
+
+class TournamentDynamicUpdateForm(forms.ModelForm):
     PLATFORM_CHOICES = [
-        (None, 'Any platform'),  # Represents the null choice
+        (None, 'Any platform'),
         ('Tabletop Simulator', 'Tabletop Simulator'),
         ('Root Digital', 'Root Digital'),
         ('In Person', 'In Person'),
@@ -827,36 +991,68 @@ class TournamentUpdateForm(forms.ModelForm):
     ]
     platform = forms.ChoiceField(
         choices=PLATFORM_CHOICES,
-        initial=None,  # Set the default choice to None
+        initial=None,
         required=False,
         label='Required Platform'
     )
     coalition_type = forms.ChoiceField(
         choices=COALITION_CHOICES,
-        initial='One',  # Set the default choice to One
+        initial='One',
         required=False,
         label='Allowed Coalitions'
     )
+    picture = forms.ImageField(required=False)
+
     class Meta:
         model = Tournament
-        fields = ['name', 'description', 'leaderboard_positions', 'game_threshold', 'platform', 'coalition_type']
+        fields = [
+            'name', 'classification', 'designer', 'guild', 'description',
+            'start_date', 'end_date', 'publicly_visible',
+            'max_players', 'min_players', 'enforce_player_count', 'open_roster',
+            'platform', 'link_required',
+            'asset_mode', 'include_clockwork',
+            'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
+            'picture'
+        ]
         labels = {
             'name': 'Series Name',
+            'classification': 'Classification',
+            'designer': 'Owner',
+            'guild': 'Discord Guild',
             'description': 'Description (Optional)',
+            'start_date': 'Start Date',
+            'end_date': 'End Date (Optional)',
+            'publicly_visible': 'Display on Series home page',
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
             'coalition_type': 'Allowed Coalitions',
-            'platform': 'Required Platform'
+            'platform': 'Required Platform',
+            'link_required': 'Require Link with Game Submission',
+            'teams': 'Allow for multiple non-Coalition Wins (Teams)',
+            'open_roster': 'Allow Unregistered Players to join games',
+            'asset_mode': 'Asset Mode',
+            'include_clockwork': 'Include Clockwork Factions',
+            'picture': 'Series Image',
         }
 
-    def __init__(self, *args, **kwargs):
-        super(TournamentUpdateForm, self).__init__(*args, **kwargs)
-        # Optionally update widgets, add placeholder text, etc.
+    def __init__(self, user=None, *args, **kwargs):
+        super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
+
+        # Add CSS classes for date fields
+        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
+        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
+
+        # Add placeholder for description
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Brief description of the series.',
             'rows': '2',
         })
 
+        # Remove admin-only fields for non-admins
+        if user and not user.profile.admin:
+            self.fields.pop('classification', None)
+            self.fields.pop('designer', None)
+            self.fields.pop('guild', None)
 
 
 class RoundCreateForm(forms.ModelForm):
@@ -1195,112 +1391,49 @@ class RoundManagePlayersForm(forms.Form):
     
     def save(self):
         if self.cleaned_data:
+            from the_warroom.models import SessionPlayer
+
+            # Ensure round has its own master session (creates if needed)
+            if not self.round.master_session:
+                self.round.create_round_session()
+
+            round_session = self.round.master_session
+
             # Add selected players to the round
             for player in self.cleaned_data['available_players']:
-                self.round.players.add(player)
+                SessionPlayer.objects.update_or_create(
+                    session=round_session,
+                    profile=player,
+                    defaults={'status': 'ungrouped', 'added_via': 'manual'}
+                )
 
+            # Remove selected players from the round
             for player in self.cleaned_data['current_players']:
-                self.round.players.remove(player)
+                SessionPlayer.objects.filter(
+                    session=round_session,
+                    profile=player
+                ).delete()
+
+            round_session.recalculate_statistics()
 
 
 
-class TournamentManagePlayersForm(forms.Form):
-    # Multiple select field for players not yet in the tournament
-    available_players = forms.ModelMultipleChoiceField(
-        queryset=Profile.objects.none(),
-        widget=forms.SelectMultiple(attrs={'size': '10'}),
-        required=False,
-        label='Add Players'
-    )
-
-    # Multiple select field for players already in the tournament
-    current_players = forms.ModelMultipleChoiceField(
-        queryset=Profile.objects.none(),
-        widget=forms.SelectMultiple(attrs={'size': '10'}),
-        required=False,
-        label='Remove Players'
-    )
-
-    # Multiple select field for players already in the tournament
-    eliminated_players = forms.ModelMultipleChoiceField(
-        queryset=Profile.objects.none(),
-        widget=forms.SelectMultiple(attrs={'size': '10'}),
-        required=False,
-        label='Eliminate/Ban Players'
-    )
+class TournamentPlayerSettingsForm(forms.ModelForm):
+    """Form for player-related tournament settings only."""
+    class Meta:
+        model = Tournament
+        fields = ['open_roster', 'enforce_player_count', 'min_players', 'max_players']
+        labels = {
+            'enforce_player_count': 'Restrict Player Count',
+        }
 
 
-    # Don't want to be able to add all players to a tournament.
-    # # Checkbox to select all players in the available players list
-    # add_all_players = forms.BooleanField(
-    #     required=False,
-    #     label='Add All Players'
-    # )
-
-    # Checkbox to select all players in the available players list
-    remove_all_players = forms.BooleanField(
-        required=False,
-        label='Remove All Players'
-    )
-
-    def clean(self):
-        cleaned_data = super().clean()
-
-        # # Check if the "Add All Players" checkbox is checked
-        # add_all = cleaned_data.get('add_all_players')
-        # if add_all:
-        #     # If checked, add all available players to the available_players field
-        #     cleaned_data['available_players'] = list(self.fields['available_players'].queryset)
-
-        # Check if the "Remove All Players" checkbox is checked
-
-        remove_all = cleaned_data.get('remove_all_players')
-
-        if remove_all:
-            # If checked, add all current players to the current_players field
-            cleaned_data['current_players'] = list(self.fields['current_players'].queryset)
-
-        return cleaned_data
-
-
-    def __init__(self, *args, tournament=None, **kwargs):
-        self.tournament = tournament 
-        # Get the tournament and querysets passed from the view
-        available_players_query = kwargs.pop('available_players_query', None)
-        current_players_query = kwargs.pop('current_players_query', None)
-        
-
-        super().__init__(*args, **kwargs)
-
-        # Set the querysets for the fields
-        self.fields['available_players'].queryset = available_players_query
-        self.fields['current_players'].queryset = current_players_query
-        self.fields['eliminated_players'].queryset = current_players_query
-    
-
-    def save(self):
-        if self.cleaned_data:
-            # Add selected players to the tournament
-            self.tournament.players.add(*self.cleaned_data['available_players'])
-            self.tournament.eliminated_players.remove(*self.cleaned_data['available_players'])
-
-            # Add eliminated players to the tournament and remove them from players
-            self.tournament.eliminated_players.add(*self.cleaned_data['eliminated_players'])
-            self.tournament.players.remove(*self.cleaned_data['eliminated_players'])
-
-            # Remove selected current players from the tournament players
-            self.tournament.players.remove(*self.cleaned_data['current_players'])
-
-
-
-            # If players were removed from the tournament, remove them from all rounds
-            if self.cleaned_data['current_players']:
-                # Get all rounds in the tournament where players need to be removed
-                rounds = self.tournament.rounds.all()
-
-                # Create a set of players to remove
-                players_to_remove = set(self.cleaned_data['current_players']) | set(self.cleaned_data['eliminated_players'])
-
-                # For each round, remove the players in bulk (minimizes queries)
-                for round in rounds:
-                    round.players.remove(*players_to_remove)
+class TournamentAssetSettingsForm(forms.ModelForm):
+    """Form for asset-related tournament settings only."""
+    class Meta:
+        model = Tournament
+        fields = ['asset_mode', 'include_clockwork']
+        labels = {
+            'asset_mode': 'Asset Mode',
+            'include_clockwork': 'Include Clockwork Factions',
+        }

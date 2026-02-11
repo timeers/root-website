@@ -28,17 +28,15 @@
     </div>
     {% if playable_round %}
         <div>
-            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'record-game' %}?series={{ playable_round.id }}">New Game +</a>
+            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'record-game' %}?series-round={{ playable_round.id }}">New Game +</a>
         </div>
     {% endif %}
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>{{object.name}}</h1>
     {% if user.is_authenticated %}
-        {% if user.profile.admin or user.profile == object.tournament.designer %}
-            <a class="btn btn-warning btn-sm ms-2 mt-1 mb-1" href="{{ object.get_update_url }}"><i class="bi bi-pencil-square"></i></a>
-        {% elif user.profile == object.designer and object.type == "Tournament" %}
-            <a class="btn btn-warning btn-sm ms-2 mt-1 mb-1" href="{% url 'tournament-designer-update' slug=object.slug %}"><i class="bi bi-pencil-square"></i></a>
+        {% if user.profile.admin or user.profile == object.tournament.designer or user.profile == object.designer %}
+            <a class="btn btn-warning btn-sm ms-2 mt-1 mb-1" href="{{ object.get_settings_url }}"><i class="bi bi-gear"></i> Settings</a>
         {% endif %}
     {% endif %}
 </div>

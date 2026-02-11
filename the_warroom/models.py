@@ -18,6 +18,20 @@ class PlatformChoices(models.TextChoices):
     IRL = 'In Person'
     # ETC = 'Other'
 
+class AssetModeChoices(models.IntegerChoices):
+    OPEN = 1, 'Open Assets'           # Any asset can be used
+    OFFICIAL = 2, 'Official Only'      # All official content included automatically
+    SELECTED = 3, 'Selected Only'      # Only specifically selected assets
+
+
+class FormatChoices(models.TextChoices):
+    SINGLE_ELIM = 'Single Elimination'
+    DOUBLE_ELIM = 'Double Elimination'
+    SWISS = 'Swiss'
+    ROUND_ROBIN = 'Round Robin'
+    POOL_PLAY = 'Pool Play'
+    CUSTOM = 'Custom'
+
 class GameQuerySet(models.QuerySet):
     def only_official_components(self):
         return self.filter(official=True)
@@ -60,18 +74,37 @@ class Tournament(models.Model):
         GROUP = "Game Group"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
+    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='hosted_tournaments')
+    description = models.TextField(null=True, blank=True)
+    picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
     classification = models.CharField(
         max_length=50,
         choices=ClassificationTypes.choices,
         default=ClassificationTypes.TOURNAMENT
     )
-    guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments')
 
-    picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
+    default_format = models.CharField(
+        max_length=50, 
+        choices=FormatChoices.choices, 
+        default=FormatChoices.SINGLE_ELIM
+    )
 
-    players = models.ManyToManyField(Profile, blank=True, related_name='current_tournaments')
-    eliminated_players = models.ManyToManyField(Profile, blank=True, related_name='past_tournaments')
+    # Access & Roster
+    guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this Series with a Guild to allow members to record games')
+    open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to games in this Series')
+    # Player management now handled via GroupingSession/SessionPlayer pattern
+    # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
+    publicly_visible = models.BooleanField(default=False, help_text='Display this Series on the Series home page')
+
+    # Asset Settings
+    asset_mode = models.IntegerField(
+        choices=AssetModeChoices.choices,
+        default=AssetModeChoices.OPEN,
+        help_text='Open: any asset. Official: all official assets. Selected: only chosen assets.'
+    )
+    include_clockwork = models.BooleanField(default=False)
+    
     factions = models.ManyToManyField(Faction, blank=True, related_name='tournaments')
     maps = models.ManyToManyField(Map, blank=True, related_name='tournaments')
     decks = models.ManyToManyField(Deck, blank=True, related_name='tournaments')
@@ -80,35 +113,29 @@ class Tournament(models.Model):
     tweaks = models.ManyToManyField(Tweak, blank=True, related_name='tournaments')
     vagabonds = models.ManyToManyField(Vagabond, blank=True, related_name='tournaments')
 
+    enforce_player_count = models.BooleanField(default=False)
     max_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
     min_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
 
-    # elimination = models.IntegerField(default=None, null=True, blank=True)
+    # Submission Settings
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
     link_required = models.BooleanField(default=False)
 
+    # Leaderboard Settings
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])
     leaderboard_positions = models.IntegerField(default=15, validators=[MinValueValidator(3), MaxValueValidator(30)])
 
-    include_fan_content = models.BooleanField(default=False)
-    include_clockwork = models.BooleanField(default=False)
     teams = models.BooleanField(default=False)
     coalition_type = models.CharField(
         max_length=50,
         choices=CoalitionTypes.choices,
         default=CoalitionTypes.ONE
     )
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='hosted_tournaments')
-    description = models.TextField(null=True, blank=True)
 
     start_date = models.DateTimeField(default=timezone.now)
     end_date = models.DateTimeField(null=True, blank=True)
-    
+
     slug = models.SlugField(unique=True, null=True, blank=True)
-
-    open_roster = models.BooleanField(default=True)
-    open_assets = models.BooleanField(default=True)
-
     objects = TournamentQuerySet.as_manager()
 
     @property
@@ -123,16 +150,19 @@ class Tournament(models.Model):
     
     def get_absolute_url(self):
         return reverse('tournament-detail', kwargs={'tournament_slug': self.slug})
-    
+
+    def get_settings_url(self):
+        return reverse('tournament-settings', kwargs={'slug': self.slug})
+
     def get_players_url(self):
-        return reverse('tournament-players', kwargs={'tournament_slug': self.slug})
-    
+        return reverse('tournament-manage-players', kwargs={'slug': self.slug})
+
     def get_assets_url(self):
-        return reverse('tournament-assets', kwargs={'tournament_slug': self.slug})
-    
+        return reverse('tournament-manage-assets', kwargs={'slug': self.slug})
+
     def get_update_url(self):
-        return reverse('tournament-update', kwargs={'slug': self.slug})
-    
+        return reverse('tournament-dynamic-update', kwargs={'slug': self.slug})
+
 
     def game_count(self):
         # Counts the number of games associated with this tournament
@@ -145,20 +175,147 @@ class Tournament(models.Model):
 
     def all_player_count(self):
         return Effort.objects.filter(game__round__tournament=self).values('player').distinct().count()
-        # all_players = self.players.count() + self.eliminated_players.count()
-        # return all_players
 
 
     def all_player_queryset(self):
-        # Use union to combine the two querysets (must be the same model)
-        players = self.players.all()
-        eliminated_players = self.eliminated_players.all()
+        """All players in the tournament (active, waitlist, and eliminated)."""
+        from the_gatehouse.models import Profile
+        session = self.master_session
+        return Profile.objects.filter(
+            session_participations__session=session
+        ).distinct()
 
-        # Combine the two querysets and return as a QuerySet
-        all_players = players.union(eliminated_players)
+    # New master session pattern for player management
+    @property
+    def master_session(self):
+        """Get or create the master player management session."""
 
-        return all_players
-    
+        # Check cache first (within this instance)
+        if not hasattr(self, '_master_session_cache'):
+            session = self.grouping_sessions.filter(
+                round__isnull=True,
+                grouping_type='manual'
+            ).first()
+
+            if not session:
+                # Import here to avoid circular imports
+                from the_warroom.models import GroupingSession
+                session = GroupingSession.objects.create(
+                    tournament=self,
+                    name=f"Master Session - {self.name}",
+                    grouping_type='manual',
+                    status='draft',
+                    min_group_size=self.min_players,
+                    max_group_size=self.max_players,
+                )
+
+            self._master_session_cache = session
+
+        return self._master_session_cache
+
+    def get_players_queryset(self):
+        """Active players (UNGROUPED status in master session)."""
+        from the_gatehouse.models import Profile
+        session = self.master_session  # Auto-creates if doesn't exist
+        return Profile.objects.filter(
+            session_participations__session=session,
+            session_participations__status='ungrouped'
+        )
+
+    def get_waitlist_players_queryset(self):
+        """Waitlisted players (WAITLIST status in master session)."""
+        from the_gatehouse.models import Profile
+        session = self.master_session
+        return Profile.objects.filter(
+            session_participations__session=session,
+            session_participations__status='waitlist'
+        )
+
+    def get_eliminated_players_queryset(self):
+        """Eliminated players (ELIMINATED status in master session)."""
+        from the_gatehouse.models import Profile
+        session = self.master_session
+        return Profile.objects.filter(
+            session_participations__session=session,
+            session_participations__status='eliminated'
+        )
+
+    def move_player(self, profile, from_status, to_status):
+        """Move player between statuses (ungrouped/waitlist/eliminated)."""
+        from the_warroom.models import SessionPlayer
+        session = self.master_session
+
+        if from_status is None:
+            # Check if SessionPlayer already exists with any status
+            existing_sp = SessionPlayer.objects.filter(
+                session=session,
+                profile=profile
+            ).first()
+
+            if existing_sp:
+                # Player already exists with a different status - update it
+                sp = existing_sp
+                sp.status = to_status
+            else:
+                # Create new SessionPlayer
+                sp = SessionPlayer.objects.create(
+                    session=session,
+                    profile=profile,
+                    status=to_status,
+                    added_via='manual'
+                )
+        else:
+            try:
+                sp = SessionPlayer.objects.get(
+                    session=session,
+                    profile=profile,
+                    status=from_status
+                )
+                sp.status = to_status
+            except SessionPlayer.DoesNotExist:
+                # Handle case where player doesn't exist in this status
+                raise ValueError(f"Player {profile} not found with status {from_status}")
+
+        # If eliminating, remove from all round sessions
+        if to_status == 'eliminated':
+            for round_obj in self.rounds.all():
+                # Find the round's master session and remove player from it
+                round_session = round_obj.master_session
+                if round_session:
+                    SessionPlayer.objects.filter(
+                        session=round_session,
+                        profile=profile
+                    ).delete()
+
+        sp.save()
+        session.recalculate_statistics()
+
+    def add_player_to_tournament(self, profile, status='ungrouped'):
+        """Add a player to the tournament."""
+        from the_warroom.models import SessionPlayer
+        session = self.master_session
+
+        SessionPlayer.objects.update_or_create(
+            session=session,
+            profile=profile,
+            defaults={
+                'status': status,
+                'added_via': 'manual'
+            }
+        )
+        session.recalculate_statistics()
+
+    def remove_player_from_tournament(self, profile):
+        """Remove a player completely from the tournament."""
+        from the_warroom.models import SessionPlayer
+        session = self.master_session
+
+        SessionPlayer.objects.filter(
+            session=session,
+            profile=profile
+        ).delete()
+        session.recalculate_statistics()
+
     def save(self, *args, **kwargs):
 
         # Check if the image field has changed (only works if the instance is already saved)
@@ -177,14 +334,26 @@ class Tournament(models.Model):
 # This is a round of a tournament, series or playtest. It allows for leaderboard splits and a set end date.
 class Round(models.Model):
     type = "Round"
-    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds')  # Link to the tournament
-    round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
-    start_date = models.DateTimeField()
-    game_threshold = models.IntegerField(default=0, validators=[MinValueValidator(0)])
-    end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
-    players = models.ManyToManyField(Profile, blank=True, related_name='rounds')
     description = models.TextField(null=True, blank=True)
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds')  # Link to the tournament
+
+    round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
+    game_threshold = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+
+    format = models.CharField(
+        max_length=50, 
+        choices=FormatChoices.choices, 
+        blank=True,
+        null=True,
+        help_text="Leave blank to use tournament's default format"
+    )
+
+    # Player management now handled via GroupingSession/SessionPlayer pattern
+    # Use get_players_queryset(), current_player_queryset(), or create_round_session()
+    
     slug = models.SlugField(null=True, blank=True)
 
     objects = RoundQuerySet.as_manager()
@@ -199,34 +368,228 @@ class Round(models.Model):
     def get_absolute_url(self):
         return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
 
+    def get_settings_url(self):
+        return reverse('round-settings', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+
     def get_players_url(self):
-        return reverse('round-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
-    
+        return reverse('round-manage-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+
     def get_assets_url(self):
-        return reverse('tournament-assets', kwargs={'tournament_slug': self.tournament.slug})  
+        return reverse('tournament-manage-assets', kwargs={'tournament_slug': self.tournament.slug})
 
     def get_update_url(self):
         return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
-    
+
     def get_delete_url(self):
         return reverse('round-delete', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug, 'pk': self.id})
 
+    def get_format(self):
+            """Get the effective format for this round"""
+            return self.format or self.tournament.default_format
+
     def current_player_queryset(self):
-        if self.players.count() == 0:
-            qs = self.tournament.players.all()
-        else:
-            qs = self.players.all()
-        return qs
+        """Return players for this round, falling back to tournament if none."""
+        # Check if round has its own master session
+        session = self.master_session
+
+        if session:
+            # Round has its own player list via master session
+            from the_gatehouse.models import Profile
+            round_players = Profile.objects.filter(
+                session_participations__session=session,
+                session_participations__status='ungrouped'
+            )
+            if round_players.exists():
+                return round_players
+
+        # Fallback: inherit from tournament players
+        return self.tournament.get_players_queryset()
 
     def all_player_queryset(self):
-        # Use union to combine the two querysets (must be the same model)
-        players = self.current_player_queryset().all()
-        eliminated_players = self.tournament.eliminated_players.all()
-        # Combine the two querysets and return as a QuerySet
-        all_players = players.union(eliminated_players)
+        """All players in the round (active, waitlist, and eliminated)."""
+        from the_gatehouse.models import Profile
+        session = self.master_session
 
-        return all_players
+        if session:
+            # Round has its own session, use it
+            return Profile.objects.filter(
+                session_participations__session=session
+            ).distinct()
+        else:
+            # No round session, inherit from tournament
+            return self.tournament.all_player_queryset()
 
+    # New master session pattern for round-specific player management
+    @property
+    def master_session(self):
+        """Get round's master session if it exists (explicit creation only)."""
+        if not hasattr(self, '_master_session_cache'):
+            session = self.grouping_sessions.filter(grouping_type='manual').first()
+            self._master_session_cache = session
+        return self._master_session_cache
+
+    def create_round_session(self):
+        """Explicitly create a round-specific player session, copying from tournament."""
+        from the_warroom.models import GroupingSession, SessionPlayer
+
+        if self.master_session:
+            return self.master_session
+
+        # Create new session for this round
+        session = GroupingSession.objects.create(
+            tournament=self.tournament,
+            tournament_round=self,
+            name=f"Round Session - {self.name}",
+            grouping_type='manual',
+            status='draft',
+        )
+
+        # Copy ungrouped players from tournament's master session
+        tournament_session = self.tournament.master_session
+        for sp in tournament_session.session_players.filter(status='ungrouped'):
+            SessionPlayer.objects.create(
+                session=session,
+                profile=sp.profile,
+                status='ungrouped',
+                added_via='manual'
+            )
+
+        session.recalculate_statistics()
+        self._master_session_cache = session
+        return session
+
+    def get_players_queryset(self):
+        """Players for this round."""
+        session = self.master_session
+
+        if session:
+            from the_gatehouse.models import Profile
+            return Profile.objects.filter(
+                session_participations__session=session,
+                session_participations__status='ungrouped'
+            )
+        else:
+            # No round session, inherit from tournament
+            return self.tournament.get_players_queryset()
+
+    def get_waitlist_players_queryset(self):
+        """Waitlisted players for this round."""
+        session = self.master_session
+
+        if session:
+            from the_gatehouse.models import Profile
+            return Profile.objects.filter(
+                session_participations__session=session,
+                session_participations__status='waitlist'
+            )
+        else:
+            return self.tournament.get_waitlist_players_queryset()
+
+    def get_eliminated_players_queryset(self):
+        """Eliminated players for this round."""
+        session = self.master_session
+
+        if session:
+            from the_gatehouse.models import Profile
+            return Profile.objects.filter(
+                session_participations__session=session,
+                session_participations__status='eliminated'
+            )
+        else:
+            return self.tournament.get_eliminated_players_queryset()
+
+    def add_player_to_round(self, profile, status='ungrouped'):
+        """Add a player to this specific round (creates round session if needed)."""
+        from the_warroom.models import SessionPlayer
+
+        # Ensure round has its own session
+        if not self.master_session:
+            self.create_round_session()
+
+        session = self.master_session
+        SessionPlayer.objects.update_or_create(
+            session=session,
+            profile=profile,
+            defaults={
+                'status': status,
+                'added_via': 'manual'
+            }
+        )
+        session.recalculate_statistics()
+
+    def remove_player_from_round(self, profile):
+        """Remove a player from this specific round."""
+        from the_warroom.models import SessionPlayer
+
+        session = self.master_session
+        if session:
+            SessionPlayer.objects.filter(
+                session=session,
+                profile=profile
+            ).delete()
+            session.recalculate_statistics()
+
+    def move_player(self, profile, from_status, to_status):
+        """Move player between statuses (ungrouped/waitlist/eliminated) for this round."""
+        from the_warroom.models import SessionPlayer
+
+        # Ensure round has master session
+        if not self.master_session:
+            self.create_round_session()
+
+        session = self.master_session
+
+        if from_status is None:
+            # Check if SessionPlayer already exists with any status
+            existing_sp = SessionPlayer.objects.filter(
+                session=session,
+                profile=profile
+            ).first()
+
+            if existing_sp:
+                # Player already exists with a different status - update it
+                sp = existing_sp
+                sp.status = to_status
+            else:
+                # Create new SessionPlayer
+                sp = SessionPlayer.objects.create(
+                    session=session,
+                    profile=profile,
+                    status=to_status,
+                    added_via='manual'
+                )
+        else:
+            try:
+                sp = SessionPlayer.objects.get(
+                    session=session,
+                    profile=profile,
+                    status=from_status
+                )
+                sp.status = to_status
+            except SessionPlayer.DoesNotExist:
+                # Player might have been moved by another action, try to find by profile
+                sp = SessionPlayer.objects.filter(
+                    session=session,
+                    profile=profile
+                ).first()
+                if sp:
+                    sp.status = to_status
+                else:
+                    # Create new
+                    sp = SessionPlayer.objects.create(
+                        session=session,
+                        profile=profile,
+                        status=to_status,
+                        added_via='manual'
+                    )
+
+        # Handle removal (to_status is None)
+        if to_status is None:
+            sp.delete()
+        else:
+            sp.save()
+
+        session.recalculate_statistics()
 
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
@@ -555,7 +918,7 @@ class GroupingSession(models.Model):
         null=True, blank=True,
         related_name='grouping_sessions'
     )
-    round = models.ForeignKey(
+    tournament_round = models.ForeignKey(
         Round,
         on_delete=models.SET_NULL,
         null=True, blank=True,
@@ -849,6 +1212,7 @@ class SessionPlayer(models.Model):
         GROUPED = 'grouped', 'In Group'
         UNGROUPED = 'ungrouped', 'Ungrouped'
         WAITLIST = 'waitlist', 'On Waitlist'
+        ELIMINATED = 'eliminated', 'Eliminated'
 
     class AddedViaChoices(models.TextChoices):
         ALGORITHM = 'algorithm', 'Algorithm'
@@ -940,6 +1304,11 @@ class SessionPlayer(models.Model):
         ordering = ['added_at']
         verbose_name = 'Session Player'
         verbose_name_plural = 'Session Players'
+        indexes = [
+            models.Index(fields=['session', 'status']),
+            models.Index(fields=['session', 'profile', 'status']),
+            models.Index(fields=['profile', 'status']),
+        ]
 
     def __str__(self):
         status_display = self.get_status_display()

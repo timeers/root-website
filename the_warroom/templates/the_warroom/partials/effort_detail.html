@@ -103,7 +103,7 @@
         {% if effort.scorecard.final %}
             <a class="btn btn-primary btn-sm" href="{{ effort.scorecard.get_absolute_url }}"><i class="bi bi-graph-up"></i></a>
         {% elif effort.scorecard.recorder == user.profile %}
-            <a class="btn btn-warning btn-sm" href="{% url 'update-v2-scorecard' effort.scorecard.id %}"><i class="bi bi-pencil-square"></i></a>
+            <a class="btn btn-warning btn-sm" href="{% url 'update-scorecard' effort.scorecard.id %}"><i class="bi bi-pencil-square"></i></a>
         {% endif %}
     {% elif effort.available_scorecard %}
         {% if user.is_authenticated %}
@@ -114,7 +114,7 @@
     {% else %}
         {% if user.is_authenticated %}
             {% if user.profile in participants or user.profile == game.recorder  %}
-                <a class="btn btn-success btn-sm" href="{% url 'record-v2-scorecard' %}?faction={{ effort.faction.id }}&effort={{ effort.id }}"><i class="bi bi-plus"></i></a>
+                <a class="btn btn-success btn-sm" href="{% url 'record-scorecard' %}?faction={{ effort.faction.id }}&effort={{ effort.id }}"><i class="bi bi-plus"></i></a>
             {% endif %}
         {% endif %}
     {% endif %}

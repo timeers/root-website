@@ -1,20 +1,73 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %}Delete | {% endblock %}
+{% block title %}Delete Scorecard | {% endblock %}
+
 {% block content %}
-
 {% if object %}
-<form method="POST" action="{% url 'delete-scorecard' object.id %}">
-    {% csrf_token %}
-    <h1>{% trans 'Delete Scorecard?' %}</h1>
-    {% if object.effort %}
-        <p>This scorecard is linked to <a href="{% url 'game-detail' object.effort.game.id %}">{{ object.effort.game }}</a>. Deleting this scorecard will not delete the linked game.</p>
-    {% endif %}
-    <p>{% trans 'Are you sure you want to delete the selected scorecard' %}{% if object.faction %} for {{ object.faction.title }}{% endif %}? This cannot be undone.</p>
-    <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
-    <a class="btn btn-secondary" href="{% url 'detail-scorecard' object.id %}">{% trans 'Cancel' %}</a>
-</form>
-{% include 'the_warroom/partials/scorecard.html' %}
-{% endif %}
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'scorecard-home' %}">Scorecards</a></li>
+            {% if object.effort %}
+            <li class="breadcrumb-item"><a href="{% url 'game-detail' object.effort.game.id %}">{% if object.effort.game.nickname %}{{ object.effort.game.nickname }}{% else %}Game{% endif %}</a></li>
+            {% endif %}
+            <li class="breadcrumb-item"><a href="{% url 'detail-scorecard' object.id %}">Scorecard</a></li>
+            <li class="breadcrumb-item active">Delete</li>
+        </ol>
+    </nav>
 
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-trash me-2 text-danger"></i>Delete Scorecard</h2>
+        <a href="{% url 'detail-scorecard' object.id %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Scorecard
+        </a>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card border-danger">
+                <div class="card-header bg-transparent border-danger">
+                    <h5 class="mb-0 text-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Confirm Deletion
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">
+                        Are you sure you want to permanently delete this scorecard{% if object.faction %} for <strong>{{ object.faction.title }}</strong>{% endif %}? This cannot be undone.
+                    </p>
+                    {% if object.effort %}
+                    <p class="card-text text-muted">
+                        <i class="bi bi-info-circle me-1"></i>This scorecard is linked to <a href="{% url 'game-detail' object.effort.game.id %}"><strong>{% if object.effort.game.nickname %}{{ object.effort.game.nickname }}{% else %}{{ object.effort.game }}{% endif %}</strong></a>. Deleting this scorecard will not delete the linked game.
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="card-footer bg-transparent">
+                    <form method="POST" action="{% url 'delete-scorecard' object.id %}">
+                        {% csrf_token %}
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-danger" type="submit">
+                                <i class="bi bi-trash me-1"></i>{% trans 'Yes, delete' %}
+                            </button>
+                            <a class="btn btn-outline-secondary" href="{% url 'detail-scorecard' object.id %}">
+                                {% trans 'Cancel' %}
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-table me-2"></i>Scorecard Preview</h5>
+        </div>
+        <div class="card-body overflow-auto">
+            {% include 'the_warroom/partials/scorecard.html' %}
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock content %}

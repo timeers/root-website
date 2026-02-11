@@ -321,18 +321,21 @@ def survey_list_view(request):
         )
         
         # Check if user is in series
+        # Check if user is in series (via GroupingSession/SessionPlayer)
+        # Any player in any GroupingSession for the tournament can access
         user_in_series = Exists(
             Survey.objects.filter(
                 pk=OuterRef('pk'),
-                series__players=profile
+                series__grouping_sessions__session_players__profile=profile
             )
         )
-        
-        # Check if user is in series round
+
+        # Check if user is in series round (via GroupingSession/SessionPlayer)
+        # Any player in any GroupingSession for the round can access
         user_in_round = Exists(
             Survey.objects.filter(
                 pk=OuterRef('pk'),
-                series_round__players=profile
+                series_round__grouping_sessions__session_players__profile=profile
             )
         )
         
@@ -1988,7 +1991,13 @@ def survey_edit_view(request, slug):
     if request.method == 'POST':
         try:
             # Get survey data
-            title = request.POST.get('title', '')[:200]
+            title = request.POST.get('title', '').strip()[:200]
+
+            # Validate that title is not empty
+            if not title:
+                messages.error(request, 'Survey title is required.')
+                return redirect('survey-edit', slug=slug)
+
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
             is_private = request.POST.get('is_private') == 'on'
@@ -2410,7 +2419,13 @@ def survey_create_view(request):
     if request.method == 'POST':
         try:
             # Get survey data
-            title = request.POST.get('title', '')[:200]
+            title = request.POST.get('title', '').strip()[:200]
+
+            # Validate that title is not empty
+            if not title:
+                messages.error(request, 'Survey title is required.')
+                return redirect('survey-create')
+
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
             allow_multiple_responses = request.POST.get('allow_multiple_responses') == 'on'
@@ -2776,6 +2791,10 @@ def survey_grouping_setup_view(request, slug):
     accepted_count = survey.get_accepted_response_count()
     waitlist_count = survey.get_waitlisted_response_count()
     has_availability = survey.has_availability_questions()
+    if session:
+        group_count = session.groups.count()
+    else:
+        group_count = 0
 
     # Handle POST actions
     if request.method == 'POST':
@@ -2916,6 +2935,7 @@ def survey_grouping_setup_view(request, slug):
         'total_responses': total_responses,
         'accepted_count': accepted_count,
         'waitlist_count': waitlist_count,
+        'group_count': group_count,
         'included_waitlist_count': included_waitlist_count,
         'has_availability': has_availability,
         'is_processing': is_processing,
@@ -2929,6 +2949,12 @@ def survey_grouping_setup_view(request, slug):
         'current_url': current_url,
         'current_title': current_title,
         'naming_conventions': NameConvention.choices,
+        # New context variables for shared partial
+        'show_availability_options': has_availability,
+        'base_url': f'/surveys/{survey.slug}/grouping/',
+        'session_waitlist_players': [],  # Surveys don't use session waitlist (they use survey_waitlist_responses)
+        'session_waitlist_count': 0,
+        'show_waitlist_config': True,  # Enable survey waitlist configuration section
     }
     return render(request, 'the_tavern/survey_grouping.html', context)
 
@@ -2980,27 +3006,27 @@ def grouping_move_player(request, slug, session_id):
         from_group_id = data.get('from_group_id')
         to_group_id = data.get('to_group_id')
 
-        player_profile = get_object_or_404(Profile, id=player_id)
-        from_group = get_object_or_404(PlayerGroup, id=from_group_id, session=session)
+        session_player = get_object_or_404(SessionPlayer, id=player_id, session=session)
+        from_group = get_object_or_404(PlayerGroup, id=from_group_id, session=session) if from_group_id else None
         to_group = get_object_or_404(PlayerGroup, id=to_group_id, session=session)
 
-        GroupingService.move_player(from_group, to_group, player_profile, moved_by=profile)
+        GroupingService.assign_player_to_group(session_player, to_group, moved_by=profile)
 
-        return JsonResponse({
-            'success': True,
-            'from_group': {
+        response = {'success': True}
+        if from_group:
+            response['from_group'] = {
                 'id': from_group.id,
-                'member_count': from_group.members.count(),
+                'member_count': from_group.member_count,
                 'total_overlap_hours': from_group.total_overlap_hours,
                 'best_consecutive_block': from_group.best_consecutive_block,
-            },
-            'to_group': {
-                'id': to_group.id,
-                'member_count': to_group.members.count(),
-                'total_overlap_hours': to_group.total_overlap_hours,
-                'best_consecutive_block': to_group.best_consecutive_block,
             }
-        })
+        response['to_group'] = {
+            'id': to_group.id,
+            'member_count': to_group.member_count,
+            'total_overlap_hours': to_group.total_overlap_hours,
+            'best_consecutive_block': to_group.best_consecutive_block,
+        }
+        return JsonResponse(response)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -3028,12 +3054,11 @@ def grouping_add_to_group(request, slug, session_id):
         session_player = get_object_or_404(
             SessionPlayer,
             id=player_id,
-            session=session,
-            status__in=[SessionPlayer.StatusChoices.UNGROUPED, SessionPlayer.StatusChoices.WAITLIST]
+            session=session
         )
         group = get_object_or_404(PlayerGroup, id=group_id, session=session)
 
-        GroupingService.add_ungrouped_to_group(session_player, group, added_by=profile)
+        GroupingService.assign_player_to_group(session_player, group, moved_by=profile)
 
         return JsonResponse({
             'success': True,
@@ -3078,15 +3103,14 @@ def grouping_create_group(request, slug, session_id):
             name=generate_name(new_group_num, NameConvention(session.naming_convention)),
         )
 
-        # If player_id provided, add that player (from ungrouped or waitlist)
+        # If player_id provided, add/move that player to the new group
         if player_id:
             session_player = SessionPlayer.objects.filter(
                 session=session,
-                id=player_id,
-                status__in=[SessionPlayer.StatusChoices.UNGROUPED, SessionPlayer.StatusChoices.WAITLIST]
+                id=player_id
             ).first()
             if session_player:
-                GroupingService.add_ungrouped_to_group(session_player, new_group, added_by=profile)
+                GroupingService.assign_player_to_group(session_player, new_group, moved_by=profile)
 
         # Recalculate session statistics
         session.recalculate_statistics()

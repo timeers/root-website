@@ -29,7 +29,7 @@ class RoundInline(admin.StackedInline):
     extra = 0
 
 class TournamentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'start_date', 'end_date', 'platform', 'include_fan_content')
+    list_display = ('name', 'start_date', 'end_date', 'platform')
     search_fields = ('name', 'description')
     inlines = [RoundInline]
 
@@ -563,7 +563,7 @@ class GroupingSessionAdmin(admin.ModelAdmin):
     list_filter = ('status', 'grouping_type', 'tournament')
     search_fields = ('name', 'survey__title', 'tournament__name')
     readonly_fields = ('created_at', 'updated_at', 'total_players', 'grouped_count', 'ungrouped_count')
-    raw_id_fields = ('survey', 'tournament', 'round', 'created_by')
+    raw_id_fields = ('survey', 'tournament', 'tournament_round', 'created_by')
     inlines = [PlayerGroupInline, SessionPlayerInline]
 
     def name_display(self, obj):

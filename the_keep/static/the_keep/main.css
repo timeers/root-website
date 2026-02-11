@@ -2338,3 +2338,195 @@ tr.clickable-row:hover {
     transform: scale(1.01);
   }
 }
+
+/* Toggle Slider Base Styles */
+.asset-mode-toggle,
+.option-toggle {
+  display: flex;
+  background: #e9ecef;
+  border-radius: 50px;
+  padding: 4px;
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+}
+
+.asset-mode-option,
+.option-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-radius: 50px;
+  font-weight: 500;
+  color: #6c757d;
+  z-index: 1;
+  position: relative;
+}
+
+.asset-mode-option:hover,
+.option-item:hover {
+  color: #495057;
+}
+
+.asset-mode-option.active,
+.option-item.active {
+  color: #fff;
+}
+
+.asset-mode-slider,
+.option-slider {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  height: calc(100% - 8px);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 50px;
+  transition: transform 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+/* 3-option slider (33.333% width per option) */
+.asset-mode-slider,
+.option-toggle-3 .option-slider {
+  width: calc(33.333% - 4px);
+}
+
+.asset-mode-slider.position-1,
+.option-toggle-3 .option-slider.position-1 {
+  transform: translateX(0);
+}
+
+.asset-mode-slider.position-2,
+.option-toggle-3 .option-slider.position-2 {
+  transform: translateX(calc(100% + 4px));
+}
+
+.asset-mode-slider.position-3,
+.option-toggle-3 .option-slider.position-3 {
+  transform: translateX(calc(200% + 8px));
+}
+
+/* 4-option slider (25% width per option) */
+.option-toggle-4 .option-slider {
+  width: calc(25% - 4px);
+}
+
+.option-toggle-4 .option-slider.position-0 {
+  transform: translateX(0);
+}
+
+.option-toggle-4 .option-slider.position-1 {
+  transform: translateX(calc(100% + 4px));
+}
+
+.option-toggle-4 .option-slider.position-2 {
+  transform: translateX(calc(200% + 8px));
+}
+
+.option-toggle-4 .option-slider.position-3 {
+  transform: translateX(calc(300% + 12px));
+}
+
+.toggle-description {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+/* Responsive platform text - show full text on larger screens */
+.toggle-text-short {
+  display: none;
+}
+
+.toggle-text-full {
+  display: inline;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 768px) {
+  .asset-mode-option,
+  .option-item {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  /* Extra compact for 4-option toggles */
+  .option-toggle-4 .option-item {
+    padding: 8px 6px;
+    font-size: 0.8rem;
+  }
+
+  .asset-mode-option i,
+  .option-item i {
+    font-size: 0.9rem;
+  }
+
+  .toggle-description {
+    font-size: 0.85rem;
+    padding: 10px;
+  }
+
+  /* Switch to short text on tablets */
+  .toggle-text-short {
+    display: inline;
+  }
+
+  .toggle-text-full {
+    display: none;
+  }
+}
+
+@media (max-width: 576px) {
+  .asset-mode-option,
+  .option-item {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+
+  /* Very compact for 4-option toggles on mobile */
+  .option-toggle-4 .option-item {
+    padding: 6px 4px;
+    font-size: 0.7rem;
+  }
+
+  .asset-mode-option i,
+  .option-item i {
+    font-size: 0.85rem;
+    margin-right: 2px !important;
+  }
+
+  /* Even smaller icons for 4-option on mobile */
+  .option-toggle-4 .option-item i {
+    font-size: 0.75rem;
+  }
+
+  .toggle-description {
+    font-size: 0.8rem;
+    padding: 8px;
+  }
+
+  /* Reduce margin for icons on very small screens */
+  .option-item .me-1 {
+    margin-right: 0.15rem !important;
+  }
+}
+
+@media (max-width: 400px) {
+  /* Extra small screens - make 4-option even more compact */
+  .option-toggle-4 .option-item {
+    padding: 6px 2px;
+    font-size: 0.65rem;
+  }
+
+  .option-toggle-4 .option-item i {
+    font-size: 0.7rem;
+  }
+}

@@ -1,0 +1,88 @@
+{% load crispy_forms_tags %}
+<!-- Coalition Type Toggle Slider Partial -->
+
+<!-- Hidden form field for coalition_type -->
+<input type="hidden" name="coalition_type" id="coalition_type_input" value="{{ tournament_form.coalition_type.value }}">
+
+<div>
+    <label class="form-label fw-bold mb-3">Allowed Coalitions</label>
+    <div class="option-toggle option-toggle-3">
+        <div class="option-slider position-1" id="coalition-slider"></div>
+        <div class="option-item" data-value="None" data-position="1">
+            <i class="bi bi-x-circle me-1"></i>None
+        </div>
+        <div class="option-item" data-value="One" data-position="2">
+            <i class="bi bi-1-circle me-1"></i>One
+        </div>
+        <div class="option-item" data-value="All" data-position="3">
+            <i class="bi bi-check-circle me-1"></i>All
+        </div>
+    </div>
+    <div class="toggle-description" id="coalition-description">
+        <i class="bi bi-info-circle me-1"></i>
+        <span id="coalition-description-text"></span>
+    </div>
+</div>
+
+<script>
+// Coalition toggle functionality
+(function() {
+    const coalitionDescriptions = {
+        'None': 'Coalitions are not allowed.',
+        'One': 'Only single coalitions are allowed.',
+        'All': 'A Vagabond in a coalition can form a coalition with another player.'
+    };
+
+    const coalitionOptions = document.querySelectorAll('#coalition-slider').length > 0
+        ? document.querySelectorAll('.option-toggle-3 .option-item')
+        : [];
+    const coalitionSlider = document.getElementById('coalition-slider');
+    const coalitionDescriptionText = document.getElementById('coalition-description-text');
+    const coalitionInput = document.getElementById('coalition_type_input');
+
+    if (coalitionOptions.length === 0) return; // Exit if not on this page
+
+    // Function to update UI based on coalition type
+    function updateUIForCoalition(value) {
+        // Update description
+        if (coalitionDescriptionText) {
+            coalitionDescriptionText.textContent = coalitionDescriptions[value] || coalitionDescriptions['None'];
+        }
+    }
+
+    // Set initial state based on current value
+    const currentValue = coalitionInput.value;
+    coalitionOptions.forEach(option => {
+        if (option.dataset.value === currentValue) {
+            option.classList.add('active');
+            if (coalitionSlider) {
+                coalitionSlider.className = 'option-slider position-' + option.dataset.position;
+            }
+            updateUIForCoalition(option.dataset.value);
+        }
+    });
+
+    // Handle toggle clicks
+    coalitionOptions.forEach(option => {
+        option.addEventListener('click', function() {
+            const selectedValue = this.dataset.value;
+            const selectedPosition = this.dataset.position;
+
+            // Update active state
+            coalitionOptions.forEach(opt => opt.classList.remove('active'));
+            this.classList.add('active');
+
+            // Move slider
+            if (coalitionSlider) {
+                coalitionSlider.className = 'option-slider position-' + selectedPosition;
+            }
+
+            // Update hidden input
+            coalitionInput.value = selectedValue;
+
+            // Update UI
+            updateUIForCoalition(selectedValue);
+        });
+    });
+})();
+</script>

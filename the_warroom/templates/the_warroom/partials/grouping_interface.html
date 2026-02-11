@@ -1,0 +1,650 @@
+{% load i18n %}
+{# Shared grouping interface partial - used by both survey and round grouping views #}
+
+<!-- Configuration Form -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-gear"></i> {% trans 'Grouping Settings' %}</h5>
+        {% if session and not is_finalized and not is_processing %}
+        <form method="post" style="display: inline;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="reset_session">
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
+                <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Reset' %}
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if is_finalized %}
+        <div class="alert alert-success mb-0">
+            <i class="bi bi-lock-fill"></i>
+            <strong>{% trans 'Grouping Finalized' %}</strong>
+            <p class="mb-0">Groups have been finalized and can no longer be modified. To make changes, reset the session using the button above.</p>
+        </div>
+        {% elif is_processing %}
+        <!-- Processing State -->
+        <div class="alert alert-info mb-0">
+            <i class="bi bi-hourglass-split"></i>
+            <strong>{% trans 'Processing...' %}</strong>
+            <p class="mb-0">Groups are being generated. Please wait.</p>
+        </div>
+        {% else %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="generate">
+
+            {% if not show_availability_options %}
+            <!-- No availability data - show grouping type selector -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">{% trans 'Grouping Method' %}</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_random" value="random"
+                           {% if not session or session.grouping_type == 'random' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_random">
+                        <strong>{% trans 'Random Assignment' %}</strong>
+                        <br><small class="text-muted">Randomly distribute players into groups</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_manual" value="manual"
+                           {% if session and session.grouping_type == 'manual' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_manual">
+                        <strong>{% trans 'Manual Assignment' %}</strong>
+                        <br><small class="text-muted">Manually drag players into groups</small>
+                    </label>
+                </div>
+            </div>
+            {% else %}
+            <input type="hidden" name="grouping_type" value="availability">
+
+            <!-- Algorithm Selection for availability-based grouping -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">{% trans 'Algorithm' %}</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="algorithm" id="algo_greedy" value="greedy"
+                           {% if not session or session.algorithm == 'greedy' %}checked{% endif %}>
+                    <label class="form-check-label" for="algo_greedy">
+                        <strong>{% trans 'Optimized' %}</strong>
+                        <br><small class="text-muted">Prioritizes best availability matches, may leave some players ungrouped</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="algorithm" id="algo_random" value="random"
+                           {% if session and session.algorithm == 'random' %}checked{% endif %}>
+                    <label class="form-check-label" for="algo_random">
+                        <strong>{% trans 'Random' %}</strong>
+                        <br><small class="text-muted">Randomly assigns players to groups evenly</small>
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label for="min_group_size" class="form-label">{% trans 'Minimum Group Size' %}</label>
+                    <input type="number" class="form-control" id="min_group_size" name="min_group_size"
+                           value="{{ session.min_group_size|default:4 }}" min="2" max="12">
+                    <small class="text-muted">Minimum players per group</small>
+                </div>
+                <div class="col-md-6">
+                    <label for="max_group_size" class="form-label">{% trans 'Maximum Group Size' %}</label>
+                    <input type="number" class="form-control" id="max_group_size" name="max_group_size"
+                           value="{{ session.max_group_size|default:4 }}" min="2" max="12">
+                    <small class="text-muted">Maximum players per group</small>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label for="naming_convention" class="form-label">{% trans 'Group Naming' %}</label>
+                    <select class="form-select" id="naming_convention" name="naming_convention">
+                        {% for value, label in naming_conventions %}
+                        <option value="{{ value }}" {% if session.naming_convention == value %}selected{% endif %}>
+                            {{ label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">How groups will be named (e.g., Group 1, Alpha, I)</small>
+                </div>
+            </div>
+
+            {# Optional: Survey Waitlist Configuration (only used by surveys) #}
+            {% if show_waitlist_config|default:False and waitlist_count|default:0 > 0 %}
+            <div class="card bg-light mb-4">
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="include_waitlist" name="include_waitlist"
+                               {% if session and session.include_waitlist %}checked{% endif %}
+                               onchange="toggleWaitlistCount()">
+                        <label class="form-check-label" for="include_waitlist">
+                            <strong>{% trans 'Include Waitlist Players' %}</strong>
+                        </label>
+                    </div>
+                    <div id="waitlist_count_wrapper" style="{% if not session or not session.include_waitlist %}display: none;{% endif %}">
+                        <label for="waitlist_count" class="form-label">{% trans 'Number of waitlist players to include' %}</label>
+                        <input type="number" class="form-control" id="waitlist_count" name="waitlist_count"
+                               value="{% if included_waitlist_count|default:0 > 0 %}{{ included_waitlist_count }}{% else %}{{ waitlist_count }}{% endif %}"
+                               min="1" max="{{ waitlist_count }}">
+                        <small class="text-muted">{{ waitlist_count }} player{{ waitlist_count|pluralize }} on waitlist</small>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-play-fill"></i>
+                    {% if session %}{% trans 'Regenerate Groups' %}{% else %}{% trans 'Generate Groups' %}{% endif %}
+                </button>
+                <a href="{{ return_to }}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if is_processing %}
+<!-- Processing Status -->
+<div id="processing-container"
+    hx-get="{{ base_url }}{{ session.id }}/status/"
+    hx-trigger="every 2s"
+    hx-swap="innerHTML">
+    <div class="alert alert-info">
+        <i class="bi bi-hourglass-split"></i>
+        <strong>{% trans 'Processing...' %}</strong>
+        <p class="mb-0">Groups are being generated. This page will update automatically.</p>
+    </div>
+</div>
+{% elif has_error %}
+<div class="alert alert-danger mb-4">
+    <h5><i class="bi bi-exclamation-triangle"></i> {% trans 'Error' %}</h5>
+    <p>{{ session.notes }}</p>
+</div>
+{% endif %}
+
+{% if session and not is_processing %}
+<!-- Groups Section -->
+<div class="row g-3 mb-4" id="groups-container">
+    {% if groups %}
+    {% for group in groups %}
+    <div class="col-md-4 col-lg-3" data-group-id="{{ group.id }}">
+        <div class="card h-100 group-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}</strong>
+                <span class="badge bg-secondary">{{ group.member_count }}</span>
+            </div>
+            <div class="card-body p-2">
+                <!-- Group Stats -->
+                {% if session.grouping_type == 'availability' %}
+                <div class="small text-muted mb-2">
+                    <i class="bi bi-clock"></i> {{ group.total_overlap_hours }}h overlap
+                    {% if group.best_consecutive_block %}
+                    ({{ group.best_consecutive_block }}h consecutive)
+                    {% endif %}
+                </div>
+                {% endif %}
+                <!-- Members List -->
+                <ul class="list-group list-group-flush group-members {% if not is_finalized %}sortable-group{% endif %}" data-group-id="{{ group.id }}">
+                    {% for sp in group.session_players.all %}
+                    {% if sp.status == 'grouped' %}
+                    <li class="list-group-item d-flex align-items-center player-item" data-player-id="{{ sp.id }}" data-source="group">
+                        {% if not is_finalized %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
+                        {% if sp.profile.image %}
+                        <img src="{{ sp.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                        {% else %}
+                        <i class="bi bi-person-circle me-2"></i>
+                        {% endif %}
+                        <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                        {% if sp.added_via == 'manual' %}
+                        <small class="text-muted"><i class="bi bi-hand-index"></i></small>
+                        {% elif sp.added_via == 'reassigned' %}
+                        <small class="text-muted"><i class="bi bi-arrow-left-right"></i></small>
+                        {% endif %}
+                    </li>
+                    {% endif %}
+                    {% empty %}
+                    <li class="list-group-item text-muted text-center empty-placeholder">
+                        <small>{% trans 'Drop players here' %}</small>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% if not is_finalized and group.member_count == 0 %}
+            <div class="card-footer">
+                <button class="btn btn-sm btn-outline-danger w-100" onclick="deleteGroup({{ group.id }})">
+                    <i class="bi bi-trash"></i> {% trans 'Delete' %}
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- New Group Dropzone -->
+    {% if not is_finalized %}
+    <div class="col-md-4 col-lg-3">
+        <div class="card h-100 border-dashed" style="border-style: dashed !important;">
+            <div class="card-body d-flex flex-column justify-content-center align-items-center text-muted" id="new-group-zone">
+                <i class="bi bi-plus-circle fs-1 mb-2"></i>
+                <p class="mb-0">{% trans 'Drop to create new group' %}</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Ungrouped Players -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-person-x"></i> {% trans 'Ungrouped Players' %} ({{ ungrouped_count }})</h5>
+    </div>
+    <div class="card-body">
+        {% if ungrouped_players %}
+        <ul class="list-group list-group-flush {% if not is_finalized %}sortable-ungrouped{% endif %}" id="ungrouped-players" data-group-id="ungrouped">
+            {% for sp in ungrouped_players %}
+            <li class="list-group-item d-flex align-items-center player-item ungrouped-item" data-player-id="{{ sp.id }}" data-source="ungrouped">
+                {% if not is_finalized %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
+                {% if sp.profile.image %}
+                <img src="{{ sp.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                {% else %}
+                <i class="bi bi-person-circle me-2"></i>
+                {% endif %}
+                <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                {% if sp.best_fit_group %}
+                <small class="text-muted me-2" title="Best fit: Group {{ sp.best_fit_group.group_number }} ({{ sp.best_fit_overlap_hours }}h overlap)">
+                    <i class="bi bi-arrow-right"></i> G{{ sp.best_fit_group.group_number }}
+                </small>
+                {% endif %}
+                {% if session.grouping_type == 'availability' and sp.availability_hours %}
+                <small class="text-muted">{{ sp.availability_hours|length }}h</small>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">No ungrouped players.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Session Waitlist Players -->
+{% if session_waitlist_players %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> {% trans 'Session Waitlist' %} ({{ session_waitlist_count }})</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">Players on the waitlist for this grouping session. Drag to add them to a group or ungrouped.</p>
+
+        <ul class="list-group list-group-flush {% if not is_finalized %}sortable-session-waitlist{% endif %}" id="session-waitlist-players" data-group-id="session-waitlist">
+            {% for sp in session_waitlist_players %}
+            <li class="list-group-item d-flex align-items-center player-item session-waitlist-item" data-player-id="{{ sp.id }}" data-source="session-waitlist">
+                {% if not is_finalized %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
+                {% if sp.profile.image %}
+                <img src="{{ sp.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                {% else %}
+                <i class="bi bi-person-circle me-2"></i>
+                {% endif %}
+                <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                <span class="badge bg-warning text-dark">Waitlist</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+<!-- Finalize Confirmation Modal -->
+<div class="modal fade" id="finalizeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{% trans 'Finalize Groups' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Once finalized, groups cannot be modified.</p>
+                {% if ungrouped_count > 0 %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    There are still {{ ungrouped_count }} ungrouped player{{ ungrouped_count|pluralize }}.
+                </div>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-success" onclick="confirmFinalize()">{% trans 'Finalize' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.group-card {
+    transition: box-shadow 0.2s;
+}
+.group-card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+.player-item {
+    cursor: grab;
+    transition: background-color 0.2s;
+}
+.player-item:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+.sortable-ghost {
+    opacity: 0.4;
+    background-color: #c8ebfb;
+}
+.sortable-drag {
+    opacity: 0.9;
+}
+.drag-handle {
+    cursor: grab;
+}
+.border-dashed {
+    border: 2px dashed #dee2e6 !important;
+}
+.empty-placeholder {
+    min-height: 50px;
+}
+.session-waitlist-item {
+    background-color: rgba(255, 193, 7, 0.1);
+}
+.session-waitlist-item:hover {
+    background-color: rgba(255, 193, 7, 0.2);
+}
+</style>
+
+{% if session and not is_processing and not is_finalized %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<script>
+const csrfToken = '{{ csrf_token }}';
+const sessionId = {{ session.id }};
+const baseUrl = '{{ base_url }}';
+
+// Function to toggle waitlist count input (used by survey grouping)
+function toggleWaitlistCount() {
+    const checkbox = document.getElementById('include_waitlist');
+    const wrapper = document.getElementById('waitlist_count_wrapper');
+    if (checkbox && wrapper) {
+        wrapper.style.display = checkbox.checked ? 'block' : 'none';
+    }
+}
+
+// Initialize Sortable for each group
+document.querySelectorAll('.sortable-group').forEach(container => {
+    new Sortable(container, {
+        group: 'players',
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        onAdd: function(evt) {
+            const playerId = evt.item.dataset.playerId;
+            const toGroupId = evt.to.dataset.groupId;
+            const source = evt.item.dataset.source;
+
+            // Hide empty placeholder if it exists
+            const placeholder = evt.to.querySelector('.empty-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+
+            if (source === 'session-waitlist') {
+                // Moving from session waitlist to group
+                moveFromWaitlist(playerId, toGroupId);
+            } else {
+                // Assign player to group (works for ungrouped→group and group→group)
+                assignPlayerToGroup(playerId, toGroupId);
+            }
+        },
+        onRemove: function(evt) {
+            // Show empty placeholder if group is now empty
+            const remaining = Array.from(evt.from.children).filter(
+                el => !el.classList.contains('empty-placeholder')
+            );
+            if (remaining.length === 0) {
+                let placeholder = evt.from.querySelector('.empty-placeholder');
+                if (!placeholder) {
+                    placeholder = document.createElement('li');
+                    placeholder.className = 'list-group-item text-muted text-center empty-placeholder';
+                    placeholder.innerHTML = '<small>Drop players here</small>';
+                    evt.from.appendChild(placeholder);
+                }
+                placeholder.style.display = '';
+            }
+        }
+    });
+});
+
+// Initialize Sortable for ungrouped
+const ungroupedContainer = document.getElementById('ungrouped-players');
+if (ungroupedContainer) {
+    new Sortable(ungroupedContainer, {
+        group: 'players',
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        onAdd: function(evt) {
+            const playerId = evt.item.dataset.playerId;
+            const source = evt.item.dataset.source;
+
+            if (source === 'session-waitlist') {
+                // Moving from session waitlist to ungrouped
+                moveFromWaitlist(playerId, null);
+            } else if (source === 'group') {
+                // Removing from group to ungrouped
+                removeFromGroup(playerId);
+            }
+        }
+    });
+}
+
+// Initialize Sortable for session waitlist (read-only, items can only be dragged out)
+const sessionWaitlistContainer = document.getElementById('session-waitlist-players');
+if (sessionWaitlistContainer) {
+    new Sortable(sessionWaitlistContainer, {
+        group: {
+            name: 'players',
+            pull: true,
+            put: false  // Cannot drop items into session waitlist
+        },
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+    });
+}
+
+// Initialize Sortable for new group zone
+const newGroupZone = document.getElementById('new-group-zone');
+if (newGroupZone) {
+    new Sortable(newGroupZone, {
+        group: 'players',
+        animation: 150,
+        onAdd: function(evt) {
+            const playerId = evt.item.dataset.playerId;
+            const source = evt.item.dataset.source;
+            createNewGroup(playerId, source);
+            // Remove the item - it will be re-rendered when page refreshes
+            evt.item.remove();
+        }
+    });
+}
+
+function assignPlayerToGroup(playerId, toGroupId) {
+    // Unified function to add/move player to a group
+    // Works for all scenarios: ungrouped→group, waitlist→group, group→group
+    fetch(`${baseUrl}${sessionId}/add-to-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            group_id: toGroupId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+// Legacy aliases for backward compatibility
+function addToGroup(playerId, groupId) {
+    assignPlayerToGroup(playerId, groupId);
+}
+
+function movePlayer(playerId, fromGroupId, toGroupId) {
+    assignPlayerToGroup(playerId, toGroupId);
+}
+
+function removeFromGroup(playerId) {
+    fetch(`${baseUrl}${sessionId}/remove-from-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            player_id: playerId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function moveFromWaitlist(playerId, groupId) {
+    fetch(`${baseUrl}${sessionId}/move-from-waitlist/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            group_id: groupId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function createNewGroup(playerId, source) {
+    const body = {};
+
+    if (playerId) {
+        body.player_id = playerId;
+    }
+
+    fetch(`${baseUrl}${sessionId}/create-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(body)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function deleteGroup(groupId) {
+    if (!confirm('Delete this empty group?')) return;
+
+    fetch(`${baseUrl}${sessionId}/delete-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            group_id: groupId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}
+
+function finalizeSession() {
+    const modal = new bootstrap.Modal(document.getElementById('finalizeModal'));
+    modal.show();
+}
+
+function confirmFinalize() {
+    fetch(`${baseUrl}${sessionId}/finalize/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}
+</script>
+{% endif %}

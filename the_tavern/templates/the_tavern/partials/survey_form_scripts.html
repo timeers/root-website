@@ -57,6 +57,22 @@ function initializeInvitedPlayers() {
 document.addEventListener('DOMContentLoaded', function() {
     initializeInvitedPlayers();
 
+    // Title validation - clear invalid state on input
+    const titleInput = document.getElementById('title');
+    const titleError = document.getElementById('title-error');
+    const titleIndicator = document.getElementById('title-required-indicator');
+    if (titleInput && titleError) {
+        titleInput.addEventListener('input', function() {
+            if (this.value.trim()) {
+                this.classList.remove('is-invalid');
+                titleError.classList.add('d-none');
+                if (titleIndicator) {
+                    titleIndicator.classList.remove('text-danger');
+                }
+            }
+        });
+    }
+
     const searchInput = document.getElementById('player-search-input');
     if (searchInput) {
         searchInput.addEventListener('input', function() {
@@ -1525,22 +1541,48 @@ function removeSelectedPost(questionId, postId) {
 
 // Serialize form data on submit
 document.getElementById('survey-form').addEventListener('submit', function(e) {
-    
+
+    // Validate title field first
+    const titleInput = document.getElementById('title');
+    const titleError = document.getElementById('title-error');
+    const titleIndicator = document.getElementById('title-required-indicator');
+    const titleValue = titleInput.value.trim();
+
+    if (!titleValue) {
+        e.preventDefault();
+        titleInput.classList.add('is-invalid');
+        titleError.classList.remove('d-none');
+        if (titleIndicator) {
+            titleIndicator.classList.add('text-danger');
+        }
+        titleInput.focus();
+
+        // Scroll to the title field
+        titleInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+    } else {
+        titleInput.classList.remove('is-invalid');
+        titleError.classList.add('d-none');
+        if (titleIndicator) {
+            titleIndicator.classList.remove('text-danger');
+        }
+    }
+
     // Convert Start and End Date local time to UTC
     const startInput = document.getElementById('start_date');
     const endInput = document.getElementById('end_date');
-    
+
     if (startInput.value) {
         const startDate = new Date(startInput.value);
         document.getElementById('start_date_utc').value = startDate.toISOString().slice(0, 16);
     }
-    
+
     if (endInput.value) {
         const endDate = new Date(endInput.value);
         document.getElementById('end_date_utc').value = endDate.toISOString().slice(0, 16);
     }
 
-    
+
     console.log('Form submit triggered');
     const questions = [];
     const questionCards = document.querySelectorAll('.question-card');

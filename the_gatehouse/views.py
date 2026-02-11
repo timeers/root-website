@@ -636,14 +636,14 @@ def player_stats(request, slug):
     round_slug = request.GET.get('round_slug')
     player = get_object_or_404(Profile, slug=slug)
     tournament = None
-    round = None
+    tournament_round = None
     if tournament_slug:
         tournament = get_object_or_404(Tournament, slug=tournament_slug)
         if round_slug:
-            round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
+            tournament_round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
 
-    if round:
-        efforts = Effort.objects.filter(player=player, game__round=round, game__final=True)
+    if tournament_round:
+        efforts = Effort.objects.filter(player=player, game__round=tournament_round, game__final=True)
     elif tournament:
         efforts = Effort.objects.filter(player=player, game__round__tournament=tournament, game__final=True)
     else:
@@ -672,7 +672,7 @@ def player_stats(request, slug):
     context = {
         'player': player,
         'selected_tournament': tournament,
-        'tournament_round': round,
+        'tournament_round': tournament_round,
         'top_factions': most_factions,
         'most_factions': top_factions,
         'all_games': all_games,
