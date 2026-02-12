@@ -70,8 +70,7 @@ class SurveyQuerySet(models.QuerySet):
         return self.filter(
             Q(is_public=False) & (
                 Q(invited_players=profile) |
-                Q(series__grouping_sessions__session_players__profile=profile, series_round__isnull=True) |
-                Q(series_round__grouping_sessions__session_players__profile=profile) |
+                Q(series__grouping_sessions__session_players__profile=profile) |
                 Q(guild__members=profile)
             )
         ).exclude(

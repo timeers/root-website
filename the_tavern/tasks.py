@@ -11,13 +11,12 @@ logger = logging.getLogger(__name__)
     retry_kwargs={'max_retries': 3, 'countdown': 60},
     retry_backoff=True,
 )
-def generate_grouping_async(session_id):
+def generate_grouping_async(session_id, round_id):
     """
-    Async task to generate groups for a GroupingSession.
-    Uses session.include_waitlist to determine whether to include waitlisted responses.
+    Async task to generate availability-based groups for a GroupingSession + Round.
     Creates UserNotification when complete.
     """
-    from the_warroom.models import GroupingSession
+    from the_warroom.models import GroupingSession, Round
     from the_warroom.services.grouping import GroupingService
     from the_gatehouse.models import UserNotification, MessageChoices
 
@@ -28,38 +27,23 @@ def generate_grouping_async(session_id):
         return
 
     try:
-        print('grouping')
-        GroupingService.generate_availability_groups(session)
-        session.status = GroupingSession.StatusChoices.DRAFT
-        session.save(update_fields=['status'])
+        round_obj = Round.objects.get(id=round_id)
+    except Round.DoesNotExist:
+        logger.error(f"Round {round_id} not found")
+        return
 
-        # Create notification for creator
-        # if session.created_by:
-        #     survey_title = session.survey.title if session.survey else session.name
-        #     UserNotification.objects.create(
-        #         profile=session.created_by,
-        #         message=f"Groups are ready for '{survey_title}'",
-        #         message_type=MessageChoices.SUCCESS,
-        #         related_url=reverse('survey-grouping-organize', args=[session.survey.slug, session.id])
-        #     )
-
-        logger.info(f"Successfully generated groups for session {session_id}")
+    try:
+        GroupingService.generate_availability_groups(session, round_obj)
+        round_obj.grouping_status = Round.GroupingStatusChoices.DRAFT
+        round_obj.grouping_notes = ''
+        round_obj.save(update_fields=['grouping_status', 'grouping_notes'])
+        logger.info(f"Successfully generated groups for session {session_id}, round {round_id}")
 
     except Exception as e:
-        logger.exception(f"Error generating groups for session {session_id}")
-        session.status = GroupingSession.StatusChoices.ERROR
-        session.notes = f"Error during group generation: {str(e)}"
-        session.save(update_fields=['status', 'notes'])
-
-        # Notify creator of error
-        if session.created_by:
-            survey_title = session.survey.title if session.survey else session.name
-            UserNotification.objects.create(
-                profile=session.created_by,
-                message=f"Error generating groups for '{survey_title}'. Please try again.",
-                message_type=MessageChoices.ERROR,
-                related_url=reverse('survey-grouping-setup', args=[session.survey.slug])
-            )
+        logger.exception(f"Error generating groups for session {session_id}, round {round_id}")
+        round_obj.grouping_status = Round.GroupingStatusChoices.ERROR
+        round_obj.grouping_notes = f"Error during group generation: {str(e)}"
+        round_obj.save(update_fields=['grouping_status', 'grouping_notes'])
         raise
 
 

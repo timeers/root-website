@@ -890,7 +890,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'name', 'classification', 'designer', 'guild', 'description',
             'start_date', 'end_date', 'publicly_visible',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster',
-            'platform', 'link_required',
+            'platform', 'default_format', 'link_required',
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'picture'
@@ -898,7 +898,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         labels = {
             'name': 'Series Name',
             'classification': 'Classification',
-            'designer': 'Owner (will be able to edit Rounds)',
+            'designer': 'Owner',
             'guild': 'Discord Guild',
             'start_date': 'Start Date',
             'end_date': 'End Date (Optional)',
@@ -911,10 +911,11 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
+            'default_format': 'Default Round Format',
             'picture': 'Series Image',
         }
 
-    def __init__(self, user=None, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicCreateForm, self).__init__(*args, **kwargs)
 
         # Set initial values for new tournaments
@@ -944,35 +945,35 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         """Save tournament and set default assets based on platform"""
         instance = super().save(commit=False)
 
-        # Check if this is a new tournament to set the default assets
-        set_default_assets = False
-        if not instance.pk:
-            set_default_assets = True
-        else:
-            # Existing tournament - check if any related assets are missing
-            if (
-                not instance.factions.exists() or
-                not instance.maps.exists() or
-                not instance.decks.exists() or
-                not instance.vagabonds.exists()
-            ):
-                set_default_assets = True
-
         if commit:
+            # Check if this is a new tournament to set the default assets
+            set_default_assets = False
+            if not instance.pk:
+                set_default_assets = True
+            else:
+                # Existing tournament - check if any related assets are missing
+                if (
+                    not instance.factions.exists() or
+                    not instance.maps.exists() or
+                    not instance.decks.exists() or
+                    not instance.vagabonds.exists()
+                ):
+                    set_default_assets = True
+
             instance.save()
 
-        # Set default assets based on platform
-        if set_default_assets:
-            if instance.platform == "Root Digital":
-                instance.factions.set(Faction.objects.filter(in_root_digital=True).exclude(type="C"))
-                instance.maps.set(Map.objects.filter(in_root_digital=True))
-                instance.decks.set(Deck.objects.filter(in_root_digital=True))
-                instance.vagabonds.set(Vagabond.objects.filter(in_root_digital=True))
-            else:
-                instance.factions.set(Faction.objects.filter(official=True, status='1').exclude(type="C"))
-                instance.maps.set(Map.objects.filter(official=True, status='1'))
-                instance.decks.set(Deck.objects.filter(official=True, status='1'))
-                instance.vagabonds.set(Vagabond.objects.filter(official=True, status='1'))
+            # Set default assets based on platform
+            if set_default_assets:
+                if instance.platform == "Root Digital":
+                    instance.factions.set(Faction.objects.filter(in_root_digital=True).exclude(type="C"))
+                    instance.maps.set(Map.objects.filter(in_root_digital=True))
+                    instance.decks.set(Deck.objects.filter(in_root_digital=True))
+                    instance.vagabonds.set(Vagabond.objects.filter(in_root_digital=True))
+                else:
+                    instance.factions.set(Faction.objects.filter(official=True, status='1').exclude(type="C"))
+                    instance.maps.set(Map.objects.filter(official=True, status='1'))
+                    instance.decks.set(Deck.objects.filter(official=True, status='1'))
+                    instance.vagabonds.set(Vagabond.objects.filter(official=True, status='1'))
 
         return instance
 
@@ -1012,6 +1013,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'platform', 'link_required',
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
+            'default_format',
             'picture'
         ]
         labels = {
@@ -1032,10 +1034,11 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'open_roster': 'Allow Unregistered Players to join games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
+            'default_format': 'Default Round Format',
             'picture': 'Series Image',
         }
 
-    def __init__(self, user=None, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
 
         # Add CSS classes for date fields
@@ -1058,13 +1061,17 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
 class RoundCreateForm(forms.ModelForm):
     class Meta:
         model = Round
-        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'game_threshold']
+        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'game_threshold', 'leaderboard_positions', 'round_specific_format', 'min_players', 'max_players']
         labels = {
             'name': 'Round Name',
             'round_number': 'Round #',
             'end_date': 'End Date (Optional)',
             'game_threshold': 'Leaderboard Threshold',
+            'leaderboard_positions': 'Leaderboard Positions',
             'description': 'Description (Optional)',
+            'round_specific_format': 'Format',
+            'min_players': 'Min Players per Group',
+            'max_players': 'Max Players per Group',
         }
 
     def __init__(self, *args, tournament=None, current_round=None, **kwargs):
@@ -1079,7 +1086,6 @@ class RoundCreateForm(forms.ModelForm):
             'placeholder': 'Give a brief description of the round.',
             'rows': '2'
             })
-        self.fields['game_threshold'].initial = tournament.game_threshold
         self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
         self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
         # Set the initial value for 'start_date' to the current time
@@ -1391,30 +1397,33 @@ class RoundManagePlayersForm(forms.Form):
     
     def save(self):
         if self.cleaned_data:
-            from the_warroom.models import SessionPlayer
+            from the_warroom.models import SessionPlayer, GroupingSession
 
-            # Ensure round has its own master session (creates if needed)
-            if not self.round.master_session:
-                self.round.create_round_session()
+            tournament = self.round.tournament
 
-            round_session = self.round.master_session
+            # Get or create the tournament-level grouping session
+            session, _ = GroupingSession.objects.get_or_create(
+                tournament=tournament,
+                defaults={
+                    'name': f"{tournament.name} - Session",
+                    'grouping_type': GroupingSession.GroupingTypeChoices.MANUAL,
+                }
+            )
 
-            # Add selected players to the round
+            # Add selected players to the round roster
             for player in self.cleaned_data['available_players']:
-                SessionPlayer.objects.update_or_create(
-                    session=round_session,
+                sp, _ = SessionPlayer.objects.get_or_create(
+                    session=session,
                     profile=player,
-                    defaults={'status': 'ungrouped', 'added_via': 'manual'}
+                    defaults={'status': SessionPlayer.StatusChoices.ACTIVE}
                 )
+                self.round.roster.add(sp)
 
-            # Remove selected players from the round
+            # Remove selected players from the round roster
             for player in self.cleaned_data['current_players']:
-                SessionPlayer.objects.filter(
-                    session=round_session,
-                    profile=player
-                ).delete()
-
-            round_session.recalculate_statistics()
+                sp = SessionPlayer.objects.filter(session=session, profile=player).first()
+                if sp:
+                    self.round.roster.remove(sp)
 
 
 

@@ -17,7 +17,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import IntegrityError, models
 
-from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery
+from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
 from django.utils.translation import get_language
@@ -1349,18 +1349,10 @@ def tournament_detail_view(request, tournament_slug):
         )
     if request.user.is_authenticated:
         playable_rounds = active_rounds.filter(
-            Q(
-                Q(tournament__grouping_sessions__session_players__profile=request.user.profile) |  # user is a tournament player
-                Q(tournament__designer=request.user.profile)    # or user is the tournament designer
-            ),
-            Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-            start_date__lt=timezone.now()
-        )
-        playable_round = playable_rounds.filter(
-            Q(grouping_sessions__session_players__isnull=False, grouping_sessions__session_players__profile__in=[request.user.profile]) |
-            Q(grouping_sessions__session_players__isnull=True) |
-            Q(tournament__designer=request.user.profile)
-        ).last()
+            Q(roster__profile=request.user.profile) |  # user is on this round's roster
+            Q(tournament__designer=request.user.profile)  # or user is the tournament designer
+        ).distinct()
+        playable_round = playable_rounds.last()
     else:
         playable_rounds = active_rounds.none()
         playable_round = playable_rounds.none()
@@ -1602,6 +1594,11 @@ def tournament_dynamic_create(request):
                 tournament.classification = Tournament.ClassificationTypes.GROUP
                 tournament.designer = request.user.profile
                 tournament.guild = None
+
+            # Clear default_format if classification is not Tournament
+            if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
+                tournament.default_format = ''
+
             tournament.save()
             form.save_m2m()  # Save ManyToMany relationships
 
@@ -1656,6 +1653,10 @@ def tournament_dynamic_update(request, slug):
                 tournament.classification = original.classification
                 tournament.designer = original.designer
                 tournament.guild = original.guild
+
+            # Clear default_format if classification is not Tournament
+            if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
+                tournament.default_format = ''
 
             tournament.save()
             form.save_m2m()
@@ -1729,17 +1730,23 @@ def tournament_move_player(request, slug):
 
     player = get_object_or_404(Profile, id=player_id)
 
-    # Map group names to SessionPlayer statuses
     status_map = {
-        'players': 'ungrouped',
-        'waitlist': 'waitlist',
-        'eliminated': 'eliminated'
+        'players': SessionPlayer.StatusChoices.ACTIVE,
+        'waitlist': SessionPlayer.StatusChoices.WAITLIST,
+        'eliminated': SessionPlayer.StatusChoices.ELIMINATED,
     }
-
-    from_status = status_map.get(from_group)
     to_status = status_map.get(to_group)
 
-    tournament.move_player(player, from_status, to_status)
+    if not from_group:
+        # Adding from search — create SessionPlayer with desired status
+        tournament.add_player_to_tournament(player, status=to_status or SessionPlayer.StatusChoices.ACTIVE)
+    elif not to_group:
+        # Trash button — remove from tournament entirely
+        tournament.remove_player_from_tournament(player)
+        return HttpResponse('')
+    else:
+        # Status transition between existing groups
+        tournament.move_player(player, status_map.get(from_group), to_status)
 
     # Return updated player card
     return render(request, 'the_warroom/partials/player_card.html', {
@@ -1761,33 +1768,29 @@ def round_search_players(request, tournament_slug, round_slug):
 
     query = request.GET.get('q', '')
 
-    # Get players from tournament's master session (ungrouped only, not eliminated or waitlisted)
-    tournament_session = tournament.master_session
-    tournament_player_ids = tournament_session.session_players.filter(
-        status='ungrouped'  # Only active players
-    ).values_list('profile_id', flat=True)
-
-    # Exclude players already in the round's session
-    round_session = round.master_session
-    if round_session:
-        existing_player_ids = round_session.session_players.values_list('profile_id', flat=True)
-    else:
-        existing_player_ids = []
-
-    # Get available players (in tournament, ungrouped, not in round)
-    available_players = Profile.objects.filter(
-        id__in=tournament_player_ids
-    ).exclude(
-        id__in=existing_player_ids
+    # Get all tournament players not yet on this round's roster, sorted by status then name
+    roster_profile_ids = round.roster.values_list('profile_id', flat=True)
+    status_order = Case(
+        When(session_participations__status=SessionPlayer.StatusChoices.ACTIVE, then=Value(1)),
+        When(session_participations__status=SessionPlayer.StatusChoices.WAITLIST, then=Value(2)),
+        When(session_participations__status=SessionPlayer.StatusChoices.ELIMINATED, then=Value(3)),
+        default=Value(4),
+        output_field=IntegerField(),
     )
+    available_players = Profile.objects.filter(
+        session_participations__session__tournament=tournament,
+    ).exclude(
+        id__in=roster_profile_ids
+    ).annotate(
+        tournament_status=F('session_participations__status'),
+        status_order=status_order,
+    ).order_by('status_order', 'display_name')
 
     if query:
-        # Filter by search query and limit to 10 results
         available_players = available_players.filter(
             Q(discord__icontains=query) |
             Q(display_name__icontains=query)
         )[:10]
-    # If no query, show all available players (no limit since it's from tournament pool)
 
     return render(request, 'the_warroom/partials/player_search_results.html', {
         'players': available_players,
@@ -1816,17 +1819,25 @@ def round_move_player(request, tournament_slug, round_slug):
 
     player = get_object_or_404(Profile, id=player_id)
 
-    # Map group names to SessionPlayer statuses
     status_map = {
-        'players': 'ungrouped',
-        'waitlist': 'waitlist',
-        'eliminated': 'eliminated'
+        'players': SessionPlayer.StatusChoices.ACTIVE,
+        'waitlist': SessionPlayer.StatusChoices.WAITLIST,
+        'eliminated': SessionPlayer.StatusChoices.ELIMINATED,
     }
-
-    from_status = status_map.get(from_group)
     to_status = status_map.get(to_group)
 
-    round.move_player(player, from_status, to_status)
+    if not from_group:
+        # Adding from search results — add to roster with the desired status
+        round.add_player_to_round(player)
+        if to_status and to_status != SessionPlayer.StatusChoices.ACTIVE:
+            round.move_player(player, None, to_status)
+    elif not to_group:
+        # Trash button — remove from this round's roster only
+        round.remove_player_from_round(player)
+        return HttpResponse('')
+    else:
+        # Moving between existing roster groups (status change only)
+        round.move_player(player, status_map.get(from_group), to_status)
 
     # Return updated player card
     return render(request, 'the_warroom/partials/player_card.html', {
@@ -2102,15 +2113,11 @@ def user_can_access_round(tournament_round, user):
     is_active = (tournament_round.start_date < now) and (tournament_round.end_date is None or tournament_round.end_date > now)
     is_designer = tournament_round.tournament.designer == user.profile
 
-    # Check if user is a player in any of the tournament_round's grouping sessions
-    from the_warroom.models import SessionPlayer
-    is_player = SessionPlayer.objects.filter(
-        session__tournament_round=tournament_round,
-        profile=user.profile
-    ).exists()
+    # Check if user is rostered in this round
+    is_player = tournament_round.roster.filter(profile=user.profile).exists()
 
-    # If no session players exist for this tournament_round, assume it's open
-    is_open = not SessionPlayer.objects.filter(session__tournament_round=tournament_round).exists()
+    # If the round has no roster yet, assume it's open
+    is_open = not tournament_round.roster.exists()
 
     return is_active and (is_designer or is_player or is_open)
 
@@ -2125,16 +2132,16 @@ def round_detail_view(request, tournament_slug, round_slug):
 
     efforts = Effort.objects.filter(game__round=round)
     
-    threshold = round.game_threshold
-
+    threshold = round.game_threshold if round.game_threshold is not None else tournament.game_threshold
+    leaderboard_limit = round.leaderboard_positions if round.leaderboard_positions is not None else tournament.leaderboard_positions
 
     top_players = []
     most_players = []
     top_factions = []
     most_factions = []
 
-    top_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, game_threshold=threshold)
-    most_players = Profile.leaderboard(limit=tournament.leaderboard_positions, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
+    top_players = Profile.leaderboard(limit=leaderboard_limit, effort_qs=efforts, game_threshold=threshold)
+    most_players = Profile.leaderboard(limit=leaderboard_limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
     top_factions = Faction.leaderboard(limit=20, effort_qs=efforts, game_threshold=threshold)
     most_factions = Faction.leaderboard(limit=20, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
 
@@ -2395,30 +2402,22 @@ def round_manage_players(request, round_slug, tournament_slug):
         raise PermissionDenied()
 
     # Redirect to tournament player management if no tournament session players exist
-    if tournament.master_session.session_players.count() == 0:
+    if not SessionPlayer.objects.filter(session__tournament=tournament).exists():
         return redirect('tournament-manage-players', slug=tournament_slug)
-
-    # Ensure round has master session - create if needed
-    if not round.master_session:
-        round.create_round_session()
-
-    # if request.method == 'POST':
-    #     form = TournamentPlayerSettingsForm(request.POST, instance=tournament)
-    #     if form.is_valid():
-    #         form.save()
-    #         messages.success(request, "Player settings updated.")
-    #         return redirect('round-players', tournament_slug=tournament_slug, round_slug=round_slug)
-    # else:
-    #     form = TournamentPlayerSettingsForm(instance=tournament)
 
     context = {
         'tournament': tournament,
         'round': round,
         'object': round,
-        # 'form': form,
-        'players': round.get_players_queryset(),
-        'waitlist_players': round.get_waitlist_players_queryset(),
-        'eliminated_players': round.get_eliminated_players_queryset(),
+        'players': Profile.objects.filter(
+            session_participations__in=round.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
+        ),
+        'waitlist_players': Profile.objects.filter(
+            session_participations__in=round.roster.filter(status=SessionPlayer.StatusChoices.WAITLIST)
+        ),
+        'eliminated_players': Profile.objects.filter(
+            session_participations__in=round.roster.filter(status=SessionPlayer.StatusChoices.ELIMINATED)
+        ),
     }
     return render(request, 'the_warroom/tournament_manage_players.html', context)
 
@@ -2924,145 +2923,83 @@ def round_grouping_setup_view(request, tournament_slug, round_slug):
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    # Ensure round has master session (for player roster)
-    if not round.master_session:
-        round.create_round_session()
-
-    # Get the single grouping session for this round (excluding master session)
+    # Find the grouping session for this round (via groups that belong to this round)
     session = GroupingSession.objects.filter(
-        round=round
-    ).exclude(
-        # Exclude master session (it has grouping_type='manual' and is for player management)
-        id=round.master_session.id if round.master_session else None
-    ).first()
+        groups__round=round
+    ).distinct().first()
+    # Fallback: use the tournament's most recent session
+    if not session:
+        session = tournament.grouping_sessions.order_by('-created_at').first()
 
-    # Check for availability data
-    has_availability = False
-    if round.master_session:
-        has_availability = round.master_session.session_players.filter(
-            status=SessionPlayer.StatusChoices.UNGROUPED
-        ).exclude(
-            availability_hours=[]
-        ).exists()
+    # Check for availability data on active rostered players
+    has_availability = round.roster.filter(
+        status=SessionPlayer.StatusChoices.ACTIVE
+    ).exclude(availability_hours=[]).exists()
 
     # Calculate stats
-    master_session = round.master_session
-    total_players = master_session.session_players.filter(
-        status=SessionPlayer.StatusChoices.UNGROUPED
-    ).count() if master_session else 0
-
-    session_waitlist_count = master_session.session_players.filter(
-        status=SessionPlayer.StatusChoices.WAITLIST
-    ).count() if master_session else 0
-
-    if session:
-        group_count = session.groups.count()
-    else:
-        group_count = 0
+    total_players = round.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE).count()
+    session_waitlist_count = round.roster.filter(status=SessionPlayer.StatusChoices.WAITLIST).count()
+    group_count = round.player_groups.count()
 
     # Handle POST actions
     if request.method == 'POST':
         action = request.POST.get('action', 'generate')
 
-        # Reset session - clear groups and return players to appropriate status
+        # Reset session - clear only this round's groups (session players are preserved)
         if action == 'reset_session':
+            round.player_groups.all().delete()
+            round.grouping_status = Round.GroupingStatusChoices.DRAFT
+            round.grouping_notes = ''
+            round.save(update_fields=['grouping_status', 'grouping_notes'])
             if session:
-                # Delete all groups
-                session.groups.all().delete()
-
-                # Get tournament master session to check waitlist status
-                tournament_master = round.tournament.master_session
-                tournament_waitlist_profile_ids = set()
-                if tournament_master:
-                    tournament_waitlist_profile_ids = set(
-                        tournament_master.session_players.filter(
-                            status=SessionPlayer.StatusChoices.WAITLIST
-                        ).values_list('profile_id', flat=True)
-                    )
-
-                # Return all session players to ungrouped or waitlist
-                for sp in session.session_players.all():
-                    if sp.profile_id in tournament_waitlist_profile_ids:
-                        # Player is on tournament waitlist - restore to waitlist
-                        sp.status = SessionPlayer.StatusChoices.WAITLIST
-                        sp.reason = SessionPlayer.ReasonChoices.WAITLIST
-                    else:
-                        # Regular player - set to ungrouped
-                        sp.status = SessionPlayer.StatusChoices.UNGROUPED
-                        sp.reason = SessionPlayer.ReasonChoices.MANUAL
-                    sp.group = None
-                    sp.save(update_fields=['status', 'group', 'reason'])
-
-                # Update session status
-                session.status = GroupingSession.StatusChoices.DRAFT
                 session.recalculate_statistics()
-                session.save()
-
-                messages.success(request, 'Grouping session reset successfully.')
+            messages.success(request, 'Groups reset successfully.')
             return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
 
         # Generate/regenerate groups with new settings
         elif action == 'generate':
-            # Parse form data
-            min_group_size = int(request.POST.get('min_group_size', 3))
-            max_group_size = int(request.POST.get('max_group_size', 5))
             grouping_type = request.POST.get('grouping_type', 'random')
             algorithm = request.POST.get('algorithm', 'random')
             naming_convention = request.POST.get('naming_convention', 'numeric')
 
-            # Determine grouping type based on availability
-            if not has_availability:
-                grouping_type = request.POST.get('grouping_type', 'random')
+            # Can't regenerate if finalized
+            if round.grouping_status == Round.GroupingStatusChoices.FINALIZED:
+                messages.error(request, 'Cannot modify a finalized grouping. Reset it first.')
+                return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
 
-            if session:
-                # Can't regenerate if finalized
-                if session.status == GroupingSession.StatusChoices.FINALIZED:
-                    messages.error(request, 'Cannot modify a finalized session. Reset it first.')
-                    return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
-
-                # Update existing session with new parameters
-                session.grouping_type = grouping_type
-                session.algorithm = algorithm
-                session.min_group_size = min_group_size
-                session.max_group_size = max_group_size
-                session.status = GroupingSession.StatusChoices.PROCESSING
-                session.total_players = total_players
-                session.naming_convention = naming_convention
-                session.save()
-
-                # Clear existing groups and players
-                session.groups.all().delete()
-                session.session_players.all().delete()
-            else:
-                # Create new session
+            # Get or create a tournament-level session
+            if not session:
                 session = GroupingSession.objects.create(
                     tournament=tournament,
-                    round=round,
-                    name=f"{round.name} - Groups" if round.name else f"Round {round.round_number} - Groups",
+                    name=f"{tournament.name} - Session",
                     grouping_type=grouping_type,
                     algorithm=algorithm,
-                    min_group_size=min_group_size,
-                    max_group_size=max_group_size,
-                    status=GroupingSession.StatusChoices.PROCESSING,
                     created_by=profile,
-                    total_players=total_players,
                     naming_convention=naming_convention,
                 )
+            else:
+                session.grouping_type = grouping_type
+                session.algorithm = algorithm
+                session.naming_convention = naming_convention
+                session.save(update_fields=['grouping_type', 'algorithm', 'naming_convention'])
+
+            # Clear existing groups for this round only
+            round.player_groups.all().delete()
+            round.grouping_status = Round.GroupingStatusChoices.PROCESSING
+            round.grouping_notes = ''
+            round.save(update_fields=['grouping_status', 'grouping_notes'])
 
             # Queue grouping based on type
             if grouping_type == 'availability':
-                # Use async task for availability-based grouping
                 from the_tavern.tasks import generate_grouping_async
-                generate_grouping_async.delay(session.id)
+                generate_grouping_async.delay(session.id, round.id)
             elif grouping_type == 'random':
-                GroupingService.populate_ungrouped_from_round_session(session, round)
-                GroupingService.generate_random_groups(session)
-                session.status = GroupingSession.StatusChoices.DRAFT
-                session.save(update_fields=['status'])
-            else:  # manual
-                GroupingService.populate_ungrouped_from_round_session(session, round)
-                session.status = GroupingSession.StatusChoices.DRAFT
-                session.save(update_fields=['status'])
+                GroupingService.generate_random_groups(session, round)
+                round.grouping_status = Round.GroupingStatusChoices.DRAFT
+                round.save(update_fields=['grouping_status'])
+            else:  # manual - just set draft, no groups generated
+                round.grouping_status = Round.GroupingStatusChoices.DRAFT
+                round.save(update_fields=['grouping_status'])
 
             return redirect('round-grouping-setup', tournament_slug=tournament.slug, round_slug=round.slug)
 
@@ -3070,34 +3007,21 @@ def round_grouping_setup_view(request, tournament_slug, round_slug):
     groups = []
     ungrouped_players = []
     session_waitlist_players = []
-    is_processing = False
-    is_finalized = False
-    has_error = False
+    is_processing = round.grouping_status == Round.GroupingStatusChoices.PROCESSING
+    is_finalized = round.grouping_status == Round.GroupingStatusChoices.FINALIZED
+    has_error = round.grouping_status == Round.GroupingStatusChoices.ERROR
 
-    if session:
-        is_processing = session.status == GroupingSession.StatusChoices.PROCESSING
-        is_finalized = session.status == GroupingSession.StatusChoices.FINALIZED
-        has_error = session.status == GroupingSession.StatusChoices.ERROR
+    if not is_processing:
+        groups = round.player_groups.prefetch_related(
+            'session_players__profile'
+        ).order_by('group_number')
 
-        if not is_processing:
-            # Get groups with members
-            groups = session.groups.prefetch_related(
-                'session_players__profile'
-            ).order_by('group_number')
+        ungrouped_players = round.get_active_players_queryset().select_related('profile')
 
-            # Get ungrouped players
-            ungrouped_players = session.session_players.filter(
-                status=SessionPlayer.StatusChoices.UNGROUPED
-            ).select_related(
-                'profile', 'best_fit_group'
-            ).order_by('-best_fit_overlap_hours')
+        session_waitlist_players = round.roster.filter(
+            status=SessionPlayer.StatusChoices.WAITLIST
+        ).select_related('profile')
 
-            # Get session waitlist players
-            session_waitlist_players = session.session_players.filter(
-                status=SessionPlayer.StatusChoices.WAITLIST
-            ).select_related('profile')
-
-    # Navigation context
     return_to = round.get_absolute_url()
 
     context = {
@@ -3107,8 +3031,8 @@ def round_grouping_setup_view(request, tournament_slug, round_slug):
         'groups': groups,
         'ungrouped_players': ungrouped_players,
         'session_waitlist_players': session_waitlist_players,
-        'ungrouped_count': len(ungrouped_players) if ungrouped_players else 0,
-        'session_waitlist_count': len(session_waitlist_players),
+        'ungrouped_count': ungrouped_players.count() if hasattr(ungrouped_players, 'filter') else len(ungrouped_players),
+        'session_waitlist_count': session_waitlist_count,
         'total_players': total_players,
         'group_count': group_count,
         'has_availability': has_availability,
@@ -3136,15 +3060,11 @@ def round_grouping_status(request, tournament_slug, round_slug, session_id):
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    # If still processing, return status indicator
-    if session.status == GroupingSession.StatusChoices.PROCESSING:
-        return render(request, 'the_warroom/partials/grouping_processing.html', {
-            'session': session,
-            'round': round,
-            'tournament': tournament,
-        })
+    # If still processing, return empty 200 — hx-swap="none" means the spinner is untouched
+    if round.grouping_status == Round.GroupingStatusChoices.PROCESSING:
+        return HttpResponse(status=200)
 
     # If done, trigger a full page refresh via HX-Refresh header
     response = HttpResponse(status=200)
@@ -3165,10 +3085,10 @@ def round_grouping_move_player(request, tournament_slug, round_slug, session_id)
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping is not editable'}, status=400)
 
     try:
         data = json.loads(request.body)
@@ -3177,19 +3097,21 @@ def round_grouping_move_player(request, tournament_slug, round_slug, session_id)
         to_group_id = data.get('to_group_id')
 
         session_player = get_object_or_404(SessionPlayer, id=player_id, session=session)
-        from_group = get_object_or_404(PlayerGroup, id=from_group_id, session=session) if from_group_id else None
-        to_group = get_object_or_404(PlayerGroup, id=to_group_id, session=session)
+        from_group = get_object_or_404(PlayerGroup, id=from_group_id, round=round) if from_group_id else None
+        to_group = get_object_or_404(PlayerGroup, id=to_group_id, round=round)
 
-        GroupingService.assign_player_to_group(session_player, to_group, moved_by=profile)
+        GroupingService.assign_player_to_group(session_player, to_group, round=round, moved_by=profile)
 
         response = {'success': True}
         if from_group:
+            from_group.refresh_from_db()
             response['from_group'] = {
                 'id': from_group.id,
                 'member_count': from_group.member_count,
                 'total_overlap_hours': from_group.total_overlap_hours,
                 'best_consecutive_block': from_group.best_consecutive_block,
             }
+        to_group.refresh_from_db()
         response['to_group'] = {
             'id': to_group.id,
             'member_count': to_group.member_count,
@@ -3214,25 +3136,22 @@ def round_grouping_add_to_group(request, tournament_slug, round_slug, session_id
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping is not editable'}, status=400)
 
     try:
         data = json.loads(request.body)
         player_id = data.get('player_id')
         group_id = data.get('group_id')
 
-        session_player = get_object_or_404(
-            SessionPlayer,
-            id=player_id,
-            session=session
-        )
-        group = get_object_or_404(PlayerGroup, id=group_id, session=session)
+        session_player = get_object_or_404(SessionPlayer, id=player_id, session=session)
+        group = get_object_or_404(PlayerGroup, id=group_id, round=round)
 
-        GroupingService.assign_player_to_group(session_player, group, moved_by=profile)
+        GroupingService.assign_player_to_group(session_player, group, round=round, moved_by=profile)
 
+        group.refresh_from_db()
         return JsonResponse({
             'success': True,
             'group': {
@@ -3249,7 +3168,7 @@ def round_grouping_add_to_group(request, tournament_slug, round_slug, session_id
 @login_required
 @require_http_methods(['POST'])
 def round_grouping_remove_from_group(request, tournament_slug, round_slug, session_id):
-    """Remove a player from a group and set to ungrouped."""
+    """Remove a player from a group and return them to ungrouped status."""
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
@@ -3259,35 +3178,24 @@ def round_grouping_remove_from_group(request, tournament_slug, round_slug, sessi
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping is not editable'}, status=400)
 
     try:
         data = json.loads(request.body)
         player_id = data.get('player_id')
+        group_id = data.get('group_id')
 
-        session_player = get_object_or_404(
-            SessionPlayer,
-            id=player_id,
-            session=session,
-            status=SessionPlayer.StatusChoices.GROUPED
-        )
+        session_player = get_object_or_404(SessionPlayer, id=player_id, session=session)
+        old_group = get_object_or_404(PlayerGroup, id=group_id, round=round) if group_id else None
 
-        old_group = session_player.group
+        GroupingService.remove_from_group(session_player, round=round)
 
-        GroupingService.remove_from_group(session_player)
-
-        result = {
-            'success': True,
-            'session_player': {
-                'id': session_player.id,
-                'status': session_player.status,
-            },
-        }
-
+        result = {'success': True}
         if old_group:
+            old_group.refresh_from_db()
             result['from_group'] = {
                 'id': old_group.id,
                 'member_count': old_group.member_count,
@@ -3303,7 +3211,7 @@ def round_grouping_remove_from_group(request, tournament_slug, round_slug, sessi
 @login_required
 @require_http_methods(['POST'])
 def round_grouping_create_group(request, tournament_slug, round_slug, session_id):
-    """Create a new group, optionally with initial players."""
+    """Create a new empty group for a round."""
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
@@ -3313,36 +3221,37 @@ def round_grouping_create_group(request, tournament_slug, round_slug, session_id
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping is not editable'}, status=400)
 
     try:
         data = json.loads(request.body)
         player_id = data.get('player_id')  # Optional: SessionPlayer id to add to new group
 
         # Get next group number
-        max_group_num = session.groups.aggregate(models.Max('group_number'))['group_number__max'] or 0
+        max_group_num = round.player_groups.aggregate(models.Max('group_number'))['group_number__max'] or 0
         new_group_num = max_group_num + 1
 
         # Create new group
         new_group = PlayerGroup.objects.create(
+            round=round,
             session=session,
             group_number=new_group_num,
             name=generate_name(new_group_num, NameConvention(session.naming_convention)),
+            created_by=profile,
         )
 
-        # If player_id provided, add/move that player to the new group
+        # If player_id provided, add that player to the new group
         if player_id:
             session_player = SessionPlayer.objects.filter(
                 session=session,
                 id=player_id
             ).first()
             if session_player:
-                GroupingService.assign_player_to_group(session_player, new_group, moved_by=profile)
+                GroupingService.assign_player_to_group(session_player, new_group, round=round, moved_by=profile)
 
-        # Recalculate session statistics
         session.recalculate_statistics()
 
         return JsonResponse({
@@ -3370,18 +3279,18 @@ def round_grouping_delete_group(request, tournament_slug, round_slug, session_id
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping is not editable'}, status=400)
 
     try:
         data = json.loads(request.body)
         group_id = data.get('group_id')
 
-        group = get_object_or_404(PlayerGroup, id=group_id, session=session)
+        group = get_object_or_404(PlayerGroup, id=group_id, round=round)
 
-        if group.members.exists():
+        if group.session_players.exists():
             return JsonResponse({'error': 'Cannot delete group with members'}, status=400)
 
         group.delete()
@@ -3394,7 +3303,7 @@ def round_grouping_delete_group(request, tournament_slug, round_slug, session_id
 @login_required
 @require_http_methods(['POST'])
 def round_grouping_move_from_waitlist(request, tournament_slug, round_slug, session_id):
-    """Move a player from the session waitlist to ungrouped or a group."""
+    """Move a player from the session waitlist to active/ungrouped or directly to a group."""
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
@@ -3404,10 +3313,10 @@ def round_grouping_move_from_waitlist(request, tournament_slug, round_slug, sess
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping is not editable'}, status=400)
 
     try:
         data = json.loads(request.body)
@@ -3423,9 +3332,11 @@ def round_grouping_move_from_waitlist(request, tournament_slug, round_slug, sess
 
         to_group = None
         if group_id:
-            to_group = get_object_or_404(PlayerGroup, id=group_id, session=session)
+            to_group = get_object_or_404(PlayerGroup, id=group_id, round=round)
 
         GroupingService.move_from_waitlist(session_player, to_group=to_group)
+        # Also add to round roster if not already there
+        round.roster.add(session_player)
 
         result = {
             'success': True,
@@ -3433,10 +3344,10 @@ def round_grouping_move_from_waitlist(request, tournament_slug, round_slug, sess
                 'id': session_player.id,
                 'status': session_player.status,
             },
-            'total_players': session.total_players,
         }
 
         if to_group:
+            to_group.refresh_from_db()
             result['to_group'] = {
                 'id': to_group.id,
                 'member_count': to_group.member_count,
@@ -3462,13 +3373,13 @@ def round_grouping_finalize(request, tournament_slug, round_slug, session_id):
     if not profile.admin and tournament.designer != profile:
         raise PermissionDenied
 
-    session = get_object_or_404(GroupingSession, id=session_id, round=round)
+    session = get_object_or_404(GroupingSession, id=session_id)
 
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session cannot be finalized'}, status=400)
+    if round.grouping_status != Round.GroupingStatusChoices.DRAFT:
+        return JsonResponse({'error': 'Round grouping cannot be finalized'}, status=400)
 
     try:
-        GroupingService.finalize_session(session, target_round=round)
+        GroupingService.finalize_session(session, round)
 
         return JsonResponse({
             'success': True,

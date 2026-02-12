@@ -4,7 +4,7 @@
 <!-- Hidden form field for platform -->
 <input type="hidden" name="platform" id="platform_input" value="{{ tournament_form.platform.value|default:'' }}">
 
-<div>
+<div id="platform-toggle-container">
     <label class="form-label fw-bold mb-3">Required Platform</label>
     <div class="option-toggle option-toggle-4">
         <div class="option-slider position-1" id="platform-slider"></div>
@@ -34,61 +34,16 @@
 </div>
 
 <script>
-// Platform toggle functionality
-(function() {
-    const platformDescriptions = {
+initToggle({
+    containerId: 'platform-toggle-container',
+    inputId: 'platform_input',
+    sliderId: 'platform-slider',
+    descriptionId: 'platform-description-text',
+    descriptions: {
         '': 'Games can be played on any platform.',
         'Tabletop Simulator': 'Games must be played on Tabletop Simulator.',
         'Root Digital': 'Games must be played on the Direwolf Digital Root app.',
         'In Person': 'Games must be played in person with physical components.'
-    };
-
-    const platformOptions = document.querySelectorAll('.option-item');
-    const platformSlider = document.getElementById('platform-slider');
-    const platformDescriptionText = document.getElementById('platform-description-text');
-    const platformInput = document.getElementById('platform_input');
-
-    // Function to update UI based on platform
-    function updateUIForPlatform(value) {
-        // Update description
-        if (platformDescriptionText) {
-            platformDescriptionText.textContent = platformDescriptions[value] || platformDescriptions[''];
-        }
     }
-
-    // Set initial state based on current value
-    const currentValue = platformInput.value || '';
-    platformOptions.forEach(option => {
-        if (option.dataset.value === currentValue) {
-            option.classList.add('active');
-            if (platformSlider) {
-                platformSlider.className = 'option-slider position-' + option.dataset.position;
-            }
-            updateUIForPlatform(option.dataset.value);
-        }
-    });
-
-    // Handle toggle clicks
-    platformOptions.forEach(option => {
-        option.addEventListener('click', function() {
-            const selectedValue = this.dataset.value;
-            const selectedPosition = this.dataset.position;
-
-            // Update active state
-            platformOptions.forEach(opt => opt.classList.remove('active'));
-            this.classList.add('active');
-
-            // Move slider
-            if (platformSlider) {
-                platformSlider.className = 'option-slider position-' + selectedPosition;
-            }
-
-            // Update hidden input
-            platformInput.value = selectedValue;
-
-            // Update UI
-            updateUIForPlatform(selectedValue);
-        });
-    });
-})();
+});
 </script>

@@ -24,25 +24,26 @@
                     </div>
                     <div class="card-body">
                         <div class="row">
-                            <div class="col-md-6 mb-2">
+                            <div class="col-md-12 mb-2">
                                 {{ form.name|as_crispy_field }}
                             </div>
-                            {% if is_admin %}
-                            <div class="col-md-6 mb-2">
-                                {{ form.classification|as_crispy_field }}
-                            </div>
-                            {% endif %}
+
                         </div>
 
                         {% if is_admin %}
                         <div class="border rounded p-3 mb-2 bg-light">
                             <h6 class="text-muted mb-2"><i class="bi bi-shield-lock me-2"></i>{% trans 'Administration' %}</h6>
                             <div class="row">
-                                <div class="col-md-6 mb-2">
+                                <div class="col-md-6 col-lg-4 mb-2">
                                     {{ form.designer|as_crispy_field }}
                                 </div>
-                                <div class="col-md-6 mb-2">
+                                <div class="col-md-6 col-lg-4 mb-2">
                                     {{ form.guild|as_crispy_field }}
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    {% include 'the_warroom/partials/classification_toggle.html' with tournament_form=form %}
                                 </div>
                             </div>
                         </div>
@@ -129,10 +130,21 @@
                     </div>
                     <div class="card-body">
 
+                            {% if is_admin %}
+                            <div id="default-format-field"
+                                 style="{% if tournament and tournament.classification != 'Tournament' %}display:none;{% endif %}">
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        {{ form.default_format|as_crispy_field }}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+
                             {% include 'the_warroom/partials/platform_toggle.html' with tournament_form=form %}
-     
+
                             {% include 'the_warroom/partials/asset_mode_toggle.html' with tournament_form=form %}
-          
+
                     </div>
                 </div>
 
@@ -187,6 +199,10 @@
     </div>
 {% endblock content %}
 
+{% block head %}
+{% include 'the_warroom/partials/toggle_scripts.html' %}
+{% endblock %}
+
 {% block scripts %}
 
 {% include 'the_warroom/partials/asset_mode_scripts.html' %}
@@ -215,6 +231,28 @@
         const checkbox = document.getElementById('id_enforce_player_count');
         const fields = document.getElementById('player-count-fields');
         fields.style.display = checkbox.checked ? 'block' : 'none';
+    }
+
+    // Show/hide default_format based on classification (admin only)
+    const classificationInput = document.getElementById('classification_input');
+    if (classificationInput) {
+        const formatField = document.getElementById('default-format-field');
+        function updateFormatField(value) {
+            formatField.style.display = value === 'Tournament' ? 'block' : 'none';
+        }
+        updateFormatField(classificationInput.value);
+        initToggle({
+            containerId: 'classification-toggle-container',
+            inputId: 'classification_input',
+            sliderId: 'classification-slider',
+            descriptionId: 'classification-description-text',
+            descriptions: {
+                'Game Group': 'Casual game group with no competitive structure.',
+                'League': 'Semi-competitive series with ongoing standings.',
+                'Tournament': 'Structured and competitive series with brackets and rules.'
+            },
+            onChange: updateFormatField
+        });
     }
 
 </script>

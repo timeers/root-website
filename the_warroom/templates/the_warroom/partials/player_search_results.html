@@ -6,7 +6,11 @@
     <h6 class="text-muted mb-2">Available Players:</h6>
     {% endif %}
     {% for player in players %}
-        {% include 'the_warroom/partials/player_card.html' with player=player group='available' %}
+        {% if round %}
+            {% include 'the_warroom/partials/player_card.html' with player=player group='available_round' %}
+        {% else %}
+            {% include 'the_warroom/partials/player_card.html' with player=player group='available' %}
+        {% endif %}
     {% endfor %}
 </div>
 {% elif request.GET.q %}

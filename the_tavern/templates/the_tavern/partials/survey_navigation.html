@@ -39,9 +39,9 @@
                     <i class="bi bi-clipboard-check"></i> {% trans 'Quiz Settings' %}
                 </a>
             {% endif %}
-            {% if can_edit_survey and survey.response_count > 0 %}
-                <a href="{% url 'survey-grouping-setup' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-info">
-                    <i class="bi bi-people"></i> {% trans 'Create Groups' %}
+            {% if can_edit_survey and survey.series and survey.response_count > 0 %}
+                <a href="{% url 'survey-send-availability' survey.slug %}" class="btn btn-sm btn-outline-info">
+                    <i class="bi bi-send"></i> {% trans 'Send to Round' %}
                 </a>
             {% endif %}
         </div>
@@ -81,13 +81,6 @@
                         <li>
                             <a class="dropdown-item" href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
                                 <i class="bi bi-clipboard-check"></i> {% trans 'Quiz Settings' %}
-                            </a>
-                        </li>
-                    {% endif %}
-                    {% if can_edit_survey and survey.response_count > 0 %}
-                        <li>
-                            <a class="dropdown-item" href="{% url 'survey-grouping-setup' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
-                                <i class="bi bi-people"></i> {% trans 'Create Groups' %}
                             </a>
                         </li>
                     {% endif %}

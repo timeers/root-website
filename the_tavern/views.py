@@ -320,7 +320,6 @@ def survey_list_view(request):
             )
         )
         
-        # Check if user is in series
         # Check if user is in series (via GroupingSession/SessionPlayer)
         # Any player in any GroupingSession for the tournament can access
         user_in_series = Exists(
@@ -330,12 +329,11 @@ def survey_list_view(request):
             )
         )
 
-        # Check if user is in series round (via GroupingSession/SessionPlayer)
-        # Any player in any GroupingSession for the round can access
+        # Check if user is on the round's roster
         user_in_round = Exists(
             Survey.objects.filter(
                 pk=OuterRef('pk'),
-                series_round__grouping_sessions__session_players__profile=profile
+                series_round__roster__profile=profile
             )
         )
         
@@ -2765,670 +2763,94 @@ def survey_quiz_settings_view(request, slug):
 
 
 # ============================================================================
-# Survey Grouping Views
+# Survey Availability Send to Round or Tournament
 # ============================================================================
 
-@login_required
-def survey_grouping_setup_view(request, slug):
+
+@player_onboard_required
+def survey_send_availability(request, slug):
     """
-    Combined grouping view - shows setup form and organize interface.
-    Each survey has only one GroupingSession.
+    Send survey respondents to a specific Round's roster.
+    Lets the user select from the survey's linked tournament's rounds
+    and adds accepted respondents to that round's roster.
     """
-    from .tasks import generate_grouping_async
+    from the_warroom.models import GroupingSession, Round, SessionPlayer
+    from the_warroom.services.grouping import GroupingService
 
     survey = get_object_or_404(Survey, slug=slug)
     profile = request.user.profile
 
-    # Only survey creator or admin can access grouping
     if not profile.admin and survey.created_by != profile:
         raise PermissionDenied
 
-    # Get or create the single session for this survey
-    session = GroupingSession.objects.filter(survey=survey).first()
+    if not survey.series:
+        messages.error(request, 'This survey is not linked to a tournament series.')
+        return redirect('survey-detail', slug=survey.slug)
 
-    # Calculate survey stats
-    total_responses = survey.responses.count()
-    accepted_count = survey.get_accepted_response_count()
-    waitlist_count = survey.get_waitlisted_response_count()
-    has_availability = survey.has_availability_questions()
-    if session:
-        group_count = session.groups.count()
-    else:
-        group_count = 0
+    tournament = survey.series
+    rounds = tournament.rounds.order_by('round_number', 'start_date')
 
-    # Handle POST actions
     if request.method == 'POST':
-        action = request.POST.get('action', 'generate')
+        from the_warroom.services.slugify_titles import slugify_round_name
 
-        # Delete session and reset
-        if action == 'reset_session':
-            if session:
-                session.delete()
-                session = None
-                messages.success(request, 'Grouping session reset successfully.')
-            return redirect('survey-grouping-setup', slug=survey.slug)
+        round_id = request.POST.get('round_id')
 
-        # Generate/regenerate groups with new settings
-        elif action == 'generate':
-            # Parse form data
-            min_group_size = int(request.POST.get('min_group_size', 3))
-            max_group_size = int(request.POST.get('max_group_size', 5))
-            include_waitlist = request.POST.get('include_waitlist') == 'on'
-            waitlist_count_to_include = int(request.POST.get('waitlist_count', 0)) if include_waitlist else 0
-            grouping_type = request.POST.get('grouping_type', 'random')
-            algorithm = request.POST.get('algorithm', 'random')
-            naming_convention = request.POST.get('naming_convention', 'numeric')
-            # Determine grouping type based on availability
-            if not has_availability:
-                grouping_type = request.POST.get('grouping_type', 'random')
+        # Get or create the tournament's GroupingSession and sync survey responses
+        session, _ = GroupingSession.objects.get_or_create(
+            tournament=tournament,
+            survey=survey,
+            defaults={
+                'name': f"{tournament.name} - Availability",
+                'grouping_type': GroupingSession.GroupingTypeChoices.AVAILABILITY,
+                'created_by': profile,
+            }
+        )
+        GroupingService.sync_survey_responses_to_session(session, survey)
 
-            if session:
-                # Can't regenerate if finalized
-                if session.status == GroupingSession.StatusChoices.FINALIZED:
-                    messages.error(request, 'Cannot modify a finalized session. Reset it first.')
-                    return redirect('survey-grouping-setup', slug=survey.slug)
+        if round_id == 'none' or not round_id:
+            # Just sync to tournament — no round
+            count = session.session_players.count()
+            messages.success(request, f'Synced {count} player(s) to {tournament.name}.')
+            return redirect('tournament-manage-players', slug=tournament.slug)
 
-                # Update existing session with new parameters
-                session.grouping_type = grouping_type
-                session.algorithm = algorithm
-                session.min_group_size = min_group_size
-                session.max_group_size = max_group_size
-                session.include_waitlist = include_waitlist
-                session.status = GroupingSession.StatusChoices.PROCESSING
-                session.total_players = accepted_count + (waitlist_count_to_include if include_waitlist else 0)
-                session.naming_convention = naming_convention
-                session.save()
+        if round_id == 'new':
+            # Create a new round automatically
+            next_number = (tournament.rounds.aggregate(m=models.Max('round_number'))['m'] or 0) + 1
+            new_round = Round(
+                tournament=tournament,
+                round_number=next_number,
+                start_date=timezone.now(),
+                name=request.POST.get('new_round_name') or f"Round {next_number}",
+            )
+            slugify_round_name(new_round, save=True)
+            target_round = new_round
+        else:
+            target_round = get_object_or_404(Round, id=round_id, tournament=tournament)
 
-                # Clear existing groups and players
-                session.groups.all().delete()
-                session.session_players.all().delete()
-            else:
-                # Create new session
-                session = GroupingSession.objects.create(
-                    survey=survey,
-                    tournament=survey.series,
-                    round=survey.series_round,
-                    name=f"{survey.title} - Groups",
-                    grouping_type=grouping_type,
-                    algorithm=algorithm,
-                    min_group_size=min_group_size,
-                    max_group_size=max_group_size,
-                    include_waitlist=include_waitlist,
-                    status=GroupingSession.StatusChoices.PROCESSING,
-                    created_by=profile,
-                    total_players=accepted_count + (waitlist_count_to_include if include_waitlist else 0),
-                    naming_convention = naming_convention,
-                )
+        # Add all active SessionPlayers to the round roster
+        added_count = 0
+        for sp in session.session_players.filter(status=SessionPlayer.StatusChoices.ACTIVE):
+            if not target_round.roster.filter(pk=sp.pk).exists():
+                target_round.roster.add(sp)
+                added_count += 1
 
-            # Queue async task based on grouping type
-            if grouping_type == 'availability':
-                generate_grouping_async.delay(session.id)
-            elif grouping_type == 'random':
-                GroupingService.populate_ungrouped_from_survey(session)
-                GroupingService.generate_random_groups(session)
-                session.status = GroupingSession.StatusChoices.DRAFT
-                session.save(update_fields=['status'])
-            else:
-                # Manual - just populate ungrouped players
-                GroupingService.populate_ungrouped_from_survey(session)
-                session.status = GroupingSession.StatusChoices.DRAFT
-                session.save(update_fields=['status'])
+        messages.success(request, f'Added {added_count} player(s) to {target_round.name or f"Round {target_round.round_number}"}.')
+        return redirect('round-manage-players', tournament_slug=tournament.slug, round_slug=target_round.slug)
 
-            return redirect('survey-grouping-setup', slug=survey.slug)
 
-    # Build context for template
-    groups = []
-    ungrouped_players = []
-    survey_waitlist_responses = []
-    is_processing = False
-    is_finalized = False
-    has_error = False
-
-    if session:
-        is_processing = session.status == GroupingSession.StatusChoices.PROCESSING
-        is_finalized = session.status == GroupingSession.StatusChoices.FINALIZED
-        has_error = session.status == GroupingSession.StatusChoices.ERROR
-
-        if not is_processing:
-            # Get groups with members
-            groups = session.groups.prefetch_related(
-                'session_players__profile',
-                'session_players__survey_response'
-            ).order_by('group_number')
-
-            # Get ungrouped players
-            ungrouped_players = session.session_players.filter(
-                status=SessionPlayer.StatusChoices.UNGROUPED
-            ).select_related(
-                'profile', 'survey_response', 'best_fit_group'
-            ).order_by('-best_fit_overlap_hours')
-
-            # Get survey waitlist responses not yet in session
-            if survey.has_waitlist and survey.waitlist_threshold:
-                session_profile_ids = set(
-                    session.session_players.values_list('profile_id', flat=True)
-                )
-                survey_waitlist_responses = survey.responses.filter(
-                    profile__isnull=False,
-                    response_position__gte=survey.waitlist_threshold
-                ).exclude(profile_id__in=session_profile_ids).select_related('profile').order_by('response_position')
-
-    # Calculate how many waitlist players were included in the session
-    included_waitlist_count = 0
-    if session and session.include_waitlist and session.total_players > accepted_count:
-        included_waitlist_count = session.total_players - accepted_count
-
-    # Navigation context
     return_to = request.GET.get('return_to') or survey.get_absolute_url()
     return_title = request.GET.get('return_title') or 'Back to Survey'
     current_url = request.path
-    current_title = 'Back to Grouping'
+    current_title = 'Back to Quiz Settings'
 
     context = {
         'survey': survey,
-        'session': session,
-        'groups': groups,
-        'ungrouped_players': ungrouped_players,
-        'survey_waitlist_responses': survey_waitlist_responses,
-        'ungrouped_count': len(ungrouped_players) if ungrouped_players else 0,
-        'survey_waitlist_count': len(survey_waitlist_responses) if survey_waitlist_responses else 0,
-        'total_responses': total_responses,
-        'accepted_count': accepted_count,
-        'waitlist_count': waitlist_count,
-        'group_count': group_count,
-        'included_waitlist_count': included_waitlist_count,
-        'has_availability': has_availability,
-        'is_processing': is_processing,
-        'is_finalized': is_finalized,
-        'has_error': has_error,
-        'can_edit_survey': True,
-        'can_take_survey': False,
-        'can_see_results': survey.can_see_results(profile),
+        'tournament': tournament,
+        'rounds': rounds,
+        'designated_round': survey.series_round,
         'return_to': return_to,
         'return_title': return_title,
         'current_url': current_url,
         'current_title': current_title,
-        'naming_conventions': NameConvention.choices,
-        # New context variables for shared partial
-        'show_availability_options': has_availability,
-        'base_url': f'/surveys/{survey.slug}/grouping/',
-        'session_waitlist_players': [],  # Surveys don't use session waitlist (they use survey_waitlist_responses)
-        'session_waitlist_count': 0,
-        'show_waitlist_config': True,  # Enable survey waitlist configuration section
     }
-    return render(request, 'the_tavern/survey_grouping.html', context)
-
-
-
-@login_required
-@require_http_methods(['GET'])
-def grouping_status(request, slug, session_id):
-    """Check session status (for HTMX polling)."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    # If still processing, return status indicator
-    if session.status == GroupingSession.StatusChoices.PROCESSING:
-        return render(request, 'the_tavern/partials/grouping_processing.html', {
-            'session': session,
-            'survey': survey,
-        })
-
-    # If done, trigger a full page refresh via HX-Refresh header
-    response = HttpResponse(status=200)
-    response['HX-Refresh'] = 'true'
-    return response
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_move_player(request, slug, session_id):
-    """Move a player from one group to another."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        player_id = data.get('player_id')
-        from_group_id = data.get('from_group_id')
-        to_group_id = data.get('to_group_id')
-
-        session_player = get_object_or_404(SessionPlayer, id=player_id, session=session)
-        from_group = get_object_or_404(PlayerGroup, id=from_group_id, session=session) if from_group_id else None
-        to_group = get_object_or_404(PlayerGroup, id=to_group_id, session=session)
-
-        GroupingService.assign_player_to_group(session_player, to_group, moved_by=profile)
-
-        response = {'success': True}
-        if from_group:
-            response['from_group'] = {
-                'id': from_group.id,
-                'member_count': from_group.member_count,
-                'total_overlap_hours': from_group.total_overlap_hours,
-                'best_consecutive_block': from_group.best_consecutive_block,
-            }
-        response['to_group'] = {
-            'id': to_group.id,
-            'member_count': to_group.member_count,
-            'total_overlap_hours': to_group.total_overlap_hours,
-            'best_consecutive_block': to_group.best_consecutive_block,
-        }
-        return JsonResponse(response)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_add_to_group(request, slug, session_id):
-    """Add an ungrouped or waitlisted player to a group."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        player_id = data.get('player_id')
-        group_id = data.get('group_id')
-
-        session_player = get_object_or_404(
-            SessionPlayer,
-            id=player_id,
-            session=session
-        )
-        group = get_object_or_404(PlayerGroup, id=group_id, session=session)
-
-        GroupingService.assign_player_to_group(session_player, group, moved_by=profile)
-
-        return JsonResponse({
-            'success': True,
-            'group': {
-                'id': group.id,
-                'member_count': group.member_count,
-                'total_overlap_hours': group.total_overlap_hours,
-                'best_consecutive_block': group.best_consecutive_block,
-            }
-        })
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_create_group(request, slug, session_id):
-    """Create a new group, optionally with initial players."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        player_id = data.get('player_id')  # Optional: SessionPlayer id to add to new group
-
-        # Get next group number
-        max_group_num = session.groups.aggregate(models.Max('group_number'))['group_number__max'] or 0
-        new_group_num = max_group_num + 1
-
-        # Create new group
-        new_group = PlayerGroup.objects.create(
-            session=session,
-            group_number=new_group_num,
-            name=generate_name(new_group_num, NameConvention(session.naming_convention)),
-        )
-
-        # If player_id provided, add/move that player to the new group
-        if player_id:
-            session_player = SessionPlayer.objects.filter(
-                session=session,
-                id=player_id
-            ).first()
-            if session_player:
-                GroupingService.assign_player_to_group(session_player, new_group, moved_by=profile)
-
-        # Recalculate session statistics
-        session.recalculate_statistics()
-
-        return JsonResponse({
-            'success': True,
-            'group': {
-                'id': new_group.id,
-                'group_number': new_group.group_number,
-                'member_count': new_group.member_count,
-            }
-        })
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_delete_group(request, slug, session_id):
-    """Delete an empty group."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        group_id = data.get('group_id')
-
-        group = get_object_or_404(PlayerGroup, id=group_id, session=session)
-
-        if group.members.exists():
-            return JsonResponse({'error': 'Cannot delete group with members'}, status=400)
-
-        group.delete()
-
-        return JsonResponse({'success': True})
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_regenerate(request, slug, session_id):
-    """Regenerate groups (async via Celery)."""
-    from .tasks import generate_grouping_async
-
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status not in [GroupingSession.StatusChoices.DRAFT, GroupingSession.StatusChoices.ERROR]:
-        return JsonResponse({'error': 'Session cannot be regenerated'}, status=400)
-
-    # Set to processing and queue task
-    session.status = GroupingSession.StatusChoices.PROCESSING
-    session.save(update_fields=['status'])
-
-    generate_grouping_async.delay(session.id)
-
-    return JsonResponse({'success': True, 'status': 'processing'})
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_add_survey_response(request, slug, session_id):
-    """Add a survey response from the survey waitlist to the session."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        response_id = data.get('response_id')
-        group_id = data.get('group_id')  # Optional: add directly to a group
-
-        survey_response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
-
-        # Check if already in session
-        if session.session_players.filter(profile=survey_response.profile).exists():
-            return JsonResponse({'error': 'Player is already in this session'}, status=400)
-
-        to_group = None
-        if group_id:
-            to_group = get_object_or_404(PlayerGroup, id=group_id, session=session)
-
-        session_player = GroupingService.add_survey_response_to_session(
-            session, survey_response, to_group=to_group, added_by=profile
-        )
-
-        result = {
-            'success': True,
-            'session_player': {
-                'id': session_player.id,
-                'profile_id': session_player.profile_id,
-                'status': session_player.status,
-            },
-            'total_players': session.total_players,
-        }
-
-        if to_group:
-            result['group'] = {
-                'id': to_group.id,
-                'member_count': to_group.member_count,
-                'total_overlap_hours': to_group.total_overlap_hours,
-                'best_consecutive_block': to_group.best_consecutive_block,
-            }
-
-        return JsonResponse(result)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_move_to_waitlist(request, slug, session_id):
-    """Move a player (grouped or ungrouped) to the session waitlist."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        player_id = data.get('player_id')
-
-        session_player = get_object_or_404(
-            SessionPlayer,
-            id=player_id,
-            session=session,
-            status__in=[SessionPlayer.StatusChoices.GROUPED, SessionPlayer.StatusChoices.UNGROUPED]
-        )
-
-        old_group = session_player.group
-
-        GroupingService.move_to_waitlist(session_player)
-
-        result = {
-            'success': True,
-            'session_player': {
-                'id': session_player.id,
-                'status': session_player.status,
-            },
-            'total_players': session.total_players,
-        }
-
-        if old_group:
-            result['from_group'] = {
-                'id': old_group.id,
-                'member_count': old_group.member_count,
-                'total_overlap_hours': old_group.total_overlap_hours,
-                'best_consecutive_block': old_group.best_consecutive_block,
-            }
-
-        return JsonResponse(result)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_move_from_waitlist(request, slug, session_id):
-    """Move a player from the session waitlist to ungrouped or a group."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        player_id = data.get('player_id')
-        group_id = data.get('group_id')  # Optional: add directly to a group
-
-        session_player = get_object_or_404(
-            SessionPlayer,
-            id=player_id,
-            session=session,
-            status=SessionPlayer.StatusChoices.WAITLIST
-        )
-
-        to_group = None
-        if group_id:
-            to_group = get_object_or_404(PlayerGroup, id=group_id, session=session)
-
-        GroupingService.move_from_waitlist(session_player, to_group=to_group)
-
-        result = {
-            'success': True,
-            'session_player': {
-                'id': session_player.id,
-                'status': session_player.status,
-            },
-            'total_players': session.total_players,
-        }
-
-        if to_group:
-            result['to_group'] = {
-                'id': to_group.id,
-                'member_count': to_group.member_count,
-                'total_overlap_hours': to_group.total_overlap_hours,
-                'best_consecutive_block': to_group.best_consecutive_block,
-            }
-
-        return JsonResponse(result)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_remove_from_group(request, slug, session_id):
-    """Remove a player from a group and set to ungrouped."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session is not editable'}, status=400)
-
-    try:
-        data = json.loads(request.body)
-        player_id = data.get('player_id')
-
-        session_player = get_object_or_404(
-            SessionPlayer,
-            id=player_id,
-            session=session,
-            status=SessionPlayer.StatusChoices.GROUPED
-        )
-
-        old_group = session_player.group
-
-        GroupingService.remove_from_group(session_player)
-
-        result = {
-            'success': True,
-            'session_player': {
-                'id': session_player.id,
-                'status': session_player.status,
-            },
-        }
-
-        if old_group:
-            result['from_group'] = {
-                'id': old_group.id,
-                'member_count': old_group.member_count,
-                'total_overlap_hours': old_group.total_overlap_hours,
-                'best_consecutive_block': old_group.best_consecutive_block,
-            }
-
-        return JsonResponse(result)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-@login_required
-@require_http_methods(['POST'])
-def grouping_finalize(request, slug, session_id):
-    """Finalize the grouping session."""
-    survey = get_object_or_404(Survey, slug=slug)
-    profile = request.user.profile
-
-    if not profile.admin and survey.created_by != profile:
-        raise PermissionDenied
-
-    session = get_object_or_404(GroupingSession, id=session_id, survey=survey)
-
-    if session.status != GroupingSession.StatusChoices.DRAFT:
-        return JsonResponse({'error': 'Session cannot be finalized'}, status=400)
-
-    try:
-        data = json.loads(request.body) if request.body else {}
-        target_round_id = data.get('target_round_id')
-        target_round = None
-
-        if target_round_id:
-            target_round = get_object_or_404(Round, id=target_round_id)
-
-        GroupingService.finalize_session(session, target_round=target_round)
-
-        return JsonResponse({
-            'success': True,
-            'status': 'finalized',
-            'redirect_url': reverse('survey-grouping-organize', args=[survey.slug, session.id])
-        })
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
+    return render(request, 'the_tavern/survey_send_availability.html', context)

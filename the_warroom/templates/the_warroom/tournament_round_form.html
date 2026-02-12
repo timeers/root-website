@@ -1,49 +1,147 @@
 {% extends 'the_keep/base.html' %}
 {% load crispy_forms_tags i18n %}
-{% block title %}New Round | {% endblock %}
-{% block content %}
+{% block title %}{% if round.id %}Update Round{% else %}New Round{% endif %} | {% endblock %}
 
-    <div class="content-section">
-        <form method="POST" enctype="multipart/form-data">
-            {% csrf_token %}
-            <fieldset class="mb-3">
-                <legend class="border-bottom mb-4">
-                    {% if round.id %}
-                        Update {{ round.tournament.name }} - {{ round.name }}
-                    {% else %}
-                        New {{ tournament.name }} Round
-                    {% endif %}
-                </legend>
-                {% if not round.id %}
-                A Round can be a structured subset of games (e.g., Finals, Semi-Finals, Season 5, Inital Playtests) or an ongoing series. 
-                Each Round will have its own leaderboard, which feeds into the Series leaderboard.
-                {% endif %}
-                {{ form | crispy }}
-            </fieldset>
-            <div class="mb-3">
-                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
-                {% if not round.id %}
-                <a class="btn btn-secondary" href="{{ tournament.get_absolute_url }}">{% trans 'Cancel' %}</a>
+{% block content %}
+<div class="content-section">
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <fieldset class="mb-3">
+            <legend class="border-bottom mb-4">
+                {% if round.id %}
+                    Update {{ round.tournament.name }} — {{ round.name|default:round.round_number }}
                 {% else %}
-                <a class="btn btn-secondary" href="{{ round.get_absolute_url }}">{% trans 'Cancel' %}</a>
-                <a class="btn btn-danger" href="{{ round.get_delete_url }}">{% trans 'Delete' %}</a>
+                    New {{ tournament.name }} Round
                 {% endif %}
+            </legend>
+
+            {% if not round.id %}
+            <p class="text-muted mb-4">
+                A Round can be a structured subset of games (e.g., Finals, Semi-Finals, Season 5) or an ongoing series.
+                Each Round has its own leaderboard which feeds into the Series leaderboard.
+            </p>
+            {% endif %}
+
+            <!-- Basic Information -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>{% trans 'Basic Information' %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.name|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.round_number|as_crispy_field }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-2">
+                            {{ form.description|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
             </div>
-        </form>
-    </div>
+
+            <!-- Schedule -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Schedule' %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.start_date|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.end_date|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Settings -->
+            <div class="card mb-3 bg-light">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-question-octagon me-2"></i>{% trans 'Game Settings' %}</h5>
+                    <small class="form-text text-muted d-block">
+                        Override Series Defaults
+                    </small>
+                </div>
+                <div class="card-body">
+                    {% if tournament.classification == 'Tournament' %}
+                        <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-2"></i>{% trans 'Tournament Bracket' %}</h6>
+                        {% if tournament.default_format %}
+                        <small class="form-text text-muted d-block mb-3">
+                            Override the Tournament's default format. Leave blank to inherit from the Tournament ({{ tournament.default_format }}).
+                        </small>
+                        {% endif %}
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.round_specific_format|as_crispy_field }}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                
+                    <h6 class="text-muted mb-2"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h6>
+                    <small class="form-text text-muted d-block mb-3">
+                        Override the series leaderboard settings for this round. Leave blank to inherit from the series
+                        ({{ tournament.game_threshold }} game threshold, {{ tournament.leaderboard_positions }} positions).
+                    </small>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.game_threshold|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.leaderboard_positions|as_crispy_field }}
+                        </div>
+                    </div>
+           
+
+                    {% if tournament.enforce_player_count %}
+                    <h6 class="text-muted mb-2"><i class="bi bi-people me-2"></i>{% trans 'Game Size' %}</h6>
+                    <small class="form-text text-muted d-block mb-3">
+                        Override the series defaults for player count per game. Leave blank to inherit from the series
+                        ({% if tournament.min_players != tournament.max_players %}{{ tournament.min_players }} - {% endif %}{{ tournament.max_players }} players).
+                    </small>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.min_players|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.max_players|as_crispy_field }}
+                        </div>
+                    </div>
+                    {% endif %}
+            
+                </div>
+            </div>
+
+        </fieldset>
+
+        <div class="mb-3 d-flex gap-2">
+            <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+            {% if round.id %}
+            <a class="btn btn-secondary" href="{{ round.get_absolute_url }}">{% trans 'Cancel' %}</a>
+            {% else %}
+            <a class="btn btn-secondary" href="{{ tournament.get_absolute_url }}">{% trans 'Cancel' %}</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
 {% endblock content %}
 
 {% block scripts %}
-        <script>
-
-            $(document).ready(function(){
-                // Apply the jQuery UI datepicker to the 'end_date' field
-                $(".datepicker").datepicker({
-                    dateFormat: "yy-mm-dd",  // Format the date (you can adjust this as needed)
-                    changeMonth: true,        // Allow month change via dropdown
-                    changeYear: true,         // Allow year change via dropdown
-                    yearRange: "c-100:c+10"  // Year range (from 100 years ago to 10 years in the future)
-                });
-            });
-        </script>
+<script>
+    $(document).ready(function(){
+        $(".datepicker").datepicker({
+            dateFormat: "yy-mm-dd",
+            changeMonth: true,
+            changeYear: true,
+            yearRange: "c-100:c+10"
+        });
+    });
+</script>
 {% endblock %}

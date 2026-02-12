@@ -25,12 +25,12 @@ class AssetModeChoices(models.IntegerChoices):
 
 
 class FormatChoices(models.TextChoices):
-    SINGLE_ELIM = 'Single Elimination'
-    DOUBLE_ELIM = 'Double Elimination'
-    SWISS = 'Swiss'
-    ROUND_ROBIN = 'Round Robin'
-    POOL_PLAY = 'Pool Play'
-    CUSTOM = 'Custom'
+    SINGLE_ELIM = 'Single Elimination', 'Single Elimination'
+    DOUBLE_ELIM = 'Double Elimination', 'Double Elimination'
+    SWISS = 'Swiss', 'Swiss'
+    ROUND_ROBIN = 'Round Robin', 'Round Robin'
+    POOL_PLAY = 'Pool Play', 'Pool Play'
+    CUSTOM = 'Custom', 'Custom'
 
 class GameQuerySet(models.QuerySet):
     def only_official_components(self):
@@ -74,20 +74,28 @@ class Tournament(models.Model):
         GROUP = "Game Group"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
-    designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='hosted_tournaments')
+    designer = models.ForeignKey(
+        Profile, 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='hosted_tournaments',
+        help_text='Owner can update the Series, add new rounds, manage player and assets.'
+        )
     description = models.TextField(null=True, blank=True)
     picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
     classification = models.CharField(
         max_length=50,
         choices=ClassificationTypes.choices,
-        default=ClassificationTypes.TOURNAMENT
+        default=ClassificationTypes.TOURNAMENT,
+        help_text='Group: casual game group. League: semi-competitive. Tournament: structured and competitive.'
     )
 
     default_format = models.CharField(
-        max_length=50, 
-        choices=FormatChoices.choices, 
-        default=FormatChoices.SINGLE_ELIM
+        max_length=50,
+        choices=FormatChoices.choices,
+        blank=True,
+        default=''
     )
 
     # Access & Roster
@@ -95,7 +103,7 @@ class Tournament(models.Model):
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to games in this Series')
     # Player management now handled via GroupingSession/SessionPlayer pattern
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
-    publicly_visible = models.BooleanField(default=False, help_text='Display this Series on the Series home page')
+    publicly_visible = models.BooleanField(default=False)
 
     # Asset Settings
     asset_mode = models.IntegerField(
@@ -154,6 +162,9 @@ class Tournament(models.Model):
     def get_settings_url(self):
         return reverse('tournament-settings', kwargs={'slug': self.slug})
 
+    def get_edit_url(self):
+        return reverse('tournament-dynamic-update', kwargs={'slug': self.slug})
+
     def get_players_url(self):
         return reverse('tournament-manage-players', kwargs={'slug': self.slug})
 
@@ -180,33 +191,23 @@ class Tournament(models.Model):
     def all_player_queryset(self):
         """All players in the tournament (active, waitlist, and eliminated)."""
         from the_gatehouse.models import Profile
-        session = self.master_session
         return Profile.objects.filter(
-            session_participations__session=session
+            session_participations__session__tournament=self
         ).distinct()
 
-    # New master session pattern for player management
     @property
     def master_session(self):
-        """Get or create the master player management session."""
-
-        # Check cache first (within this instance)
+        """Get or create the tournament-level grouping session that owns all SessionPlayers."""
         if not hasattr(self, '_master_session_cache'):
-            session = self.grouping_sessions.filter(
-                round__isnull=True,
-                grouping_type='manual'
-            ).first()
+            session = self.grouping_sessions.order_by('created_at').first()
 
             if not session:
-                # Import here to avoid circular imports
                 from the_warroom.models import GroupingSession
                 session = GroupingSession.objects.create(
                     tournament=self,
-                    name=f"Master Session - {self.name}",
+                    name=f"Session - {self.name}",
                     grouping_type='manual',
                     status='draft',
-                    min_group_size=self.min_players,
-                    max_group_size=self.max_players,
                 )
 
             self._master_session_cache = session
@@ -214,107 +215,70 @@ class Tournament(models.Model):
         return self._master_session_cache
 
     def get_players_queryset(self):
-        """Active players (UNGROUPED status in master session)."""
+        """Active players in the tournament (ACTIVE status)."""
         from the_gatehouse.models import Profile
-        session = self.master_session  # Auto-creates if doesn't exist
+        from the_warroom.models import SessionPlayer
         return Profile.objects.filter(
-            session_participations__session=session,
-            session_participations__status='ungrouped'
-        )
+            session_participations__session__tournament=self,
+            session_participations__status=SessionPlayer.StatusChoices.ACTIVE
+        ).distinct()
 
     def get_waitlist_players_queryset(self):
-        """Waitlisted players (WAITLIST status in master session)."""
+        """Waitlisted players in the tournament."""
         from the_gatehouse.models import Profile
-        session = self.master_session
+        from the_warroom.models import SessionPlayer
         return Profile.objects.filter(
-            session_participations__session=session,
-            session_participations__status='waitlist'
-        )
+            session_participations__session__tournament=self,
+            session_participations__status=SessionPlayer.StatusChoices.WAITLIST
+        ).distinct()
 
     def get_eliminated_players_queryset(self):
-        """Eliminated players (ELIMINATED status in master session)."""
+        """Eliminated players in the tournament."""
         from the_gatehouse.models import Profile
-        session = self.master_session
+        from the_warroom.models import SessionPlayer
         return Profile.objects.filter(
-            session_participations__session=session,
-            session_participations__status='eliminated'
-        )
+            session_participations__session__tournament=self,
+            session_participations__status=SessionPlayer.StatusChoices.ELIMINATED
+        ).distinct()
 
     def move_player(self, profile, from_status, to_status):
-        """Move player between statuses (ungrouped/waitlist/eliminated)."""
+        """Update a player's status in the tournament session."""
         from the_warroom.models import SessionPlayer
-        session = self.master_session
+        sp = SessionPlayer.objects.filter(
+            session__tournament=self,
+            profile=profile
+        ).first()
 
-        if from_status is None:
-            # Check if SessionPlayer already exists with any status
-            existing_sp = SessionPlayer.objects.filter(
-                session=session,
-                profile=profile
-            ).first()
-
-            if existing_sp:
-                # Player already exists with a different status - update it
-                sp = existing_sp
-                sp.status = to_status
-            else:
-                # Create new SessionPlayer
-                sp = SessionPlayer.objects.create(
-                    session=session,
-                    profile=profile,
-                    status=to_status,
-                    added_via='manual'
-                )
+        if sp is None:
+            if from_status is not None:
+                raise ValueError(f"Player {profile} not found in tournament")
+            sp = SessionPlayer.objects.create(
+                session=self.master_session,
+                profile=profile,
+                status=to_status,
+            )
         else:
-            try:
-                sp = SessionPlayer.objects.get(
-                    session=session,
-                    profile=profile,
-                    status=from_status
-                )
-                sp.status = to_status
-            except SessionPlayer.DoesNotExist:
-                # Handle case where player doesn't exist in this status
-                raise ValueError(f"Player {profile} not found with status {from_status}")
+            sp.status = to_status
+            sp.save(update_fields=['status'])
 
-        # If eliminating, remove from all round sessions
-        if to_status == 'eliminated':
-            for round_obj in self.rounds.all():
-                # Find the round's master session and remove player from it
-                round_session = round_obj.master_session
-                if round_session:
-                    SessionPlayer.objects.filter(
-                        session=round_session,
-                        profile=profile
-                    ).delete()
-
-        sp.save()
-        session.recalculate_statistics()
-
-    def add_player_to_tournament(self, profile, status='ungrouped'):
-        """Add a player to the tournament."""
+    def add_player_to_tournament(self, profile, status=None):
+        """Add a player to the tournament session."""
         from the_warroom.models import SessionPlayer
-        session = self.master_session
-
+        if status is None:
+            status = SessionPlayer.StatusChoices.ACTIVE
         SessionPlayer.objects.update_or_create(
-            session=session,
+            session=self.master_session,
             profile=profile,
-            defaults={
-                'status': status,
-                'added_via': 'manual'
-            }
+            defaults={'status': status}
         )
-        session.recalculate_statistics()
 
     def remove_player_from_tournament(self, profile):
         """Remove a player completely from the tournament."""
         from the_warroom.models import SessionPlayer
-        session = self.master_session
-
         SessionPlayer.objects.filter(
-            session=session,
+            session__tournament=self,
             profile=profile
         ).delete()
-        session.recalculate_statistics()
 
     def save(self, *args, **kwargs):
 
@@ -337,13 +301,8 @@ class Round(models.Model):
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
     description = models.TextField(null=True, blank=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds')  # Link to the tournament
-
-    round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
-    start_date = models.DateTimeField()
-    end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
-    game_threshold = models.IntegerField(default=0, validators=[MinValueValidator(0)])
-
-    format = models.CharField(
+    
+    round_specific_format = models.CharField(
         max_length=50, 
         choices=FormatChoices.choices, 
         blank=True,
@@ -351,10 +310,55 @@ class Round(models.Model):
         help_text="Leave blank to use tournament's default format"
     )
 
-    # Player management now handled via GroupingSession/SessionPlayer pattern
-    # Use get_players_queryset(), current_player_queryset(), or create_round_session()
-    
+    round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
+
+    game_threshold = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)],
+        help_text="Leave blank to inherit from series"
+        )
+    leaderboard_positions = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(3), MaxValueValidator(30)],
+        help_text="Leave blank to inherit from series"
+        )
+
+    max_players = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+    )
+    min_players = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    # Round roster — SessionPlayers from the tournament's GroupingSession
+    roster = models.ManyToManyField(
+        'SessionPlayer',
+        blank=True,
+        related_name='rounds',
+        help_text="Players participating in this round (from the tournament's GroupingSession)"
+    )
+
     slug = models.SlugField(null=True, blank=True)
+
+    # Grouping lifecycle — scoped to this round, independent of other rounds using the same session
+    class GroupingStatusChoices(models.TextChoices):
+        PROCESSING = 'processing', 'Processing'
+        DRAFT = 'draft', 'Draft'
+        FINALIZED = 'finalized', 'Finalized'
+        ERROR = 'error', 'Error'
+
+    grouping_status = models.CharField(
+        max_length=20,
+        choices=GroupingStatusChoices.choices,
+        default=GroupingStatusChoices.DRAFT,
+        help_text="Status of the grouping process for this round"
+    )
+    grouping_notes = models.TextField(
+        blank=True,
+        help_text="Notes or error messages from the grouping process"
+    )
 
     objects = RoundQuerySet.as_manager()
 
@@ -371,6 +375,9 @@ class Round(models.Model):
     def get_settings_url(self):
         return reverse('round-settings', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
 
+    def get_edit_url(self):
+        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+
     def get_players_url(self):
         return reverse('round-manage-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
 
@@ -385,211 +392,79 @@ class Round(models.Model):
 
     def get_format(self):
             """Get the effective format for this round"""
-            return self.format or self.tournament.default_format
+            return self.round_specific_format or self.tournament.default_format
+
+    def get_min_players(self):
+            """Get the minimum players per game for this round"""
+            return self.min_players or self.tournament.min_players
+
+    def get_max_players(self):
+            """Get the maximum players per game for this round"""
+            return self.max_players or self.tournament.max_players
 
     def current_player_queryset(self):
-        """Return players for this round, falling back to tournament if none."""
-        # Check if round has its own master session
-        session = self.master_session
-
-        if session:
-            # Round has its own player list via master session
-            from the_gatehouse.models import Profile
-            round_players = Profile.objects.filter(
-                session_participations__session=session,
-                session_participations__status='ungrouped'
-            )
-            if round_players.exists():
-                return round_players
-
-        # Fallback: inherit from tournament players
-        return self.tournament.get_players_queryset()
+        """Return active players in this round's roster."""
+        return self.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
 
     def all_player_queryset(self):
-        """All players in the round (active, waitlist, and eliminated)."""
-        from the_gatehouse.models import Profile
-        session = self.master_session
-
-        if session:
-            # Round has its own session, use it
-            return Profile.objects.filter(
-                session_participations__session=session
-            ).distinct()
-        else:
-            # No round session, inherit from tournament
-            return self.tournament.all_player_queryset()
-
-    # New master session pattern for round-specific player management
-    @property
-    def master_session(self):
-        """Get round's master session if it exists (explicit creation only)."""
-        if not hasattr(self, '_master_session_cache'):
-            session = self.grouping_sessions.filter(grouping_type='manual').first()
-            self._master_session_cache = session
-        return self._master_session_cache
-
-    def create_round_session(self):
-        """Explicitly create a round-specific player session, copying from tournament."""
-        from the_warroom.models import GroupingSession, SessionPlayer
-
-        if self.master_session:
-            return self.master_session
-
-        # Create new session for this round
-        session = GroupingSession.objects.create(
-            tournament=self.tournament,
-            tournament_round=self,
-            name=f"Round Session - {self.name}",
-            grouping_type='manual',
-            status='draft',
-        )
-
-        # Copy ungrouped players from tournament's master session
-        tournament_session = self.tournament.master_session
-        for sp in tournament_session.session_players.filter(status='ungrouped'):
-            SessionPlayer.objects.create(
-                session=session,
-                profile=sp.profile,
-                status='ungrouped',
-                added_via='manual'
-            )
-
-        session.recalculate_statistics()
-        self._master_session_cache = session
-        return session
+        """All players in the round (any status)."""
+        return self.roster.all()
 
     def get_players_queryset(self):
-        """Players for this round."""
-        session = self.master_session
+        """Active players in this round."""
+        return self.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
 
-        if session:
-            from the_gatehouse.models import Profile
-            return Profile.objects.filter(
-                session_participations__session=session,
-                session_participations__status='ungrouped'
-            )
-        else:
-            # No round session, inherit from tournament
-            return self.tournament.get_players_queryset()
+    def get_active_players_queryset(self):
+        """Active players in this round who are not yet assigned to a group."""
+        return self.roster.filter(
+            status=SessionPlayer.StatusChoices.ACTIVE
+        ).exclude(
+            player_groups__round=self
+        )
 
     def get_waitlist_players_queryset(self):
         """Waitlisted players for this round."""
-        session = self.master_session
-
-        if session:
-            from the_gatehouse.models import Profile
-            return Profile.objects.filter(
-                session_participations__session=session,
-                session_participations__status='waitlist'
-            )
-        else:
-            return self.tournament.get_waitlist_players_queryset()
+        return self.roster.filter(status=SessionPlayer.StatusChoices.WAITLIST)
 
     def get_eliminated_players_queryset(self):
         """Eliminated players for this round."""
-        session = self.master_session
+        return self.roster.filter(status=SessionPlayer.StatusChoices.ELIMINATED)
 
-        if session:
-            from the_gatehouse.models import Profile
-            return Profile.objects.filter(
-                session_participations__session=session,
-                session_participations__status='eliminated'
+    def add_player_to_round(self, profile):
+        """Add a player to this round's roster, creating their tournament SessionPlayer if needed."""
+        sp = SessionPlayer.objects.filter(
+            session__tournament=self.tournament,
+            profile=profile
+        ).first()
+        if not sp:
+            sp = SessionPlayer.objects.create(
+                session=self.tournament.master_session,
+                profile=profile,
+                status=SessionPlayer.StatusChoices.ACTIVE,
             )
-        else:
-            return self.tournament.get_eliminated_players_queryset()
-
-    def add_player_to_round(self, profile, status='ungrouped'):
-        """Add a player to this specific round (creates round session if needed)."""
-        from the_warroom.models import SessionPlayer
-
-        # Ensure round has its own session
-        if not self.master_session:
-            self.create_round_session()
-
-        session = self.master_session
-        SessionPlayer.objects.update_or_create(
-            session=session,
-            profile=profile,
-            defaults={
-                'status': status,
-                'added_via': 'manual'
-            }
-        )
-        session.recalculate_statistics()
+        self.roster.add(sp)
 
     def remove_player_from_round(self, profile):
-        """Remove a player from this specific round."""
-        from the_warroom.models import SessionPlayer
-
-        session = self.master_session
-        if session:
-            SessionPlayer.objects.filter(
-                session=session,
-                profile=profile
-            ).delete()
-            session.recalculate_statistics()
+        """Remove a player from this round's roster (does not delete their SessionPlayer)."""
+        sp = SessionPlayer.objects.filter(
+            session__tournament=self.tournament,
+            profile=profile
+        ).first()
+        if sp:
+            self.roster.remove(sp)
 
     def move_player(self, profile, from_status, to_status):
-        """Move player between statuses (ungrouped/waitlist/eliminated) for this round."""
-        from the_warroom.models import SessionPlayer
-
-        # Ensure round has master session
-        if not self.master_session:
-            self.create_round_session()
-
-        session = self.master_session
-
-        if from_status is None:
-            # Check if SessionPlayer already exists with any status
-            existing_sp = SessionPlayer.objects.filter(
-                session=session,
-                profile=profile
-            ).first()
-
-            if existing_sp:
-                # Player already exists with a different status - update it
-                sp = existing_sp
-                sp.status = to_status
+        """Update a player's status on their tournament-level SessionPlayer."""
+        sp = SessionPlayer.objects.filter(
+            session__tournament=self.tournament,
+            profile=profile
+        ).first()
+        if sp:
+            if to_status is None:
+                sp.delete()
             else:
-                # Create new SessionPlayer
-                sp = SessionPlayer.objects.create(
-                    session=session,
-                    profile=profile,
-                    status=to_status,
-                    added_via='manual'
-                )
-        else:
-            try:
-                sp = SessionPlayer.objects.get(
-                    session=session,
-                    profile=profile,
-                    status=from_status
-                )
                 sp.status = to_status
-            except SessionPlayer.DoesNotExist:
-                # Player might have been moved by another action, try to find by profile
-                sp = SessionPlayer.objects.filter(
-                    session=session,
-                    profile=profile
-                ).first()
-                if sp:
-                    sp.status = to_status
-                else:
-                    # Create new
-                    sp = SessionPlayer.objects.create(
-                        session=session,
-                        profile=profile,
-                        status=to_status,
-                        added_via='manual'
-                    )
-
-        # Handle removal (to_status is None)
-        if to_status is None:
-            sp.delete()
-        else:
-            sp.save()
-
-        session.recalculate_statistics()
+                sp.save(update_fields=['status'])
 
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
@@ -609,6 +484,88 @@ class Round(models.Model):
 
     class Meta:
         ordering = ['-round_number']
+
+
+class Match(models.Model):
+    """A single match slot in a tournament bracket. Can be created as an empty shell and
+    have a PlayerGroup and Game assigned later."""
+    round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name='matches')
+    name = models.CharField(max_length=100, null=True, blank=True)
+    match_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    player_group = models.OneToOneField(
+        'PlayerGroup', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='match',
+        help_text="Group assigned to this match slot"
+    )
+    game = models.OneToOneField(
+        'Game', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='match',
+        help_text="Game played for this match"
+    )
+
+    class Meta:
+        ordering = ['round', 'match_number']
+        unique_together = [('round', 'match_number')]
+
+    def save(self, *args, **kwargs):
+        if self.match_number is None:
+            last = Match.objects.filter(round=self.round).order_by('match_number').last()
+            self.match_number = (last.match_number + 1) if last and last.match_number is not None else 1
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        # Ensure game belongs to the same round as the match
+        if self.game_id and self.game.round_id != self.round_id:
+            raise ValidationError("The assigned game must belong to the same round as the match.")
+
+    @property
+    def winners(self):
+        """Players who won the game linked to this match."""
+        if not self.game_id:
+            return Profile.objects.none()
+        return Profile.objects.filter(efforts__game_id=self.game_id, efforts__win=True)
+
+    def __str__(self):
+        return self.name or f"Match {self.match_number} ({self.round})"
+
+
+class MatchAdvancement(models.Model):
+    """Defines how players advance from one match to the next match or into a new round."""
+    class PositionChoices(models.TextChoices):
+        WINNER = 'winner', 'Winner'
+        LOSER = 'loser', 'Loser'
+
+    from_match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name='advancements')
+    position = models.CharField(max_length=10, choices=PositionChoices.choices)
+
+    # Exactly one of these must be set (XOR — enforced in clean())
+    to_match = models.ForeignKey(
+        Match, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='incoming_advancements'
+    )
+    to_round = models.ForeignKey(
+        Round, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='incoming_advancements'
+    )
+
+    class Meta:
+        unique_together = [('from_match', 'position')]
+
+    def clean(self):
+        if self.to_match_id and self.to_round_id:
+            raise ValidationError("Only one of to_match or to_round can be set, not both.")
+        if not self.to_match_id and not self.to_round_id:
+            raise ValidationError("One of to_match or to_round must be set.")
+
+    def __str__(self):
+        if self.to_match_id:
+            dest = f"Match {self.to_match}"
+        elif self.to_round_id:
+            dest = f"Round {self.to_round}"
+        else:
+            dest = "No destination"
+        return f"{self.from_match} {self.position} → {dest}"
+
 
 # This is a game with the basic game attributes and a variable number of seats (Efforts) linked to it
 class Game(models.Model):
@@ -897,33 +854,20 @@ class GroupingSession(models.Model):
         GREEDY = 'greedy', 'Optimized'
         RANDOM = 'random', 'Random Assignment'
 
-    class StatusChoices(models.TextChoices):
-        PROCESSING = 'processing', 'Processing'
-        DRAFT = 'draft', 'Draft'
-        FINALIZED = 'finalized', 'Finalized'
-        ARCHIVED = 'archived', 'Archived'
-        ERROR = 'error', 'Error'
-
-    # Source (at least one should be set)
-    survey = models.ForeignKey(
-        'the_tavern.Survey',
-        on_delete=models.CASCADE,
-        null=True, blank=True,
-        related_name='grouping_sessions',
-        help_text="Source survey for availability data (optional)"
-    )
+    # Required tournament owner (non-null after data migration)
     tournament = models.ForeignKey(
         Tournament,
         on_delete=models.CASCADE,
-        null=True, blank=True,
+        null=True,
         related_name='grouping_sessions'
     )
-    tournament_round = models.ForeignKey(
-        Round,
+    # Optional survey reference (availability data source)
+    survey = models.ForeignKey(
+        'the_tavern.Survey',
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='grouping_sessions',
-        help_text="Target round. If null when tournament set, a new round may be created."
+        help_text="Survey that seeded this session's availability data (optional)"
     )
 
     # Identification
@@ -946,15 +890,7 @@ class GroupingSession(models.Model):
         help_text="Algorithm to use for availability-based grouping"
     )
 
-    # Configuration (primarily for availability-based grouping)
-    min_group_size = models.PositiveSmallIntegerField(
-        default=4,
-        validators=[MinValueValidator(1), MaxValueValidator(20)]
-    )
-    max_group_size = models.PositiveSmallIntegerField(
-        default=4,
-        validators=[MinValueValidator(1), MaxValueValidator(20)]
-    )
+    # Configuration (for availability-based grouping)
     min_consecutive_hours = models.PositiveSmallIntegerField(
         default=4,
         validators=[MinValueValidator(1), MaxValueValidator(24)],
@@ -968,13 +904,6 @@ class GroupingSession(models.Model):
     include_waitlist = models.BooleanField(
         default=False,
         help_text="Whether to include waitlisted survey responses in grouping"
-    )
-
-    # Status
-    status = models.CharField(
-        max_length=20,
-        choices=StatusChoices.choices,
-        default=StatusChoices.DRAFT
     )
 
     # Metadata
@@ -992,8 +921,6 @@ class GroupingSession(models.Model):
     grouped_count = models.PositiveIntegerField(default=0)
     ungrouped_count = models.PositiveIntegerField(default=0)
 
-    notes = models.TextField(blank=True, help_text="Admin notes about this grouping session")
-
     class Meta:
         ordering = ['-created_at']
         verbose_name = 'Grouping Session'
@@ -1002,43 +929,72 @@ class GroupingSession(models.Model):
     def __str__(self):
         if self.name:
             return self.name
-        source = self.survey.title if self.survey else (self.tournament.name if self.tournament else 'Unknown')
+        source = self.survey.title if self.survey else self.tournament.name
         return f"Grouping for {source} ({self.created_at.strftime('%Y-%m-%d')})"
-
-    def clean(self):
-        if self.min_group_size > self.max_group_size:
-            raise ValidationError("Minimum group size cannot exceed maximum group size.")
-        if not self.survey and not self.tournament and not self.round:
-            raise ValidationError("At least one of survey, tournament, or round must be specified.")
-        if self.round and self.tournament and self.round.tournament != self.tournament:
-            raise ValidationError("Round must belong to the specified tournament.")
 
     def recalculate_statistics(self):
         """Update cached statistics from actual player data."""
-        self.grouped_count = self.session_players.filter(status='grouped').count()
-        self.ungrouped_count = self.session_players.filter(status='ungrouped').count()
-        # Note: waitlist players are in session but not counted in total_players
-        self.total_players = self.grouped_count + self.ungrouped_count
+        self.grouped_count = self.session_players.filter(
+            player_groups__isnull=False
+        ).distinct().count()
+        self.ungrouped_count = self.session_players.filter(status='active').count()
+        self.total_players = self.session_players.filter(
+            status__in=['active', 'waitlist']
+        ).count()
         self.save(update_fields=['grouped_count', 'ungrouped_count', 'total_players'])
 
 
 class PlayerGroup(models.Model):
     """
-    A group of players. For availability-based sessions, tracks overlap metrics.
+    A group of players for a specific round. Tracks availability overlap metrics.
     """
+    round = models.ForeignKey(
+        Round,
+        on_delete=models.CASCADE,
+        null=True,
+        related_name='player_groups',
+        help_text="The round this group belongs to (populated by data migration)"
+    )
     session = models.ForeignKey(
         GroupingSession,
-        on_delete=models.CASCADE,
-        related_name='groups'
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='groups',
+        help_text="Grouping session that generated this group (for availability data)"
     )
 
-    # Note: members are accessed via session_players relation with status='grouped'
-    # The members property below provides backward-compatible access
+    # Members (M2M to SessionPlayer)
+    session_players = models.ManyToManyField(
+        'SessionPlayer',
+        blank=True,
+        related_name='player_groups',
+        help_text="Players assigned to this group"
+    )
+    best_fit_players = models.ManyToManyField(
+        'SessionPlayer',
+        blank=True,
+        related_name='best_fit_groups',
+        help_text="Players not in the group with good availability overlap"
+    )
+
+    # Group-level metadata
+    created_by = models.ForeignKey(
+        Profile,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='created_player_groups'
+    )
+    created_via = models.CharField(
+        max_length=20,
+        choices=GroupingSession.AlgorithmChoices.choices,
+        blank=True,
+        help_text="How this group was created (algorithm or manual)"
+    )
 
     # Identification
     group_number = models.PositiveSmallIntegerField(
         default=1,
-        help_text="Sequential number within the session"
+        help_text="Sequential number within the round"
     )
     name = models.CharField(
         max_length=100,
@@ -1068,21 +1024,13 @@ class PlayerGroup(models.Model):
         help_text="List of day indices (0-6) that have overlapping hours"
     )
 
-    # Link to created game (after finalization)
-    game = models.ForeignKey(
-        Game,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='source_player_group',
-        help_text="Game created from this group"
-    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['session', 'group_number']
-        unique_together = ('session', 'group_number')
+        ordering = ['round', 'group_number']
+        unique_together = ('round', 'group_number')
         verbose_name = 'Player Group'
         verbose_name_plural = 'Player Groups'
 
@@ -1093,16 +1041,13 @@ class PlayerGroup(models.Model):
 
     @property
     def members(self):
-        """Return profiles of grouped players in this group."""
-        return Profile.objects.filter(
-            session_participations__group=self,
-            session_participations__status='grouped'
-        )
+        """Return profiles of players in this group."""
+        return Profile.objects.filter(player_groups=self)
 
     @property
     def member_count(self):
-        """Return count of grouped players in this group."""
-        return self.session_players.filter(status='grouped').count()
+        """Return count of players in this group."""
+        return self.session_players.count()
 
     def recalculate_overlap(self):
         """
@@ -1110,6 +1055,9 @@ class PlayerGroup(models.Model):
         Should be called after adding/removing members.
         Only meaningful for availability-based sessions.
         """
+        if not self.session_id:
+            return
+
         if self.session.grouping_type != GroupingSession.GroupingTypeChoices.AVAILABILITY:
             return
 
@@ -1117,8 +1065,7 @@ class PlayerGroup(models.Model):
             self._clear_overlap_metrics()
             return
 
-        # Get availability from session_players with status='grouped'
-        grouped_players = self.session_players.filter(status='grouped').select_related('survey_response')
+        grouped_players = self.session_players.all().select_related('survey_response')
 
         if not grouped_players.exists():
             self._clear_overlap_metrics()
@@ -1205,27 +1152,14 @@ class PlayerGroup(models.Model):
 
 class SessionPlayer(models.Model):
     """
-    Represents a player's participation in a grouping session.
-    Can be grouped, ungrouped, or on the session waitlist.
+    Represents a player's participation in a tournament's grouping session.
+    Status is tournament-scoped: active players can be rostered into any round.
+    Whether a player is grouped in a specific round is derived from round.player_groups.
     """
     class StatusChoices(models.TextChoices):
-        GROUPED = 'grouped', 'In Group'
-        UNGROUPED = 'ungrouped', 'Ungrouped'
+        ACTIVE = 'active', 'Active'
         WAITLIST = 'waitlist', 'On Waitlist'
         ELIMINATED = 'eliminated', 'Eliminated'
-
-    class AddedViaChoices(models.TextChoices):
-        ALGORITHM = 'algorithm', 'Algorithm'
-        MANUAL = 'manual', 'Manual'
-        REASSIGNED = 'reassigned', 'Reassigned'
-
-    class ReasonChoices(models.TextChoices):
-        NO_COMPATIBLE = 'no_compatible', 'No compatible groups found'
-        GROUPS_FULL = 'groups_full', 'All compatible groups at max size'
-        LOW_AVAILABILITY = 'low_availability', 'Insufficient availability hours'
-        WAITLIST = 'waitlist', 'On survey waitlist'
-        PENDING = 'pending', 'Pending assignment'
-        MANUAL = 'manual', 'Manually removed from groups'
 
     session = models.ForeignKey(
         GroupingSession,
@@ -1244,53 +1178,10 @@ class SessionPlayer(models.Model):
         related_name='session_players',
         help_text="The response that provided this player's availability"
     )
-    group = models.ForeignKey(
-        PlayerGroup,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='session_players',
-        help_text="The group this player is assigned to (null if ungrouped or waitlist)"
-    )
     status = models.CharField(
         max_length=20,
         choices=StatusChoices.choices,
-        default=StatusChoices.UNGROUPED
-    )
-
-    # Assignment metadata
-    added_via = models.CharField(
-        max_length=20,
-        choices=AddedViaChoices.choices,
-        default=AddedViaChoices.ALGORITHM
-    )
-    added_by = models.ForeignKey(
-        Profile,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='+',
-        help_text="Who added this player (for manual additions)"
-    )
-    added_at = models.DateTimeField(auto_now_add=True)
-
-    # Ungrouped reason tracking
-    reason = models.CharField(
-        max_length=30,
-        choices=ReasonChoices.choices,
-        null=True, blank=True,
-        help_text="Why this player is ungrouped (for display)"
-    )
-
-    # Best fit tracking (for ungrouped players)
-    best_fit_group = models.ForeignKey(
-        PlayerGroup,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='+',
-        help_text="Group with best compatibility (even if not added)"
-    )
-    best_fit_overlap_hours = models.PositiveSmallIntegerField(
-        default=0,
-        help_text="Hours of overlap with best_fit_group"
+        default=StatusChoices.ACTIVE
     )
 
     # Cached availability (for display/manual matching)
@@ -1301,143 +1192,14 @@ class SessionPlayer(models.Model):
 
     class Meta:
         unique_together = ('session', 'profile')
-        ordering = ['added_at']
+        ordering = ['profile__display_name']
         verbose_name = 'Session Player'
         verbose_name_plural = 'Session Players'
         indexes = [
             models.Index(fields=['session', 'status']),
-            models.Index(fields=['session', 'profile', 'status']),
             models.Index(fields=['profile', 'status']),
         ]
 
     def __str__(self):
-        status_display = self.get_status_display()
-        if self.group:
-            return f"{self.profile.display_name} in {self.group} ({status_display})"
-        return f"{self.profile.display_name} ({status_display})"
-
-
-class PlayerGroupMembership(models.Model):
-    """
-    DEPRECATED: Use SessionPlayer instead.
-    Through model for group membership, storing per-member metadata.
-    Kept for data migration purposes - will be removed after migration.
-    """
-    class AddedViaChoices(models.TextChoices):
-        ALGORITHM = 'algorithm', 'Algorithm'
-        MANUAL = 'manual', 'Manual'
-        REASSIGNED = 'reassigned', 'Reassigned'
-
-    group = models.ForeignKey(
-        PlayerGroup,
-        on_delete=models.CASCADE,
-        related_name='memberships'
-    )
-    profile = models.ForeignKey(
-        Profile,
-        on_delete=models.CASCADE,
-        related_name='player_group_memberships'
-    )
-    survey_response = models.ForeignKey(
-        'the_tavern.SurveyResponse',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='group_memberships',
-        help_text="The response that provided this member's availability"
-    )
-
-    added_at = models.DateTimeField(auto_now_add=True)
-    added_by = models.ForeignKey(
-        Profile,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='added_group_members',
-        help_text="Who added this member (for manual additions)"
-    )
-    added_via = models.CharField(
-        max_length=20,
-        choices=AddedViaChoices.choices,
-        default=AddedViaChoices.ALGORITHM
-    )
-
-    class Meta:
-        unique_together = ('group', 'profile')
-        ordering = ['added_at']
-        verbose_name = 'Group Membership'
-        verbose_name_plural = 'Group Memberships'
-
-    def __str__(self):
-        return f"{self.profile.name} in {self.group}"
-
-
-class UngroupedPlayer(models.Model):
-    """
-    DEPRECATED: Use SessionPlayer with status='ungrouped' or 'waitlist' instead.
-    Players who couldn't be assigned to a group or are waiting assignment.
-    Kept for data migration purposes - will be removed after migration.
-    """
-    class ReasonChoices(models.TextChoices):
-        NO_COMPATIBLE = 'no_compatible', 'No compatible groups found'
-        GROUPS_FULL = 'groups_full', 'All compatible groups at max size'
-        LOW_AVAILABILITY = 'low_availability', 'Insufficient availability hours'
-        WAITLIST = 'waitlist', 'On survey waitlist'
-        PENDING = 'pending', 'Pending assignment'
-        MANUAL = 'manual', 'Manually removed from groups'
-
-    session = models.ForeignKey(
-        GroupingSession,
-        on_delete=models.CASCADE,
-        related_name='ungrouped_players'
-    )
-    profile = models.ForeignKey(
-        Profile,
-        on_delete=models.CASCADE,
-        related_name='ungrouped_sessions'
-    )
-    survey_response = models.ForeignKey(
-        'the_tavern.SurveyResponse',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='ungrouped_records'
-    )
-
-    reason = models.CharField(
-        max_length=30,
-        choices=ReasonChoices.choices,
-        default=ReasonChoices.PENDING
-    )
-    is_waitlist = models.BooleanField(
-        default=False,
-        help_text="True if player was on survey waitlist"
-    )
-
-    # Best fit tracking
-    best_fit_group = models.ForeignKey(
-        PlayerGroup,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='potential_members',
-        help_text="Group with best compatibility (even if not added)"
-    )
-    best_fit_overlap_hours = models.PositiveSmallIntegerField(
-        default=0,
-        help_text="Hours of overlap with best_fit_group"
-    )
-
-    # Cached availability (for display/manual matching)
-    availability_hours = models.JSONField(
-        default=list,
-        help_text="This player's available hours (0-167)"
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('session', 'profile')
-        ordering = ['created_at']
-        verbose_name = 'Ungrouped Player'
-        verbose_name_plural = 'Ungrouped Players'
-
-    def __str__(self):
-        return f"{self.profile.name} (ungrouped - {self.get_reason_display()})"
+        return f"{self.profile.display_name} ({self.get_status_display()})"
 

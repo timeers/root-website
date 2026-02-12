@@ -179,9 +179,11 @@ function movePlayer(playerId, fromGroup, toGroup) {
         return response.text();
     })
     .then(html => {
-        // Remove from current list (use 'available' if fromGroup is empty for search results)
+        // Remove from current list — check both 'available' and 'available_round' for search results
         const sourceGroup = fromGroup || 'available';
-        const playerCard = document.getElementById(`player-${playerId}-${sourceGroup}`);
+        const playerCard = document.getElementById(`player-${playerId}-${sourceGroup}`)
+                        || document.getElementById(`player-${playerId}-available_round`)
+                        || document.getElementById(`player-${playerId}-available`);
         if (playerCard) playerCard.remove();
 
         // Add to target list (if toGroup is not empty, meaning not a delete)

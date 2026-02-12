@@ -70,7 +70,6 @@ urlpatterns = [
     path('series/<slug:slug>/players/', tournament_manage_players, name='tournament-manage-players'),
     path('series/<slug:slug>/assets/', tournament_manage_assets_v2, name='tournament-manage-assets'),
 
-    # Old tournament views (TODO: Remove after migration testing)
     path('series/<slug:tournament_slug>/', tournament_detail_view, name='tournament-detail'),
     path('series/<slug:slug>/delete/', TournamentDeleteView.as_view(), name='tournament-delete'),
 

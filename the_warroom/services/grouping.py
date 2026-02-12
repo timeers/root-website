@@ -2,6 +2,8 @@
 Service layer for player grouping operations.
 Handles availability-based, manual, and random grouping of players.
 """
+import random
+
 from django.db import transaction
 from django.db.models import Max, F
 
@@ -187,7 +189,6 @@ def greedy_group_assignment(availability_map, min_size=3, max_size=5, min_consec
 
     return groups, ungrouped, False
 
-import random
 
 def greedy_group_assignment_with_restarts(
     availability_map,
@@ -258,8 +259,6 @@ def _optimize_groups_with_swaps(groups, availability_map, iterations=100, min_co
     Returns:
         Optimized groups list
     """
-    import random
-
     if len(groups) < 2:
         return groups
 
@@ -344,124 +343,64 @@ class GroupingService:
     @transaction.atomic
     def create_from_tournament(cls, tournament, created_by, grouping_type='manual', **config):
         """
-        Create a new grouping session from tournament players.
+        Create a new grouping session for a tournament.
 
         Args:
             tournament: Tournament instance
             created_by: Profile who is creating the session
-            grouping_type: 'manual' or 'random'
-            **config: Optional overrides for group sizes
+            grouping_type: 'manual', 'random', or 'availability'
+            **config: Optional config (name, etc.)
         """
         session = GroupingSession.objects.create(
             tournament=tournament,
-            round=config.get('round'),
             name=config.get('name', ''),
             grouping_type=grouping_type,
-            min_group_size=config.get('min_group_size', 3),
-            max_group_size=config.get('max_group_size', 5),
             created_by=created_by,
         )
-
-        cls.populate_ungrouped_from_players(session)
-
-        if grouping_type == GroupingSession.GroupingTypeChoices.RANDOM:
-            cls.generate_random_groups(session)
-
         return session
 
     @classmethod
     @transaction.atomic
-    def create_from_round(cls, round_obj, created_by, grouping_type='manual', **config):
+    def generate_availability_groups(cls, session, round):
         """
-        Create a new grouping session from round players.
+        Run the availability-based grouping algorithm for a specific round.
+        Reads players from round.roster (active players not yet in a group for this round).
+        Creates PlayerGroup objects owned by the round.
 
         Args:
-            round_obj: Round instance
-            created_by: Profile who is creating the session
-            grouping_type: 'manual' or 'random'
-            **config: Optional overrides for group sizes
+            session: GroupingSession instance (provides survey/config)
+            round: Round instance (provides player roster and group size constraints)
         """
-        session = GroupingSession.objects.create(
-            tournament=round_obj.tournament,
-            round=round_obj,
-            name=config.get('name', ''),
-            grouping_type=grouping_type,
-            min_group_size=config.get('min_group_size', 3),
-            max_group_size=config.get('max_group_size', 5),
-            created_by=created_by,
-        )
-
-        cls.populate_ungrouped_from_players(session)
-
-        if grouping_type == GroupingSession.GroupingTypeChoices.RANDOM:
-            cls.generate_random_groups(session)
-
-        return session
-
-    @classmethod
-    @transaction.atomic
-    def generate_availability_groups(cls, session):
-        """
-        Run the availability-based grouping algorithm.
-
-        Args:
-            session: GroupingSession instance
-            include_waitlist: Whether to include waitlisted survey responses
-        """
-        from the_tavern.models import SurveyResponse
-
         if not session.survey:
             raise ValueError("Session must have a survey for availability-based grouping")
 
-        # Clear existing groups and session players
-        session.groups.all().delete()
-        session.session_players.all().delete()
+        min_size = round.get_min_players()
+        max_size = round.get_max_players()
 
-        # Get responses ordered by position (accepted first, then waitlist in order)
-        responses_qs = session.survey.responses.filter(
-            profile__isnull=False
-        ).select_related('profile').order_by('response_position')
+        # Clear existing groups for this round
+        round.player_groups.all().delete()
 
-        include_waitlist = session.include_waitlist
+        # Get active rostered players (not yet in a group for this round)
+        active_players = round.roster.filter(
+            status=SessionPlayer.StatusChoices.ACTIVE
+        ).select_related('profile', 'survey_response')
 
-        # Filter by waitlist if needed
-        if session.survey.has_waitlist and session.survey.waitlist_threshold and not include_waitlist:
-            responses_qs = responses_qs.filter(
-                response_position__lte=session.survey.waitlist_threshold
-            )
-
-        # Limit to total_players if set (respects waitlist count selection)
-        if session.total_players > 0:
-            responses_qs = responses_qs[:session.total_players]
-
-        responses = list(responses_qs)
+        if not active_players.exists():
+            return
 
         # Build availability map
         availability_map = {}
-        response_map = {}  # profile_id -> response
+        sp_map = {}  # profile_id -> SessionPlayer
         waitlist_ids = set()
 
-        for response in responses:
-            hours = response.get_combined_availability_hours()
-            availability_map[response.profile_id] = hours
-            response_map[response.profile_id] = response
+        for sp in active_players:
+            hours = set(sp.availability_hours) if sp.availability_hours else set()
+            availability_map[sp.profile_id] = hours
+            sp_map[sp.profile_id] = sp
 
-            # Track waitlist status
-            if (session.survey.has_waitlist and
-                session.survey.waitlist_threshold and
-                response.response_position > session.survey.waitlist_threshold):
-                waitlist_ids.add(response.profile_id)
-
-        # Select algorithm based on session configuration
-        algorithm = getattr(session, 'algorithm', 'greedy')
-
-        # Handle random algorithm - convert to random grouping type
-        if algorithm == 'random':
-            # Create ungrouped players first
-            cls.populate_ungrouped_from_survey(session)
-            # Use random grouping
-            cls.generate_random_groups(session)
-            session.recalculate_statistics()
+        # Handle random algorithm
+        if getattr(session, 'algorithm', 'greedy') == 'random':
+            cls.generate_random_groups(session, round)
             return
 
         # For availability-based algorithms - use cascading hours: 5 → 4 → 3
@@ -477,25 +416,24 @@ class GroupingService:
             remaining_availability = {pid: availability_map[pid] for pid in ungrouped_ids}
             new_groups, still_ungrouped, _ = grouping_func(
                 remaining_availability,
-                min_size=session.min_group_size,
-                max_size=session.max_group_size,
+                min_size=min_size,
+                max_size=max_size,
                 min_consecutive=min_hours,
-                min_days=1,  # Require at least 1 day, but prioritize more days in scoring
+                min_days=1,
             )
             groups_data.extend(new_groups)
             ungrouped_ids = still_ungrouped
 
         # Second pass: try to fit remaining ungrouped players into groups with room
-        for player_id in ungrouped_ids[:]:  # Iterate over a copy
+        for player_id in ungrouped_ids[:]:
             player_hours = availability_map[player_id]
             best_group = None
             best_overlap_quality = -1
 
             for group in groups_data:
-                if len(group['members']) >= session.max_group_size:
-                    continue  # Group is full
+                if len(group['members']) >= max_size:
+                    continue
 
-                # Check if player is compatible (use 3-hour floor)
                 new_overlap = group['overlap_hours'] & player_hours
                 consecutive = calculate_best_consecutive(new_overlap)
                 if consecutive >= 3:
@@ -508,42 +446,33 @@ class GroupingService:
                 best_group['overlap_hours'] &= player_hours
                 ungrouped_ids.remove(player_id)
 
-        # Third pass: try swapping - if ungrouped player fits a full group well,
-        # see if someone from that group can move to a non-full group
-        if session.min_group_size != session.max_group_size and ungrouped_ids:
-            # Find groups that have room
-            groups_with_room = [g for g in groups_data if len(g['members']) < session.max_group_size]
+        # Third pass: swap-based fitting
+        if min_size != max_size and ungrouped_ids:
+            groups_with_room = [g for g in groups_data if len(g['members']) < max_size]
 
             if groups_with_room:
-                for player_id in ungrouped_ids[:]:  # Iterate over a copy
+                for player_id in ungrouped_ids[:]:
                     player_hours = availability_map[player_id]
 
-                    # Find full groups where this player would fit well
                     for full_group in groups_data:
-                        if len(full_group['members']) < session.max_group_size:
-                            continue  # Not full, already handled in second pass
+                        if len(full_group['members']) < max_size:
+                            continue
 
-                        # Check if ungrouped player fits this group
                         new_overlap = full_group['overlap_hours'] & player_hours
                         if calculate_best_consecutive(new_overlap) < 3:
-                            continue  # Doesn't fit well enough
+                            continue
 
-                        # Try to find a member who can move to another group
                         for member_id in full_group['members']:
                             member_hours = availability_map[member_id]
 
-                            # Find a non-full group this member could join
                             for target_group in groups_with_room:
                                 if target_group == full_group:
                                     continue
 
-                                # Check if member fits target group
                                 member_overlap = target_group['overlap_hours'] & member_hours
                                 if calculate_best_consecutive(member_overlap) >= 3:
-                                    # Do the swap: move member to target, add ungrouped to full group
                                     full_group['members'].remove(member_id)
                                     full_group['members'].append(player_id)
-                                    # Recalculate full group's overlap
                                     full_group['overlap_hours'] = set.intersection(
                                         *[availability_map[m] for m in full_group['members']]
                                     )
@@ -553,113 +482,10 @@ class GroupingService:
 
                                     ungrouped_ids.remove(player_id)
 
-                                    # Update groups_with_room if target is now full
-                                    if len(target_group['members']) >= session.max_group_size:
+                                    if len(target_group['members']) >= max_size:
                                         groups_with_room.remove(target_group)
 
-                                    break  # Found a swap, move to next ungrouped player
-                            else:
-                                continue  # No target found for this member, try next member
-                            break  # Swap done, move to next ungrouped player
-                        else:
-                            continue  # No swappable member found, try next full group
-                        break  # Swap done
-
-                    if not groups_with_room:
-                        break  # No more room anywhere
-
-        # Fourth pass: multi-player swaps - try swapping 2 players out of a full group
-        # to make room for 2 ungrouped players
-        if session.min_group_size != session.max_group_size and len(ungrouped_ids) >= 2:
-            groups_with_room = [g for g in groups_data if len(g['members']) < session.max_group_size]
-
-            if groups_with_room:
-                # Try pairs of ungrouped players
-                for i, player1_id in enumerate(ungrouped_ids[:]):
-                    if player1_id not in ungrouped_ids:
-                        continue
-                    player1_hours = availability_map[player1_id]
-
-                    for player2_id in ungrouped_ids[i+1:]:
-                        if player2_id not in ungrouped_ids:
-                            continue
-                        player2_hours = availability_map[player2_id]
-
-                        # Find a full group where both ungrouped players would fit
-                        for full_group in groups_data:
-                            if len(full_group['members']) < session.max_group_size:
-                                continue
-
-                            # Check if both ungrouped players fit this group
-                            overlap_with_p1 = full_group['overlap_hours'] & player1_hours
-                            overlap_with_both = overlap_with_p1 & player2_hours
-                            if calculate_best_consecutive(overlap_with_both) < 3:
-                                continue
-
-                            # Try to find 2 members who can move to other groups
-                            for m1_idx, member1_id in enumerate(full_group['members']):
-                                member1_hours = availability_map[member1_id]
-
-                                # Find a group for member1
-                                target1 = None
-                                for tg in groups_with_room:
-                                    if tg == full_group:
-                                        continue
-                                    if calculate_best_consecutive(tg['overlap_hours'] & member1_hours) >= 3:
-                                        target1 = tg
-                                        break
-
-                                if not target1:
-                                    continue
-
-                                for member2_id in full_group['members'][m1_idx+1:]:
-                                    member2_hours = availability_map[member2_id]
-
-                                    # Find a group for member2 (can be same as target1 if room)
-                                    target2 = None
-                                    for tg in groups_with_room:
-                                        if tg == full_group:
-                                            continue
-                                        # Check if target1 has room for both
-                                        if tg == target1:
-                                            if len(tg['members']) + 2 <= session.max_group_size:
-                                                if calculate_best_consecutive(tg['overlap_hours'] & member2_hours) >= 3:
-                                                    target2 = tg
-                                                    break
-                                        else:
-                                            if len(tg['members']) < session.max_group_size:
-                                                if calculate_best_consecutive(tg['overlap_hours'] & member2_hours) >= 3:
-                                                    target2 = tg
-                                                    break
-
-                                    if not target2:
-                                        continue
-
-                                    # Do the double swap
-                                    full_group['members'].remove(member1_id)
-                                    full_group['members'].remove(member2_id)
-                                    full_group['members'].append(player1_id)
-                                    full_group['members'].append(player2_id)
-                                    full_group['overlap_hours'] = set.intersection(
-                                        *[availability_map[m] for m in full_group['members']]
-                                    )
-
-                                    target1['members'].append(member1_id)
-                                    target1['overlap_hours'] &= member1_hours
-
-                                    target2['members'].append(member2_id)
-                                    target2['overlap_hours'] &= member2_hours
-
-                                    ungrouped_ids.remove(player1_id)
-                                    ungrouped_ids.remove(player2_id)
-
-                                    # Update groups_with_room
-                                    groups_with_room = [g for g in groups_data if len(g['members']) < session.max_group_size]
-
-                                    break  # Done with this pair
-                                else:
-                                    continue
-                                break
+                                    break
                             else:
                                 continue
                             break
@@ -667,426 +493,390 @@ class GroupingService:
                             continue
                         break
 
-        # Fifth pass: try to form new groups from ungrouped players with looser requirements
-        if len(ungrouped_ids) >= session.min_group_size:
-            # Try to form groups with 2-hour overlap minimum
-            remaining_ungrouped = {pid: availability_map[pid] for pid in ungrouped_ids}
-
-            # Simple greedy: pick first player, find compatible others
-            while len(remaining_ungrouped) >= session.min_group_size:
-                # Start with the player who has fewest remaining compatible players
-                best_starter = None
-                min_compatible = float('inf')
-
-                for pid, hours in remaining_ungrouped.items():
-                    compatible_count = sum(
-                        1 for other_id, other_hours in remaining_ungrouped.items()
-                        if other_id != pid and calculate_best_consecutive(hours & other_hours) >= 2
-                    )
-                    if compatible_count < min_compatible and compatible_count >= session.min_group_size - 1:
-                        min_compatible = compatible_count
-                        best_starter = pid
-
-                if not best_starter:
-                    break
-
-                # Build group starting with this player
-                new_group_members = [best_starter]
-                new_group_hours = remaining_ungrouped[best_starter].copy()
-
-                # Find compatible players
-                candidates = []
-                for other_id, other_hours in remaining_ungrouped.items():
-                    if other_id == best_starter:
-                        continue
-                    overlap = new_group_hours & other_hours
-                    consecutive = calculate_best_consecutive(overlap)
-                    if consecutive >= 2:
-                        candidates.append((other_id, consecutive, overlap))
-
-                # Sort by overlap quality
-                candidates.sort(key=lambda x: -x[1])
-
-                for candidate_id, _, _ in candidates:
-                    if len(new_group_members) >= session.min_group_size:
+                    if not groups_with_room:
                         break
-                    candidate_hours = remaining_ungrouped[candidate_id]
-                    new_overlap = new_group_hours & candidate_hours
-                    if calculate_best_consecutive(new_overlap) >= 2:
-                        new_group_members.append(candidate_id)
-                        new_group_hours = new_overlap
 
-                if len(new_group_members) >= session.min_group_size:
-                    groups_data.append({
-                        'members': new_group_members,
-                        'overlap_hours': new_group_hours
-                    })
-                    for pid in new_group_members:
-                        ungrouped_ids.remove(pid)
-                        del remaining_ungrouped[pid]
-                else:
-                    # Couldn't form a group, stop trying
-                    break
-
-        # Create PlayerGroup objects and SessionPlayer records for grouped players
+        # Create PlayerGroup objects and assign session_players via M2M
         for i, group_data in enumerate(groups_data, 1):
             group = PlayerGroup.objects.create(
+                round=round,
                 session=session,
                 group_number=i,
                 name=generate_name(i, NameConvention(session.naming_convention)),
+                created_via=GroupingSession.AlgorithmChoices.GREEDY,
                 all_hours=[],
                 overlap_hours=sorted(list(group_data['overlap_hours'])),
                 total_overlap_hours=len(group_data['overlap_hours']),
             )
 
             for profile_id in group_data['members']:
-                response = response_map.get(profile_id)
-                availability = list(availability_map.get(profile_id, set()))
-                SessionPlayer.objects.create(
-                    session=session,
-                    profile_id=profile_id,
-                    survey_response=response,
-                    group=group,
-                    status=SessionPlayer.StatusChoices.GROUPED,
-                    added_via=SessionPlayer.AddedViaChoices.ALGORITHM,
-                    availability_hours=sorted(availability)
-                )
+                sp = sp_map.get(profile_id)
+                if sp:
+                    group.session_players.add(sp)
 
             group.recalculate_overlap()
 
-        # Record ungrouped players as SessionPlayer records
-        for profile_id in ungrouped_ids:
-            response = response_map.get(profile_id)
-            availability = list(availability_map.get(profile_id, set()))
-
-            # Determine reason
-            if profile_id in waitlist_ids:
-                reason = SessionPlayer.ReasonChoices.WAITLIST
-            elif not availability:
-                reason = SessionPlayer.ReasonChoices.LOW_AVAILABILITY
-            else:
-                reason = SessionPlayer.ReasonChoices.NO_COMPATIBLE
-
-            SessionPlayer.objects.create(
-                session=session,
-                profile_id=profile_id,
-                survey_response=response,
-                group=None,
-                status=SessionPlayer.StatusChoices.UNGROUPED,
-                reason=reason,
-                availability_hours=sorted(availability)
-            )
-
         # Calculate best fit for ungrouped players
-        cls.calculate_best_fit_groups(session)
+        cls.calculate_best_fit_groups(session, round)
 
-        session.recalculate_statistics()
-
-    @classmethod
-    def populate_ungrouped_from_players(cls, session):
-        """
-        Load tournament/round players as ungrouped (for manual/random grouping).
-        """
-        # Clear existing session players
-        session.session_players.all().delete()
-
-        # Get source master session (read from SessionPlayer)
-        source_session = None
-        if session.round:
-            # Try round's master session first
-            source_session = session.round.master_session
-            # If round has no session, it inherits from tournament
-            if not source_session and session.tournament:
-                source_session = session.tournament.master_session
-        elif session.tournament:
-            # Use tournament's master session
-            source_session = session.tournament.master_session
-
-        if not source_session:
-            return
-
-        # Copy ungrouped players from source master session
-        for sp in source_session.session_players.filter(status='ungrouped'):
-            SessionPlayer.objects.create(
-                session=session,
-                profile=sp.profile,
-                status=SessionPlayer.StatusChoices.UNGROUPED,
-                reason=SessionPlayer.ReasonChoices.PENDING
-            )
-
-        session.recalculate_statistics()
-
-    @classmethod
-    def populate_ungrouped_from_survey(cls, session):
-        """
-        Load survey respondents as ungrouped (for manual grouping from survey).
-        Respects session.total_players to limit how many waitlist players are included.
-        """
-        from the_tavern.models import SurveyResponse
-
-        if not session.survey:
-            raise ValueError("Session must have a survey")
-
-        # Clear existing session players
-        session.session_players.all().delete()
-
-        # Get responses ordered by position (accepted first, then waitlist in order)
-        responses_qs = session.survey.responses.filter(
-            profile__isnull=False
-        ).select_related('profile').order_by('response_position')
-
-        include_waitlist = session.include_waitlist
-        threshold = session.survey.waitlist_threshold
-
-        # Filter by waitlist if needed
-        if session.survey.has_waitlist and threshold and not include_waitlist:
-            responses_qs = responses_qs.filter(response_position__lte=threshold)
-
-        # Limit to total_players if set (respects waitlist count selection)
-        if session.total_players > 0:
-            responses_qs = responses_qs[:session.total_players]
-
-        for response in responses_qs:
-            is_from_waitlist = (
-                session.survey.has_waitlist and threshold and
-                response.response_position > threshold
-            )
-
-            # Get availability if any
-            availability = response.get_combined_availability_hours()
-
-            SessionPlayer.objects.create(
-                session=session,
-                profile=response.profile,
-                survey_response=response,
-                status=SessionPlayer.StatusChoices.UNGROUPED,
-                reason=SessionPlayer.ReasonChoices.WAITLIST if is_from_waitlist else SessionPlayer.ReasonChoices.PENDING,
-                availability_hours=sorted(list(availability)) if availability else []
-            )
-
-        session.recalculate_statistics()
-
-    @classmethod
-    def populate_ungrouped_from_round_session(cls, session, round):
-        """
-        Populate a grouping session with players from the round's master session.
-        Only includes SessionPlayers with status='ungrouped' from the master session.
-        SessionPlayers with status='waitlist' are NOT included automatically.
-        IMPORTANT: Preserves availability_hours from master session if present.
-        """
-        if not round:
-            raise ValueError("Round must be provided")
-
-        # Clear existing session players
-        session.session_players.all().delete()
-
-        # Get round's master session
-        master_session = round.master_session
-        if not master_session:
-            # No players to populate
-            session.recalculate_statistics()
-            return
-
-        # Get ungrouped players from master session
-        master_ungrouped = master_session.session_players.filter(
-            status=SessionPlayer.StatusChoices.UNGROUPED
-        ).select_related('profile')
-
-        # Create SessionPlayer in grouping session for each
-        for master_sp in master_ungrouped:
-            SessionPlayer.objects.create(
-                session=session,
-                profile=master_sp.profile,
-                status=SessionPlayer.StatusChoices.UNGROUPED,
-                added_via=SessionPlayer.AddedViaChoices.MANUAL,
-                availability_hours=master_sp.availability_hours,  # Preserve availability data
-            )
-
-        # Recalculate statistics
         session.recalculate_statistics()
 
     @classmethod
     @transaction.atomic
-    def generate_random_groups(cls, session):
+    def generate_random_groups(cls, session, round):
         """
-        Randomly assign ungrouped players to groups, minimizing ungrouped players.
-        """
-        import random
+        Randomly assign active rostered players to groups for a round.
 
-        ungrouped = list(session.session_players.filter(status=SessionPlayer.StatusChoices.UNGROUPED))
-        total_ungrouped = len(ungrouped)
-        print(f'Total ungrouped: {total_ungrouped}')
-        
-        if total_ungrouped == 0:
-            print('No ungrouped players')
+        Args:
+            session: GroupingSession instance (provides config/naming)
+            round: Round instance (provides player roster and group size constraints)
+        """
+        min_size = round.get_min_players()
+        max_size = round.get_max_players()
+
+        active_players = list(
+            round.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
+        )
+        total_players = len(active_players)
+
+        if total_players == 0:
             return
-        
-        # Calculate optimal group distribution
-        min_size = session.min_group_size
-        max_size = session.max_group_size
-        print(f'Min size: {min_size}, Max size: {max_size}')
-        
-        # Determine how many complete groups we can make
+
+        # Determine optimal group distribution
         best_config = None
-        min_leftover = total_ungrouped
-        
-        for num_groups in range(1, (total_ungrouped // min_size) + 2):
-            base_size = total_ungrouped // num_groups
-            extra = total_ungrouped % num_groups
-            
-            print(f'Trying {num_groups} groups: base_size={base_size}, extra={extra}')
-            
-            # NEW: When min_size == max_size, we can only make exact-size groups
+        min_leftover = total_players
+
+        for num_groups in range(1, (total_players // min_size) + 2):
+            base_size = total_players // num_groups
+            extra = total_players % num_groups
+
             if min_size == max_size:
-                # Can we make at least 'num_groups' full groups of exact size?
-                if num_groups * min_size <= total_ungrouped:
-                    leftover = total_ungrouped - (num_groups * min_size)
-                    print(f'  Valid config found! ({num_groups} groups of {min_size}, {leftover} leftover)')
+                if num_groups * min_size <= total_players:
+                    leftover = total_players - (num_groups * min_size)
                 else:
-                    print(f'  Skipped: not enough players for {num_groups} groups of {min_size}')
                     continue
             else:
-                # Check if distribution is valid
                 if base_size < min_size:
-                    print(f'  Skipped: base_size {base_size} < min_size {min_size}')
                     continue
                 if base_size > max_size:
-                    print(f'  Skipped: base_size {base_size} > max_size {max_size}')
                     continue
-
-                # Flexible sizing
                 if base_size + 1 > max_size and extra > 0:
-                    print(f'  Skipped: base_size+1 ({base_size+1}) > max_size {max_size}')
                     continue
                 leftover = 0
-                print(f'  Valid config found!')
-            
+
             if leftover < min_leftover:
                 min_leftover = leftover
-                # FIX: Store min_size when min==max, not base_size
                 actual_group_size = min_size if min_size == max_size else base_size
                 best_config = (num_groups, actual_group_size, extra)
-                print(f'  New best config: {best_config}')
-        
+
         if best_config is None:
-            print('No valid configuration found!')
             return
-        
+
         num_groups, base_size, extra = best_config
-        print(f'Final config: {num_groups} groups, base_size={base_size}, extra={extra}')
-        
-        
+
         # Shuffle for randomness
-        random.shuffle(ungrouped)
-        
-        # Assign players to groups
-        group_number = session.groups.count() + 1
+        random.shuffle(active_players)
+
+        # Get starting group number
+        group_number = round.player_groups.count() + 1
         player_index = 0
-        
+
         for i in range(num_groups):
-            # Determine size of this group
-            if min_size == max_size:
-                group_size = base_size
-            else:
-                group_size = base_size + (1 if i < extra else 0)
-            
-            # Create group
-            current_group = PlayerGroup.objects.create(
+            group_size = base_size if min_size == max_size else base_size + (1 if i < extra else 0)
+
+            group = PlayerGroup.objects.create(
+                round=round,
                 session=session,
                 group_number=group_number,
                 name=generate_name(group_number, NameConvention(session.naming_convention)),
+                created_via=GroupingSession.AlgorithmChoices.RANDOM,
                 all_hours=[],
             )
-            print(session.naming_convention)
-            print(NameConvention(session.naming_convention))
             group_number += 1
-            
-            # Add players to this group
+
             for _ in range(group_size):
-                if player_index >= len(ungrouped):
+                if player_index >= len(active_players):
                     break
-                
-                session_player = ungrouped[player_index]
-                session_player.group = current_group
-                session_player.status = SessionPlayer.StatusChoices.GROUPED
-                session_player.added_via = SessionPlayer.AddedViaChoices.ALGORITHM
-                session_player.save()
+                group.session_players.add(active_players[player_index])
                 player_index += 1
-        
-        # Any remaining players stay ungrouped (should be minimal or zero)
-        # Update their reason if needed
-        if player_index < len(ungrouped):
-            for remaining in ungrouped[player_index:]:
-                remaining.reason = SessionPlayer.ReasonChoices.GROUPS_FULL
-                remaining.save()
 
         session.recalculate_statistics()
 
     @classmethod
-    def calculate_best_fit_groups(cls, session):
+    @transaction.atomic
+    def assign_player_to_group(cls, session_player, to_group, round, moved_by=None):
         """
-        For each ungrouped player, find the group they'd fit best in.
+        Assign a player to a group within a round.
+        Handles all transitions: ungrouped→group, group→group, group→ungrouped.
+
+        Args:
+            session_player: SessionPlayer instance to move
+            to_group: PlayerGroup to assign to (None removes from all groups for this round)
+            round: Round instance (scopes group membership)
+            moved_by: Profile making the change (optional)
         """
-        if session.grouping_type != GroupingSession.GroupingTypeChoices.AVAILABILITY:
-            return
+        # Find the current group for this player in this round (if any)
+        current_groups = session_player.player_groups.filter(round=round)
+        for current_group in current_groups:
+            current_group.session_players.remove(session_player)
+            current_group.recalculate_overlap()
 
-        groups = list(session.groups.all())
-        if not groups:
-            return
+        if to_group:
+            to_group.session_players.add(session_player)
+            to_group.recalculate_overlap()
 
-        for session_player in session.session_players.filter(status=SessionPlayer.StatusChoices.UNGROUPED):
-            if not session_player.availability_hours:
-                continue
-
-            player_hours = set(session_player.availability_hours)
-            best_group = None
-            best_overlap = 0
-
-            for group in groups:
-                if not group.overlap_hours:
-                    continue
-                group_hours = set(group.overlap_hours)
-                overlap = player_hours & group_hours
-                overlap_count = len(overlap)
-
-                if overlap_count > best_overlap:
-                    best_overlap = overlap_count
-                    best_group = group
-
-            if best_group:
-                session_player.best_fit_group = best_group
-                session_player.best_fit_overlap_hours = best_overlap
-                session_player.save(update_fields=['best_fit_group', 'best_fit_overlap_hours'])
+        session_player.session.recalculate_statistics()
 
     @classmethod
     @transaction.atomic
-    def create_groups_from_ungrouped(cls, session, min_hours=None):
+    def remove_from_group(cls, session_player, round):
         """
-        Create new groups from ungrouped players using cascading hour requirements.
+        Remove a player from all groups in a round, returning them to ungrouped status.
+
+        Args:
+            session_player: SessionPlayer instance
+            round: Round instance (scopes group membership)
+        """
+        current_groups = list(session_player.player_groups.filter(round=round))
+        for group in current_groups:
+            group.session_players.remove(session_player)
+            group.recalculate_overlap()
+
+        cls.calculate_best_fit_groups(session_player.session, round)
+        session_player.session.recalculate_statistics()
+
+    @classmethod
+    @transaction.atomic
+    def move_player(cls, from_group, to_group, session_player):
+        """
+        Move a player from one group to another within the same round.
+
+        Args:
+            from_group: PlayerGroup to remove from
+            to_group: PlayerGroup to add to (must be in the same round)
+            session_player: SessionPlayer instance to move
+        """
+        from_group.session_players.remove(session_player)
+        to_group.session_players.add(session_player)
+
+        from_group.recalculate_overlap()
+        to_group.recalculate_overlap()
+
+        if from_group.session:
+            from_group.session.recalculate_statistics()
+
+    @classmethod
+    def calculate_best_fit_groups(cls, session, round):
+        """
+        For each active ungrouped player in a round, find the best-fit PlayerGroup.
+        Populates PlayerGroup.best_fit_players M2M with players not in the group
+        who have the best availability overlap with the group's current members.
+        """
+        groups = list(round.player_groups.all())
+        if not groups:
+            return
+
+        # Get ungrouped active players in this round
+        ungrouped = round.get_active_players_queryset()
+
+        # Clear existing best_fit_players for all groups in this round
+        for group in groups:
+            group.best_fit_players.clear()
+
+        if not ungrouped.exists():
+            return
+
+        # For each group, find the ungrouped players with best overlap
+        for group in groups:
+            if not group.overlap_hours:
+                continue
+
+            group_hours = set(group.overlap_hours)
+            scored_players = []
+
+            for sp in ungrouped:
+                if not sp.availability_hours:
+                    continue
+                player_hours = set(sp.availability_hours)
+                overlap = player_hours & group_hours
+                overlap_count = len(overlap)
+                if overlap_count > 0:
+                    scored_players.append((sp, overlap_count))
+
+            # Sort by overlap count descending, keep top candidates
+            scored_players.sort(key=lambda x: -x[1])
+            best_fits = [sp for sp, _ in scored_players[:5]]  # Store up to 5 best fits per group
+
+            if best_fits:
+                group.best_fit_players.set(best_fits)
+
+    @classmethod
+    @transaction.atomic
+    def finalize_session(cls, session, round):
+        """
+        Finalize the grouping for a specific round.
+        Sets round.grouping_status to FINALIZED — does not affect other rounds.
 
         Args:
             session: GroupingSession instance
+            round: Round instance to finalize grouping for
+        """
+        from the_warroom.models import Round as RoundModel
+        round.grouping_status = RoundModel.GroupingStatusChoices.FINALIZED
+        round.save(update_fields=['grouping_status'])
+
+    @classmethod
+    @transaction.atomic
+    def move_to_waitlist(cls, session_player):
+        """
+        Move a player to the session waitlist.
+        Updates their SurveyResponse.response_position if applicable.
+
+        Args:
+            session_player: SessionPlayer instance
+        """
+        session = session_player.session
+
+        # Remove from any groups in all rounds this player is rostered in
+        for round in session_player.rounds.all():
+            for group in session_player.player_groups.filter(round=round):
+                group.session_players.remove(session_player)
+                group.recalculate_overlap()
+
+        # Update status to waitlist
+        session_player.status = SessionPlayer.StatusChoices.WAITLIST
+        session_player.save(update_fields=['status'])
+
+        # Update survey response position if applicable
+        if session_player.survey_response and session.survey:
+            survey = session.survey
+            if survey.waitlist_threshold:
+                max_position = survey.responses.aggregate(
+                    max_pos=Max('response_position')
+                )['max_pos'] or 0
+                session_player.survey_response.response_position = max_position + 1
+                session_player.survey_response.save(update_fields=['response_position'])
+
+        session.recalculate_statistics()
+
+    @classmethod
+    @transaction.atomic
+    def move_from_waitlist(cls, session_player, to_group=None):
+        """
+        Move a player from the session waitlist to active status (and optionally a group).
+        Updates their SurveyResponse.response_position if applicable.
+
+        Args:
+            session_player: SessionPlayer instance (status='waitlist')
+            to_group: PlayerGroup to add to (optional)
+        """
+        session = session_player.session
+
+        session_player.status = SessionPlayer.StatusChoices.ACTIVE
+        session_player.save(update_fields=['status'])
+
+        if to_group:
+            to_group.session_players.add(session_player)
+            to_group.recalculate_overlap()
+
+        # Update survey response position if applicable
+        if session_player.survey_response and session.survey:
+            survey = session.survey
+            if survey.waitlist_threshold:
+                threshold = survey.waitlist_threshold
+                survey.responses.filter(
+                    response_position__gte=threshold
+                ).update(response_position=F('response_position') + 1)
+                session_player.survey_response.response_position = threshold
+                session_player.survey_response.save(update_fields=['response_position'])
+
+        session.recalculate_statistics()
+
+    @classmethod
+    @transaction.atomic
+    def sync_survey_responses_to_session(cls, session, survey):
+        """
+        Sync survey respondents into a tournament's GroupingSession as SessionPlayers.
+        Creates or updates SessionPlayer records with availability data from survey responses.
+        Does not overwrite waitlist/eliminated status.
+        Removes SessionPlayer records for profiles no longer in the survey.
+
+        Args:
+            session: GroupingSession instance (tournament-level)
+            survey: Survey instance to sync from
+        """
+        from the_tavern.models import SurveyResponse
+
+        accepted_responses = survey.responses.filter(
+            profile__isnull=False
+        ).select_related('profile').order_by('response_position')
+
+        threshold = survey.waitlist_threshold if survey.has_waitlist else None
+        accepted_profile_ids = set()
+
+        for response in accepted_responses:
+            profile = response.profile
+            accepted_profile_ids.add(profile.id)
+
+            is_waitlist = threshold and response.response_position > threshold
+            availability = sorted(list(response.get_combined_availability_hours()))
+
+            sp, created = SessionPlayer.objects.get_or_create(
+                session=session,
+                profile=profile,
+                defaults={
+                    'survey_response': response,
+                    'status': SessionPlayer.StatusChoices.WAITLIST if is_waitlist else SessionPlayer.StatusChoices.ACTIVE,
+                    'availability_hours': availability,
+                }
+            )
+            if not created:
+                # Update availability hours and survey response reference
+                # But don't overwrite a manually-set waitlist or eliminated status
+                update_fields = ['availability_hours', 'survey_response']
+                sp.availability_hours = availability
+                sp.survey_response = response
+                sp.save(update_fields=update_fields)
+
+        # Remove SessionPlayer records for profiles no longer in the survey
+        session.session_players.exclude(
+            profile_id__in=accepted_profile_ids
+        ).delete()
+
+        session.recalculate_statistics()
+
+    @classmethod
+    @transaction.atomic
+    def create_groups_from_ungrouped(cls, session, round, min_hours=None):
+        """
+        Create new groups from ungrouped active players in a round.
+
+        Args:
+            session: GroupingSession instance (provides config)
+            round: Round instance (provides player roster)
             min_hours: Starting minimum consecutive hours (default: 4, will cascade to 3)
         """
-        ungrouped = list(session.session_players.filter(status=SessionPlayer.StatusChoices.UNGROUPED))
+        ungrouped = list(round.get_active_players_queryset())
         if not ungrouped:
             return
 
         # Build availability map from ungrouped players
         availability_map = {}
-        player_map = {}  # profile_id -> SessionPlayer
+        sp_map = {}
 
         for sp in ungrouped:
             if sp.availability_hours:
                 availability_map[sp.profile_id] = set(sp.availability_hours)
-                player_map[sp.profile_id] = sp
+                sp_map[sp.profile_id] = sp
 
         if not availability_map:
             return
 
+        min_size = round.get_min_players()
+        max_size = round.get_max_players()
+
         grouping_func = greedy_group_assignment_with_restarts
 
-        # Use cascading hours: start from min_hours or 4, go down to 3
         start_hours = min_hours if min_hours else 4
         hours_to_try = [h for h in [5, 4, 3] if h <= start_hours]
 
@@ -1100,577 +890,63 @@ class GroupingService:
             remaining_availability = {pid: availability_map[pid] for pid in remaining_ids}
             new_groups, still_ungrouped, _ = grouping_func(
                 remaining_availability,
-                min_size=session.min_group_size,
-                max_size=session.max_group_size,
+                min_size=min_size,
+                max_size=max_size,
                 min_consecutive=min_h,
                 min_days=1,
             )
             groups_data.extend(new_groups)
             remaining_ids = still_ungrouped
 
-
         # Get next group number
-        max_group_num = session.groups.aggregate(
+        max_group_num = round.player_groups.aggregate(
             max_num=Max('group_number')
         )['max_num'] or 0
 
-        # Create new groups
         for i, group_data in enumerate(groups_data, max_group_num + 1):
             group = PlayerGroup.objects.create(
+                round=round,
                 session=session,
                 group_number=i,
                 name=generate_name(i, NameConvention(session.naming_convention)),
+                created_via=GroupingSession.AlgorithmChoices.GREEDY,
                 all_hours=[],
                 overlap_hours=sorted(list(group_data['overlap_hours'])),
                 total_overlap_hours=len(group_data['overlap_hours']),
             )
 
             for profile_id in group_data['members']:
-                # Update SessionPlayer to be in the group
-                sp = player_map.get(profile_id)
+                sp = sp_map.get(profile_id)
                 if sp:
-                    sp.group = group
-                    sp.status = SessionPlayer.StatusChoices.GROUPED
-                    sp.added_via = SessionPlayer.AddedViaChoices.ALGORITHM
-                    sp.save()
+                    group.session_players.add(sp)
 
             group.recalculate_overlap()
 
-        # Update best fit for remaining ungrouped
-        cls.calculate_best_fit_groups(session)
+        cls.calculate_best_fit_groups(session, round)
         session.recalculate_statistics()
 
     @classmethod
     @transaction.atomic
-    def add_waitlist_to_session(cls, session, count=None):
+    def add_waitlist_to_round(cls, session, round, count=None):
         """
-        Add waitlisted survey responses as ungrouped players.
+        Move waitlisted players into a round's roster.
 
         Args:
             session: GroupingSession instance
+            round: Round instance
             count: Number of waitlist players to add (None = all)
         """
-        from the_tavern.models import SurveyResponse
-
-        if not session.survey or not session.survey.has_waitlist:
-            return
-
-        threshold = session.survey.waitlist_threshold
-        if not threshold:
-            return
-
-        # Get profile IDs already in session
-        existing_profile_ids = set(
-            session.session_players.values_list('profile_id', flat=True)
-        )
-
-        waitlist_responses = session.survey.responses.filter(
-            profile__isnull=False,
-            response_position__gt=threshold
-        ).exclude(
-            profile_id__in=existing_profile_ids
-        ).order_by('response_position')
+        waitlist_players = session.session_players.filter(
+            status=SessionPlayer.StatusChoices.WAITLIST
+        ).exclude(rounds=round)
 
         if count is not None:
-            waitlist_responses = waitlist_responses[:count]
+            waitlist_players = waitlist_players[:count]
 
-        for response in waitlist_responses:
-            availability = response.get_combined_availability_hours()
-            SessionPlayer.objects.create(
-                session=session,
-                profile=response.profile,
-                survey_response=response,
-                status=SessionPlayer.StatusChoices.UNGROUPED,
-                reason=SessionPlayer.ReasonChoices.WAITLIST,
-                availability_hours=sorted(list(availability))
-            )
+        for sp in waitlist_players:
+            sp.status = SessionPlayer.StatusChoices.ACTIVE
+            sp.save(update_fields=['status'])
+            round.roster.add(sp)
 
-        # Update best fit
-        cls.calculate_best_fit_groups(session)
+        cls.calculate_best_fit_groups(session, round)
         session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def recalculate_with_waitlist(cls, session, waitlist_count):
-        """
-        Clear existing groups, add N waitlist players, regenerate all groups.
-        Only works in draft mode.
-
-        Args:
-            session: GroupingSession instance (must be in draft status)
-            waitlist_count: Number of waitlist players to include
-        """
-        if session.status != GroupingSession.StatusChoices.DRAFT:
-            raise ValueError("Can only recalculate sessions in draft status")
-
-        # Clear everything
-        session.groups.all().delete()
-        session.session_players.all().delete()
-
-        # Regenerate with waitlist included up to count
-        cls._generate_with_waitlist_limit(session, waitlist_count)
-
-    @classmethod
-    def _generate_with_waitlist_limit(cls, session, waitlist_count):
-        """
-        Generate groups including a specific number of waitlist players.
-        """
-        from the_tavern.models import SurveyResponse
-
-        if not session.survey:
-            raise ValueError("Session must have a survey")
-
-        threshold = session.survey.waitlist_threshold if session.survey.has_waitlist else None
-
-        # Get all responses
-        responses_qs = session.survey.responses.filter(
-            profile__isnull=False
-        ).select_related('profile').order_by('response_position')
-
-        responses = []
-        waitlist_added = 0
-
-        for response in responses_qs:
-            is_waitlist = (
-                threshold and
-                response.response_position > threshold
-            )
-
-            if is_waitlist:
-                if waitlist_added < waitlist_count:
-                    responses.append((response, True))
-                    waitlist_added += 1
-            else:
-                responses.append((response, False))
-
-        # Build availability map
-        availability_map = {}
-        response_map = {}
-        waitlist_ids = set()
-
-        for response, is_waitlist in responses:
-            hours = response.get_combined_availability_hours()
-            availability_map[response.profile_id] = hours
-            response_map[response.profile_id] = response
-            if is_waitlist:
-                waitlist_ids.add(response.profile_id)
-
-        # Select algorithm based on session configuration
-        algorithm = getattr(session, 'algorithm', 'greedy')
-        grouping_func = greedy_group_assignment_with_restarts
-
-        # Use cascading hours: 5 → 4 → 3
-        groups_data = []
-        ungrouped_ids = list(availability_map.keys())
-
-        for min_hours in [5, 4, 3]:
-            if not ungrouped_ids:
-                break
-
-            remaining_availability = {pid: availability_map[pid] for pid in ungrouped_ids}
-            new_groups, still_ungrouped, _ = grouping_func(
-                remaining_availability,
-                min_size=session.min_group_size,
-                max_size=session.max_group_size,
-                min_consecutive=min_hours,
-                min_days=1,
-            )
-            groups_data.extend(new_groups)
-            ungrouped_ids = still_ungrouped
-
-        # Create groups and SessionPlayer records for grouped players
-        for i, group_data in enumerate(groups_data, 1):
-            group = PlayerGroup.objects.create(
-                session=session,
-                group_number=i,
-                name=generate_name(i, NameConvention(session.naming_convention)),
-                all_hours=[],
-                overlap_hours=sorted(list(group_data['overlap_hours'])),
-                total_overlap_hours=len(group_data['overlap_hours']),
-            )
-
-            for profile_id in group_data['members']:
-                response = response_map.get(profile_id)
-                availability = list(availability_map.get(profile_id, set()))
-                SessionPlayer.objects.create(
-                    session=session,
-                    profile_id=profile_id,
-                    survey_response=response,
-                    group=group,
-                    status=SessionPlayer.StatusChoices.GROUPED,
-                    added_via=SessionPlayer.AddedViaChoices.ALGORITHM,
-                    availability_hours=sorted(availability)
-                )
-
-            group.recalculate_overlap()
-
-        # Record ungrouped as SessionPlayer records
-        for profile_id in ungrouped_ids:
-            response = response_map.get(profile_id)
-            availability = list(availability_map.get(profile_id, set()))
-
-            if profile_id in waitlist_ids:
-                reason = SessionPlayer.ReasonChoices.WAITLIST
-            elif not availability:
-                reason = SessionPlayer.ReasonChoices.LOW_AVAILABILITY
-            else:
-                reason = SessionPlayer.ReasonChoices.NO_COMPATIBLE
-
-            SessionPlayer.objects.create(
-                session=session,
-                profile_id=profile_id,
-                survey_response=response,
-                group=None,
-                status=SessionPlayer.StatusChoices.UNGROUPED,
-                reason=reason,
-                availability_hours=sorted(availability)
-            )
-
-        cls.calculate_best_fit_groups(session)
-        session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def regenerate_groups(cls, session):
-        """
-        Clear and regenerate all groups for a session.
-        Only works in draft or processing mode.
-        """
-        if session.status not in [GroupingSession.StatusChoices.DRAFT, GroupingSession.StatusChoices.PROCESSING]:
-            raise ValueError("Can only regenerate sessions in draft or processing status")
-
-        if session.grouping_type == GroupingSession.GroupingTypeChoices.AVAILABILITY:
-            cls.generate_availability_groups(session)
-        elif session.grouping_type == GroupingSession.GroupingTypeChoices.RANDOM:
-            session.groups.all().delete()
-            cls.populate_ungrouped_from_players(session)
-            cls.generate_random_groups(session)
-
-    @classmethod
-    @transaction.atomic
-    def move_player(cls, from_group, to_group, profile, moved_by=None):
-        """
-        Move a player from one group to another.
-
-        Args:
-            from_group: PlayerGroup to remove from
-            to_group: PlayerGroup to add to
-            profile: Profile to move
-            moved_by: Profile who is making the move (optional)
-        """
-        # Get existing session player
-        session_player = SessionPlayer.objects.filter(
-            group=from_group,
-            profile=profile,
-            status=SessionPlayer.StatusChoices.GROUPED
-        ).first()
-
-        if not session_player:
-            raise ValueError(f"Player {profile} is not in group {from_group}")
-
-        # Update to new group
-        session_player.group = to_group
-        session_player.added_by = moved_by
-        session_player.added_via = SessionPlayer.AddedViaChoices.REASSIGNED
-        session_player.save(update_fields=['group', 'added_by', 'added_via'])
-
-        # Recalculate overlaps for both groups
-        from_group.recalculate_overlap()
-        to_group.recalculate_overlap()
-
-        from_group.session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def add_ungrouped_to_group(cls, session_player, group, added_by=None):
-        """
-        Add an ungrouped or waitlisted player to a group.
-
-        Args:
-            session_player: SessionPlayer instance (status='ungrouped' or 'waitlist')
-            group: PlayerGroup to add to
-            added_by: Profile who is making the addition (optional)
-        """
-        # Update session player to grouped status
-        session_player.group = group
-        session_player.status = SessionPlayer.StatusChoices.GROUPED
-        session_player.added_by = added_by
-        session_player.added_via = SessionPlayer.AddedViaChoices.MANUAL
-        session_player.reason = None
-        session_player.best_fit_group = None
-        session_player.best_fit_overlap_hours = 0
-        session_player.save(update_fields=[
-            'group', 'status', 'added_by', 'added_via',
-            'reason', 'best_fit_group', 'best_fit_overlap_hours'
-        ])
-
-        group.recalculate_overlap()
-        session_player.session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def assign_player_to_group(cls, session_player, to_group, moved_by=None):
-        """
-        Universal method to assign a player to a group or ungrouped status.
-        Handles all transitions: ungrouped→group, waitlist→group, group→group,
-        group→ungrouped, group→waitlist.
-
-        Args:
-            session_player: SessionPlayer instance to move
-            to_group: PlayerGroup to assign to (None for ungrouped status)
-            moved_by: Profile making the change (optional)
-        """
-        # Track the source group if player is currently grouped
-        from_group = session_player.group if session_player.status == SessionPlayer.StatusChoices.GROUPED else None
-
-        # Update session player
-        session_player.group = to_group
-
-        # Set status based on target
-        if to_group is None:
-            session_player.status = SessionPlayer.StatusChoices.UNGROUPED
-            session_player.added_via = SessionPlayer.AddedViaChoices.MANUAL
-        else:
-            session_player.status = SessionPlayer.StatusChoices.GROUPED
-            # Determine added_via based on previous state
-            if from_group:
-                session_player.added_via = SessionPlayer.AddedViaChoices.REASSIGNED
-            else:
-                session_player.added_via = SessionPlayer.AddedViaChoices.MANUAL
-
-        session_player.added_by = moved_by
-        session_player.reason = None
-        session_player.best_fit_group = None
-        session_player.best_fit_overlap_hours = 0
-        session_player.save(update_fields=[
-            'group', 'status', 'added_by', 'added_via',
-            'reason', 'best_fit_group', 'best_fit_overlap_hours'
-        ])
-
-        # Recalculate overlaps for affected groups
-        if from_group:
-            from_group.recalculate_overlap()
-        if to_group:
-            to_group.recalculate_overlap()
-
-        # Recalculate session statistics
-        session_player.session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def remove_from_group(cls, session_player, reason=None):
-        """
-        Remove a player from a group and set to ungrouped.
-
-        Args:
-            session_player: SessionPlayer instance (status='grouped')
-            reason: SessionPlayer.ReasonChoices (default: MANUAL)
-        """
-        session = session_player.session
-        group = session_player.group
-
-        # Get availability if available
-        availability = []
-        if session_player.survey_response:
-            hours = session_player.survey_response.get_combined_availability_hours()
-            availability = sorted(list(hours))
-
-        # Update to ungrouped status
-        session_player.group = None
-        session_player.status = SessionPlayer.StatusChoices.UNGROUPED
-        session_player.reason = reason or SessionPlayer.ReasonChoices.MANUAL
-        session_player.availability_hours = availability
-        session_player.save(update_fields=['group', 'status', 'reason', 'availability_hours'])
-
-        # Recalculate group overlap
-        if group:
-            group.recalculate_overlap()
-
-        # Update best fit
-        cls.calculate_best_fit_groups(session)
-        session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def finalize_session(cls, session, target_round=None):
-        """
-        Finalize groups and optionally assign to a round.
-        Deletes all other draft/processing sessions for the same survey.
-
-        Args:
-            session: GroupingSession instance
-            target_round: Round to assign groups to (optional, creates if needed)
-        """
-        if target_round:
-            session.round = target_round
-
-        session.status = GroupingSession.StatusChoices.FINALIZED
-        session.save()
-
-        # Delete other draft/processing sessions for this survey
-        if session.survey:
-            GroupingSession.objects.filter(
-                survey=session.survey
-            ).exclude(
-                id=session.id
-            ).filter(
-                status__in=[
-                    GroupingSession.StatusChoices.DRAFT,
-                    GroupingSession.StatusChoices.PROCESSING
-                ]
-            ).delete()
-
-        # NOTE: Removed write-back to round.players M2M field
-        # The round.players property now reads FROM this session's SessionPlayer records
-        # No need to write back to M2M - the master session pattern makes this unnecessary
-
-    @classmethod
-    @transaction.atomic
-    def move_to_waitlist(cls, session_player):
-        """
-        Move a player to the session waitlist.
-        Updates their SurveyResponse.response_position if applicable.
-
-        Args:
-            session_player: SessionPlayer instance (status='grouped' or 'ungrouped')
-        """
-        session = session_player.session
-        group = session_player.group
-
-        # Update to waitlist status
-        session_player.group = None
-        session_player.status = SessionPlayer.StatusChoices.WAITLIST
-        session_player.reason = SessionPlayer.ReasonChoices.WAITLIST
-        session_player.best_fit_group = None
-        session_player.best_fit_overlap_hours = 0
-        session_player.save(update_fields=[
-            'group', 'status', 'reason', 'best_fit_group', 'best_fit_overlap_hours'
-        ])
-
-        # Recalculate group overlap if was in a group
-        if group:
-            group.recalculate_overlap()
-
-        # Update survey response position if applicable
-        if session_player.survey_response and session.survey:
-            survey = session.survey
-            if survey.waitlist_threshold:
-                # Move response to end of waitlist
-                max_position = survey.responses.aggregate(
-                    max_pos=Max('response_position')
-                )['max_pos'] or 0
-                session_player.survey_response.response_position = max_position + 1
-                session_player.survey_response.save(update_fields=['response_position'])
-
-        session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def move_from_waitlist(cls, session_player, to_group=None):
-        """
-        Move a player from the session waitlist to ungrouped or a group.
-        Updates their SurveyResponse.response_position if applicable.
-
-        Args:
-            session_player: SessionPlayer instance (status='waitlist')
-            to_group: PlayerGroup to add to (optional, defaults to ungrouped)
-        """
-        session = session_player.session
-
-        if to_group:
-            # Add directly to group
-            session_player.group = to_group
-            session_player.status = SessionPlayer.StatusChoices.GROUPED
-            session_player.reason = None
-        else:
-            # Add to ungrouped pool
-            session_player.group = None
-            session_player.status = SessionPlayer.StatusChoices.UNGROUPED
-            session_player.reason = SessionPlayer.ReasonChoices.PENDING
-
-        session_player.added_via = SessionPlayer.AddedViaChoices.MANUAL
-        session_player.save(update_fields=['group', 'status', 'reason', 'added_via'])
-
-        # Recalculate group overlap if added to a group
-        if to_group:
-            to_group.recalculate_overlap()
-
-        # Update survey response position if applicable
-        if session_player.survey_response and session.survey:
-            survey = session.survey
-            if survey.waitlist_threshold:
-                # Move response to accepted (before waitlist threshold)
-                # Find the current waitlist threshold position
-                threshold = survey.waitlist_threshold
-                # Shift all responses at or after threshold up by 1
-                survey.responses.filter(
-                    response_position__gte=threshold
-                ).update(response_position=F('response_position') + 1)
-                # Place this response at the threshold position
-                session_player.survey_response.response_position = threshold
-                session_player.survey_response.save(update_fields=['response_position'])
-
-        session.recalculate_statistics()
-        cls.calculate_best_fit_groups(session)
-
-    @classmethod
-    @transaction.atomic
-    def add_survey_response_to_session(cls, session, survey_response, to_group=None, added_by=None):
-        """
-        Add a survey response (from survey waitlist) to the grouping session.
-        Creates a new SessionPlayer for the response.
-
-        Args:
-            session: GroupingSession instance
-            survey_response: SurveyResponse to add
-            to_group: PlayerGroup to add to (optional, defaults to ungrouped)
-            added_by: Profile who is making the addition (optional)
-
-        Returns:
-            SessionPlayer: The created session player
-        """
-        # Get availability hours
-        availability = []
-        hours = survey_response.get_combined_availability_hours()
-        if hours:
-            availability = sorted(list(hours))
-
-        if to_group:
-            status = SessionPlayer.StatusChoices.GROUPED
-            reason = None
-        else:
-            status = SessionPlayer.StatusChoices.UNGROUPED
-            reason = SessionPlayer.ReasonChoices.PENDING
-
-        session_player = SessionPlayer.objects.create(
-            session=session,
-            profile=survey_response.profile,
-            survey_response=survey_response,
-            group=to_group,
-            status=status,
-            added_via=SessionPlayer.AddedViaChoices.MANUAL,
-            added_by=added_by,
-            reason=reason,
-            availability_hours=availability
-        )
-
-        # Recalculate group overlap if added to a group
-        if to_group:
-            to_group.recalculate_overlap()
-
-        # Update survey response position (move from waitlist to accepted)
-        survey = session.survey
-        if survey and survey.waitlist_threshold:
-            threshold = survey.waitlist_threshold
-            # Shift all responses at or after threshold up by 1
-            survey.responses.filter(
-                response_position__gte=threshold
-            ).update(response_position=F('response_position') + 1)
-            # Place this response at the threshold position
-            survey_response.response_position = threshold
-            survey_response.save(update_fields=['response_position'])
-
-        session.recalculate_statistics()
-        cls.calculate_best_fit_groups(session)
-
-        return session_player

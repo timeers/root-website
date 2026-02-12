@@ -1,36 +1,37 @@
 {% load i18n %}
 {# Shared grouping interface partial - used by both survey and round grouping views #}
 
-<!-- Configuration Form -->
-<div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0"><i class="bi bi-gear"></i> {% trans 'Grouping Settings' %}</h5>
-        {% if session and not is_finalized and not is_processing %}
-        <form method="post" style="display: inline;">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="reset_session">
-            <button type="submit" class="btn btn-sm btn-outline-danger"
-                    onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
-                <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Reset' %}
-            </button>
-        </form>
-        {% endif %}
-    </div>
-    <div class="card-body">
-        {% if is_finalized %}
-        <div class="alert alert-success mb-0">
+
+    {% if is_finalized %}
+        <div class="alert alert-success mb-4">
             <i class="bi bi-lock-fill"></i>
             <strong>{% trans 'Grouping Finalized' %}</strong>
-            <p class="mb-0">Groups have been finalized and can no longer be modified. To make changes, reset the session using the button above.</p>
+            <p class="mb-0">Groups have been finalized and can no longer be modified.</p>
         </div>
-        {% elif is_processing %}
+    {% elif is_processing %}
         <!-- Processing State -->
-        <div class="alert alert-info mb-0">
+        <div class="alert alert-info mb-4">
             <i class="bi bi-hourglass-split"></i>
             <strong>{% trans 'Processing...' %}</strong>
             <p class="mb-0">Groups are being generated. Please wait.</p>
         </div>
-        {% else %}
+    {% else %}
+    <!-- Configuration Form -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-gear"></i> {% trans 'Grouping Settings' %}</h5>
+            {% if session and not is_finalized and not is_processing %}
+            <form method="post" style="display: inline;">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reset_session">
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
+                    <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Reset' %}
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    <div class="card-body">
         <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="generate">
@@ -41,7 +42,7 @@
                 <label class="form-label fw-bold">{% trans 'Grouping Method' %}</label>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_random" value="random"
-                           {% if not session or session.grouping_type == 'random' %}checked{% endif %}>
+                        {% if not session or session.grouping_type == 'random' %}checked{% endif %}>
                     <label class="form-check-label" for="type_random">
                         <strong>{% trans 'Random Assignment' %}</strong>
                         <br><small class="text-muted">Randomly distribute players into groups</small>
@@ -49,7 +50,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_manual" value="manual"
-                           {% if session and session.grouping_type == 'manual' %}checked{% endif %}>
+                        {% if session and session.grouping_type == 'manual' %}checked{% endif %}>
                     <label class="form-check-label" for="type_manual">
                         <strong>{% trans 'Manual Assignment' %}</strong>
                         <br><small class="text-muted">Manually drag players into groups</small>
@@ -64,7 +65,7 @@
                 <label class="form-label fw-bold">{% trans 'Algorithm' %}</label>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="algorithm" id="algo_greedy" value="greedy"
-                           {% if not session or session.algorithm == 'greedy' %}checked{% endif %}>
+                        {% if not session or session.algorithm == 'greedy' %}checked{% endif %}>
                     <label class="form-check-label" for="algo_greedy">
                         <strong>{% trans 'Optimized' %}</strong>
                         <br><small class="text-muted">Prioritizes best availability matches, may leave some players ungrouped</small>
@@ -72,7 +73,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="algorithm" id="algo_random" value="random"
-                           {% if session and session.algorithm == 'random' %}checked{% endif %}>
+                        {% if session and session.algorithm == 'random' %}checked{% endif %}>
                     <label class="form-check-label" for="algo_random">
                         <strong>{% trans 'Random' %}</strong>
                         <br><small class="text-muted">Randomly assigns players to groups evenly</small>
@@ -81,20 +82,15 @@
             </div>
             {% endif %}
 
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <label for="min_group_size" class="form-label">{% trans 'Minimum Group Size' %}</label>
-                    <input type="number" class="form-control" id="min_group_size" name="min_group_size"
-                           value="{{ session.min_group_size|default:4 }}" min="2" max="12">
-                    <small class="text-muted">Minimum players per group</small>
-                </div>
-                <div class="col-md-6">
-                    <label for="max_group_size" class="form-label">{% trans 'Maximum Group Size' %}</label>
-                    <input type="number" class="form-control" id="max_group_size" name="max_group_size"
-                           value="{{ session.max_group_size|default:4 }}" min="2" max="12">
-                    <small class="text-muted">Maximum players per group</small>
+            {% if round %}
+            <div class="mb-4">
+                <label class="form-label fw-bold">{% trans 'Group Size' %}</label>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary fs-6">{% if round.get_min_players != round.get_max_players %}{{ round.get_min_players }} – {% endif %}{{ round.get_max_players }} players</span>
+                    <small class="text-muted">({% if round.min_players %}<a href="{{ round.get_edit_url }}">{% else %}<a href="{{ tournament.get_edit_url }}">{% endif %}change in settings</a>)</small>
                 </div>
             </div>
+            {% endif %}
 
             <div class="row mb-4">
                 <div class="col-md-6">
@@ -116,8 +112,8 @@
                 <div class="card-body">
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="include_waitlist" name="include_waitlist"
-                               {% if session and session.include_waitlist %}checked{% endif %}
-                               onchange="toggleWaitlistCount()">
+                            {% if session and session.include_waitlist %}checked{% endif %}
+                            onchange="toggleWaitlistCount()">
                         <label class="form-check-label" for="include_waitlist">
                             <strong>{% trans 'Include Waitlist Players' %}</strong>
                         </label>
@@ -125,8 +121,8 @@
                     <div id="waitlist_count_wrapper" style="{% if not session or not session.include_waitlist %}display: none;{% endif %}">
                         <label for="waitlist_count" class="form-label">{% trans 'Number of waitlist players to include' %}</label>
                         <input type="number" class="form-control" id="waitlist_count" name="waitlist_count"
-                               value="{% if included_waitlist_count|default:0 > 0 %}{{ included_waitlist_count }}{% else %}{{ waitlist_count }}{% endif %}"
-                               min="1" max="{{ waitlist_count }}">
+                            value="{% if included_waitlist_count|default:0 > 0 %}{{ included_waitlist_count }}{% else %}{{ waitlist_count }}{% endif %}"
+                            min="1" max="{{ waitlist_count }}">
                         <small class="text-muted">{{ waitlist_count }} player{{ waitlist_count|pluralize }} on waitlist</small>
                     </div>
                 </div>
@@ -141,26 +137,32 @@
                 <a href="{{ return_to }}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
             </div>
         </form>
-        {% endif %}
     </div>
-</div>
+    </div>
+    {% endif %}
+
+
 
 {% if is_processing %}
 <!-- Processing Status -->
-<div id="processing-container"
+<div class="text-center py-5">
+    <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
+        <span class="visually-hidden">{% trans 'Processing...' %}</span>
+    </div>
+    <p class="text-muted mt-3">{% trans 'Generating groups, please wait...' %}</p>
+</div>
+{% if session %}
+<div
     hx-get="{{ base_url }}{{ session.id }}/status/"
     hx-trigger="every 2s"
-    hx-swap="innerHTML">
-    <div class="alert alert-info">
-        <i class="bi bi-hourglass-split"></i>
-        <strong>{% trans 'Processing...' %}</strong>
-        <p class="mb-0">Groups are being generated. This page will update automatically.</p>
-    </div>
+    hx-swap="none"
+    style="display:none;">
 </div>
+{% endif %}
 {% elif has_error %}
 <div class="alert alert-danger mb-4">
     <h5><i class="bi bi-exclamation-triangle"></i> {% trans 'Error' %}</h5>
-    <p>{{ session.notes }}</p>
+    <p>{{ round.grouping_notes }}</p>
 </div>
 {% endif %}
 
@@ -188,7 +190,6 @@
                 <!-- Members List -->
                 <ul class="list-group list-group-flush group-members {% if not is_finalized %}sortable-group{% endif %}" data-group-id="{{ group.id }}">
                     {% for sp in group.session_players.all %}
-                    {% if sp.status == 'grouped' %}
                     <li class="list-group-item d-flex align-items-center player-item" data-player-id="{{ sp.id }}" data-source="group">
                         {% if not is_finalized %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
                         {% if sp.profile.image %}
@@ -197,13 +198,7 @@
                         <i class="bi bi-person-circle me-2"></i>
                         {% endif %}
                         <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
-                        {% if sp.added_via == 'manual' %}
-                        <small class="text-muted"><i class="bi bi-hand-index"></i></small>
-                        {% elif sp.added_via == 'reassigned' %}
-                        <small class="text-muted"><i class="bi bi-arrow-left-right"></i></small>
-                        {% endif %}
                     </li>
-                    {% endif %}
                     {% empty %}
                     <li class="list-group-item text-muted text-center empty-placeholder">
                         <small>{% trans 'Drop players here' %}</small>
@@ -254,11 +249,6 @@
                 <i class="bi bi-person-circle me-2"></i>
                 {% endif %}
                 <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
-                {% if sp.best_fit_group %}
-                <small class="text-muted me-2" title="Best fit: Group {{ sp.best_fit_group.group_number }} ({{ sp.best_fit_overlap_hours }}h overlap)">
-                    <i class="bi bi-arrow-right"></i> G{{ sp.best_fit_group.group_number }}
-                </small>
-                {% endif %}
                 {% if session.grouping_type == 'availability' and sp.availability_hours %}
                 <small class="text-muted">{{ sp.availability_hours|length }}h</small>
                 {% endif %}
@@ -275,10 +265,10 @@
 {% if session_waitlist_players %}
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-clock-history"></i> {% trans 'Session Waitlist' %} ({{ session_waitlist_count }})</h5>
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> {% trans 'Tournament Waitlist' %} ({{ session_waitlist_count }})</h5>
     </div>
     <div class="card-body">
-        <p class="text-muted small mb-3">Players on the waitlist for this grouping session. Drag to add them to a group or ungrouped.</p>
+        <p class="text-muted small mb-3">Drag to add these players to a group or ungrouped section and remove them from the Waitlist.</p>
 
         <ul class="list-group list-group-flush {% if not is_finalized %}sortable-session-waitlist{% endif %}" id="session-waitlist-players" data-group-id="session-waitlist">
             {% for sp in session_waitlist_players %}
