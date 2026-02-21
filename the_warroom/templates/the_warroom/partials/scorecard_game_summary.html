@@ -11,7 +11,7 @@
         <div class="article-metadata">
             <small class="text-muted">
                     {% if game.round %}
-                        {{ game.type }} {{ game.round.tournament.name }} {% trans 'Game' %} |
+                        {{ game.type }} {{ game.round.get_tournament.name }} {% trans 'Game' %} |
                     {% else %}
                         {{ game.type }} 
                         {% if game.solo %}

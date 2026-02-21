@@ -8,9 +8,12 @@
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament_slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            {% if stage %}
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            {% endif %}
             {% if round %}
-            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
             {% endif %}
             <li class="breadcrumb-item active">Settings</li>
         </ol>
@@ -20,11 +23,15 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{{ object_type }} Settings</h2>
         {% if round %}
-        <a href="{% url 'round-detail' tournament_slug=tournament.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
+        <a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Back to Round
         </a>
+        {% elif stage %}
+        <a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Stage
+        </a>
         {% else %}
-        <a href="{% url 'tournament-detail' tournament_slug=tournament.slug %}" class="btn btn-outline-secondary">
+        <a href="{% url 'tournament-detail' slug=tournament.slug %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Back to Series
         </a>
         {% endif %}
@@ -33,6 +40,7 @@
     <!-- Settings Cards Grid -->
     <div class="row g-4">
         <!-- General Settings Card -->
+        {% if can_manage %}
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
@@ -42,6 +50,8 @@
                     <p class="card-text text-muted">
                         {% if round %}
                         Update round information, dates, and game thresholds
+                        {% elif stage %}
+                        Update stage information, format, and grouping configuration
                         {% else %}
                         Update series information, dates, rules, and game settings
                         {% endif %}
@@ -49,7 +59,11 @@
                 </div>
                 <div class="card-footer bg-transparent">
                     {% if round %}
-                    <a href="{% url 'round-update' tournament_slug=tournament.slug round_slug=round.slug %}" class="btn btn-primary w-100">
+                    <a href="{% url 'round-update' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-pencil me-1"></i>Edit Settings
+                    </a>
+                    {% elif stage %}
+                    <a href="{% url 'stage-update' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-pencil me-1"></i>Edit Settings
                     </a>
                     {% else %}
@@ -60,6 +74,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
         <!-- Player Management Card -->
         <div class="col-md-6">
@@ -69,12 +84,22 @@
                         <i class="bi bi-people me-2"></i>Player Management
                     </h5>
                     <p class="card-text text-muted">
+                        {% if round %}
+                        Manage stage roster, withdrawn, and eliminated players
+                        {% elif stage %}
+                        Manage stage roster, withdrawn, and eliminated players
+                        {% else %}
                         Manage roster, waitlist, and eliminated players
+                        {% endif %}
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
                     {% if round %}
-                    <a href="{% url 'round-manage-players' tournament_slug=tournament.slug round_slug=round.slug %}" class="btn btn-primary w-100">
+                    <a href="{% url 'stage-manage-players' tournament_slug=tournament.slug stage_slug=round.stage.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-person-plus me-1"></i>Manage Players
+                    </a>
+                    {% elif stage %}
+                    <a href="{% url 'stage-manage-players' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-person-plus me-1"></i>Manage Players
                     </a>
                     {% else %}
@@ -86,7 +111,49 @@
             </div>
         </div>
 
-        <!-- Asset Management Card -->
+        <!-- Surveys Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-clipboard-check me-2"></i>Surveys
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% if stage %}
+                        Manage registration and feedback surveys for this stage
+                        {% else %}
+                        Manage registration and feedback surveys for this series
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <div class="d-flex gap-2">
+                        {% if stage %}
+                        <a href="{% url 'survey-create' %}?series={{ tournament.id }}&stage={{ stage.id }}" class="btn btn-primary flex-fill">
+                            <i class="bi bi-plus-lg me-1"></i>Create Survey
+                        </a>
+                        {% if survey_count %}
+                        <a href="{% url 'stage-surveys' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary flex-fill">
+                            <i class="bi bi-list-ul me-1"></i>View ({{ survey_count }})
+                        </a>
+                        {% endif %}
+                        {% else %}
+                        <a href="{% url 'survey-create' %}?series={{ tournament.id }}" class="btn btn-primary flex-fill">
+                            <i class="bi bi-plus-lg me-1"></i>Create Survey
+                        </a>
+                        {% if survey_count %}
+                        <a href="{% url 'tournament-surveys' tournament_slug=tournament.slug %}" class="btn btn-outline-secondary flex-fill">
+                            <i class="bi bi-list-ul me-1"></i>View ({{ survey_count }})
+                        </a>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Asset Management Card (Tournament only) -->
+        {% if not round and not stage %}
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
@@ -104,29 +171,72 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
-        <!-- Round Management Card (only for tournaments) -->
-        {% if not round %}
+        <!-- Bracket Card (Tournament only) -->
+        {% if not round and not stage %}
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">
-                        <i class="bi bi-calendar-plus me-2"></i>Round Management
+                        <i class="bi bi-diagram-3 me-2"></i>Bracket
                     </h5>
                     <p class="card-text text-muted">
-                        Create and manage rounds within this series
+                        Build and manage the tournament bracket structure
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'round-create' tournament_slug=tournament.slug %}" class="btn btn-primary w-100">
-                        <i class="bi bi-plus-circle me-1"></i>Create New Round
+                    <a href="{% url 'tournament-bracket' slug=tournament.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-trophy me-1"></i>Manage Bracket
                     </a>
                 </div>
             </div>
         </div>
         {% endif %}
 
-        <!-- Grouping Management Card (only for rounds) -->
+        <!-- Add Stage Card (Tournament only, when use_stages is enabled) -->
+        {% if not stage and not round and tournament.use_stages %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-plus-circle me-2"></i>Add Stage
+                    </h5>
+                    <p class="card-text text-muted">
+                        Create a new stage within this series
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'stage-create' tournament_slug=tournament.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-plus-lg me-1"></i>New Stage
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Add Round Card (Stage only, when use_rounds is enabled) -->
+        {% if stage and not round and tournament.use_rounds %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-plus-circle me-2"></i>Add Round
+                    </h5>
+                    <p class="card-text text-muted">
+                        Create a new round within this stage
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-plus-lg me-1"></i>New Round
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Grouping Management Card (Round only) -->
         {% if round %}
         <div class="col-md-6">
             <div class="card h-100">
@@ -139,7 +249,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'round-grouping-setup' tournament_slug=tournament.slug round_slug=round.slug %}" class="btn btn-primary w-100">
+                    <a href="{% url 'round-grouping-setup' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-people-fill me-1"></i>Manage Grouping
                     </a>
                 </div>
@@ -149,7 +259,7 @@
 
         <!-- Advanced/Delete Card (only for admins or designers) -->
         {% if  tournament.name != "Root Digital League" %}
-            {% if user.profile.admin or user.profile == tournament.designer and round %}
+            {% if is_owner %}
             <div class="col-md-6">
                 <div class="card h-100 border-danger">
                     <div class="card-body">
@@ -159,6 +269,8 @@
                         <p class="card-text text-muted">
                             {% if round %}
                             Permanently delete this round and all associated data
+                            {% elif stage %}
+                            Permanently delete this stage and all associated data
                             {% else %}
                             Permanently delete this series and all associated data
                             {% endif %}
@@ -166,9 +278,14 @@
                     </div>
                     <div class="card-footer bg-transparent">
                         {% if round %}
-                        <a href="{% url 'round-delete' tournament_slug=tournament.slug round_slug=round.slug pk=round.id %}"
+                        <a href="{% url 'round-delete' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug pk=round.id %}"
                         class="btn btn-outline-danger w-100">
                             <i class="bi bi-trash me-1"></i>Delete Round
+                        </a>
+                        {% elif stage %}
+                        <a href="{% url 'tournament-detail' slug=tournament.slug %}"
+                        class="btn btn-outline-danger w-100">
+                            <i class="bi bi-trash me-1"></i>Delete Stage
                         </a>
                         {% else %}
                         <a href="{% url 'tournament-delete' slug=tournament.slug %}"

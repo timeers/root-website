@@ -17,7 +17,7 @@
                                 {% endif %}
                                 won a{% if object.type == "Async" %}n{% endif %} 
                                 {% if object.round %}
-                                        {{ object.type }} {{ object.round.tournament.name }} Game
+                                        {{ object.type }} {{ object.round.get_tournament.name }} Game
                                 {% else %}
                                         {{ object.type }} {{ object.platform }} {% if object.test_match %}Playtest{% else %}Game{% endif %}
                                 {% endif %}

@@ -1,13 +1,13 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %}Send to Round - {{ survey.title }} | {% endblock %}
+{% block title %}Send to Stage - {{ survey.title }} | {% endblock %}
 
 {% block content %}
 <div class="content-section">
     {% include 'the_tavern/partials/survey_navigation.html' %}
 
     <div class="mb-4">
-        <h1 class="root-title mb-2">{% trans 'Send to Round' %}</h1>
+        <h1 class="root-title mb-2">{% trans 'Send to Stage' %}</h1>
         <p class="text-muted mb-0">{{ survey.title }}</p>
     </div>
 
@@ -21,20 +21,20 @@
                     <form method="post">
                         {% csrf_token %}
 
-                        {% if designated_round %}
+                        {% if designated_stage %}
                         <p class="text-muted mb-3">
-                            This survey is linked to a specific round. Respondents will be sent directly to that round.
+                            This survey is linked to a specific stage. Respondents will be sent directly to that stage.
                         </p>
-                        <input type="hidden" name="round_id" value="{{ designated_round.id }}">
+                        <input type="hidden" name="stage_id" value="{{ designated_stage.id }}">
                         <div class="mb-3 p-3 bg-light rounded border">
                             <div class="d-flex align-items-center gap-2">
                                 <div>
-                                    <strong>{{ designated_round.name|default:designated_round.round_number }}</strong>
-                                    {% if designated_round.start_date %}
-                                    <small class="text-muted ms-2">{{ designated_round.start_date|date:"M j, Y" }}</small>
+                                    <strong>{{ designated_stage.name }}</strong>
+                                    {% if designated_stage.start_date %}
+                                    <small class="text-muted ms-2">{{ designated_stage.start_date|date:"M j, Y" }}</small>
                                     {% endif %}
                                     <small class="text-muted ms-2">
-                                        ({{ designated_round.roster.count }} player{{ designated_round.roster.count|pluralize }} rostered)
+                                        ({{ designated_stage.participants.count }} player{{ designated_stage.participants.count|pluralize }} in stage)
                                     </small>
                                 </div>
                             </div>
@@ -43,50 +43,35 @@
                         {% else %}
                         <p class="text-muted mb-3">
                             Choose where to send the accepted survey respondents.
-                            Their availability data will be synced to the tournament's grouping session.
+                            Their availability data will be synced to the tournament's roster.
                         </p>
                         <div class="mb-3">
                             <label class="form-label fw-bold">{% trans 'Destination' %}</label>
 
                             <div class="form-check mb-2">
-                                <input class="form-check-input" type="radio" name="round_id"
-                                       id="round_none" value="none" checked>
-                                <label class="form-check-label" for="round_none">
+                                <input class="form-check-input" type="radio" name="stage_id"
+                                       id="stage_none" value="none" checked>
+                                <label class="form-check-label" for="stage_none">
                                     <strong>{% trans 'Tournament only' %}</strong>
-                                    <small class="text-muted ms-2">{% trans 'Sync players to tournament without adding to a round' %}</small>
+                                    <small class="text-muted ms-2">{% trans 'Sync players to tournament without adding to a stage' %}</small>
                                 </label>
                             </div>
 
-                            {% for round in rounds %}
+                            {% for stage in stages %}
                             <div class="form-check mb-2">
-                                <input class="form-check-input" type="radio" name="round_id"
-                                       id="round_{{ round.id }}" value="{{ round.id }}">
-                                <label class="form-check-label" for="round_{{ round.id }}">
-                                    <strong>{{ round.name|default:round.round_number }}</strong>
-                                    {% if round.start_date %}
-                                    <small class="text-muted ms-2">{{ round.start_date|date:"M j, Y" }}</small>
+                                <input class="form-check-input" type="radio" name="stage_id"
+                                       id="stage_{{ stage.id }}" value="{{ stage.id }}">
+                                <label class="form-check-label" for="stage_{{ stage.id }}">
+                                    <strong>{{ stage.name }}</strong>
+                                    {% if stage.start_date %}
+                                    <small class="text-muted ms-2">{{ stage.start_date|date:"M j, Y" }}</small>
                                     {% endif %}
                                     <small class="text-muted ms-2">
-                                        ({{ round.roster.count }} player{{ round.roster.count|pluralize }} rostered)
+                                        ({{ stage.participants.count }} player{{ stage.participants.count|pluralize }} in stage)
                                     </small>
                                 </label>
                             </div>
                             {% endfor %}
-
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="radio" name="round_id"
-                                       id="round_new" value="new">
-                                <label class="form-check-label" for="round_new">
-                                    <strong>{% trans 'Create new round' %}</strong>
-                                    <small class="text-muted ms-2">{% trans 'Auto-creates the next round and adds players to its roster' %}</small>
-                                </label>
-                            </div>
-
-                            <div id="new-round-name-field" class="ms-4 mt-2" style="display:none;">
-                                <input type="text" class="form-control form-control-sm w-50"
-                                       name="new_round_name"
-                                       placeholder="Round name (optional)">
-                            </div>
                         </div>
                         {% endif %}
 
@@ -107,17 +92,16 @@
             <div class="card bg-light">
                 <div class="card-body">
                     <h6 class="card-title"><i class="bi bi-info-circle"></i> {% trans 'What this does' %}</h6>
-                    {% if designated_round %}
+                    {% if designated_stage %}
                     <ul class="small text-muted mb-0 ps-3">
                         <li class="mb-1">Syncs each respondent's availability for the Tournament based on their responses</li>
-                        <li>Adds respondents to the designated Round's roster as well as the Tournament's roster</li>
+                        <li>Adds respondents to the designated Stage's roster as well as the Tournament's roster</li>
                     </ul>
                     {% else %}
                     <ul class="small text-muted mb-0 ps-3">
-                        <li class="mb-1">Syncs each responden's availability for the Tournament based on their responses</li>
-                        <li class="mb-1">If a Round is selected, adds each respondent to that Round's roster as well as the Tournament's roster</li>
-                        <li class="mb-1">If "Create new Round" is selected, a new Round is created automatically</li>
-                        <li>"Tournament only" syncs players without adding them to any Round</li>
+                        <li class="mb-1">Syncs each respondent's availability for the Tournament based on their responses</li>
+                        <li class="mb-1">If a Stage is selected, adds each respondent to that Stage's roster as well as the Tournament's roster</li>
+                        <li>"Tournament only" syncs players without adding them to any Stage</li>
                     </ul>
                     {% endif %}
                 </div>
@@ -125,15 +109,4 @@
         </div>
     </div>
 </div>
-
-{% if not designated_round %}
-<script>
-document.querySelectorAll('input[name="round_id"]').forEach(function(radio) {
-    radio.addEventListener('change', function() {
-        document.getElementById('new-round-name-field').style.display =
-            this.value === 'new' ? 'block' : 'none';
-    });
-});
-</script>
-{% endif %}
 {% endblock content %}

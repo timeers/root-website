@@ -528,8 +528,8 @@ def send_new_survey_notification(*, profile, survey, type):
         if survey.series_id:
             fields.append({'name': 'Series:', 'value': survey.series.name})
 
-        if survey.series_round_id:
-            fields.append({'name': 'Round:', 'value': survey.series_round.name})
+        if survey.stage_id:
+            fields.append({'name': 'Stage:', 'value': survey.stage.name})
 
         if not survey.is_public:
             if survey.guild_id:

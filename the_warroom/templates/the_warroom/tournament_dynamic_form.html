@@ -4,6 +4,16 @@
 
 {% block content %}
     <div class="content-section">
+        <!-- Breadcrumb -->
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
+                {% if tournament.id %}
+                <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+                {% endif %}
+                <li class="breadcrumb-item active">{% if tournament.id %}Edit Series{% else %}New Series{% endif %}</li>
+            </ol>
+        </nav>
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="mb-3">
@@ -63,10 +73,57 @@
                     </div>
                 </div>
 
+                {% if tournament.id %}
+                <!-- Moderators Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>{% trans 'Moderators' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Moderators can manage players, stages, rounds, and surveys but cannot edit the Series itself.</p>
+
+                        <!-- Search for moderators -->
+                        <div class="mb-3">
+                            <input type="text"
+                                   class="form-control"
+                                   placeholder="Search players to add as moderator..."
+                                   hx-get="{% url 'tournament-search-moderators' slug=tournament.slug %}"
+                                   hx-trigger="keyup changed delay:500ms"
+                                   hx-target="#moderator-search-results"
+                                   name="q"
+                                   id="moderator-search-input"
+                                   autocomplete="off">
+                            <div id="moderator-search-results" class="mt-2"></div>
+                        </div>
+
+                        <!-- Current moderators list -->
+                        <div id="moderator-list">
+                            {% for mod in moderators %}
+                            <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-white" id="moderator-{{ mod.id }}">
+                                <div class="d-flex align-items-center">
+                                    {% if mod.image %}
+                                    <img src="{{ mod.image.url }}" class="md-avatar-icon me-2">
+                                    {% else %}
+                                    <i class="bi bi-person-circle me-2 text-muted" style="font-size: 1.5rem;"></i>
+                                    {% endif %}
+                                    <span>{{ mod.display_name }}</span>
+                                </div>
+                                <input type="hidden" name="moderators" value="{{ mod.id }}">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeModerator({{ mod.id }})">
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div id="moderator-empty" class="text-muted{% if moderators %} d-none{% endif %}">No moderators assigned.</div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Dates & Visibility Card -->
                 <div class="card mb-3">
                     <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-calendar me-2"></i>{% trans 'Schedule & Visibility' %}</h5>
+                        <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Schedule & Visibility' %}</h5>
                     </div>
                     <div class="card-body">
                         <div class="row">
@@ -184,6 +241,97 @@
                     </div>
                 </div>
             </fieldset>
+            
+            {% if use_stages_locked and use_rounds_locked %}
+            <input type="hidden" name="use_stages" value="on">
+            <input type="hidden" name="use_rounds" value="on">
+            {% else %}
+            <!-- Structure Settings Card -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-layers me-2"></i>{% trans 'Structure Settings' %}</h5>
+                </div>
+                <div class="card-body">
+                    {% if action == 'Create' %}
+                    <p class="text-muted small">If you need a more complex structure for this Series you can enable Stages below.</p>
+                    {% endif %}
+
+                    <!-- Use Stages -->
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {% if use_stages_locked %}
+                            <input type="hidden" name="use_stages" value="on">
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold">Use Stages</label>
+                                <div class="text-muted small">Stages are enabled and cannot be disabled because multiple stages exist.</div>
+                            </div>
+                            {% else %}
+                            <div class="form-check mb-2">
+                                {{ form.use_stages }}
+                                <label class="form-check-label" for="{{ form.use_stages.id_for_label }}">
+                                    {{ form.use_stages.label }}
+                                </label>
+                                {% if form.use_stages.help_text %}
+                                <div class="form-text text-muted">{{ form.use_stages.help_text }}</div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if action == 'Create' %}
+                    <!-- Stage name field (shown when use_stages is checked) -->
+                    <div id="stage-name-field" style="display:none;">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.stage_name|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Use Rounds -->
+                    {% if use_rounds_locked %}
+                    <input type="hidden" name="use_rounds" value="on">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold">Use Rounds</label>
+                                <div class="text-muted small">Rounds are enabled and cannot be disabled because a stage has multiple rounds.</div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div id="use-rounds-wrapper" style="display:none;">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                <div class="form-check mb-2">
+                                    {{ form.use_rounds }}
+                                    <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
+                                        {{ form.use_rounds.label }}
+                                    </label>
+                                    {% if form.use_rounds.help_text %}
+                                    <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if action == 'Create' %}
+                    <!-- Round name field (shown when both use_stages and use_rounds are checked) -->
+                    <div id="round-name-field" style="display:none;">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.round_name|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Save/Cancel Buttons -->
             <div class="mb-3">
@@ -233,6 +381,32 @@
         fields.style.display = checkbox.checked ? 'block' : 'none';
     }
 
+    // Create mode: toggle stage name / use_rounds / round name fields
+    const useStagesCheckbox = document.getElementById('id_use_stages');
+    const useRoundsCheckbox = document.getElementById('id_use_rounds');
+    const stageNameField = document.getElementById('stage-name-field');
+    const useRoundsWrapper = document.getElementById('use-rounds-wrapper');
+    const roundNameField = document.getElementById('round-name-field');
+
+    function updateStructureFields() {
+        const stagesOn = useStagesCheckbox && useStagesCheckbox.checked;
+        const roundsOn = useRoundsCheckbox && useRoundsCheckbox.checked;
+        if (stageNameField) stageNameField.style.display = stagesOn ? 'block' : 'none';
+        if (useRoundsWrapper) useRoundsWrapper.style.display = stagesOn ? 'block' : 'none';
+        if (roundNameField) roundNameField.style.display = (stagesOn && roundsOn) ? 'block' : 'none';
+        // Uncheck use_rounds if stages is unchecked
+        if (!stagesOn && useRoundsCheckbox) useRoundsCheckbox.checked = false;
+    }
+
+    if (useStagesCheckbox) {
+        useStagesCheckbox.addEventListener('change', updateStructureFields);
+    }
+    if (useRoundsCheckbox) {
+        useRoundsCheckbox.addEventListener('change', updateStructureFields);
+    }
+    // Run on load to reflect pre-filled values (e.g. on validation failure)
+    updateStructureFields();
+
     // Show/hide default_format based on classification (admin only)
     const classificationInput = document.getElementById('classification_input');
     if (classificationInput) {
@@ -253,6 +427,49 @@
             },
             onChange: updateFormatField
         });
+    }
+
+    // Moderator management
+    function addModerator(id, name, imageUrl) {
+        // Check if already added
+        if (document.getElementById('moderator-' + id)) return;
+
+        const list = document.getElementById('moderator-list');
+        const emptyMsg = document.getElementById('moderator-empty');
+        if (emptyMsg) emptyMsg.classList.add('d-none');
+
+        let avatarHtml;
+        if (imageUrl) {
+            avatarHtml = '<img src="' + imageUrl + '" class="md-avatar-icon me-2">';
+        } else {
+            avatarHtml = '<i class="bi bi-person-circle me-2 text-muted" style="font-size: 1.5rem;"></i>';
+        }
+
+        const card = document.createElement('div');
+        card.className = 'd-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-white';
+        card.id = 'moderator-' + id;
+        card.innerHTML =
+            '<div class="d-flex align-items-center">' + avatarHtml + '<span>' + name + '</span></div>' +
+            '<input type="hidden" name="moderators" value="' + id + '">' +
+            '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeModerator(' + id + ')">' +
+            '<i class="bi bi-x-circle"></i></button>';
+
+        list.appendChild(card);
+
+        // Clear search
+        document.getElementById('moderator-search-input').value = '';
+        document.getElementById('moderator-search-results').innerHTML = '';
+    }
+
+    function removeModerator(id) {
+        const card = document.getElementById('moderator-' + id);
+        if (card) card.remove();
+
+        const list = document.getElementById('moderator-list');
+        const emptyMsg = document.getElementById('moderator-empty');
+        if (list && list.children.length === 0 && emptyMsg) {
+            emptyMsg.classList.remove('d-none');
+        }
     }
 
 </script>

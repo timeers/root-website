@@ -1,0 +1,40 @@
+{% load i18n %}
+<div id="games-container">
+
+    {% if page_obj.number == 1 %}
+        <article class="d-flex content-section">
+            <div class="w-100">
+        <h3 class='root-title'>{% trans 'Total Games' %} ({{ games_count }})</h3>
+            </div>
+        </article>
+    {% endif %}
+<div id="search-contents">
+{% if games %}
+    {% for game in games %}
+
+        {% if forloop.last and games.has_next %}
+            <div hx-trigger="revealed"
+            hx-get="{{ pagination_url }}?page={{ page_obj.number|add:1 }}"
+            hx-target="#search-contents"
+            hx-swap="beforeend"
+            hx-include="#gamefilterform"
+            hx-indicator="#spinner">
+        {% else %}
+            <div>
+        {% endif %}
+
+        {% include 'the_warroom/partials/game_detail_button.html' %}
+
+        </div>
+
+        {% if forloop.last and games.has_next %}
+            {% include 'the_gatehouse/partials/spinner.html' %}
+        {% endif %}
+
+    {% endfor %}
+
+{% else %}
+    {% trans 'No matching games recorded.' %}
+{% endif %}
+    </div>
+</div>

@@ -1,47 +1,79 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Round, AssetModeChoices
+from .models import Round, AssetModeChoices, StageParticipant, TournamentPlayer
 from the_gatehouse.models import Profile
 from the_keep.models import Map, Faction, Deck, Vagabond, Landmark, Tweak, Hireling
 from django.shortcuts import get_object_or_404
 
 
+def get_tournament_asset_querysets(tournament):
+    """Return a dict of querysets for each asset type, filtered by the tournament's asset_mode."""
+    if tournament.asset_mode == AssetModeChoices.OPEN:
+        assets = {
+            'maps': Map.objects.all(),
+            'factions': Faction.objects.all(),
+            'decks': Deck.objects.all(),
+            'vagabonds': Vagabond.objects.all(),
+            'landmarks': Landmark.objects.all(),
+            'tweaks': Tweak.objects.all(),
+            'hirelings': Hireling.objects.all(),
+        }
+    elif tournament.asset_mode == AssetModeChoices.OFFICIAL:
+        assets = {
+            'maps': Map.objects.filter(official=True),
+            'factions': Faction.objects.filter(official=True),
+            'decks': Deck.objects.filter(official=True),
+            'vagabonds': Vagabond.objects.filter(official=True),
+            'landmarks': Landmark.objects.filter(official=True),
+            'tweaks': Tweak.objects.filter(official=True),
+            'hirelings': Hireling.objects.filter(official=True),
+        }
+    else:
+        # SELECTED mode
+        assets = {
+            'maps': tournament.maps,
+            'factions': tournament.factions,
+            'decks': tournament.decks,
+            'vagabonds': tournament.vagabonds,
+            'landmarks': tournament.landmarks,
+            'tweaks': tournament.tweaks,
+            'hirelings': tournament.hirelings,
+        }
+
+    if not tournament.include_clockwork:
+        assets['factions'] = assets['factions'].exclude(component="Clockwork")
+
+    return assets
+
+
 def get_options_for_tournament(request, pk):
     if request.user.is_authenticated:
         round = get_object_or_404(Round, id=pk)
-        tournament = round.tournament
+        tournament = round.get_tournament()
 
-        if round.tournament.asset_mode == AssetModeChoices.OPEN:
-            maps = Map.objects.all()
-            factions = Faction.objects.all()
-            decks = Deck.objects.all()
-            vagabonds = Vagabond.objects.all()
-            landmarks = Landmark.objects.all()
-            tweaks = Tweak.objects.all()
-            hirelings = Hireling.objects.all()
-        elif round.tournament.asset_mode == AssetModeChoices.OPEN:
-            maps = Map.objects.filter(official=True)
-            factions = Faction.objects.filter(official=True)
-            decks = Deck.objects.filter(official=True)
-            vagabonds = Vagabond.objects.filter(official=True)
-            landmarks = Landmark.objects.filter(official=True)
-            tweaks = Tweak.objects.filter(official=True)
-            hirelings = Hireling.objects.filter(official=True)
-        else:
-            maps = tournament.maps
-            factions = tournament.factions
-            decks = tournament.decks
-            vagabonds = tournament.vagabonds
-            landmarks = tournament.landmarks
-            tweaks = tournament.tweaks
-            hirelings = tournament.hirelings
-        if round.tournament.open_roster:
+        assets = get_tournament_asset_querysets(tournament)
+        maps = assets['maps']
+        factions = assets['factions']
+        decks = assets['decks']
+        vagabonds = assets['vagabonds']
+        landmarks = assets['landmarks']
+        tweaks = assets['tweaks']
+        hirelings = assets['hirelings']
+
+        if tournament.open_roster:
             players = Profile.objects.all()
         else:
-            if round.players.count() > 0:
-                players = round.players
+            stage_players = Profile.objects.filter(
+                tournament_participations__stage_participations__stage=round.stage,
+                tournament_participations__stage_participations__status=StageParticipant.ParticipantStatus.ACTIVE,
+            )
+            if stage_players.exists():
+                players = stage_players
             else:
-                players = tournament.players
+                players = Profile.objects.filter(
+                    tournament_participations__tournament=tournament,
+                    tournament_participations__status=TournamentPlayer.StatusChoices.REGISTERED,
+                )
         platform = tournament.platform
 
 

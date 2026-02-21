@@ -1,0 +1,262 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n %}
+{% block title %}{% if stage.id %}Update Stage{% else %}New Stage{% endif %} | {% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            {% if stage.id %}
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            {% endif %}
+            <li class="breadcrumb-item active">{% if stage.id %}Edit Stage{% else %}New Stage{% endif %}</li>
+        </ol>
+    </nav>
+
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <fieldset class="mb-3">
+            <legend class="border-bottom mb-4">
+                {% if stage.id %}
+                    Update {{ tournament.name }} — {{ stage.name }}
+                {% else %}
+                    New {{ tournament.name }} Stage
+                {% endif %}
+            </legend>
+
+            <!-- Basic Information -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>{% trans 'Basic Information' %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.name|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.order|as_crispy_field }}
+                        </div>
+                    </div>
+                    {% if form.stage_format %}
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.stage_format|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.advancement_type|as_crispy_field }}
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.status|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Schedule' %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.start_date|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.end_date|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Player Settings -->
+            {% comment %} <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'Player Settings' %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.min_players|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.max_players|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div> {% endcomment %}
+
+
+
+
+            <!-- Game Settings -->
+            <div class="card mb-3 bg-light">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-question-octagon me-2"></i>{% trans 'Game Settings' %}</h5>
+                    <small class="form-text text-muted d-block">
+                        Override {{ tournament }} Defaults
+                    </small>
+                </div>
+                <div class="card-body">
+                    {% if tournament.classification == 'Tournament' %}
+                        <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-2"></i>{% trans 'Tournament Bracket' %}</h6>
+                        {% if tournament.default_format %}
+                        <small class="form-text text-muted d-block mb-3">
+                            Override the Series' default format. Leave blank to inherit from {{ tournament }} ({{ tournament.default_format }}).
+                        </small>
+                        {% endif %}
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.stage_format|as_crispy_field }}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                
+                    <h6 class="text-muted mb-2"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h6>
+                    <small class="form-text text-muted d-block mb-3">
+                        Override the leaderboard settings for this stage. Leave blank to inherit from {{ tournament }}
+                        ({{ tournament.game_threshold }} game threshold, {{ tournament.leaderboard_positions }} positions).
+                    </small>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.game_threshold|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.leaderboard_positions|as_crispy_field }}
+                        </div>
+                    </div>
+           
+
+                    {% if tournament.enforce_player_count %}
+                    <h6 class="text-muted mb-2"><i class="bi bi-people me-2"></i>{% trans 'Game Size' %}</h6>
+                    <small class="form-text text-muted d-block mb-3">
+                        Override the series defaults for player count per game. Leave blank to inherit from {{ tournament }}
+                        ({% if tournament.min_players != tournament.max_players %}{{ tournament.min_players }} - {% endif %}{{ tournament.max_players }} players).
+                    </small>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.min_players|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.max_players|as_crispy_field }}
+                        </div>
+                    </div>
+                    {% endif %}
+            
+                </div>
+            </div>
+
+
+
+
+            {% comment %} <!-- Leaderboard Settings -->
+            <div class="card mb-3 bg-light">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h5>
+                    <small class="form-text text-muted d-block">
+                        Override the series leaderboard settings for this stage. Leave blank to inherit from the series
+                        ({{ tournament.game_threshold }} game threshold, {{ tournament.leaderboard_positions }} positions).
+                    </small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.game_threshold|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.leaderboard_positions|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div> {% endcomment %}
+
+            <!-- Round Settings -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>{% trans 'Round Settings' %}</h5>
+                </div>
+                <div class="card-body">
+                    {% if use_rounds_locked %}
+                    <p class="text-muted small mb-0">Rounds are enabled and cannot be disabled because a stage has multiple rounds.</p>
+                    {% else %}
+                    <div class="form-check mb-1">
+                        {{ form.use_rounds }}
+                        <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
+                            {{ form.use_rounds.label }}
+                        </label>
+                    </div>
+                    {% if form.use_rounds.help_text %}
+                    <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+        </fieldset>
+
+        <div class="mb-3 d-flex gap-2">
+            <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+            {% if stage.id %}
+            <a class="btn btn-secondary" href="{{ stage.get_absolute_url }}">{% trans 'Cancel' %}</a>
+            {% else %}
+            <a class="btn btn-secondary" href="{{ tournament.get_absolute_url }}">{% trans 'Cancel' %}</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function(){
+        $(".datepicker").datepicker({
+            dateFormat: "yy-mm-dd",
+            changeMonth: true,
+            changeYear: true,
+            yearRange: "c-100:c+10"
+        });
+
+        // Duplicate stage name validation
+        const existingNames = JSON.parse('{{ existing_names_json|escapejs }}');
+        const nameInput = document.getElementById('id_name');
+        const form = document.querySelector('form');
+        let errorDiv = null;
+
+        function clearError() {
+            if (errorDiv) {
+                errorDiv.remove();
+                errorDiv = null;
+            }
+            nameInput.classList.remove('is-invalid');
+        }
+
+        function showError(msg) {
+            clearError();
+            nameInput.classList.add('is-invalid');
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'invalid-feedback d-block';
+            errorDiv.textContent = msg;
+            nameInput.parentNode.appendChild(errorDiv);
+        }
+
+        nameInput.addEventListener('input', clearError);
+
+        form.addEventListener('submit', function(e) {
+            const name = nameInput.value.trim();
+            if (name && existingNames.some(n => n.toLowerCase() === name.toLowerCase())) {
+                e.preventDefault();
+                showError('A stage with this name already exists in this tournament.');
+                nameInput.focus();
+            }
+        });
+    });
+</script>
+{% endblock %}

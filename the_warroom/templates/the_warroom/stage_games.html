@@ -1,0 +1,57 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ stage.name }} - {% trans 'Games' %} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item active">{% trans 'Games' %}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ stage.name }}</h1>
+            <small class="text-muted">{{ tournament.name }}</small>
+        </div>
+    </div>
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/stage_nav_header.html' with active_page='games' %}
+
+    {% url 'stage-games-page' tournament.slug stage.slug as filter_url %}
+    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url %}
+
+    {% include 'the_warroom/partials/tournament_game_list.html' %}
+
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+    const selectPlaceholders = {
+        '#id_faction': "{% trans 'Select Factions' %}",
+        '#id_player': "{% trans 'Select Players' %}",
+        '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+        '#id_map': "{% trans 'Select a Map' %}",
+        '#id_deck': "{% trans 'Select a Deck' %}"
+    };
+
+    Object.keys(selectPlaceholders).forEach(id => {
+        if ($(id).length) {
+            $(id).select2({
+                placeholder: selectPlaceholders[id],
+                allowClear: true,
+                width: '100%'
+            });
+        }
+    });
+</script>
+{% endblock %}

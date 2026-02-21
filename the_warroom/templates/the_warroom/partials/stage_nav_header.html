@@ -1,0 +1,55 @@
+{% load static i18n %}
+
+<article class="content-section mt-2">
+    <div class="section-nav-header">
+        <!-- Navigation Tabs -->
+        <nav class="section-nav-tabs">
+            <a href="{% url 'stage-detail' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
+                {% trans 'Overview' %}
+            </a>
+            <a href="{% url 'stage-leaderboard-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
+                {% trans 'Leaderboard' %}
+            </a>
+            <a href="{% url 'stage-games-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                {% trans 'Games' %}
+            </a>
+            <a href="{% url 'stage-roster-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
+                {% trans 'Roster' %}
+            </a>
+            <a href="{% url 'stage-details-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
+                {% trans 'Details' %}
+            </a>
+            {% if has_bracket %}
+            <a href="{% url 'stage-bracket-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
+                {% trans 'Bracket' %}
+            </a>
+            {% endif %}
+        </nav>
+
+        <!-- Action Buttons -->
+        <div class="section-nav-action-buttons">
+            <div class="section-nav-actions-desktop">
+                {% if playable_round %}
+                <a class="btn btn-success btn-sm" href="{% url 'record-game' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                {% endif %}
+                {% if can_manage %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ stage.get_settings_url }}"><i class="bi bi-gear me-1"></i>{% trans 'Settings' %}</a>
+                {% endif %}
+            </div>
+            <div class="section-nav-actions-mobile">
+                {% if playable_round %}
+                <a class="btn btn-success btn-sm" href="{% url 'record-game' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                {% endif %}
+                {% if can_manage %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ stage.get_settings_url }}"><i class="bi bi-gear"></i></a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</article>

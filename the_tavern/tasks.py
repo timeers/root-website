@@ -11,19 +11,18 @@ logger = logging.getLogger(__name__)
     retry_kwargs={'max_retries': 3, 'countdown': 60},
     retry_backoff=True,
 )
-def generate_grouping_async(session_id, round_id):
+def generate_grouping_async(stage_id, round_id):
     """
-    Async task to generate availability-based groups for a GroupingSession + Round.
+    Async task to generate availability-based groups for a Stage + Round.
     Creates UserNotification when complete.
     """
-    from the_warroom.models import GroupingSession, Round
+    from the_warroom.models import Stage, Round
     from the_warroom.services.grouping import GroupingService
-    from the_gatehouse.models import UserNotification, MessageChoices
 
     try:
-        session = GroupingSession.objects.select_related('survey', 'created_by').get(id=session_id)
-    except GroupingSession.DoesNotExist:
-        logger.error(f"GroupingSession {session_id} not found")
+        stage = Stage.objects.select_related('tournament').get(id=stage_id)
+    except Stage.DoesNotExist:
+        logger.error(f"Stage {stage_id} not found")
         return
 
     try:
@@ -33,14 +32,14 @@ def generate_grouping_async(session_id, round_id):
         return
 
     try:
-        GroupingService.generate_availability_groups(session, round_obj)
+        GroupingService.generate_availability_groups(stage, round_obj)
         round_obj.grouping_status = Round.GroupingStatusChoices.DRAFT
         round_obj.grouping_notes = ''
         round_obj.save(update_fields=['grouping_status', 'grouping_notes'])
-        logger.info(f"Successfully generated groups for session {session_id}, round {round_id}")
+        logger.info(f"Successfully generated groups for stage {stage_id}, round {round_id}")
 
     except Exception as e:
-        logger.exception(f"Error generating groups for session {session_id}, round {round_id}")
+        logger.exception(f"Error generating groups for stage {stage_id}, round {round_id}")
         round_obj.grouping_status = Round.GroupingStatusChoices.ERROR
         round_obj.grouping_notes = f"Error during group generation: {str(e)}"
         round_obj.save(update_fields=['grouping_status', 'grouping_notes'])

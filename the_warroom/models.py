@@ -1,5 +1,5 @@
-from django.db import models
-from django.db.models import Q, Sum
+from django.db import models, transaction
+from django.db.models import Q, Sum, Max
 
 from django.utils import timezone 
 from django.urls import reverse
@@ -60,6 +60,10 @@ class RoundQuerySet(models.QuerySet):
             Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
         )
 
+class CompetitionStatus(models.TextChoices):
+    ACTIVE = "Active"
+    PENDING = "Pending"
+    COMPLETED = "Completed"
 
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
 # Currently hidden on the site and not really being used.
@@ -81,6 +85,12 @@ class Tournament(models.Model):
         related_name='hosted_tournaments',
         help_text='Owner can update the Series, add new rounds, manage player and assets.'
         )
+    moderators = models.ManyToManyField(
+        Profile,
+        blank=True,
+        related_name='moderated_tournaments',
+        help_text='Moderators can manage players, stages, rounds, and surveys but cannot edit the Series itself.'
+    )
     description = models.TextField(null=True, blank=True)
     picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
@@ -92,16 +102,16 @@ class Tournament(models.Model):
     )
 
     default_format = models.CharField(
-        max_length=50,
-        choices=FormatChoices.choices,
+        max_length=32,
+        null=True,
         blank=True,
-        default=''
+        choices=FormatChoices.choices,
     )
 
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this Series with a Guild to allow members to record games')
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to games in this Series')
-    # Player management now handled via GroupingSession/SessionPlayer pattern
+    # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
 
@@ -122,8 +132,8 @@ class Tournament(models.Model):
     vagabonds = models.ManyToManyField(Vagabond, blank=True, related_name='tournaments')
 
     enforce_player_count = models.BooleanField(default=False)
-    max_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
-    min_players = models.IntegerField(default=4,validators=[MinValueValidator(2)])
+    max_players = models.PositiveSmallIntegerField(default=4,validators=[MinValueValidator(2)])
+    min_players = models.PositiveSmallIntegerField(default=4,validators=[MinValueValidator(2)])
 
     # Submission Settings
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
@@ -144,7 +154,17 @@ class Tournament(models.Model):
     end_date = models.DateTimeField(null=True, blank=True)
 
     slug = models.SlugField(unique=True, null=True, blank=True)
+
+    use_stages = models.BooleanField(default=False, help_text='Enable if you want multiple stages.')
+    use_rounds = models.BooleanField(default=False, help_text='Enable if you want multiple rounds for each stage.')
+
     objects = TournamentQuerySet.as_manager()
+
+    status = models.CharField(
+        max_length=16,
+        choices=CompetitionStatus.choices,
+        default=CompetitionStatus.PENDING
+    )
 
     @property
     def is_open(self):
@@ -153,11 +173,15 @@ class Tournament(models.Model):
             return True
         return timezone.now() < self.end_date
 
+    def has_permission(self, profile):
+        """Check if profile is designer, moderator, or admin."""
+        return profile.admin or profile == self.designer or self.moderators.filter(pk=profile.pk).exists()
+
     def __str__(self):
         return self.name
     
     def get_absolute_url(self):
-        return reverse('tournament-detail', kwargs={'tournament_slug': self.slug})
+        return reverse('tournament-detail', kwargs={'slug': self.slug})
 
     def get_settings_url(self):
         return reverse('tournament-settings', kwargs={'slug': self.slug})
@@ -192,93 +216,93 @@ class Tournament(models.Model):
         """All players in the tournament (active, waitlist, and eliminated)."""
         from the_gatehouse.models import Profile
         return Profile.objects.filter(
-            session_participations__session__tournament=self
+            tournament_participations__tournament=self
         ).distinct()
-
-    @property
-    def master_session(self):
-        """Get or create the tournament-level grouping session that owns all SessionPlayers."""
-        if not hasattr(self, '_master_session_cache'):
-            session = self.grouping_sessions.order_by('created_at').first()
-
-            if not session:
-                from the_warroom.models import GroupingSession
-                session = GroupingSession.objects.create(
-                    tournament=self,
-                    name=f"Session - {self.name}",
-                    grouping_type='manual',
-                    status='draft',
-                )
-
-            self._master_session_cache = session
-
-        return self._master_session_cache
 
     def get_players_queryset(self):
         """Active players in the tournament (ACTIVE status)."""
         from the_gatehouse.models import Profile
-        from the_warroom.models import SessionPlayer
+        from the_warroom.models import TournamentPlayer
         return Profile.objects.filter(
-            session_participations__session__tournament=self,
-            session_participations__status=SessionPlayer.StatusChoices.ACTIVE
+            tournament_participations__tournament=self,
+            tournament_participations__status=TournamentPlayer.StatusChoices.REGISTERED
         ).distinct()
 
     def get_waitlist_players_queryset(self):
         """Waitlisted players in the tournament."""
         from the_gatehouse.models import Profile
-        from the_warroom.models import SessionPlayer
+        from the_warroom.models import TournamentPlayer
         return Profile.objects.filter(
-            session_participations__session__tournament=self,
-            session_participations__status=SessionPlayer.StatusChoices.WAITLIST
+            tournament_participations__tournament=self,
+            tournament_participations__status=TournamentPlayer.StatusChoices.WAITLIST
         ).distinct()
 
     def get_eliminated_players_queryset(self):
         """Eliminated players in the tournament."""
         from the_gatehouse.models import Profile
-        from the_warroom.models import SessionPlayer
+        from the_warroom.models import TournamentPlayer
         return Profile.objects.filter(
-            session_participations__session__tournament=self,
-            session_participations__status=SessionPlayer.StatusChoices.ELIMINATED
+            tournament_participations__tournament=self,
+            tournament_participations__status=TournamentPlayer.StatusChoices.ELIMINATED
         ).distinct()
 
     def move_player(self, profile, from_status, to_status):
-        """Update a player's status in the tournament session."""
-        from the_warroom.models import SessionPlayer
-        sp = SessionPlayer.objects.filter(
-            session__tournament=self,
+        """Update a player's status in the tournament."""
+        from the_warroom.models import TournamentPlayer
+        tp = TournamentPlayer.objects.filter(
+            tournament=self,
             profile=profile
         ).first()
 
-        if sp is None:
+        if tp is None:
             if from_status is not None:
                 raise ValueError(f"Player {profile} not found in tournament")
-            sp = SessionPlayer.objects.create(
-                session=self.master_session,
+            TournamentPlayer.objects.create(
+                tournament=self,
                 profile=profile,
                 status=to_status,
             )
         else:
-            sp.status = to_status
-            sp.save(update_fields=['status'])
+            if to_status is None:
+                tp.delete()
+            else:
+                tp.set_status(to_status)
+                tp.save(update_fields=['status', 'waitlist_position'])
 
     def add_player_to_tournament(self, profile, status=None):
-        """Add a player to the tournament session."""
-        from the_warroom.models import SessionPlayer
+        """Add a player to the tournament."""
+        from the_warroom.models import TournamentPlayer
         if status is None:
-            status = SessionPlayer.StatusChoices.ACTIVE
-        SessionPlayer.objects.update_or_create(
-            session=self.master_session,
+            status = TournamentPlayer.StatusChoices.REGISTERED
+        tp, _ = TournamentPlayer.objects.get_or_create(
+            tournament=self,
             profile=profile,
-            defaults={'status': status}
         )
+        tp.set_status(status)
+        tp.save(update_fields=['status', 'waitlist_position'])
 
     def remove_player_from_tournament(self, profile):
         """Remove a player completely from the tournament."""
-        from the_warroom.models import SessionPlayer
-        SessionPlayer.objects.filter(
-            session__tournament=self,
+        from the_warroom.models import TournamentPlayer
+        TournamentPlayer.objects.filter(
+            tournament=self,
             profile=profile
         ).delete()
+
+    def add_player(self, profile):
+        """Add a profile to this tournament and all active/pending stages."""
+        tp, _ = TournamentPlayer.objects.get_or_create(
+            profile=profile,
+            tournament=self,
+            defaults={'status': TournamentPlayer.StatusChoices.REGISTERED}
+        )
+        stages = self.stages.filter(status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE])
+        for stage in stages:
+            StageParticipant.objects.get_or_create(
+                tournament_player=tp,
+                stage=stage,
+                defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
+            )
 
     def save(self, *args, **kwargs):
 
@@ -295,13 +319,198 @@ class Tournament(models.Model):
         
         super().save(*args, **kwargs)
 
+
+
+class Stage(models.Model):
+    type = "Stage"
+
+    class StageAdvancementType(models.TextChoices):
+        MATCH_DIRECT = 'Match Direct'
+        ROUND_BATCH = "Round Batch"
+        STAGE_BATCH = 'STAGE_BATCH'
+
+    class GroupingTypeChoices(models.TextChoices):
+        AVAILABILITY = 'availability', 'Availability-based'
+        MANUAL = 'manual', 'Manual'
+        RANDOM = 'random', 'Random'
+        SWISS = 'swiss', 'Avoid Repeats (Swiss)'
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='stages')
+
+    name = models.CharField(max_length=100)
+    order = models.PositiveIntegerField()
+
+    stage_format = models.CharField(
+        max_length=32,
+        choices=FormatChoices.choices,
+        null=True, blank=True,
+        help_text="Leave blank to use tournament's default format"
+    )
+
+    advancement_type = models.CharField(
+       max_length=50,
+       choices=StageAdvancementType.choices,
+       default=StageAdvancementType.ROUND_BATCH
+    )
+    
+    status = models.CharField(
+        max_length=16,
+        choices=CompetitionStatus.choices,
+        default=CompetitionStatus.PENDING
+    )
+
+    max_players = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+    )
+    min_players = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    config = models.JSONField(default=dict, blank=True)
+
+    # Grouping configuration
+    grouping_type = models.CharField(
+        max_length=20,
+        choices=GroupingTypeChoices.choices,
+        default=GroupingTypeChoices.AVAILABILITY
+    )
+    naming_convention = models.CharField(
+        max_length=100,
+        choices=NameConvention.choices,
+        default=NameConvention.NUMERIC,
+        help_text="Convention to use for group names"
+    )
+    include_waitlist = models.BooleanField(
+        default=False,
+        help_text="Whether to include waitlisted players in grouping"
+    )
+
+    # Leaderboard settings (inherit from Tournament if blank)
+    game_threshold = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)],
+        help_text="Leave blank to inherit from series"
+    )
+    leaderboard_positions = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(3), MaxValueValidator(30)],
+        help_text="Leave blank to inherit from series"
+    )
+
+    # Grouping stats
+    grouped_count = models.PositiveIntegerField(default=0)
+    ungrouped_count = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    slug = models.SlugField(null=True, blank=True)
+
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField(null=True, blank=True)
+
+    def get_game_threshold(self):
+        return self.game_threshold if self.game_threshold is not None else self.tournament.game_threshold
+
+    def get_leaderboard_positions(self):
+        return self.leaderboard_positions if self.leaderboard_positions is not None else self.tournament.leaderboard_positions
+
+    def __str__(self):
+        return f"{self.tournament.name} - {self.name}"
+
+    def get_absolute_url(self):
+        return reverse('stage-detail', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
+    def get_settings_url(self):
+        return reverse('stage-settings', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
+    def get_edit_url(self):
+        return reverse('stage-update', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
+    def get_players_url(self):
+        return reverse('stage-manage-players', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
+    def get_create_round_url(self):
+        return reverse('round-create', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
+    def add_player(self, profile):
+        """Add a profile to this stage, creating a TournamentPlayer if needed."""
+        tp, _ = TournamentPlayer.objects.get_or_create(
+            profile=profile,
+            tournament=self.tournament,
+            defaults={'status': TournamentPlayer.StatusChoices.REGISTERED}
+        )
+        StageParticipant.objects.get_or_create(
+            tournament_player=tp,
+            stage=self,
+            defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
+        )
+
+    def get_format(self):
+        """Get the effective format for this stage"""
+        return self.stage_format or self.tournament.default_format
+
+def promote_n_waitlist_players(tournament, n):
+    """
+    Promote the top `n` players from the waitlist to ACTIVE and
+    create StageParticipants for all non-completed stages.
+    Returns the list of TournamentPlayers promoted.
+    """
+    promoted_players = []
+
+    with transaction.atomic():
+        waitlist_players = TournamentPlayer.objects.filter(
+            tournament=tournament,
+            status=TournamentPlayer.StatusChoices.WAITLIST
+        ).order_by('waitlist_position')[:n]
+
+        for tp in waitlist_players:
+            tp.status = TournamentPlayer.StatusChoices.REGISTERED
+            tp.waitlist_position = None
+            tp.save()
+
+            stages = tournament.stages.filter(status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE])
+            for stage in stages:
+                StageParticipant.objects.get_or_create(
+                    tournament_player=tp,
+                    stage=stage,
+                    defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
+                )
+
+            promoted_players.append(tp)
+
+        remaining_waitlist = TournamentPlayer.objects.filter(
+            tournament=tournament,
+            status=TournamentPlayer.StatusChoices.WAITLIST
+        ).order_by('waitlist_position')
+
+        for i, tp in enumerate(remaining_waitlist, start=1):
+            tp.waitlist_position = i
+            tp.save()
+
+    return promoted_players
+
+
+def add_player_to_waitlist(profile, tournament):
+    tp, _ = TournamentPlayer.objects.get_or_create(
+        profile=profile,
+        tournament=tournament,
+        defaults={'status': TournamentPlayer.StatusChoices.WAITLIST}
+    )
+
+    tp.set_status(TournamentPlayer.StatusChoices.WAITLIST)
+    tp.save()
+    return tp
+
+
+
 # This is a round of a tournament, series or playtest. It allows for leaderboard splits and a set end date.
 class Round(models.Model):
     type = "Round"
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
     description = models.TextField(null=True, blank=True)
-    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds')  # Link to the tournament
-    
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the tournament
+    stage = models.ForeignKey(Stage, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the stage
+
     round_specific_format = models.CharField(
         max_length=50, 
         choices=FormatChoices.choices, 
@@ -311,11 +520,12 @@ class Round(models.Model):
     )
 
     round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
-    start_date = models.DateTimeField()
-    end_date = models.DateTimeField(null=True, blank=True)  # Can be null if round hasn't ended yet
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField(null=True, blank=True)
 
     game_threshold = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)],
+        default=0,
         help_text="Leave blank to inherit from series"
         )
     leaderboard_positions = models.IntegerField(
@@ -332,12 +542,10 @@ class Round(models.Model):
         blank=True,
     )
 
-    # Round roster — SessionPlayers from the tournament's GroupingSession
-    roster = models.ManyToManyField(
-        'SessionPlayer',
-        blank=True,
-        related_name='rounds',
-        help_text="Players participating in this round (from the tournament's GroupingSession)"
+    status = models.CharField(
+        max_length=16,
+        choices=CompetitionStatus.choices,
+        default=CompetitionStatus.PENDING
     )
 
     slug = models.SlugField(null=True, blank=True)
@@ -360,6 +568,18 @@ class Round(models.Model):
         help_text="Notes or error messages from the grouping process"
     )
 
+    # Bracket lifecycle
+    class BracketStatusChoices(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        FINALIZED = 'finalized', 'Finalized'
+
+    bracket_status = models.CharField(
+        max_length=20,
+        choices=BracketStatusChoices.choices,
+        default=BracketStatusChoices.DRAFT,
+        help_text="Status of the bracket for this round"
+    )
+
     objects = RoundQuerySet.as_manager()
 
     @property
@@ -369,115 +589,100 @@ class Round(models.Model):
             return True
         return timezone.now() < self.end_date
 
+    def get_tournament(self):
+        """Return the tournament for this round, preferring stage.tournament over direct FK."""
+        if self.stage:
+            return self.stage.tournament
+        return self.tournament
+
+    def _stage_slug(self):
+        return self.stage.slug if self.stage else None
+
     def get_absolute_url(self):
-        return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+        return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_settings_url(self):
-        return reverse('round-settings', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+        return reverse('round-settings', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_edit_url(self):
-        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_players_url(self):
-        return reverse('round-manage-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+        return reverse('round-manage-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_assets_url(self):
-        return reverse('tournament-manage-assets', kwargs={'tournament_slug': self.tournament.slug})
+        return reverse('tournament-manage-assets', kwargs={'tournament_slug': self.stage.tournament.slug})
 
     def get_update_url(self):
-        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug})
+        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_delete_url(self):
-        return reverse('round-delete', kwargs={'round_slug': self.slug, 'tournament_slug': self.tournament.slug, 'pk': self.id})
+        return reverse('round-delete', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug(), 'pk': self.id})
 
     def get_format(self):
-            """Get the effective format for this round"""
-            return self.round_specific_format or self.tournament.default_format
+        """Get the effective format for this round"""
+        if self.round_specific_format:
+            return self.round_specific_format
+        if self.stage:
+            return self.stage.get_format()
+        if self.tournament:
+            return self.tournament.default_format
+        return None
+
+    def get_game_threshold(self):
+        if self.game_threshold is not None:
+            return self.game_threshold
+        if self.stage:
+            return self.stage.get_game_threshold()
+        return self.tournament.game_threshold
+
+    def get_leaderboard_positions(self):
+        if self.leaderboard_positions is not None:
+            return self.leaderboard_positions
+        if self.stage:
+            return self.stage.get_leaderboard_positions()
+        return self.tournament.leaderboard_positions
 
     def get_min_players(self):
-            """Get the minimum players per game for this round"""
-            return self.min_players or self.tournament.min_players
+        """Get the minimum players per game for this round"""
+        if not self.tournament.enforce_player_count:
+            return 4
+        return self.min_players or self.stage.min_players or self.stage.tournament.min_players
 
     def get_max_players(self):
-            """Get the maximum players per game for this round"""
-            return self.max_players or self.tournament.max_players
+        """Get the maximum players per game for this round"""
+        if not self.tournament.enforce_player_count:
+            return 4
+        return self.max_players or self.stage.max_players or self.stage.tournament.max_players
 
     def current_player_queryset(self):
-        """Return active players in this round's roster."""
-        return self.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
-
-    def all_player_queryset(self):
-        """All players in the round (any status)."""
-        return self.roster.all()
-
-    def get_players_queryset(self):
-        """Active players in this round."""
-        return self.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
-
-    def get_active_players_queryset(self):
-        """Active players in this round who are not yet assigned to a group."""
-        return self.roster.filter(
-            status=SessionPlayer.StatusChoices.ACTIVE
-        ).exclude(
-            player_groups__round=self
+        """Return Profiles eligible to play in this round.
+        If open_roster: all profiles. Otherwise: stage participants (ACTIVE),
+        falling back to tournament-level registered players."""
+        if self.tournament.open_roster:
+            return Profile.objects.all()
+        if self.stage:
+            stage_players = Profile.objects.filter(
+                tournament_participations__stage_participations__stage=self.stage,
+                tournament_participations__stage_participations__status=StageParticipant.ParticipantStatus.ACTIVE,
+            )
+            if stage_players.exists():
+                return stage_players
+        return Profile.objects.filter(
+            tournament_participations__tournament=self.tournament,
+            tournament_participations__status=TournamentPlayer.StatusChoices.REGISTERED,
         )
 
-    def get_waitlist_players_queryset(self):
-        """Waitlisted players for this round."""
-        return self.roster.filter(status=SessionPlayer.StatusChoices.WAITLIST)
-
-    def get_eliminated_players_queryset(self):
-        """Eliminated players for this round."""
-        return self.roster.filter(status=SessionPlayer.StatusChoices.ELIMINATED)
-
-    def add_player_to_round(self, profile):
-        """Add a player to this round's roster, creating their tournament SessionPlayer if needed."""
-        sp = SessionPlayer.objects.filter(
-            session__tournament=self.tournament,
-            profile=profile
-        ).first()
-        if not sp:
-            sp = SessionPlayer.objects.create(
-                session=self.tournament.master_session,
-                profile=profile,
-                status=SessionPlayer.StatusChoices.ACTIVE,
-            )
-        self.roster.add(sp)
-
-    def remove_player_from_round(self, profile):
-        """Remove a player from this round's roster (does not delete their SessionPlayer)."""
-        sp = SessionPlayer.objects.filter(
-            session__tournament=self.tournament,
-            profile=profile
-        ).first()
-        if sp:
-            self.roster.remove(sp)
-
-    def move_player(self, profile, from_status, to_status):
-        """Update a player's status on their tournament-level SessionPlayer."""
-        sp = SessionPlayer.objects.filter(
-            session__tournament=self.tournament,
-            profile=profile
-        ).first()
-        if sp:
-            if to_status is None:
-                sp.delete()
-            else:
-                sp.status = to_status
-                sp.save(update_fields=['status'])
-
     def __str__(self):
-        return f"{self.tournament.name} - {self.name}"
+
+        if self.stage:
+            return f"{self.stage.tournament.name} - {self.stage.name} - {self.name}"
+        else:
+            return self.name
 
     @property
     def all_player_count(self):
-        return Effort.objects.filter(game__round=self).values('player').distinct().count()
-
-        # if self.players.count() > 0:
-        #     all_players = self.players.count()
-        # else:
-        #     all_players = self.tournament.all_player_count()
-        # return all_players   
+        return Effort.objects.filter(game__round=self).values('player').distinct().count() 
      
     def game_count(self):
         return Game.objects.filter(round=self, final=True).count()
@@ -486,21 +691,95 @@ class Round(models.Model):
         ordering = ['-round_number']
 
 
+class MatchSeries(models.Model):
+    """
+    A Series groups multiple Matches in a Round, typically used for
+    best-of-X or repeated games where the outcome of the Match Series
+    determines advancement.
+    """
+ 
+    # Core relations
+    round = models.ForeignKey(
+        Round,
+        on_delete=models.CASCADE,
+        related_name="series"
+    )
+ 
+    # Optional metadata
+    name = models.CharField(max_length=100, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+ 
+    status = models.CharField(
+        max_length=16,
+        choices=CompetitionStatus.choices,
+        default=CompetitionStatus.PENDING
+    )
+ 
+    # Optional advancement rules
+    ADVANCEMENT_CHOICES = [
+        ("SERIES_WINNER", "Series Winner Advances"),
+        ("ROUND_BASED", "Advancement Handled by Round"),
+        ("NONE", "No Advancement"),
+    ]
+    advancement_type = models.CharField(
+        max_length=20,
+        choices=ADVANCEMENT_CHOICES,
+        default="ROUND_BASED",
+        help_text="Determines whether advancement happens at the series or round level."
+    )
+ 
+    # Players competing in this series
+    player_group = models.OneToOneField(
+        'PlayerGroup',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='series',
+        help_text="Group of players competing in this series"
+    )
+
+    # Optional fields for best-of-X style series
+    number_of_games = models.PositiveIntegerField(default=1)
+    winners = models.ManyToManyField(
+        "StageParticipant",
+        blank=True,
+        related_name="won_series"
+    )
+    is_bye = models.BooleanField(default=False, help_text="True if this series is a bye (player advances without playing)")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+ 
+    class Meta:
+        ordering = ["round", "id"]
+ 
+    def __str__(self):
+        return self.name or f"Series {self.id} in Round {self.round.round_number}"
+ 
+    def is_complete(self):
+        """Return True if series has winners or all matches are complete."""
+        if self.winners.exists():
+            return True
+        # Alternatively, check if all matches are complete
+        return all(match.status == CompetitionStatus.COMPLETED for match in self.matches.all())
+
+
 class Match(models.Model):
-    """A single match slot in a tournament bracket. Can be created as an empty shell and
-    have a PlayerGroup and Game assigned later."""
+    """A single match slot in a tournament bracket. Always belongs to a MatchSeries —
+    even standalone matches use a series with number_of_games=1."""
     round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name='matches')
     name = models.CharField(max_length=100, null=True, blank=True)
     match_number = models.PositiveSmallIntegerField(null=True, blank=True)
-    player_group = models.OneToOneField(
-        'PlayerGroup', on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='match',
-        help_text="Group assigned to this match slot"
-    )
+    series = models.ForeignKey(MatchSeries, on_delete=models.CASCADE, related_name='matches')
     game = models.OneToOneField(
         'Game', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='match',
         help_text="Game played for this match"
+    )
+
+    status = models.CharField(
+        max_length=16,
+        choices=CompetitionStatus.choices,
+        default=CompetitionStatus.PENDING
     )
 
     class Meta:
@@ -511,6 +790,12 @@ class Match(models.Model):
         if self.match_number is None:
             last = Match.objects.filter(round=self.round).order_by('match_number').last()
             self.match_number = (last.match_number + 1) if last and last.match_number is not None else 1
+        if not self.name and self.series_id and self.series.player_group_id:
+            group_name = self.series.player_group.name
+            if self.series.number_of_games > 1:
+                self.name = f"{group_name} Game {self.match_number}"
+            else:
+                self.name = group_name
         super().save(*args, **kwargs)
 
     def clean(self):
@@ -525,8 +810,18 @@ class Match(models.Model):
             return Profile.objects.none()
         return Profile.objects.filter(efforts__game_id=self.game_id, efforts__win=True)
 
+    @property
+    def player_group(self):
+        """Delegates to the series' player group."""
+        return self.series.player_group
+
+    @property
+    def stage(self):
+        """Convenience accessor — equivalent to match.round.stage."""
+        return self.round.stage
+
     def __str__(self):
-        return self.name or f"Match {self.match_number} ({self.round})"
+        return self.name or f"Match {self.id}"
 
 
 class MatchAdvancement(models.Model):
@@ -666,9 +961,9 @@ class Effort(models.Model):
         DARK = 'Dark'
         FROG = 'Frog'
         BEAR = 'Mountain King'
-    class StatusChoices(models.TextChoices):
-        ACTIVE = 'Active'
-        ELIMINATED = 'Eliminated'
+    # class StatusChoices(models.TextChoices):
+    #     ACTIVE = 'Active'
+    #     ELIMINATED = 'Eliminated'
 
     seat = models.IntegerField(validators=[MinValueValidator(1)], null=True, blank=True)
     player = models.ForeignKey(Profile, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts')
@@ -684,7 +979,7 @@ class Effort(models.Model):
     # notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     date_modified = models.DateTimeField(auto_now=True)
-    player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
+    # player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
 
 
     def save(self, *args, **kwargs):
@@ -840,110 +1135,6 @@ class TurnScore(models.Model):
 # Player Grouping Models
 # ============================================================================
 
-class GroupingSession(models.Model):
-    """
-    Represents a single grouping operation. Can be created from a survey
-    (for availability-based grouping) or directly from tournament/round players.
-    """
-    class GroupingTypeChoices(models.TextChoices):
-        AVAILABILITY = 'availability', 'Availability-based'
-        MANUAL = 'manual', 'Manual'
-        RANDOM = 'random', 'Random'
-
-    class AlgorithmChoices(models.TextChoices):
-        GREEDY = 'greedy', 'Optimized'
-        RANDOM = 'random', 'Random Assignment'
-
-    # Required tournament owner (non-null after data migration)
-    tournament = models.ForeignKey(
-        Tournament,
-        on_delete=models.CASCADE,
-        null=True,
-        related_name='grouping_sessions'
-    )
-    # Optional survey reference (availability data source)
-    survey = models.ForeignKey(
-        'the_tavern.Survey',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='grouping_sessions',
-        help_text="Survey that seeded this session's availability data (optional)"
-    )
-
-    # Identification
-    name = models.CharField(max_length=100, blank=True, help_text="Session name for identification")
-    grouping_type = models.CharField(
-        max_length=20,
-        choices=GroupingTypeChoices.choices,
-        default=GroupingTypeChoices.AVAILABILITY
-    )
-    naming_convention = models.CharField(
-        max_length=100, 
-        help_text="Convention to user for group names",
-        choices=NameConvention.choices,
-        default=NameConvention.NUMERIC
-        )
-    algorithm = models.CharField(
-        max_length=20,
-        choices=AlgorithmChoices.choices,
-        default=AlgorithmChoices.GREEDY,
-        help_text="Algorithm to use for availability-based grouping"
-    )
-
-    # Configuration (for availability-based grouping)
-    min_consecutive_hours = models.PositiveSmallIntegerField(
-        default=4,
-        validators=[MinValueValidator(1), MaxValueValidator(24)],
-        help_text="Minimum consecutive overlapping hours required"
-    )
-    min_days_with_overlap = models.PositiveSmallIntegerField(
-        default=2,
-        validators=[MinValueValidator(1), MaxValueValidator(7)],
-        help_text="Minimum number of days with qualifying time blocks"
-    )
-    include_waitlist = models.BooleanField(
-        default=False,
-        help_text="Whether to include waitlisted survey responses in grouping"
-    )
-
-    # Metadata
-    created_by = models.ForeignKey(
-        Profile,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='created_grouping_sessions'
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # Cached statistics
-    total_players = models.PositiveIntegerField(default=0)
-    grouped_count = models.PositiveIntegerField(default=0)
-    ungrouped_count = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        ordering = ['-created_at']
-        verbose_name = 'Grouping Session'
-        verbose_name_plural = 'Grouping Sessions'
-
-    def __str__(self):
-        if self.name:
-            return self.name
-        source = self.survey.title if self.survey else self.tournament.name
-        return f"Grouping for {source} ({self.created_at.strftime('%Y-%m-%d')})"
-
-    def recalculate_statistics(self):
-        """Update cached statistics from actual player data."""
-        self.grouped_count = self.session_players.filter(
-            player_groups__isnull=False
-        ).distinct().count()
-        self.ungrouped_count = self.session_players.filter(status='active').count()
-        self.total_players = self.session_players.filter(
-            status__in=['active', 'waitlist']
-        ).count()
-        self.save(update_fields=['grouped_count', 'ungrouped_count', 'total_players'])
-
-
 class PlayerGroup(models.Model):
     """
     A group of players for a specific round. Tracks availability overlap metrics.
@@ -951,27 +1142,19 @@ class PlayerGroup(models.Model):
     round = models.ForeignKey(
         Round,
         on_delete=models.CASCADE,
-        null=True,
         related_name='player_groups',
-        help_text="The round this group belongs to (populated by data migration)"
-    )
-    session = models.ForeignKey(
-        GroupingSession,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='groups',
-        help_text="Grouping session that generated this group (for availability data)"
+        help_text="The round this group belongs to"
     )
 
-    # Members (M2M to SessionPlayer)
-    session_players = models.ManyToManyField(
-        'SessionPlayer',
+    # Members (M2M to TournamentPlayer)
+    tournament_players = models.ManyToManyField(
+        'TournamentPlayer',
         blank=True,
         related_name='player_groups',
         help_text="Players assigned to this group"
     )
     best_fit_players = models.ManyToManyField(
-        'SessionPlayer',
+        'TournamentPlayer',
         blank=True,
         related_name='best_fit_groups',
         help_text="Players not in the group with good availability overlap"
@@ -986,9 +1169,9 @@ class PlayerGroup(models.Model):
     )
     created_via = models.CharField(
         max_length=20,
-        choices=GroupingSession.AlgorithmChoices.choices,
+        choices=Stage.GroupingTypeChoices.choices,
         blank=True,
-        help_text="How this group was created (algorithm or manual)"
+        help_text="How this group was created"
     )
 
     # Identification
@@ -1024,7 +1207,6 @@ class PlayerGroup(models.Model):
         help_text="List of day indices (0-6) that have overlapping hours"
     )
 
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1042,30 +1224,26 @@ class PlayerGroup(models.Model):
     @property
     def members(self):
         """Return profiles of players in this group."""
-        return Profile.objects.filter(player_groups=self)
+        return Profile.objects.filter(
+            tournament_participations__player_groups=self
+        )
 
     @property
     def member_count(self):
         """Return count of players in this group."""
-        return self.session_players.count()
+        return self.tournament_players.count()
 
     def recalculate_overlap(self):
         """
-        Recalculate overlap metrics based on current members.
+        Recalculate overlap metrics based on current members' availability_hours.
         Should be called after adding/removing members.
-        Only meaningful for availability-based sessions.
+        Only meaningful for availability-based grouping.
         """
-        if not self.session_id:
-            return
-
-        if self.session.grouping_type != GroupingSession.GroupingTypeChoices.AVAILABILITY:
-            return
-
-        if not self.session.survey:
+        if self.round.stage.grouping_type != Stage.GroupingTypeChoices.AVAILABILITY:
             self._clear_overlap_metrics()
             return
 
-        grouped_players = self.session_players.all().select_related('survey_response')
+        grouped_players = self.tournament_players.all().select_related('survey_response')
 
         if not grouped_players.exists():
             self._clear_overlap_metrics()
@@ -1150,56 +1328,74 @@ class PlayerGroup(models.Model):
         return f"{self.total_overlap_hours}h across {len(self.days_with_overlap)} days ({days_display}), best block: {self.best_consecutive_block}h"
 
 
-class SessionPlayer(models.Model):
-    """
-    Represents a player's participation in a tournament's grouping session.
-    Status is tournament-scoped: active players can be rostered into any round.
-    Whether a player is grouped in a specific round is derived from round.player_groups.
-    """
+class TournamentPlayer(models.Model):
+
     class StatusChoices(models.TextChoices):
-        ACTIVE = 'active', 'Active'
+        REGISTERED = 'registered', 'Registered'
         WAITLIST = 'waitlist', 'On Waitlist'
         ELIMINATED = 'eliminated', 'Eliminated'
 
-    session = models.ForeignKey(
-        GroupingSession,
-        on_delete=models.CASCADE,
-        related_name='session_players'
-    )
-    profile = models.ForeignKey(
-        Profile,
-        on_delete=models.CASCADE,
-        related_name='session_participations'
-    )
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='tournament_participations')
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='tournament_players')
     survey_response = models.ForeignKey(
         'the_tavern.SurveyResponse',
         on_delete=models.SET_NULL,
         null=True, blank=True,
-        related_name='session_players',
+        related_name='tournament_players',
         help_text="The response that provided this player's availability"
     )
     status = models.CharField(
-        max_length=20,
+        max_length=16,
         choices=StatusChoices.choices,
-        default=StatusChoices.ACTIVE
+        default=StatusChoices.REGISTERED
     )
-
-    # Cached availability (for display/manual matching)
     availability_hours = models.JSONField(
         default=list,
         help_text="This player's available hours (0-167)"
     )
 
+    waitlist_position = models.PositiveIntegerField(null=True, blank=True)
+
     class Meta:
-        unique_together = ('session', 'profile')
+        unique_together = ('tournament', 'profile')
         ordering = ['profile__display_name']
-        verbose_name = 'Session Player'
-        verbose_name_plural = 'Session Players'
+        verbose_name = 'Tournament Player'
+        verbose_name_plural = 'Tournament Players'
         indexes = [
-            models.Index(fields=['session', 'status']),
+            models.Index(fields=['tournament', 'status']),
             models.Index(fields=['profile', 'status']),
         ]
 
     def __str__(self):
         return f"{self.profile.display_name} ({self.get_status_display()})"
 
+    def set_status(self, status):
+        """Set status and manage waitlist_position consistently."""
+        self.status = status
+        if status == self.StatusChoices.WAITLIST and self.waitlist_position is None:
+            max_pos = TournamentPlayer.objects.filter(
+                tournament=self.tournament,
+                status=self.StatusChoices.WAITLIST,
+            ).aggregate(Max('waitlist_position'))['waitlist_position__max'] or 0
+            self.waitlist_position = max_pos + 1
+        elif status != self.StatusChoices.WAITLIST:
+            self.waitlist_position = None
+
+class StageParticipant(models.Model):
+    class ParticipantStatus(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        ELIMINATED = 'eliminated', 'Eliminated'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+    stage = models.ForeignKey(Stage, on_delete=models.CASCADE, related_name='participants')
+    tournament_player = models.ForeignKey(TournamentPlayer, on_delete=models.CASCADE, related_name='stage_participations')
+    seed = models.IntegerField(null=True, blank=True)
+    status = models.CharField(
+        max_length=50,
+        choices=ParticipantStatus.choices,
+        default=ParticipantStatus.ACTIVE
+    )
+
+class MatchSeat(models.Model):
+    series = models.ForeignKey(MatchSeries, on_delete=models.CASCADE)
+    stage_participant = models.ForeignKey(StageParticipant, on_delete=models.CASCADE)
+    seat_number = models.IntegerField(null=True, blank=True)

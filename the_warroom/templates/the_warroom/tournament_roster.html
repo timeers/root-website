@@ -1,0 +1,68 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ tournament.name }} - {% trans 'Roster' %} | {% endblock %}
+
+{% block meta %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ meta_title }} - {% trans 'Roster' %}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item active">{% trans 'Roster' %}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ tournament.name }}</h1>
+            {% if tournament.designer %}
+            <small class="text-muted">Hosted by {{ tournament.designer.name }}</small>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if tournament.description %}
+    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
+    {% endif %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='roster' %}
+
+    {% if can_manage %}
+    <div class="d-flex justify-content-end mb-3">
+        <a class="btn btn-primary btn-sm" href="{{ tournament.get_players_url }}">{% trans 'Manage Players' %}</a>
+    </div>
+    {% endif %}
+
+    <p class="text-muted mb-2">{{ players_count }} {% trans 'player' %}{{ players_count|pluralize }}</p>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>{% trans 'Player' %}</th>
+                    <th class="text-end">{% trans 'Games Played' %}</th>
+                    <th class="text-end">{% trans 'Wins' %}</th>
+                    <th class="text-end">{% trans 'Win Rate' %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% include 'the_warroom/partials/tournament_roster_rows.html' %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endblock %}

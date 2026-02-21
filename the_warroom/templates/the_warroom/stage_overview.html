@@ -1,0 +1,133 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{{ stage.name }} - {{ tournament.name }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item active">{{ stage.name }}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ stage.name }}</h1>
+            <small class="text-muted">{{ tournament.name }}</small>
+        </div>
+    </div>
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/stage_nav_header.html' with active_page='overview' %}
+
+    <!-- Stage info cards -->
+    <div class="row mb-4 g-3">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <dl class="mb-0">
+                        {% if tournament.classification == 'Tournament' %}
+                        <dt class="text-muted small">{% trans 'Format' %}</dt>
+                        <dd>{{ stage.get_stage_format_display }}</dd>
+                        <dt class="text-muted small">{% trans 'Advancement' %}</dt>
+                        <dd>{{ stage.get_advancement_type_display }}</dd>
+                        {% endif %}
+                        <dt class="text-muted small">{% trans 'Status' %}</dt>
+                        <dd>
+                            {% if stage.status == 'active' %}
+                            <span class="badge bg-success">{{ stage.get_status_display }}</span>
+                            {% elif stage.status == 'completed' %}
+                            <span class="badge bg-secondary">{{ stage.get_status_display }}</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">{{ stage.get_status_display }}</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <dl class="mb-0">
+                        <dt class="text-muted small">{% trans 'Players per Group' %}</dt>
+                        <dd>
+                            {% if stage.min_players != stage.max_players %}
+                            {{ stage.min_players }} – {{ stage.max_players }}
+                            {% else %}
+                            {{ stage.max_players }}
+                            {% endif %}
+                        </dd>
+                        <dt class="text-muted small">{% trans 'Grouping Type' %}</dt>
+                        <dd>{{ stage.get_grouping_type_display }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rounds -->
+    {% if tournament.use_rounds %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-collection me-2"></i>{% trans 'Rounds' %}</h4>
+        {% if can_manage %}
+        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-success btn-sm">
+            <i class="bi bi-plus-lg me-1"></i>{% trans 'Add Round' %}
+        </a>
+        {% endif %}
+    </div>
+
+    {% if rounds %}
+    <div class="list-group mb-4">
+        {% for round in rounds %}
+        <a href="{{ round.get_absolute_url }}"
+           class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+                <strong>{{ round.name|default:round.round_number }}</strong>
+                {% if round.start_date %}
+                <small class="text-muted d-block">
+                    <i class="bi bi-calendar me-1"></i>{{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
+                </small>
+                {% endif %}
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                {% if round.status == 'active' %}
+                <span class="badge bg-success">{% trans 'Active' %}</span>
+                {% elif round.status == 'completed' %}
+                <span class="badge bg-secondary">{% trans 'Completed' %}</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">{% trans 'Pending' %}</span>
+                {% endif %}
+                {% if can_manage %}
+                <a href="{{ round.get_settings_url }}" class="btn btn-outline-secondary btn-sm"
+                   onclick="event.preventDefault(); window.location.href=this.href;">
+                    <i class="bi bi-gear"></i>
+                </a>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No rounds yet for this stage.' %}
+        {% if can_manage %}
+        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="alert-link">{% trans 'Add the first round.' %}</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'This stage does not use rounds.' %}
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

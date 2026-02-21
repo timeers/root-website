@@ -450,51 +450,51 @@ const existingQuestions = {{ existing_questions|safe }};
 const hiddenQuestions = {{ hidden_questions|safe }};
 {% endif %}
 
-// Series/Round dynamic loading
-function loadSeriesRounds(preselectedRoundId = null) {
+// Series/Stage dynamic loading
+function loadSeriesStages(preselectedStageId = null) {
     const seriesSelect = document.getElementById('series');
-    const roundSelect = document.getElementById('series_round');
+    const stageSelect = document.getElementById('stage');
 
-    if (!seriesSelect || !roundSelect) return;
+    if (!seriesSelect || !stageSelect) return;
 
     const tournamentId = seriesSelect.value;
 
-    // Reset round dropdown
-    roundSelect.innerHTML = '<option value="">{% trans "All rounds / No specific round" %}</option>';
+    // Reset stage dropdown
+    stageSelect.innerHTML = '<option value="">{% trans "All stages / No specific stage" %}</option>';
 
     if (!tournamentId) {
-        roundSelect.disabled = true;
-        toggleTournamentAccessNote('series_round');
+        stageSelect.disabled = true;
+        toggleTournamentAccessNote('stage');
         return;
     }
 
     // Enable and show loading state
-    roundSelect.disabled = false;
+    stageSelect.disabled = false;
 
-    fetch(`{% url 'get-tournament-rounds' %}?tournament_id=${tournamentId}`)
+    fetch(`{% url 'get-tournament-stages' %}?tournament_id=${tournamentId}`)
         .then(response => response.json())
         .then(data => {
-            if (data.rounds && data.rounds.length > 0) {
-                data.rounds.forEach(round => {
+            if (data.stages && data.stages.length > 0) {
+                data.stages.forEach(stage => {
                     const option = document.createElement('option');
-                    option.value = round.id;
-                    option.textContent = round.name;
-                    // Pre-select the round if it matches
-                    if (preselectedRoundId && round.id == preselectedRoundId) {
+                    option.value = stage.id;
+                    option.textContent = stage.name;
+                    // Pre-select the stage if it matches
+                    if (preselectedStageId && stage.id == preselectedStageId) {
                         option.selected = true;
                     }
-                    roundSelect.appendChild(option);
+                    stageSelect.appendChild(option);
                 });
             }
-            // If no rounds, dropdown stays at default option
+            // If no stages, dropdown stays at default option
 
-            // Update tournament access note after rounds are loaded
-            toggleTournamentAccessNote('series_round');
+            // Update tournament access note after stages are loaded
+            toggleTournamentAccessNote('stage');
         })
         .catch(error => {
-            console.error('Error loading rounds:', error);
+            console.error('Error loading stages:', error);
             // Keep dropdown disabled on error
-            roundSelect.disabled = true;
+            stageSelect.disabled = true;
         });
 }
 
@@ -502,14 +502,14 @@ function loadSeriesRounds(preselectedRoundId = null) {
 document.addEventListener('DOMContentLoaded', function() {
     const seriesSelect = document.getElementById('series');
     if (seriesSelect && seriesSelect.value && !seriesSelect.disabled) {
-        // Get preselected round ID from data attribute if in edit mode
-        const preselectedRoundId = seriesSelect.dataset.preselectedRound || null;
-        loadSeriesRounds(preselectedRoundId);
+        // Get preselected stage ID from data attribute if in edit mode
+        const preselectedStageId = seriesSelect.dataset.preselectedStage || null;
+        loadSeriesStages(preselectedStageId);
     }
 
     // Add event listeners for toggleTournamentAccessNote
     const seriesSelectEl = document.getElementById('series');
-    const seriesRoundSelectEl = document.getElementById('series_round');
+    const stageSelectEl = document.getElementById('stage');
     const isPrivateCheckbox = document.getElementById('is_private');
 
     if (seriesSelectEl) {
@@ -518,22 +518,38 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    if (seriesRoundSelectEl) {
-        seriesRoundSelectEl.addEventListener('change', function() {
-            toggleTournamentAccessNote('series_round');
+    if (stageSelectEl) {
+        stageSelectEl.addEventListener('change', function() {
+            toggleTournamentAccessNote('stage');
         });
     }
 
     if (isPrivateCheckbox) {
         isPrivateCheckbox.addEventListener('change', function() {
             toggleTournamentAccessNote('series');
-            toggleTournamentAccessNote('series_round');
+            toggleTournamentAccessNote('stage');
         });
     }
 
     // Call on page load to set initial state for series
-    // (series_round will be called after loadSeriesRounds completes)
+    // (stage will be called after loadSeriesStages completes)
     toggleTournamentAccessNote('series');
+
+    // Resolve locked stage name (when pre-filled and locked from settings hub)
+    const prefillStageEl = document.getElementById('prefill-stage-name');
+    if (prefillStageEl) {
+        const stageId = prefillStageEl.dataset.stageId;
+        const seriesInput = document.querySelector('input[name="series"]');
+        if (stageId && seriesInput) {
+            fetch(`{% url 'get-tournament-stages' %}?tournament_id=${seriesInput.value}`)
+                .then(r => r.json())
+                .then(data => {
+                    const match = (data.stages || []).find(s => String(s.id) === String(stageId));
+                    prefillStageEl.textContent = match ? match.name : stageId;
+                })
+                .catch(() => { prefillStageEl.textContent = stageId; });
+        }
+    }
 });
 
 function initializeSortable() {

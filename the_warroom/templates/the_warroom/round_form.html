@@ -3,13 +3,24 @@
 {% block title %}{% if round.id %}Update Round{% else %}New Round{% endif %} | {% endblock %}
 
 {% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item active">{% if round.id %}Edit Round{% else %}New Round{% endif %}</li>
+        </ol>
+    </nav>
+</div>
 <div class="content-section">
     <form method="POST" enctype="multipart/form-data">
         {% csrf_token %}
         <fieldset class="mb-3">
             <legend class="border-bottom mb-4">
                 {% if round.id %}
-                    Update {{ round.tournament.name }} — {{ round.name|default:round.round_number }}
+                    Update {{ round.get_tournament.name }} — {{ round.name|default:round.round_number }}
                 {% else %}
                     New {{ tournament.name }} Round
                 {% endif %}
@@ -74,7 +85,7 @@
                         <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-2"></i>{% trans 'Tournament Bracket' %}</h6>
                         {% if tournament.default_format %}
                         <small class="form-text text-muted d-block mb-3">
-                            Override the Tournament's default format. Leave blank to inherit from the Tournament ({{ tournament.default_format }}).
+                            Override the default format. Leave blank to inherit from {{stage}} ({{ stage.get_format }}).
                         </small>
                         {% endif %}
                         <div class="row">
@@ -87,8 +98,8 @@
                 
                     <h6 class="text-muted mb-2"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h6>
                     <small class="form-text text-muted d-block mb-3">
-                        Override the series leaderboard settings for this round. Leave blank to inherit from the series
-                        ({{ tournament.game_threshold }} game threshold, {{ tournament.leaderboard_positions }} positions).
+                        Override the leaderboard settings for this round. Leave blank to inherit from the stage
+                        ({{ stage.get_game_threshold }} game threshold, {{ stage.get_leaderboard_positions }} positions).
                     </small>
                     <div class="row">
                         <div class="col-md-6 mb-2">
@@ -141,6 +152,40 @@
             changeMonth: true,
             changeYear: true,
             yearRange: "c-100:c+10"
+        });
+
+        // Duplicate round name validation
+        const existingNames = JSON.parse('{{ existing_names_json|escapejs }}');
+        const nameInput = document.getElementById('id_name');
+        const form = document.querySelector('form');
+        let errorDiv = null;
+
+        function clearError() {
+            if (errorDiv) {
+                errorDiv.remove();
+                errorDiv = null;
+            }
+            nameInput.classList.remove('is-invalid');
+        }
+
+        function showError(msg) {
+            clearError();
+            nameInput.classList.add('is-invalid');
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'invalid-feedback d-block';
+            errorDiv.textContent = msg;
+            nameInput.parentNode.appendChild(errorDiv);
+        }
+
+        nameInput.addEventListener('input', clearError);
+
+        form.addEventListener('submit', function(e) {
+            const name = nameInput.value.trim();
+            if (name && existingNames.some(n => n.toLowerCase() === name.toLowerCase())) {
+                e.preventDefault();
+                showError('A round with this name already exists in this stage.');
+                nameInput.focus();
+            }
         });
     });
 </script>

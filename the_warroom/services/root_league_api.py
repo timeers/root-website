@@ -389,7 +389,7 @@ def create_efforts_from_api(game, participants):
         player_without_number = parts[0] # e.g., "MrMirz"
         player_number = parts[1] if len(parts) > 1 else "0000"
         standard_player_number = str(player_number).zfill(4)
-        standard_player_string = f'{full_player_string}+{standard_player_number}'
+        standard_player_string = f'{player_without_number}+{standard_player_number}'
         
         player = Profile.objects.filter(dwd__iexact=standard_player_string).first()
 

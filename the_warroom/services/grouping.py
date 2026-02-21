@@ -3,37 +3,42 @@ Service layer for player grouping operations.
 Handles availability-based, manual, and random grouping of players.
 """
 import random
+from collections import defaultdict, Counter
 
 from django.db import transaction
 from django.db.models import Max, F
 
 from the_warroom.models import (
-    GroupingSession,
     PlayerGroup,
-    SessionPlayer,
+    TournamentPlayer,
+    Stage,
 )
 from the_gatehouse.utils import generate_name, NameConvention
 
 
 def calculate_best_consecutive(hours_set):
-    """Find longest consecutive run in hour-of-week set."""
+    """Find longest consecutive run in hour-of-week set, handling week wraparound."""
     if not hours_set:
         return 0
-    sorted_hours = sorted(hours_set)
+    # Double the hours to handle week wraparound (168-hour cycle)
+    doubled = sorted(hours_set | {h + 168 for h in hours_set})
     max_consecutive = 1
     current = 1
-    for i in range(1, len(sorted_hours)):
-        if sorted_hours[i] == sorted_hours[i - 1] + 1:
+    for i in range(1, len(doubled)):
+        if doubled[i] == doubled[i - 1] + 1:
             current += 1
             max_consecutive = max(max_consecutive, current)
         else:
             current = 1
-    return max_consecutive
+    # Cap at actual set size (can't have more consecutive than total hours)
+    return min(max_consecutive, len(hours_set))
 
 
 def calculate_days_with_overlap(hours_set, min_consecutive=1):
     """
     Count how many different days have at least min_consecutive hours of overlap.
+    Handles week wraparound: a streak crossing Sunday→Monday counts as one
+    qualifying day (credited to Sunday) to avoid inflating the count.
 
     Args:
         hours_set: set of hour-of-week integers (0-167)
@@ -53,10 +58,35 @@ def calculate_days_with_overlap(hours_set, min_consecutive=1):
             days_with_hours[day] = []
         days_with_hours[day].append(hour % 24)
 
+    # Detect wraparound: Sunday ending at hour 23 connecting to Monday starting at hour 0
+    wrap_bonus = 0
+    if 6 in days_with_hours and 0 in days_with_hours:
+        sun_hours = sorted(days_with_hours[6])
+        mon_hours = sorted(days_with_hours[0])
+        # Count consecutive hours at end of Sunday (up to hour 23)
+        sun_tail = 0
+        for h in reversed(sun_hours):
+            if h == 23 - sun_tail:
+                sun_tail += 1
+            else:
+                break
+        # Count consecutive hours at start of Monday (from hour 0)
+        mon_head = 0
+        for h in mon_hours:
+            if h == mon_head:
+                mon_head += 1
+            else:
+                break
+        if sun_tail > 0 and mon_head > 0:
+            wrap_bonus = sun_tail + mon_head
+
     # Count days that have at least min_consecutive consecutive hours
     qualifying_days = 0
     for day, hours in days_with_hours.items():
         if len(hours) < min_consecutive:
+            # Could still qualify via wraparound, but only for Sunday
+            if wrap_bonus >= min_consecutive and day == 6:
+                qualifying_days += 1
             continue
 
         # Check for consecutive hours on this day
@@ -69,6 +99,10 @@ def calculate_days_with_overlap(hours_set, min_consecutive=1):
                 max_consecutive = max(max_consecutive, current)
             else:
                 current = 1
+
+        # Apply wraparound bonus only to Sunday
+        if day == 6 and wrap_bonus > 0:
+            max_consecutive = max(max_consecutive, wrap_bonus)
 
         if max_consecutive >= min_consecutive:
             qualifying_days += 1
@@ -336,74 +370,204 @@ def _optimize_groups_with_swaps(groups, availability_map, iterations=100, min_co
     return best_groups
 
 
+def build_opponent_history(stage, current_round):
+    """
+    Derive opponent history from finalized PlayerGroups in prior rounds of the same stage.
+
+    Returns:
+        defaultdict(Counter) mapping tp_id -> Counter({opponent_tp_id: times_played_together})
+    """
+    from the_warroom.models import Round as RoundModel
+
+    finalized_rounds = RoundModel.objects.filter(
+        stage=stage,
+        grouping_status=RoundModel.GroupingStatusChoices.FINALIZED,
+    ).exclude(id=current_round.id)
+
+    history = defaultdict(Counter)
+
+    groups = (
+        PlayerGroup.objects
+        .filter(round__in=finalized_rounds)
+        .prefetch_related('tournament_players')
+    )
+
+    for group in groups:
+        members = list(group.tournament_players.values_list('id', flat=True))
+        for i, tp_id in enumerate(members):
+            for j, other_id in enumerate(members):
+                if i != j:
+                    history[tp_id][other_id] += 1
+
+    return history
+
+
+def swiss_group_assignment(player_ids, conflict_map, min_size=4, max_size=4, restarts=20):
+    """
+    Greedy pairing algorithm that minimises repeat opponents.
+
+    Uses random restarts, scoring each attempt by total conflict weight
+    (times already-played pairs appear in the same group) with ungrouped
+    count as a secondary penalty.
+
+    Args:
+        player_ids: list of TournamentPlayer.id values
+        conflict_map: defaultdict(Counter) from build_opponent_history
+        min_size: minimum group size
+        max_size: maximum group size
+        restarts: number of random restart attempts
+
+    Returns:
+        tuple (groups_data, ungrouped_ids)
+        - groups_data: list of {'members': [tp_id, ...]}
+        - ungrouped_ids: list of tp_ids that could not be placed
+    """
+    total = len(player_ids)
+    if total == 0:
+        return [], []
+
+    # Determine optimal number of full groups (same logic as generate_random_groups)
+    best_config = None
+    min_leftover = total + 1
+
+    for num_groups in range(1, (total // min_size) + 2):
+        base_size = total // num_groups
+        extra = total % num_groups
+
+        if min_size == max_size:
+            if num_groups * min_size <= total:
+                leftover = total - (num_groups * min_size)
+            else:
+                continue
+        else:
+            if base_size < min_size:
+                continue
+            if base_size > max_size:
+                continue
+            if base_size + 1 > max_size and extra > 0:
+                continue
+            leftover = 0
+
+        if leftover < min_leftover:
+            min_leftover = leftover
+            actual_base = min_size if min_size == max_size else base_size
+            best_config = (num_groups, actual_base, extra)
+
+    if best_config is None:
+        return [], list(player_ids)
+
+    num_groups, base_size, extra = best_config
+
+    def conflict_score(members):
+        score = 0
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                score += conflict_map.get(a, Counter()).get(b, 0)
+        return score
+
+    def attempt():
+        pool = list(player_ids)
+        random.shuffle(pool)
+        groups = []
+        for g in range(num_groups):
+            if min_size == max_size:
+                size = base_size
+            else:
+                size = base_size + (1 if g < extra else 0)
+            if len(pool) < size:
+                break
+            group = [pool.pop(0)]
+            for _ in range(size - 1):
+                if not pool:
+                    break
+                best = min(
+                    pool,
+                    key=lambda p: sum(conflict_map.get(p, Counter()).get(m, 0) for m in group)
+                )
+                pool.remove(best)
+                group.append(best)
+            groups.append({'members': group})
+        return groups, pool
+
+    best_groups = None
+    best_score = float('inf')
+    best_ungrouped = list(player_ids)
+
+    for _ in range(restarts):
+        groups, ungrouped = attempt()
+        score = sum(conflict_score(g['members']) for g in groups) * 10000 + len(ungrouped)
+        if score < best_score:
+            best_score = score
+            best_groups = groups
+            best_ungrouped = ungrouped
+
+    return best_groups or [], best_ungrouped
+
+
 class GroupingService:
     """Service for creating and managing player groups."""
 
     @classmethod
-    @transaction.atomic
-    def create_from_tournament(cls, tournament, created_by, grouping_type='manual', **config):
+    def _get_active_tournament_players(cls, stage):
         """
-        Create a new grouping session for a tournament.
+        Return TournamentPlayers for players who are Active StageParticipants in the given stage.
+        """
+        from the_warroom.models import StageParticipant
+        active_tp_ids = StageParticipant.objects.filter(
+            stage=stage,
+            status=StageParticipant.ParticipantStatus.ACTIVE
+        ).values_list('tournament_player_id', flat=True)
+        return TournamentPlayer.objects.filter(
+            id__in=active_tp_ids
+        ).select_related('profile', 'survey_response')
 
-        Args:
-            tournament: Tournament instance
-            created_by: Profile who is creating the session
-            grouping_type: 'manual', 'random', or 'availability'
-            **config: Optional config (name, etc.)
-        """
-        session = GroupingSession.objects.create(
-            tournament=tournament,
-            name=config.get('name', ''),
-            grouping_type=grouping_type,
-            created_by=created_by,
+    @classmethod
+    def _recalculate_stage_stats(cls, stage, round):
+        """Update grouped/ungrouped counts on a stage."""
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(
+                player_groups__round=round
+            ).values_list('id', flat=True)
         )
-        return session
+        active_players = cls._get_active_tournament_players(stage)
+        stage.grouped_count = active_players.filter(id__in=grouped_ids).count()
+        stage.ungrouped_count = active_players.exclude(id__in=grouped_ids).count()
+        stage.save(update_fields=['grouped_count', 'ungrouped_count'])
 
     @classmethod
     @transaction.atomic
-    def generate_availability_groups(cls, session, round):
+    def generate_availability_groups(cls, stage, round):
         """
         Run the availability-based grouping algorithm for a specific round.
-        Reads players from round.roster (active players not yet in a group for this round).
+        Reads players from the stage's tournament (active TournamentPlayers not yet in a group for this round).
         Creates PlayerGroup objects owned by the round.
 
         Args:
-            session: GroupingSession instance (provides survey/config)
-            round: Round instance (provides player roster and group size constraints)
+            stage: Stage instance (provides grouping config and player source via tournament)
+            round: Round instance (provides group size constraints)
         """
-        if not session.survey:
-            raise ValueError("Session must have a survey for availability-based grouping")
-
         min_size = round.get_min_players()
         max_size = round.get_max_players()
 
         # Clear existing groups for this round
         round.player_groups.all().delete()
 
-        # Get active rostered players (not yet in a group for this round)
-        active_players = round.roster.filter(
-            status=SessionPlayer.StatusChoices.ACTIVE
-        ).select_related('profile', 'survey_response')
+        # Get active tournament players
+        active_players = cls._get_active_tournament_players(stage)
 
         if not active_players.exists():
             return
 
         # Build availability map
         availability_map = {}
-        sp_map = {}  # profile_id -> SessionPlayer
-        waitlist_ids = set()
+        tp_map = {}  # profile_id -> TournamentPlayer
 
-        for sp in active_players:
-            hours = set(sp.availability_hours) if sp.availability_hours else set()
-            availability_map[sp.profile_id] = hours
-            sp_map[sp.profile_id] = sp
+        for tp in active_players:
+            hours = set(tp.availability_hours) if tp.availability_hours else set()
+            availability_map[tp.profile_id] = hours
+            tp_map[tp.profile_id] = tp
 
-        # Handle random algorithm
-        if getattr(session, 'algorithm', 'greedy') == 'random':
-            cls.generate_random_groups(session, round)
-            return
-
-        # For availability-based algorithms - use cascading hours: 5 → 4 → 3
+        # For availability-based grouping - use cascading hours: 5 → 4 → 3
         grouping_func = greedy_group_assignment_with_restarts
         groups_data = []
         ungrouped_ids = list(availability_map.keys())
@@ -496,47 +660,43 @@ class GroupingService:
                     if not groups_with_room:
                         break
 
-        # Create PlayerGroup objects and assign session_players via M2M
+        # Create PlayerGroup objects and assign tournament_players via M2M
         for i, group_data in enumerate(groups_data, 1):
             group = PlayerGroup.objects.create(
                 round=round,
-                session=session,
                 group_number=i,
-                name=generate_name(i, NameConvention(session.naming_convention)),
-                created_via=GroupingSession.AlgorithmChoices.GREEDY,
+                name=generate_name(i, NameConvention(stage.naming_convention)),
+                created_via=Stage.GroupingTypeChoices.AVAILABILITY,
                 all_hours=[],
                 overlap_hours=sorted(list(group_data['overlap_hours'])),
                 total_overlap_hours=len(group_data['overlap_hours']),
             )
 
             for profile_id in group_data['members']:
-                sp = sp_map.get(profile_id)
-                if sp:
-                    group.session_players.add(sp)
+                tp = tp_map.get(profile_id)
+                if tp:
+                    group.tournament_players.add(tp)
 
             group.recalculate_overlap()
 
         # Calculate best fit for ungrouped players
-        cls.calculate_best_fit_groups(session, round)
-
-        session.recalculate_statistics()
+        cls.calculate_best_fit_groups(stage, round)
+        cls._recalculate_stage_stats(stage, round)
 
     @classmethod
     @transaction.atomic
-    def generate_random_groups(cls, session, round):
+    def generate_random_groups(cls, stage, round):
         """
-        Randomly assign active rostered players to groups for a round.
+        Randomly assign active tournament players to groups for a round.
 
         Args:
-            session: GroupingSession instance (provides config/naming)
-            round: Round instance (provides player roster and group size constraints)
+            stage: Stage instance (provides config/naming)
+            round: Round instance (provides group size constraints)
         """
         min_size = round.get_min_players()
         max_size = round.get_max_players()
 
-        active_players = list(
-            round.roster.filter(status=SessionPlayer.StatusChoices.ACTIVE)
-        )
+        active_players = list(cls._get_active_tournament_players(stage))
         total_players = len(active_players)
 
         if total_players == 0:
@@ -586,10 +746,9 @@ class GroupingService:
 
             group = PlayerGroup.objects.create(
                 round=round,
-                session=session,
                 group_number=group_number,
-                name=generate_name(group_number, NameConvention(session.naming_convention)),
-                created_via=GroupingSession.AlgorithmChoices.RANDOM,
+                name=generate_name(group_number, NameConvention(stage.naming_convention)),
+                created_via=Stage.GroupingTypeChoices.RANDOM,
                 all_hours=[],
             )
             group_number += 1
@@ -597,76 +756,199 @@ class GroupingService:
             for _ in range(group_size):
                 if player_index >= len(active_players):
                     break
-                group.session_players.add(active_players[player_index])
+                group.tournament_players.add(active_players[player_index])
                 player_index += 1
 
-        session.recalculate_statistics()
+        cls._recalculate_stage_stats(stage, round)
 
     @classmethod
     @transaction.atomic
-    def assign_player_to_group(cls, session_player, to_group, round, moved_by=None):
+    def generate_swiss_groups(cls, stage, round):
+        """
+        Generate groups that minimise repeat opponent matchups across rounds.
+
+        Derives opponent history from finalized PlayerGroups in prior rounds of
+        the same stage and uses a greedy algorithm with random restarts to
+        minimise the number of players facing the same opponents again.
+
+        Args:
+            stage: Stage instance (provides config/naming)
+            round: Round instance (provides group size constraints)
+        """
+        min_size = round.get_min_players()
+        max_size = round.get_max_players()
+
+        active_players = list(cls._get_active_tournament_players(stage))
+        if not active_players:
+            return
+
+        tp_map = {tp.id: tp for tp in active_players}
+        player_ids = list(tp_map.keys())
+
+        conflict_map = build_opponent_history(stage, round)
+
+        groups_data, ungrouped_ids = swiss_group_assignment(
+            player_ids, conflict_map, min_size=min_size, max_size=max_size
+        )
+
+        group_number = round.player_groups.count() + 1
+        conflict_groups = 0
+
+        for group_data in groups_data:
+            group = PlayerGroup.objects.create(
+                round=round,
+                group_number=group_number,
+                name=generate_name(group_number, NameConvention(stage.naming_convention)),
+                created_via=Stage.GroupingTypeChoices.SWISS,
+                all_hours=[],
+            )
+            group_number += 1
+
+            members = group_data['members']
+            for tp_id in members:
+                tp = tp_map.get(tp_id)
+                if tp:
+                    group.tournament_players.add(tp)
+
+            # Check for conflicts within this group
+            for i, a in enumerate(members):
+                for b in members[i + 1:]:
+                    if conflict_map.get(a, Counter()).get(b, 0) > 0:
+                        conflict_groups += 1
+                        break
+
+        if conflict_groups > 0:
+            round.grouping_notes = f"Warning: {conflict_groups} group(s) contain repeat matchups."
+            round.save(update_fields=['grouping_notes'])
+
+        cls._recalculate_stage_stats(stage, round)
+
+    @classmethod
+    @transaction.atomic
+    def generate_manual_groups(cls, stage, round):
+        """
+        Pre-create empty groups for manual assignment.
+        Uses the same group count logic as random grouping but leaves all
+        players ungrouped for the organiser to drag into groups.
+
+        Args:
+            stage: Stage instance (provides config/naming)
+            round: Round instance (provides group size constraints)
+        """
+        min_size = round.get_min_players()
+        max_size = round.get_max_players()
+
+        total_players = cls._get_active_tournament_players(stage).count()
+
+        if total_players == 0:
+            return
+
+        # Determine optimal number of groups (same logic as generate_random_groups)
+        best_config = None
+        min_leftover = total_players
+
+        for num_groups in range(1, (total_players // min_size) + 2):
+            base_size = total_players // num_groups
+            extra = total_players % num_groups
+
+            if min_size == max_size:
+                if num_groups * min_size <= total_players:
+                    leftover = total_players - (num_groups * min_size)
+                else:
+                    continue
+            else:
+                if base_size < min_size:
+                    continue
+                if base_size > max_size:
+                    continue
+                if base_size + 1 > max_size and extra > 0:
+                    continue
+                leftover = 0
+
+            if leftover < min_leftover:
+                min_leftover = leftover
+                best_config = num_groups
+
+        if best_config is None:
+            return
+
+        num_groups = best_config
+
+        for i in range(1, num_groups + 1):
+            PlayerGroup.objects.create(
+                round=round,
+                group_number=i,
+                name=generate_name(i, NameConvention(stage.naming_convention)),
+                created_via=Stage.GroupingTypeChoices.MANUAL,
+                all_hours=[],
+            )
+
+        cls._recalculate_stage_stats(stage, round)
+
+    @classmethod
+    @transaction.atomic
+    def assign_player_to_group(cls, tournament_player, to_group, round, moved_by=None):
         """
         Assign a player to a group within a round.
         Handles all transitions: ungrouped→group, group→group, group→ungrouped.
 
         Args:
-            session_player: SessionPlayer instance to move
+            tournament_player: TournamentPlayer instance to move
             to_group: PlayerGroup to assign to (None removes from all groups for this round)
             round: Round instance (scopes group membership)
             moved_by: Profile making the change (optional)
         """
         # Find the current group for this player in this round (if any)
-        current_groups = session_player.player_groups.filter(round=round)
+        current_groups = tournament_player.player_groups.filter(round=round)
         for current_group in current_groups:
-            current_group.session_players.remove(session_player)
+            current_group.tournament_players.remove(tournament_player)
             current_group.recalculate_overlap()
 
         if to_group:
-            to_group.session_players.add(session_player)
+            to_group.tournament_players.add(tournament_player)
             to_group.recalculate_overlap()
 
-        session_player.session.recalculate_statistics()
+        if round.stage_id:
+            cls._recalculate_stage_stats(round.stage, round)
 
     @classmethod
     @transaction.atomic
-    def remove_from_group(cls, session_player, round):
+    def remove_from_group(cls, tournament_player, round):
         """
         Remove a player from all groups in a round, returning them to ungrouped status.
 
         Args:
-            session_player: SessionPlayer instance
+            tournament_player: TournamentPlayer instance
             round: Round instance (scopes group membership)
         """
-        current_groups = list(session_player.player_groups.filter(round=round))
+        current_groups = list(tournament_player.player_groups.filter(round=round))
         for group in current_groups:
-            group.session_players.remove(session_player)
+            group.tournament_players.remove(tournament_player)
             group.recalculate_overlap()
 
-        cls.calculate_best_fit_groups(session_player.session, round)
-        session_player.session.recalculate_statistics()
+        if round.stage_id:
+            cls.calculate_best_fit_groups(round.stage, round)
+            cls._recalculate_stage_stats(round.stage, round)
 
     @classmethod
     @transaction.atomic
-    def move_player(cls, from_group, to_group, session_player):
+    def move_player(cls, from_group, to_group, tournament_player):
         """
         Move a player from one group to another within the same round.
 
         Args:
             from_group: PlayerGroup to remove from
             to_group: PlayerGroup to add to (must be in the same round)
-            session_player: SessionPlayer instance to move
+            tournament_player: TournamentPlayer instance to move
         """
-        from_group.session_players.remove(session_player)
-        to_group.session_players.add(session_player)
+        from_group.tournament_players.remove(tournament_player)
+        to_group.tournament_players.add(tournament_player)
 
         from_group.recalculate_overlap()
         to_group.recalculate_overlap()
 
-        if from_group.session:
-            from_group.session.recalculate_statistics()
-
     @classmethod
-    def calculate_best_fit_groups(cls, session, round):
+    def calculate_best_fit_groups(cls, stage, round):
         """
         For each active ungrouped player in a round, find the best-fit PlayerGroup.
         Populates PlayerGroup.best_fit_players M2M with players not in the group
@@ -676,8 +958,13 @@ class GroupingService:
         if not groups:
             return
 
-        # Get ungrouped active players in this round
-        ungrouped = round.get_active_players_queryset()
+        # Get ungrouped active tournament players (active but not in any group for this round)
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(
+                player_groups__round=round
+            ).values_list('id', flat=True)
+        )
+        ungrouped = cls._get_active_tournament_players(stage).exclude(id__in=grouped_ids)
 
         # Clear existing best_fit_players for all groups in this round
         for group in groups:
@@ -694,31 +981,30 @@ class GroupingService:
             group_hours = set(group.overlap_hours)
             scored_players = []
 
-            for sp in ungrouped:
-                if not sp.availability_hours:
+            for tp in ungrouped:
+                if not tp.availability_hours:
                     continue
-                player_hours = set(sp.availability_hours)
+                player_hours = set(tp.availability_hours)
                 overlap = player_hours & group_hours
                 overlap_count = len(overlap)
                 if overlap_count > 0:
-                    scored_players.append((sp, overlap_count))
+                    scored_players.append((tp, overlap_count))
 
             # Sort by overlap count descending, keep top candidates
             scored_players.sort(key=lambda x: -x[1])
-            best_fits = [sp for sp, _ in scored_players[:5]]  # Store up to 5 best fits per group
+            best_fits = [tp for tp, _ in scored_players[:5]]  # Store up to 5 best fits per group
 
             if best_fits:
                 group.best_fit_players.set(best_fits)
 
     @classmethod
     @transaction.atomic
-    def finalize_session(cls, session, round):
+    def finalize_round_grouping(cls, round):
         """
         Finalize the grouping for a specific round.
-        Sets round.grouping_status to FINALIZED — does not affect other rounds.
+        Sets round.grouping_status to FINALIZED.
 
         Args:
-            session: GroupingSession instance
             round: Round instance to finalize grouping for
         """
         from the_warroom.models import Round as RoundModel
@@ -727,92 +1013,49 @@ class GroupingService:
 
     @classmethod
     @transaction.atomic
-    def move_to_waitlist(cls, session_player):
+    def move_to_waitlist(cls, tournament_player):
         """
-        Move a player to the session waitlist.
-        Updates their SurveyResponse.response_position if applicable.
+        Move a player to the tournament waitlist.
+        Removes them from any groups they are in.
 
         Args:
-            session_player: SessionPlayer instance
+            tournament_player: TournamentPlayer instance
         """
-        session = session_player.session
-
-        # Remove from any groups in all rounds this player is rostered in
-        for round in session_player.rounds.all():
-            for group in session_player.player_groups.filter(round=round):
-                group.session_players.remove(session_player)
-                group.recalculate_overlap()
+        # Remove from any groups
+        for group in tournament_player.player_groups.all():
+            group.tournament_players.remove(tournament_player)
+            group.recalculate_overlap()
 
         # Update status to waitlist
-        session_player.status = SessionPlayer.StatusChoices.WAITLIST
-        session_player.save(update_fields=['status'])
-
-        # Update survey response position if applicable
-        if session_player.survey_response and session.survey:
-            survey = session.survey
-            if survey.waitlist_threshold:
-                max_position = survey.responses.aggregate(
-                    max_pos=Max('response_position')
-                )['max_pos'] or 0
-                session_player.survey_response.response_position = max_position + 1
-                session_player.survey_response.save(update_fields=['response_position'])
-
-        session.recalculate_statistics()
+        tournament_player.status = TournamentPlayer.StatusChoices.WAITLIST
+        tournament_player.save(update_fields=['status'])
 
     @classmethod
     @transaction.atomic
-    def move_from_waitlist(cls, session_player, to_group=None):
+    def sync_survey_responses_to_tournament(cls, tournament, survey):
         """
-        Move a player from the session waitlist to active status (and optionally a group).
-        Updates their SurveyResponse.response_position if applicable.
-
-        Args:
-            session_player: SessionPlayer instance (status='waitlist')
-            to_group: PlayerGroup to add to (optional)
-        """
-        session = session_player.session
-
-        session_player.status = SessionPlayer.StatusChoices.ACTIVE
-        session_player.save(update_fields=['status'])
-
-        if to_group:
-            to_group.session_players.add(session_player)
-            to_group.recalculate_overlap()
-
-        # Update survey response position if applicable
-        if session_player.survey_response and session.survey:
-            survey = session.survey
-            if survey.waitlist_threshold:
-                threshold = survey.waitlist_threshold
-                survey.responses.filter(
-                    response_position__gte=threshold
-                ).update(response_position=F('response_position') + 1)
-                session_player.survey_response.response_position = threshold
-                session_player.survey_response.save(update_fields=['response_position'])
-
-        session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def sync_survey_responses_to_session(cls, session, survey):
-        """
-        Sync survey respondents into a tournament's GroupingSession as SessionPlayers.
-        Creates or updates SessionPlayer records with availability data from survey responses.
+        Sync survey respondents into a tournament as TournamentPlayers.
+        Creates or updates TournamentPlayer records with availability data from survey responses.
         Does not overwrite waitlist/eliminated status.
-        Removes SessionPlayer records for profiles no longer in the survey.
+        Removes TournamentPlayer records for profiles no longer in the survey.
 
         Args:
-            session: GroupingSession instance (tournament-level)
+            tournament: Tournament instance
             survey: Survey instance to sync from
         """
-        from the_tavern.models import SurveyResponse
-
         accepted_responses = survey.responses.filter(
             profile__isnull=False
         ).select_related('profile').order_by('response_position')
 
         threshold = survey.waitlist_threshold if survey.has_waitlist else None
         accepted_profile_ids = set()
+
+        # Base waitlist position offset: new waitlist players are appended after existing ones
+        existing_max_waitlist = (
+            tournament.tournament_players
+            .filter(status=TournamentPlayer.StatusChoices.WAITLIST)
+            .aggregate(Max('waitlist_position'))['waitlist_position__max']
+        ) or 0
 
         for response in accepted_responses:
             profile = response.profile
@@ -821,53 +1064,65 @@ class GroupingService:
             is_waitlist = threshold and response.response_position > threshold
             availability = sorted(list(response.get_combined_availability_hours()))
 
-            sp, created = SessionPlayer.objects.get_or_create(
-                session=session,
+            # Waitlist position = existing max + relative position within this survey's waitlist
+            waitlist_pos = (existing_max_waitlist + (response.response_position - threshold)) if is_waitlist else None
+
+            tp, created = TournamentPlayer.objects.get_or_create(
+                tournament=tournament,
                 profile=profile,
                 defaults={
                     'survey_response': response,
-                    'status': SessionPlayer.StatusChoices.WAITLIST if is_waitlist else SessionPlayer.StatusChoices.ACTIVE,
+                    'status': TournamentPlayer.StatusChoices.WAITLIST if is_waitlist else TournamentPlayer.StatusChoices.REGISTERED,
                     'availability_hours': availability,
+                    'waitlist_position': waitlist_pos,
                 }
             )
             if not created:
                 # Update availability hours and survey response reference
                 # But don't overwrite a manually-set waitlist or eliminated status
-                update_fields = ['availability_hours', 'survey_response']
-                sp.availability_hours = availability
-                sp.survey_response = response
-                sp.save(update_fields=update_fields)
+                tp.availability_hours = availability
+                tp.survey_response = response
+                tp.save(update_fields=['availability_hours', 'survey_response'])
 
-        # Remove SessionPlayer records for profiles no longer in the survey
-        session.session_players.exclude(
+        # Remove TournamentPlayer records for profiles no longer in the survey
+        tournament.tournament_players.exclude(
             profile_id__in=accepted_profile_ids
         ).delete()
 
-        session.recalculate_statistics()
-
     @classmethod
     @transaction.atomic
-    def create_groups_from_ungrouped(cls, session, round, min_hours=None):
+    def create_groups_from_ungrouped(cls, stage, round, min_hours=None):
         """
         Create new groups from ungrouped active players in a round.
 
         Args:
-            session: GroupingSession instance (provides config)
-            round: Round instance (provides player roster)
+            stage: Stage instance (provides config)
+            round: Round instance
             min_hours: Starting minimum consecutive hours (default: 4, will cascade to 3)
         """
-        ungrouped = list(round.get_active_players_queryset())
+        # Get ungrouped active tournament players
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(
+                player_groups__round=round
+            ).values_list('id', flat=True)
+        )
+        ungrouped = list(
+            TournamentPlayer.objects.filter(
+                tournament=stage.tournament,
+                status=TournamentPlayer.StatusChoices.REGISTERED
+            ).exclude(id__in=grouped_ids)
+        )
         if not ungrouped:
             return
 
         # Build availability map from ungrouped players
         availability_map = {}
-        sp_map = {}
+        tp_map = {}
 
-        for sp in ungrouped:
-            if sp.availability_hours:
-                availability_map[sp.profile_id] = set(sp.availability_hours)
-                sp_map[sp.profile_id] = sp
+        for tp in ungrouped:
+            if tp.availability_hours:
+                availability_map[tp.profile_id] = set(tp.availability_hours)
+                tp_map[tp.profile_id] = tp
 
         if not availability_map:
             return
@@ -906,47 +1161,20 @@ class GroupingService:
         for i, group_data in enumerate(groups_data, max_group_num + 1):
             group = PlayerGroup.objects.create(
                 round=round,
-                session=session,
                 group_number=i,
-                name=generate_name(i, NameConvention(session.naming_convention)),
-                created_via=GroupingSession.AlgorithmChoices.GREEDY,
+                name=generate_name(i, NameConvention(stage.naming_convention)),
+                created_via=Stage.GroupingTypeChoices.AVAILABILITY,
                 all_hours=[],
                 overlap_hours=sorted(list(group_data['overlap_hours'])),
                 total_overlap_hours=len(group_data['overlap_hours']),
             )
 
             for profile_id in group_data['members']:
-                sp = sp_map.get(profile_id)
-                if sp:
-                    group.session_players.add(sp)
+                tp = tp_map.get(profile_id)
+                if tp:
+                    group.tournament_players.add(tp)
 
             group.recalculate_overlap()
 
-        cls.calculate_best_fit_groups(session, round)
-        session.recalculate_statistics()
-
-    @classmethod
-    @transaction.atomic
-    def add_waitlist_to_round(cls, session, round, count=None):
-        """
-        Move waitlisted players into a round's roster.
-
-        Args:
-            session: GroupingSession instance
-            round: Round instance
-            count: Number of waitlist players to add (None = all)
-        """
-        waitlist_players = session.session_players.filter(
-            status=SessionPlayer.StatusChoices.WAITLIST
-        ).exclude(rounds=round)
-
-        if count is not None:
-            waitlist_players = waitlist_players[:count]
-
-        for sp in waitlist_players:
-            sp.status = SessionPlayer.StatusChoices.ACTIVE
-            sp.save(update_fields=['status'])
-            round.roster.add(sp)
-
-        cls.calculate_best_fit_groups(session, round)
-        session.recalculate_statistics()
+        cls.calculate_best_fit_groups(stage, round)
+        cls._recalculate_stage_stats(stage, round)

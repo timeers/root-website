@@ -9,9 +9,12 @@
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament_slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
             {% if round %}
-            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            {% if round.stage %}
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=round.stage.slug %}">{{ round.stage.name }}</a></li>
+            {% endif %}
+            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
             {% endif %}
             <li class="breadcrumb-item active">Manage Players</li>
         </ol>
@@ -20,7 +23,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="mb-0"><i class="bi bi-people me-2"></i>Manage Players</h2>
         {% if round %}
-        <a href="{% url 'round-settings' tournament_slug=tournament.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
+        <a href="{% url 'round-settings' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Back to Settings
         </a>
         {% else %}
@@ -29,7 +32,7 @@
         </a>
         {% endif %}
     </div>
-    {% if not round %}
+    {% if not round and is_owner %}
     <!-- Settings Card -->
     <div class="card mb-4">
         <div class="card-header bg-light">
@@ -78,7 +81,7 @@
                    class="form-control"
                    placeholder="Search players by Discord username..."
                    {% if round %}
-                   hx-get="{% url 'round-search-players' tournament_slug=tournament.slug round_slug=round.slug %}"
+                   hx-get="{% url 'round-search-players' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}"
                    hx-trigger="load, keyup changed delay:500ms"
                    {% else %}
                    hx-get="{% url 'tournament-search-players' slug=tournament.slug %}"
@@ -96,7 +99,7 @@
         <div class="col-md-6 col-xl-4 mb-4">
             <div class="card h-100">
                 <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-person-check me-2"></i>Players</span>
+                    <span><i class="bi bi-person-check me-2"></i>Registered</span>
                     <span class="badge bg-white text-success" id="players-count">{{ players.count }}</span>
                 </div>
                 <div class="card-body" id="players-list" style="max-height: 500px; overflow-y: auto;">
@@ -145,6 +148,8 @@
     </div>
 </div>
 
+{% include 'the_keep/partials/register_player_modal.html' %}
+
 <script>
 // Toggle player count fields
 function togglePlayerCountFields() {
@@ -152,12 +157,13 @@ function togglePlayerCountFields() {
     const fields = document.getElementById('player-count-fields');
     fields.style.display = checkbox.checked ? 'flex' : 'none';
 }
-document.getElementById('id_enforce_player_count').addEventListener('change', togglePlayerCountFields);
+const enforceCheckbox = document.getElementById('id_enforce_player_count');
+if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCountFields);
 
 // Move player between groups via JavaScript/fetch
 function movePlayer(playerId, fromGroup, toGroup) {
     {% if round %}
-    const moveUrl = "{% url 'round-move-player' tournament_slug=tournament.slug round_slug=round.slug %}";
+    const moveUrl = "{% url 'round-move-player' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}";
     {% else %}
     const moveUrl = "{% url 'tournament-move-player' slug=tournament.slug %}";
     {% endif %}
@@ -210,16 +216,16 @@ function movePlayer(playerId, fromGroup, toGroup) {
     .catch(error => console.error('Error:', error));
 }
 
-// Refresh search results (for rounds only)
-{% if round %}
+// Refresh search results
 function refreshSearchResults() {
     const searchInput = document.querySelector('input[name="q"]');
     if (searchInput) {
-        // Get the current search query
         const searchQuery = searchInput.value;
-        const searchUrl = "{% url 'round-search-players' tournament_slug=tournament.slug round_slug=round.slug %}";
-
-        // Make HTMX request with current query
+        {% if round %}
+        const searchUrl = "{% url 'round-search-players' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}";
+        {% else %}
+        const searchUrl = "{% url 'tournament-search-players' slug=tournament.slug %}";
+        {% endif %}
         fetch(`${searchUrl}?q=${encodeURIComponent(searchQuery)}`)
             .then(response => response.text())
             .then(html => {
@@ -228,7 +234,6 @@ function refreshSearchResults() {
             .catch(error => console.error('Error refreshing search:', error));
     }
 }
-{% endif %}
 
 // Update badge counts
 function updatePlayerCounts() {
@@ -253,6 +258,60 @@ document.body.addEventListener('htmx:afterRequest', function(evt) {
 
         updatePlayerCounts();
     }
+});
+
+// --- Register New Player ---
+function openRegisterModal(searchTerm) {
+    document.getElementById('modal-discord').value = searchTerm || '';
+    document.getElementById('modal-display-name').value = '';
+    document.getElementById('player-modal-errors').innerHTML = '';
+    new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+}
+
+document.addEventListener('htmx:afterRequest', function(event) {
+    if (event.target.id !== 'register-player-modal-form') return;
+
+    const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+    if (!contentType || !contentType.includes('application/json')) return;
+
+    const errorContainer = document.getElementById('player-modal-errors');
+    errorContainer.innerHTML = '';
+
+    if (event.detail.xhr.status === 400) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const errors = JSON.parse(response.error);
+        let errorHtml = '<div class="alert alert-danger"><strong>Registration Failed:</strong><ul class="mb-0">';
+        for (const fieldName in errors) {
+            if (errors.hasOwnProperty(fieldName)) {
+                errors[fieldName].forEach(error => {
+                    errorHtml += `<li>${error.message}</li>`;
+                });
+            }
+        }
+        errorHtml += '</ul></div>';
+        errorContainer.innerHTML = errorHtml;
+    }
+
+    if (event.detail.xhr.status === 200) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        if (response.id && response.discord) {
+            const successDiv = document.createElement('div');
+            successDiv.classList.add('alert', 'alert-success');
+            successDiv.innerHTML = `<i class="bi bi-check-circle"></i> ${response.message || 'Player registered!'}`;
+            errorContainer.appendChild(successDiv);
+
+            movePlayer(response.id, '', 'players');
+
+            setTimeout(() => {
+                bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+                refreshSearchResults();
+            }, 750);
+        }
+    }
+});
+
+document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function() {
+    document.activeElement.blur();
 });
 </script>
 {% endblock %}

@@ -1,0 +1,307 @@
+{% extends 'the_keep/base.html' %}
+
+{% block title %}Manage Players - {{ stage.name }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item active">Manage Players</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="bi bi-people me-2"></i>Manage Stage Players</h2>
+        <a href="{% url 'stage-settings' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
+    </div>
+
+    <p class="text-muted mb-4">
+        Manage which tournament players are registered for <strong>{{ stage.name }}</strong>.
+        Adding unregistered players will also add them to <strong>{{ tournament.name }}</strong>.
+    </p>
+
+    <!-- Search to Add Players -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="bi bi-search me-2"></i>Add Players to Stage
+        </div>
+        <div class="card-body">
+            <input type="text"
+                   class="form-control"
+                   placeholder="Search tournament players by Discord username..."
+                   hx-get="{% url 'stage-search-players' tournament_slug=tournament.slug stage_slug=stage.slug %}"
+                   hx-trigger="load, keyup changed delay:500ms"
+                   hx-target="#player-search-results"
+                   name="q">
+            <div id="player-search-results" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Three Column Player Groups -->
+    <div class="row">
+        <!-- Active Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-person-check me-2"></i>Active</span>
+                    <span class="badge bg-white text-success" id="players-count">{{ participants.count }}</span>
+                </div>
+                <div class="card-body" id="players-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for sp in participants %}
+                        {% include 'the_warroom/partials/stage_player_card.html' with player=sp.tournament_player.profile group='players' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="players-empty">No active players</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Eliminated Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-person-x me-2"></i>Eliminated</span>
+                    <span class="badge bg-white text-danger" id="eliminated-count">{{ eliminated_participants.count }}</span>
+                </div>
+                <div class="card-body" id="eliminated-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for sp in eliminated_participants %}
+                        {% include 'the_warroom/partials/stage_player_card.html' with player=sp.tournament_player.profile group='eliminated' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="eliminated-empty">No eliminated players</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Withdrawn Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-dash-circle me-2"></i>Withdrawn</span>
+                    <span class="badge bg-white text-secondary" id="withdrawn-count">{{ withdrawn_participants.count }}</span>
+                </div>
+                <div class="card-body" id="withdrawn-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for sp in withdrawn_participants %}
+                        {% include 'the_warroom/partials/stage_player_card.html' with player=sp.tournament_player.profile group='withdrawn' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="withdrawn-empty">No withdrawn players</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="confirmUnregisteredModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Unregistered Player</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Add <strong id="unregistered-player-name"></strong> to <strong>{{ tournament.name }}</strong> as a Registered player and add them to <strong>{{ stage.name }}</strong>?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmUnregisteredBtn">Add Player</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include 'the_keep/partials/register_player_modal.html' %}
+
+<script>
+const moveUrl = "{% url 'stage-move-player' tournament_slug=tournament.slug stage_slug=stage.slug %}";
+
+function movePlayer(playerId, fromGroup, toGroup) {
+    fetch(moveUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            from_group: fromGroup,
+            to_group: toGroup
+        })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Failed to move player');
+        return response.text();
+    })
+    .then(html => {
+        // Remove from current list
+        const sourceGroup = fromGroup || 'available_stage';
+        const playerCard = document.getElementById(`player-${playerId}-${sourceGroup}`)
+                        || document.getElementById(`player-${playerId}-available_stage`);
+        if (playerCard) playerCard.remove();
+
+        // Determine actual target group — read from returned card's data-group attribute
+        // (the server may assign a different group than requested, e.g. mirroring tournament status)
+        let actualGroup = toGroup;
+        if (html.trim()) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            const card = tmp.querySelector('.player-card');
+            if (card && card.dataset.group) actualGroup = card.dataset.group;
+        }
+
+        // Add to target list
+        if (actualGroup) {
+            const targetList = document.getElementById(`${actualGroup}-list`);
+            if (targetList) {
+                const emptyMsg = document.getElementById(`${actualGroup}-empty`);
+                if (emptyMsg) emptyMsg.remove();
+                targetList.insertAdjacentHTML('beforeend', html);
+            }
+        }
+
+        updatePlayerCounts();
+
+        // Refresh search results if player was removed
+        if (!toGroup) {
+            refreshSearchResults();
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function refreshSearchResults() {
+    const searchInput = document.querySelector('input[name="q"]');
+    if (searchInput) {
+        const searchQuery = searchInput.value;
+        const searchUrl = "{% url 'stage-search-players' tournament_slug=tournament.slug stage_slug=stage.slug %}";
+        fetch(`${searchUrl}?q=${encodeURIComponent(searchQuery)}`)
+            .then(response => response.text())
+            .then(html => {
+                document.getElementById('player-search-results').innerHTML = html;
+            })
+            .catch(error => console.error('Error refreshing search:', error));
+    }
+}
+
+function updatePlayerCounts() {
+    const lists = ['players', 'eliminated', 'withdrawn'];
+    lists.forEach(group => {
+        const list = document.getElementById(`${group}-list`);
+        const badge = document.getElementById(`${group}-count`);
+        if (list && badge) {
+            badge.textContent = list.querySelectorAll('.player-card').length;
+        }
+    });
+}
+
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.successful && evt.detail.elt.closest('#player-search-results')) {
+        updatePlayerCounts();
+    }
+});
+
+let pendingUnregisteredId = null;
+
+function confirmAddUnregistered(playerId, playerName) {
+    pendingUnregisteredId = playerId;
+    document.getElementById('unregistered-player-name').textContent = playerName;
+    new bootstrap.Modal(document.getElementById('confirmUnregisteredModal')).show();
+}
+
+document.getElementById('confirmUnregisteredBtn').addEventListener('click', function() {
+    bootstrap.Modal.getInstance(document.getElementById('confirmUnregisteredModal')).hide();
+    if (pendingUnregisteredId) {
+        movePlayerUnregistered(pendingUnregisteredId);
+        pendingUnregisteredId = null;
+    }
+});
+
+function movePlayerUnregistered(playerId) {
+    fetch(moveUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ player_id: playerId, from_group: '', to_group: 'players', unregistered: true })
+    })
+    .then(r => { if (!r.ok) throw new Error('Failed'); return r.text(); })
+    .then(html => {
+        const card = document.getElementById(`player-${playerId}-unregistered`);
+        if (card) card.remove();
+        if (html.trim()) {
+            let actualGroup = 'players';
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            const returned = tmp.querySelector('.player-card');
+            if (returned && returned.dataset.group) actualGroup = returned.dataset.group;
+            const targetList = document.getElementById(`${actualGroup}-list`);
+            if (targetList) {
+                const emptyMsg = document.getElementById(`${actualGroup}-empty`);
+                if (emptyMsg) emptyMsg.remove();
+                targetList.insertAdjacentHTML('beforeend', html);
+            }
+        }
+        updatePlayerCounts();
+        refreshSearchResults();
+    })
+    .catch(err => console.error(err));
+}
+
+// --- Register New Player ---
+function openRegisterModal(searchTerm) {
+    document.getElementById('modal-discord').value = searchTerm || '';
+    document.getElementById('modal-display-name').value = '';
+    document.getElementById('player-modal-errors').innerHTML = '';
+    new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+}
+
+document.addEventListener('htmx:afterRequest', function(event) {
+    if (event.target.id !== 'register-player-modal-form') return;
+
+    const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+    if (!contentType || !contentType.includes('application/json')) return;
+
+    const errorContainer = document.getElementById('player-modal-errors');
+    errorContainer.innerHTML = '';
+
+    if (event.detail.xhr.status === 400) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const errors = JSON.parse(response.error);
+        let errorHtml = '<div class="alert alert-danger"><strong>Registration Failed:</strong><ul class="mb-0">';
+        for (const fieldName in errors) {
+            if (errors.hasOwnProperty(fieldName)) {
+                errors[fieldName].forEach(error => {
+                    errorHtml += `<li>${error.message}</li>`;
+                });
+            }
+        }
+        errorHtml += '</ul></div>';
+        errorContainer.innerHTML = errorHtml;
+    }
+
+    if (event.detail.xhr.status === 200) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        if (response.id && response.discord) {
+            const successDiv = document.createElement('div');
+            successDiv.classList.add('alert', 'alert-success');
+            successDiv.innerHTML = `<i class="bi bi-check-circle"></i> ${response.message || 'Player registered!'}`;
+            errorContainer.appendChild(successDiv);
+
+            movePlayerUnregistered(response.id);
+
+            setTimeout(() => {
+                bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+            }, 750);
+        }
+    }
+});
+
+document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function() {
+    document.activeElement.blur();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,153 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static warroom_tags %}
+
+{% block title %}{{ round.name }} - {% trans 'Matches' %} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            <li class="breadcrumb-item active">{% trans 'Matches' %}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ round.name }}</h1>
+            <small class="text-muted">{{ tournament.name }} &rsaquo; {{ stage.name }}</small>
+        </div>
+    </div>
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/round_nav_header.html' with active_page='matches' %}
+
+    <!-- Match Series -->
+    {% if match_series %}
+    <div class="row g-3">
+        {% for series in match_series %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>
+                        {% if series.player_group %}
+                        {{series.player_group.name}}
+                        {% else %}
+                        {% trans 'Match' %} {{ forloop.counter }}
+                        {% endif %}
+                    </strong>
+                    <div>
+                        {% comment %} {% if series.number_of_games > 1 %}
+                        <span class="badge bg-info">Bo{{ series.number_of_games }}</span>
+                        {% endif %} {% endcomment %}
+                        {% if series.status == 'Completed' %}
+                        <strong class="text-success">{% trans 'Complete' %}</strong>
+                        <i class="bi bi-check-circle text-success"></i>
+                        {% elif series.status == 'Active' %}
+                        <strong class="text-primary">{% trans 'Active' %}</strong>
+                        <i class="bi bi-circle-half text-primary"></i>
+                        {% else %}
+                        <strong class="text-secondary">{% trans 'Pending' %}</strong>
+                        <i class="bi bi-circle text-secondary"></i>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if series.player_group %}
+                    {% for tp in series.player_group.tournament_players.all %}
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <div class="parent">
+                            {% if tp.profile.image %}
+                            <img src="{{ tp.profile.image.url }}" alt="" class="avatar-icon image1">
+                            {% else %}
+                            <i class="bi bi-person-circle image1"></i>
+                            {% endif %}
+                            {% if series|is_series_winner:tp.id %}
+                            <img class="image2" src="{% static 'images/winner.png' %}" alt="Winner" style="max-height:30px;max-width:30px;top:1px;left:-5px;">
+                            {% endif %}
+                        </div>
+                        {% if series|is_series_winner:tp.id %}
+                        <strong>{{ tp.profile.display_name }}</strong>
+                        {% else %}
+                        <span>{{ tp.profile.display_name }}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% elif series.is_bye %}
+                    {% for bye_winner in series.winners.all %}
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        {% if bye_winner.tournament_player.profile.image %}
+                        <img src="{{ bye_winner.tournament_player.profile.image.url }}" alt="" class="rounded-circle" style="width:22px;height:22px;">
+                        {% else %}
+                        <i class="bi bi-person-circle"></i>
+                        {% endif %}
+                        <span>{{ bye_winner.tournament_player.profile.display_name }}</span>
+                        <span class="badge bg-secondary ms-auto">{% trans 'Bye' %}</span>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <p class="text-muted mb-0">{% trans 'Players TBD' %}</p>
+                    {% endif %}
+
+                    {% if series.number_of_games > 1 %}
+                    <hr class="my-2">
+                    <small class="text-muted">{% trans 'Games:' %}</small>
+                    {% for match in series.matches.all %}
+                    <div class="d-flex align-items-center gap-2 small">
+                        <span>{% trans 'Game' %} {{ forloop.counter }}</span>
+                        {% if match.game %}
+                            {% if match.game.final %}
+                            <a href="{{ match.game.get_absolute_url }}" class="ms-auto" title="{% trans 'View Game' %}"><i class="bi bi-box-arrow-up-right"></i></a>
+                            {% elif match.id in recordable_match_ids %}
+                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm py-0 ms-auto" title="{% trans 'Edit Game' %}"><i class="bi bi-pencil"></i></a>
+                            {% else %}
+                            <a href="{{ match.game.get_absolute_url }}" class="ms-auto" title="{% trans 'View Game' %}"><i class="bi bi-box-arrow-up-right"></i></a>
+                            {% endif %}
+                        {% elif match.id in recordable_match_ids %}
+                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm py-0 ms-auto" title="{% trans 'Record Game' %}"><i class="bi bi-plus-lg"></i></a>
+                        {% elif match.status == 'Completed' %}
+                        <span class="badge bg-success ms-auto">{% trans 'Done' %}</span>
+                        {% else %}
+                        <span class="text-muted ms-auto">—</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+
+                {% if series.number_of_games == 1 %}
+                    {% with match=series.matches.all.0 %}
+                    {% if match %}
+                    <div class="card-footer text-end">
+                        {% if match.game %}
+                            {% if match.game.final %}
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
+                            {% elif match.id in recordable_match_ids %}
+                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil me-1"></i>{% trans 'Edit Game' %}</a>
+                            {% else %}
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
+                            {% endif %}
+                        {% elif match.id in recordable_match_ids %}
+                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg me-1"></i>{% trans 'Record Game' %}</a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    {% endwith %}
+                {% endif %}
+
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted">{% trans 'No matches have been generated yet.' %}</p>
+    {% endif %}
+
+</div>
+{% endblock %}

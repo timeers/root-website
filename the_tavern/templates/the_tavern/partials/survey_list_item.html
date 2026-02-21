@@ -39,9 +39,9 @@
                             <i class="bi bi-people"></i>
                         {% endif %}
                         {{ survey.guild.guild_name }}
-                    {% elif survey.series_round %}
+                    {% elif survey.stage %}
                         | <i class="bi bi-trophy"></i>
-                        {{ survey.series_round.name }}
+                        {{ survey.stage.name }}
                     {% elif survey.series %}
                         | <i class="bi bi-trophy"></i>
                         {{ survey.series.name}}

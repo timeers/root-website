@@ -1,0 +1,1130 @@
+{% extends 'the_keep/base.html' %}
+{% block title %}{% if match_mode %}Record Match{% elif object.id %}Update Game{% else %}Record Game{% endif %} | {% endblock %}
+{% load crispy_forms_tags i18n %}
+
+{% block styles %}
+<style>
+    .drag-card {
+        display: flex;
+        align-items: stretch;
+        padding: 0 !important;
+        overflow: hidden;
+    }
+    .drag-card.hidden {
+        display: none;
+    }
+    .drag-bar {
+        width: 6px;
+        min-height: 100%;
+        background: var(--bs-primary, #0d6efd);
+        cursor: grab;
+        flex-shrink: 0;
+        transition: width 0.15s, background 0.15s;
+    }
+    .drag-bar:hover {
+        width: 10px;
+        background: var(--bs-info, #0dcaf0);
+    }
+    .drag-bar:active {
+        cursor: grabbing;
+    }
+    .drag-card-content {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+    }
+    .ui-sortable-helper .drag-bar {
+        background: var(--bs-info, #0dcaf0);
+        width: 10px;
+    }
+    .ui-state-highlight {
+        border: 2px dashed var(--bs-secondary, #6c757d);
+        background: transparent;
+        min-height: 60px;
+        border-radius: 0.375rem;
+    }
+</style>
+{% endblock styles %}
+
+{% block content %}
+
+{% if match_mode %}
+<div class="alert alert-info d-flex align-items-center gap-2">
+    <i class="bi bi-trophy"></i>
+    <div>
+        <strong>Match #{{ match.match_number }}</strong>
+        — {{ match.round.stage.tournament.name }} / {{ match.round.stage.name }} / {{ match.round.name }}
+        <br><small>{% trans 'Drag players to set seat order, then fill in game details.' %}</small>
+    </div>
+</div>
+{% endif %}
+
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <legend>
+        {% if object.id %}{% trans 'Update Game' %}
+        {% elif match_mode %}{% trans 'Record Match Game' %}
+        {% else %}{% trans 'Record New Game' %}
+        {% endif %}
+    </legend>
+    {% if not match_mode %}
+    <button class="btn btn-success btn-sm ms-2" type="button" id="open-register-modal">
+        <i class="bi bi-person-plus-fill"></i> {% trans "Register Player" %}
+    </button>
+    {% endif %}
+    <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
+        <i class="bi bi-info-circle"></i>
+    </button>
+</div>
+
+<div class="collapse" id="collapseInfo">
+    <div class="card card-body">
+        <div id="game-info"><small>
+            {% trans 'Each game must have a Deck and Map selected.' %}<br>
+            {% if not match_mode %}{% trans 'You can register new players with the Register Player button above.' %}<br>{% endif %}
+            {% trans 'If the game is in progress you can save instead of submitting. Once a game is submitted it cannot be edited.' %}<br>
+            <br>
+            {% trans 'Special Games:' %}<br>
+            {% trans 'If you are running a multihanded playtest you should select yourself as the Player for each Faction (Playtests will not affect player Leaderboards).' %}<br>
+            {% trans 'Do not select a Player for Clockwork Factions.' %}<br>
+            {% trans 'If you are playing a co-op game against Clockwork opponents, select either all Players or all Clockwork Factions as winners.' %}
+        </small></div>
+    </div>
+</div>
+
+{% if form.errors or form.non_field_errors or message or formset.non_form_errors %}
+<div class="alert alert-warning mt-2" role="alert">
+    {% if message %}{{ message }}{% endif %}
+    <ul>
+        {% for error in form.non_field_errors %}
+            <li>{{ error }}</li>
+        {% endfor %}
+        {% for field, errors in form.errors.items %}
+            {% for error in errors %}
+                <li><strong>{{ field }}:</strong> {{ error }}</li>
+            {% endfor %}
+        {% endfor %}
+        {% for error in formset.non_form_errors %}
+            <li>{{ error }}</li>
+        {% endfor %}
+        {% for effort_form in formset %}
+            {% for field, errors in effort_form.errors.items %}
+                {% for error in errors %}
+                    <li><strong>Player {{ forloop.parentloop.parentloop.counter }} - {{ field }}:</strong> {{ error }}</li>
+                {% endfor %}
+            {% endfor %}
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+
+<div style="margin-top: 30px;">
+<form method="POST" action="" id="game-form-v2">
+    {% csrf_token %}
+    {% if match_mode %}
+    <input type="hidden" name="match_id" value="{{ match.id }}">
+    {% endif %}
+    <input type="hidden" name="seat_order" id="seat-order" value="">
+    <input type="hidden" id="final" name="final" value="True">
+
+    <h2>{% trans 'Game Details' %}</h2>
+    <div class="form-control mb-1">
+        <div class="mb-2" id="game-nickname-field">
+            {% if match_mode %}
+                <strong>{{ match.name }}</strong>
+                <input type="hidden" name="nickname" value="{{ match.name|truncatechars:50 }}">
+            {% else %}
+                {{ form.nickname }}
+            {% endif %}
+        </div>
+
+        <div id="game-round-field">
+            {{ form.round.label_tag }}
+            {% if match_mode %}
+                <select name="round" id="id_round" class="form-control" disabled>
+                    <option value="{{ match.round.id }}" selected>{{ match.round }}</option>
+                </select>
+                <input type="hidden" name="round" value="{{ match.round.id }}">
+            {% else %}
+                {{ form.round }}
+            {% endif %}
+        </div>
+
+        <div id="game-platform-field">
+            {{ form.platform.label_tag }}
+            {% if platform_locked %}
+                <select name="platform" id="id_platform" class="form-control" disabled>
+                    <option value="{{ locked_platform }}" selected>{{ locked_platform }}</option>
+                </select>
+                <input type="hidden" name="platform" value="{{ locked_platform }}">
+                <small class="text-muted">{% trans 'Set by tournament' %}</small>
+            {% else %}
+                {{ form.platform }}
+            {% endif %}
+        </div>
+
+        <div class="timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
+            {{ form.type.label_tag }} {{ form.type }}
+        </div>
+
+        <div id="game-deck-field">
+            {{ form.deck.label_tag }} {{ form.deck }}
+        </div>
+        <div id="game-map-field">
+            {{ form.map.label_tag }} {{ form.map }} {{ form.random_clearing }} {% trans 'Random Clearings' %}
+        </div>
+
+        <div id="game-landmarks-field">
+            {{ form.landmarks.label_tag }} {{ form.landmarks }}
+        </div>
+        <div class="hireling-field" id="hireling-field">
+            {{ form.hirelings.label_tag }} {{ form.hirelings }}
+        </div>
+    </div>
+
+    <h2>{% trans 'Players' %}</h2>
+    <div class="hidden">{{ formset.management_form }}</div>
+    <div id="effort-form-list">
+        {% for form in formset %}
+            <div id="form-{{ forloop.counter0 }}" class="effort-form form-control mb-1 drag-card">
+                <div class="drag-bar sortable-handle"></div>
+                <div class="drag-card-content">
+
+                <div class="player-field">{% trans 'Player' %}: {{ form.player }}</div>
+
+                <div class="faction-field">{% trans 'Faction' %}: {{ form.faction }}</div>
+                <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ form.vagabond }}</div>
+                <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ form.captains }}</div>
+                <div class="score-field">{% trans 'Score' %}: {{ form.score }}</div>
+                <div class="win-field">{% trans 'Win' %}: {{ form.win }}</div>
+                <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ form.coalition_with }}</div>
+                <div class="dominance-field">{% trans 'Dominance' %}: {{ form.dominance }}</div>
+
+                {% if not match_mode %}
+                <button class="btn btn-warning btn-sm" type="button" onclick="deleteForm(this)">
+                    {% trans 'Remove' %}
+                </button>
+                {% endif %}
+
+                {% if form.instance.id %}
+                    <div style="display:none;">{{ form.id }}</div>
+                {% endif %}
+                <div style="display:none;">{{ form.delete }}</div>
+                </div>
+            </div>
+
+            {% if form.errors %}
+            <div class="alert alert-warning mt-1" role="alert">
+                <ul>
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    {% if not match_mode %}
+    <div id="empty-form" class="hidden effort-form form-control drag-card">
+        <div class="drag-bar sortable-handle"></div>
+        <div class="drag-card-content">
+        <div class="player-field">{% trans 'Player' %}: {{ formset.empty_form.player }}</div>
+        <div class="faction-field">{% trans 'Faction' %}: {{ formset.empty_form.faction }}</div>
+        <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ formset.empty_form.vagabond }}</div>
+        <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ formset.empty_form.captains }}</div>
+        <div class="score-field">{% trans 'Score' %}: {{ formset.empty_form.score }}</div>
+        <div class="win-field">{% trans 'Win' %}: {{ formset.empty_form.win }}</div>
+        <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ formset.empty_form.coalition_with }}</div>
+        <div class="dominance-field">{% trans 'Dominance' %}: {{ formset.empty_form.dominance }}</div>
+        <button class="btn btn-warning btn-sm" type="button" onclick="clearForm(this)">
+            {% trans 'Remove' %}
+        </button>
+        </div>
+    </div>
+    <div>
+        <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">{% trans 'Add Player' %} +</button>
+    </div>
+    {% endif %}
+
+    <h2>{% trans 'Misc.' %}</h2>
+    <div class="form-control">
+        <div id="game-undrafted_faction-field">
+            {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
+        </div>
+        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
+            {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
+        </div>
+        <div class="mt-2" id="game-tweaks-field">
+            {{ form.tweaks.label_tag }} {{ form.tweaks }}
+        </div>
+
+        <div class="mt-2" id="game-link-field">
+            {{ form.link }}
+            {% if link_required %}
+                <small class="text-warning"><i class="bi bi-exclamation-triangle"></i> {% trans 'Link is required for this tournament' %}</small>
+            {% endif %}
+            {% if form.link.errors %}
+            <div class="alert alert-warning" role="alert">
+                <ul>
+                    {% for error in form.link.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+        <div class="mt-2" id="game-notes-field">
+            {{ form.notes }}
+        </div>
+        <div class="mt-2" id="date-posted-field">
+            {% trans 'Date' %}: {{ form.date_posted }}
+        </div>
+    </div>
+
+    <button class="btn btn-success mb-2 mt-2" id="save" type="submit">{% trans 'Submit' %}</button>
+    <button class="btn btn-warning mb-2 mt-2" id="save-progress" type="button">{% trans 'Save Progress' %}</button>
+
+    {% if object.id %}
+        <a class="btn btn-secondary mb-2 mt-2" href="{{ object.get_absolute_url }}">{% trans 'Cancel' %}</a>
+        <a class="btn btn-danger mb-2 mt-2" href="{{ object.get_delete_url }}">{% trans 'Delete' %}</a>
+    {% else %}
+        <a class="btn btn-secondary mb-2 mt-2" href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
+    {% endif %}
+</form>
+</div>
+
+{% if not match_mode %}
+{% include 'the_keep/partials/register_player_modal.html' %}
+{% endif %}
+
+{% endblock content %}
+
+{% block scripts %}
+<script>
+const matchMode = {{ match_mode|yesno:"true,false" }};
+
+{% if not match_mode %}
+// Reusable function to add register button listener to a select element
+function addRegisterButtonListener(selectElement) {
+    selectElement.on('select2:open', function(e) {
+        const select2 = selectElement.data('select2');
+        const searchField = select2.$dropdown.find('.select2-search__field');
+
+        searchField.on('input', function() {
+            const searchTerm = $(this).val();
+
+            setTimeout(() => {
+                $('.register-player-btn-container').remove();
+
+                if (searchTerm.length > 0) {
+                    const results = select2.$results.find('.select2-results__option:not(.select2-results__message)');
+                    let hasExactMatch = false;
+
+                    results.each(function() {
+                        const resultText = $(this).text().trim().toLowerCase();
+                        if (resultText === searchTerm.toLowerCase()) {
+                            hasExactMatch = true;
+                            return false;
+                        }
+                    });
+
+                    if (!hasExactMatch) {
+                        const registerBtn = $(`
+                            <div class="register-player-btn-container p-2 border-top">
+                                <button type="button" class="btn btn-success btn-sm btn-block register-new-player"
+                                        data-search-term="${searchTerm}"
+                                        data-select-id="${selectElement.attr('id')}">
+                                    <i class="bi bi-person-plus-fill"></i> Register "${searchTerm}"
+                                </button>
+                            </div>
+                        `);
+                        select2.$results.append(registerBtn);
+                    }
+                }
+            }, 100);
+        });
+    });
+}
+
+// Open register player modal when clicking the register button
+document.getElementById("open-register-modal").addEventListener("click", function() {
+    document.getElementById("modal-discord").value = "";
+    document.getElementById("modal-display-name").value = "";
+    document.getElementById("player-modal-errors").innerHTML = "";
+    new bootstrap.Modal(document.getElementById("registerPlayerModal")).show();
+});
+
+// Blur active element when register modal closes
+document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
+    document.activeElement.blur();
+    $(this).data('source-select-id', null);
+});
+{% endif %}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const platformSelect = document.getElementById('id_platform');
+    const tournamentSelect = document.getElementById('id_round');
+    const deckSelect = document.getElementById('id_deck');
+    const mapSelect = document.getElementById('id_map');
+    const landmarksSelect = document.getElementById('id_landmarks');
+    const tweaksSelect = document.getElementById('id_tweaks');
+    const hirelingsSelect = document.getElementById('id_hirelings');
+    const undraftedFactionSelect = document.getElementById('id_undrafted_faction');
+    const undraftedVagabondSelect = document.getElementById('id_undrafted_vagabond');
+
+    // Uncheck all delete fields on load
+    var deleteFields = document.querySelectorAll('input[name$="-delete"]');
+    deleteFields.forEach(function(deleteField) {
+        deleteField.checked = false;
+    });
+
+    // ── jQuery UI Sortable on effort list ──
+    $('#effort-form-list').sortable({
+        handle: '.sortable-handle',
+        items: '.effort-form:not(.hidden)',
+        placeholder: 'ui-state-highlight mb-1',
+        stop: function(event, ui) {
+            updateSeatOrder();
+        }
+    });
+
+    function updateSeatOrder() {
+        var order = [];
+        $('#effort-form-list .effort-form:not(.hidden)').each(function() {
+            var formId = $(this).attr('id');
+            var formIndex = formId ? formId.replace('form-', '') : '';
+            if (formIndex !== '') {
+                order.push(formIndex);
+            }
+        });
+        $('#seat-order').val(order.join(','));
+    }
+
+    // ── Re-enable disabled fields on form submit ──
+    $('form#game-form-v2').on('submit', function() {
+        updateSeatOrder();
+        $(this).find('[disabled]').prop('disabled', false);
+    });
+
+    // ── Datepicker ──
+    $(document).ready(function(){
+        var today = new Date().toISOString().split('T')[0];
+        $(".datepicker").datepicker({
+            dateFormat: "yy-mm-dd",
+            changeMonth: true,
+            changeYear: true,
+            yearRange: "2018:c+10",
+            maxDate: today
+        });
+    });
+
+    // ── API URL helpers ──
+    function getAllOptionsUrlForPlatform(platformValue) {
+        const urls = {
+            'Tabletop Simulator': '/api/platform/tabletop_simulator/',
+            'Root Digital': '/api/platform/root_digital/',
+            'In Person': '/api/platform/in_person/'
+        };
+        return urls[platformValue] || '';
+    }
+
+    function getAllOptionsUrlForTournament(tournamentValue) {
+        return `/api/tournament/${tournamentValue}/`;
+    }
+
+    // ── updateSelectOptions — core helper from record_game.html ──
+    function updateSelectOptions(selectElement, optionsData, placeholderText) {
+        if (!selectElement) return;
+        placeholderText = placeholderText || '';
+        const currentSelections = selectElement.value ? Array.from(selectElement.selectedOptions).map(option => option.value) : [];
+        selectElement.innerHTML = '';
+
+        if (placeholderText) {
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.text = placeholderText;
+            selectElement.appendChild(placeholderOption);
+        }
+
+        let found = false;
+        optionsData.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.id;
+            option.text = item.name;
+            selectElement.appendChild(option);
+
+            if (currentSelections.includes(String(item.id))) {
+                found = true;
+            }
+        });
+
+        if (found) {
+            $(selectElement).val(currentSelections).trigger('change');
+        } else {
+            $(selectElement).val([]).trigger('change');
+        }
+    }
+
+    // ── Field update helpers ──
+    function updatePlayerFields(playersData) {
+        const playerFields = document.querySelectorAll('[id$="-player"]');
+        playerFields.forEach(playerField => {
+            updateSelectOptions(playerField, playersData, '----------');
+        });
+    }
+
+    function updateFactionFields(factionsData) {
+        const factionFields = document.querySelectorAll('[id$="-faction"]');
+        factionFields.forEach(factionField => {
+            updateSelectOptions(factionField, factionsData, '----------');
+        });
+    }
+
+    function updateVagabondsFields(vagabondsData) {
+        const vagabondFields = document.querySelectorAll('[id$="-vagabond"]');
+        vagabondFields.forEach(vagabondField => {
+            updateSelectOptions(vagabondField, vagabondsData, '----------');
+        });
+    }
+
+    function updateCaptainsFields(vagabondsData) {
+        const vagabondFields = document.querySelectorAll('[id$="-captains"]');
+        vagabondFields.forEach(vagabondField => {
+            updateSelectOptions(vagabondField, vagabondsData);
+        });
+    }
+
+    function updatePlatformField(platform) {
+        if (matchMode) return;
+        const platformSelectField = document.getElementById('id_platform');
+        let availablePlatforms = [];
+        if (platform) {
+            availablePlatforms.push({ id: platform, name: platform });
+        } else {
+            availablePlatforms = [
+                { id: "Tabletop Simulator", name: "Tabletop Simulator" },
+                { id: "Root Digital", name: "Root Digital" },
+                { id: "In Person", name: "In Person" }
+            ];
+        }
+        updateSelectOptions(platformSelectField, availablePlatforms, '');
+        if (!platformSelectField.value) {
+            platformSelectField.selectedIndex = 0;
+        }
+    }
+
+    // ── Dominance handling ──
+    function updateDominance(dominanceName, addDominance, specificFaction) {
+        dominanceName = dominanceName || '';
+        specificFaction = specificFaction || '';
+        const dominanceFields = document.querySelectorAll('[id$="-dominance"]');
+        dominanceFields.forEach(dominanceField => {
+            if (addDominance) {
+                if (!$(dominanceField).find(`option[value="${dominanceName}"]`).length) {
+                    if (specificFaction) {
+                        const parentContainer = dominanceField.closest('.effort-form');
+                        if (parentContainer) {
+                            const factionField = parentContainer.querySelector('[id$="-faction"]');
+                            if (factionField) {
+                                const selectedOption = factionField.options[factionField.selectedIndex];
+                                if (selectedOption) {
+                                    const currentFactionSelection = selectedOption.text;
+                                    if (currentFactionSelection === specificFaction) {
+                                        const dominanceNameOption = new Option(dominanceName, dominanceName);
+                                        $(dominanceField).append(dominanceNameOption);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        const dominanceNameOption = new Option(dominanceName, dominanceName);
+                        $(dominanceField).append(dominanceNameOption);
+                    }
+                }
+            } else {
+                $(dominanceField).find(`option[value="${dominanceName}"]`).remove();
+            }
+        });
+    }
+
+    function updateFactionSpecificLists() {
+        let coalitionObjectList = [];
+        let vbFound = false;
+        let frogFound = false;
+        let bearFound = false;
+        $('.effort-form').each((index, element) => {
+            var selector = "#id_form-" + index.toString() + "-faction";
+            var selectedOption = $(selector + ' option:selected');
+            var selectedText = selectedOption.text();
+            var selectedValue = selectedOption.val();
+
+            if (selectedText != 'Vagabond' || vbFound) {
+                if (selectedText != '----------' && selectedText != '') {
+                    if (!coalitionObjectList.some(option => option.id === selectedValue)) {
+                        coalitionObjectList.push({ id: selectedValue, name: selectedText });
+                    }
+                }
+            }
+            if (selectedText === 'Vagabond') { vbFound = true; }
+            if (selectedText === 'Lilypad Diaspora') { frogFound = true; }
+            if (selectedText === 'Crumbling Court') { bearFound = true; }
+        });
+
+        if (frogFound) {
+            updateDominance("Frog", true);
+        } else {
+            updateDominance("Frog", false);
+        }
+        if (bearFound) {
+            updateDominance("Mountain King", true, 'Crumbling Court');
+        } else {
+            updateDominance("Mountain King", false);
+        }
+
+        const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
+        coalitionFields.forEach(coalitionField => {
+            updateSelectOptions(coalitionField, coalitionObjectList, '----------');
+            if ($(coalitionField).is(":visible")) {
+                $(coalitionField).select2();
+            }
+        });
+    }
+
+    // ── Faction change handler per effort row ──
+    function setupSelector(index, element) {
+        var selector = "#id_form-" + index.toString() + "-faction";
+        var VBselector = "#id_form-" + index.toString() + "-vagabond";
+        var captainsSelector = "#id_form-" + index.toString() + "-captains";
+        var dominanceSelector = "#id_form-" + index.toString() + "-dominance";
+        var coalitionSelector = "#id_form-" + index.toString() + "-coalition_with";
+
+        $(selector).on('change', function(e) {
+            var selectedText = $(selector + ' option:selected').text();
+            var vagabondBlock = document.querySelector(VBselector)?.closest('.vagabond-field');
+            var dominanceBlock = document.querySelector(dominanceSelector)?.closest('.dominance-field');
+            var coalitionBlock = document.querySelector(coalitionSelector)?.closest('.coalition-field');
+            updateFactionSpecificLists();
+            if (selectedText == 'Vagabond') {
+                if (vagabondBlock) vagabondBlock.style.display = "block";
+                if (coalitionBlock) coalitionBlock.style.display = "block";
+                if (dominanceBlock) dominanceBlock.style.display = "none";
+                $(dominanceSelector).val(null).trigger('change');
+                $(VBselector).select2();
+                $(coalitionSelector).select2();
+            } else {
+                if (vagabondBlock) vagabondBlock.style.display = "none";
+                if (coalitionBlock) coalitionBlock.style.display = "none";
+                if (dominanceBlock) dominanceBlock.style.display = "block";
+                $(VBselector).val(null).trigger('change');
+                $(coalitionSelector).val(null).trigger('change');
+            }
+        });
+    }
+
+    // ── Fetch functions ──
+    function updateOptions(platformValue) {
+        const tournamentValue = tournamentSelect ? tournamentSelect.value : '';
+        var tournamentBlock = document.getElementById("game-round-field");
+
+        if (!matchMode && tournamentSelect) {
+            let tournamentCount = tournamentSelect.options ? tournamentSelect.options.length : 0;
+            if (tournamentCount < 2) {
+                tournamentBlock.style.display = "none";
+                $('#id_round').val(null).trigger('change');
+            }
+        }
+
+        if (tournamentValue) return Promise.resolve();
+
+        const url = getAllOptionsUrlForPlatform(platformValue);
+        if (!url) return Promise.resolve();
+
+        return fetch(url)
+            .then(response => {
+                if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+                return response.json();
+            })
+            .then(data => {
+                updateSelectOptions(deckSelect, data.decks, '{% trans "Choose a deck" %}');
+                updateSelectOptions(mapSelect, data.maps, '{% trans "Choose a map" %}');
+                updateSelectOptions(landmarksSelect, data.landmarks);
+                updateSelectOptions(tweaksSelect, data.tweaks);
+                updateSelectOptions(hirelingsSelect, data.hirelings);
+                updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
+                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+
+                if (!matchMode) {
+                    updatePlayerFields(data.players);
+                    updateFactionFields(data.factions);
+                    updateVagabondsFields(data.vagabonds);
+                    updateCaptainsFields(data.vagabonds);
+                } else {
+                    // Match mode: only update faction/vagabond lists on effort forms
+                    updateFactionFields(data.factions);
+                    updateVagabondsFields(data.vagabonds);
+                    updateCaptainsFields(data.vagabonds);
+                }
+                updateFactionSpecificLists();
+            })
+            .catch(error => {
+                console.error('Error fetching options:', error);
+            });
+    }
+
+    function updateTournamentOptions(tournamentValue) {
+        const url = getAllOptionsUrlForTournament(tournamentValue);
+
+        return fetch(url)
+            .then(response => {
+                if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+                return response.json();
+            })
+            .then(data => {
+                updateSelectOptions(deckSelect, data.decks, '{% trans "Choose a deck" %}');
+                updateSelectOptions(mapSelect, data.maps, '{% trans "Choose a map" %}');
+                updateSelectOptions(landmarksSelect, data.landmarks);
+                updateSelectOptions(tweaksSelect, data.tweaks);
+                updateSelectOptions(hirelingsSelect, data.hirelings);
+                updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
+                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+
+                if (!matchMode) {
+                    updatePlayerFields(data.players);
+                    updateFactionFields(data.factions);
+                    updateVagabondsFields(data.vagabonds);
+                    updateCaptainsFields(data.vagabonds);
+                    updatePlatformField(data.platform);
+                } else {
+                    // Match mode: only update faction/vagabond lists
+                    updateFactionFields(data.factions);
+                    updateVagabondsFields(data.vagabonds);
+                    updateCaptainsFields(data.vagabonds);
+                }
+                updateFactionSpecificLists();
+
+                setTimeout(() => {
+                    const platformValue = platformSelect.value;
+                    const timingBlock = document.getElementById("timing-field");
+                    const asyncRadio = document.getElementById("id_type_0");
+                    const liveRadio = document.getElementById("id_type_1");
+                    if (platformValue === "Root Digital") {
+                        if (asyncRadio) asyncRadio.checked = true;
+                        if (liveRadio) liveRadio.checked = false;
+                        if (timingBlock) timingBlock.style.display = "block";
+                    } else {
+                        if (asyncRadio) asyncRadio.checked = false;
+                        if (liveRadio) liveRadio.checked = true;
+                        if (timingBlock) timingBlock.style.display = "none";
+                    }
+                }, 0);
+            })
+            .catch(error => {
+                console.error('Error fetching options:', error);
+            });
+    }
+
+    // ── Platform change event ──
+    if (!matchMode && platformSelect) {
+        platformSelect.addEventListener('change', function() {
+            const platformValue = platformSelect.value;
+
+            updateOptions(platformValue).then(() => {
+                let hirelingsCount = hirelingsSelect ? hirelingsSelect.options.length : 0;
+                let tweaksCount = tweaksSelect ? tweaksSelect.options.length : 0;
+                let landmarksCount = landmarksSelect ? landmarksSelect.options.length : 0;
+
+                var hirelingsBlock = document.getElementById("hireling-field");
+                var tweaksBlock = document.getElementById("game-tweaks-field");
+                var landmarksBlock = document.getElementById("game-landmarks-field");
+                var timingBlock = document.getElementById("timing-field");
+
+                if (platformValue == "Root Digital") {
+                    var asyn = document.getElementById("id_type_0");
+                    if (asyn) asyn.checked = true;
+                    var live = document.getElementById("id_type_1");
+                    if (live) live.checked = false;
+                    if (timingBlock) timingBlock.style.display = "block";
+                } else {
+                    var asyn = document.getElementById("id_type_0");
+                    if (asyn) asyn.checked = false;
+                    var live = document.getElementById("id_type_1");
+                    if (live) live.checked = true;
+                    if (timingBlock) timingBlock.style.display = "none";
+                }
+                if (hirelingsCount < 1) {
+                    if (hirelingsBlock) hirelingsBlock.style.display = "none";
+                    $('#id_hirelings').val(null).trigger('change');
+                } else {
+                    if (hirelingsBlock) hirelingsBlock.style.display = "block";
+                    $('#id_hirelings').select2();
+                }
+                if (tweaksCount < 1) {
+                    if (tweaksBlock) tweaksBlock.style.display = "none";
+                    $('#id_tweaks').val(null).trigger('change');
+                } else {
+                    if (tweaksBlock) tweaksBlock.style.display = "block";
+                    $('#id_tweaks').select2();
+                }
+                if (landmarksCount < 1) {
+                    if (landmarksBlock) landmarksBlock.style.display = "none";
+                    $('#id_landmarks').val(null).trigger('change');
+                } else {
+                    if (landmarksBlock) landmarksBlock.style.display = "block";
+                    $('#id_landmarks').select2();
+                }
+
+                $('#id_deck').trigger('change');
+            });
+        });
+    }
+
+    // ── Round/Tournament change event ──
+    if (!matchMode && tournamentSelect) {
+        tournamentSelect.addEventListener('change', function() {
+            const tournamentValue = tournamentSelect.value;
+
+            if (tournamentValue) {
+                updateTournamentOptions(tournamentValue).then(() => {
+                    let hirelingsCount = hirelingsSelect ? hirelingsSelect.options.length : 0;
+                    let tweaksCount = tweaksSelect ? tweaksSelect.options.length : 0;
+                    let landmarksCount = landmarksSelect ? landmarksSelect.options.length : 0;
+
+                    var hirelingsBlock = document.getElementById("hireling-field");
+                    var tweaksBlock = document.getElementById("game-tweaks-field");
+                    var landmarksBlock = document.getElementById("game-landmarks-field");
+
+                    if (hirelingsCount < 1) {
+                        if (hirelingsBlock) hirelingsBlock.style.display = "none";
+                        $('#id_hirelings').val(null).trigger('change');
+                    } else {
+                        if (hirelingsBlock) hirelingsBlock.style.display = "block";
+                        $('#id_hirelings').select2();
+                    }
+                    if (tweaksCount < 1) {
+                        if (tweaksBlock) tweaksBlock.style.display = "none";
+                        $('#id_tweaks').val(null).trigger('change');
+                    } else {
+                        if (tweaksBlock) tweaksBlock.style.display = "block";
+                        $('#id_tweaks').select2();
+                    }
+                    if (landmarksCount < 1) {
+                        if (landmarksBlock) landmarksBlock.style.display = "none";
+                        $('#id_landmarks').val(null).trigger('change');
+                    } else {
+                        if (landmarksBlock) landmarksBlock.style.display = "block";
+                        $('#id_landmarks').select2();
+                    }
+
+                    $('#id_deck').trigger('change');
+                });
+            } else {
+                updateOptions(platformSelect.value);
+                updatePlatformField();
+            }
+        });
+    }
+
+    // ── Deck change — Dark dominance ──
+    $('#id_deck').on('change', function(e) {
+        const deckValue = $(this).find('option:selected').text();
+        if (deckValue === 'Dark') {
+            updateDominance('Dark', true);
+        } else {
+            updateDominance('Dark', false);
+        }
+    });
+
+    // ── Initial load ──
+    if (matchMode) {
+        // Match mode: tournament/round is locked, fetch tournament-filtered assets
+        updateTournamentOptions(tournamentSelect.value).then(() => {
+            let hirelingsCount = hirelingsSelect ? hirelingsSelect.options.length : 0;
+            let tweaksCount = tweaksSelect ? tweaksSelect.options.length : 0;
+            let landmarksCount = landmarksSelect ? landmarksSelect.options.length : 0;
+
+            var hirelingsBlock = document.getElementById("hireling-field");
+            var tweaksBlock = document.getElementById("game-tweaks-field");
+            var landmarksBlock = document.getElementById("game-landmarks-field");
+
+            if (hirelingsCount < 1 && hirelingsBlock) hirelingsBlock.style.display = "none";
+            else if (hirelingsBlock) { hirelingsBlock.style.display = "block"; $('#id_hirelings').select2(); }
+
+            if (tweaksCount < 1 && tweaksBlock) tweaksBlock.style.display = "none";
+            else if (tweaksBlock) { tweaksBlock.style.display = "block"; $('#id_tweaks').select2(); }
+
+            if (landmarksCount < 1 && landmarksBlock) landmarksBlock.style.display = "none";
+            else if (landmarksBlock) { landmarksBlock.style.display = "block"; $('#id_landmarks').select2(); }
+
+            $('#id_deck').trigger('change');
+        });
+    } else if (tournamentSelect && tournamentSelect.value !== "") {
+        document.getElementById('id_round').dispatchEvent(new Event('change'));
+    } else {
+        document.getElementById('id_platform').dispatchEvent(new Event('change'));
+    }
+
+    // ── Select2 initialization ──
+    $('#id_hirelings').select2();
+    $('#id_tweaks').select2();
+    $('#id_landmarks').select2();
+    $('#id_undrafted_faction').select2();
+    $('#id_undrafted_vagabond').select2();
+    $('#id_map').select2();
+    $('#id_deck').select2();
+
+    // ── Undrafted faction toggle ──
+    var undrafted_vagabondBlock = document.getElementById("undrafted-vagabond-field");
+    $('#id_undrafted_faction').on('change', function(e) {
+        var selectedText = $('#id_undrafted_faction option:selected').text();
+        if (selectedText == 'Vagabond') {
+            undrafted_vagabondBlock.style.display = "block";
+            $('#id_undrafted_vagabond').select2();
+        } else {
+            undrafted_vagabondBlock.style.display = "none";
+            $('#id_undrafted_vagabond').val(null).trigger('change');
+        }
+    });
+
+    // ── Initialize faction handlers + Select2 on all effort forms ──
+    $('.effort-form').each((index, element) => {
+        setupSelector(index, element);
+        $("#id_form-" + index.toString() + "-faction").select2();
+        if (!matchMode) {
+            $("#id_form-" + index.toString() + "-player").select2({
+                placeholder: "{% trans 'Search for a player...' %}",
+                allowClear: true,
+                language: {
+                    noResults: function(params) {
+                        return "{% trans 'No player found' %}";
+                    }
+                }
+            });
+        }
+        $("#id_form-" + index.toString() + "-vagabond").select2();
+        $("#id_form-" + index.toString() + "-coalition_with").select2();
+    });
+
+    // Trigger initial faction changes
+    $('#id_undrafted_faction').trigger('change');
+    $('#id_deck').trigger('change');
+    const initialFactionFields = document.querySelectorAll('[id$="-faction"]');
+    initialFactionFields.forEach(factionField => {
+        $(factionField).trigger('change');
+    });
+
+    {% if not match_mode %}
+    // ── Initialize player Select2 with register button ──
+    $(document).ready(function() {
+        $('[id$="-player"]:not(#empty-form [id$="-player"])').each(function() {
+            $(this).select2({
+                placeholder: "{% trans 'Search for a player...' %}",
+                allowClear: true,
+                language: {
+                    noResults: function(params) {
+                        return "{% trans 'No player found' %}";
+                    }
+                }
+            });
+            addRegisterButtonListener($(this));
+        });
+    });
+    {% endif %}
+
+    // ── Add / Remove effort forms (standalone mode) ──
+    {% if not match_mode %}
+    let nextFormIndex = document.querySelectorAll('.effort-form').length;
+
+    document.addEventListener('click', (event) => {
+        if (event.target.id == 'add-more') {
+            add_new_form(event);
+        }
+    });
+
+    function add_new_form(event) {
+        if (event) event.preventDefault();
+        const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+        const formCopyTarget = document.getElementById("effort-form-list");
+        const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true);
+        copyEmptyFormEl.setAttribute('class', 'effort-form form-control mb-1 drag-card');
+        copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`);
+        const regex = new RegExp('__prefix__', 'g');
+        copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex);
+        totalNewForms.setAttribute('value', nextFormIndex + 1);
+        formCopyTarget.append(copyEmptyFormEl);
+
+        setupSelector(nextFormIndex, formCopyTarget);
+        const playerSelect = $(`#id_form-${nextFormIndex}-player`);
+        playerSelect.select2({
+            placeholder: "{% trans 'Search for a player...' %}",
+            allowClear: true,
+            language: {
+                noResults: function(params) {
+                    return "{% trans 'No player found' %}";
+                }
+            }
+        });
+        addRegisterButtonListener(playerSelect);
+        $('#id_form-' + nextFormIndex + '-faction').select2();
+        $('#id_form-' + nextFormIndex + '-vagabond').select2();
+        $('#id_form-' + nextFormIndex + '-captains').select2();
+        $('#id_form-' + nextFormIndex + '-coalition_with').select2();
+
+        // Refresh sortable
+        $('#effort-form-list').sortable('refresh');
+        nextFormIndex++;
+    }
+    {% endif %}
+
+    // ── Save Progress button ──
+    const saveProgressButton = document.getElementById('save-progress');
+    const submitButton = document.getElementById('save');
+    if (saveProgressButton) {
+        saveProgressButton.addEventListener('click', function() {
+            document.getElementById('final').value = 'False';
+            if (submitButton) submitButton.click();
+        });
+    }
+
+    // ── Platform / timing toggle ──
+    if (!matchMode && platformSelect) {
+        function updateTimingVisibility() {
+            var timingBlock = document.getElementById('timing-field');
+            if (!timingBlock) return;
+            if (platformSelect.value === 'Root Digital') {
+                timingBlock.style.display = 'block';
+                var asyncRadio = document.getElementById('id_type_0');
+                if (asyncRadio) asyncRadio.checked = true;
+            } else {
+                timingBlock.style.display = 'none';
+                var liveRadio = document.getElementById('id_type_1');
+                if (liveRadio) liveRadio.checked = true;
+            }
+        }
+        updateTimingVisibility();
+    }
+});
+
+function deleteForm(button) {
+    var formDiv = button.closest('.effort-form');
+    var deleteField = formDiv.querySelector('input[name$="-delete"]');
+    if (deleteField) {
+        deleteField.checked = true;
+    }
+    formDiv.classList.add('hidden');
+}
+
+function clearForm(button) {
+    var formDiv = button.closest('.effort-form');
+    formDiv.remove();
+}
+
+{% if not match_mode %}
+// Handle clicking the register button - open modal
+$(document).on('click', '.register-new-player', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const searchTerm = $(this).data('search-term');
+    const selectId = $(this).data('select-id');
+
+    $('#registerPlayerModal').data('source-select-id', selectId);
+
+    const selectElement = $(`#${selectId}`);
+    if (selectElement.hasClass('select2-hidden-accessible')) {
+        selectElement.select2('close');
+    }
+
+    $('#modal-discord').val(searchTerm);
+    $('#player-modal-errors').html('');
+    new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+
+    $('#registerPlayerModal').on('shown.bs.modal', function() {
+        $('#modal-discord').focus();
+    });
+});
+
+// Handle register player form responses
+document.addEventListener('htmx:afterRequest', function(event) {
+    if (event.target.id !== 'register-form' && event.target.id !== 'register-player-modal-form') {
+        return;
+    }
+
+    const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+    if (!contentType || !contentType.includes('application/json')) {
+        return;
+    }
+
+    const isModal = event.target.id === 'register-player-modal-form';
+    const errorContainer = document.getElementById(isModal ? 'player-modal-errors' : 'player-form-errors');
+    errorContainer.innerHTML = '';
+
+    const existingErrorDivs = document.querySelectorAll('.error-message');
+    existingErrorDivs.forEach(div => div.remove());
+
+    if (event.detail.xhr.status === 400) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const errors = JSON.parse(response.error);
+
+        if (errors) {
+            let errorHtml = '<div class="alert alert-danger"><strong>{% trans "Registration Failed" %}:</strong><ul class="mb-0">';
+            for (const fieldName in errors) {
+                if (errors.hasOwnProperty(fieldName)) {
+                    const fieldErrors = errors[fieldName];
+                    fieldErrors.forEach(error => {
+                        errorHtml += `<li>${error.message}</li>`;
+                    });
+                    if (!isModal) {
+                        const field = document.querySelector(`[name="${fieldName}"]`);
+                        if (field) {
+                            const errorDiv = document.createElement('div');
+                            errorDiv.classList.add('error-message', 'alert', 'alert-warning');
+                            errorDiv.innerHTML = fieldErrors.map(error => `<p>${error.message}</p>`).join('');
+                            field.parentElement.appendChild(errorDiv);
+                        }
+                    }
+                }
+            }
+            errorHtml += '</ul></div>';
+            errorContainer.innerHTML = errorHtml;
+        }
+    }
+
+    if (event.detail.xhr.status === 200) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+
+        if (response.id && response.discord) {
+            const form = document.getElementById(event.target.id);
+            form.reset();
+
+            const successMessage = response.message || "{% trans 'Player registered successfully!' %}";
+            const successDiv = document.createElement('div');
+            successDiv.classList.add('success-message', 'alert', 'alert-success');
+            successDiv.innerHTML = `<p><i class="bi bi-check-circle"></i> ${successMessage}</p>`;
+            errorContainer.appendChild(successDiv);
+
+            const playerFields = document.querySelectorAll('[id$="-player"]');
+            playerFields.forEach(playerField => {
+                const newPlayerOption = document.createElement('option');
+                newPlayerOption.value = response.id;
+                newPlayerOption.text = response.discord;
+                playerField.appendChild(newPlayerOption);
+                $(playerField).trigger('change');
+            });
+
+            if (isModal) {
+                const sourceSelectId = $('#registerPlayerModal').data('source-select-id');
+                if (sourceSelectId) {
+                    const sourceSelect = $(`#${sourceSelectId}`);
+                    sourceSelect.val(response.id).trigger('change');
+                    $('#registerPlayerModal').data('source-select-id', null);
+                }
+                setTimeout(() => {
+                    bootstrap.Modal.getInstance(document.getElementById("registerPlayerModal")).hide();
+                }, 750);
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

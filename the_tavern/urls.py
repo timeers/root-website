@@ -1,14 +1,19 @@
 from django.urls import path
 from .views import (
                     survey_list_view, survey_history_view, survey_results_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_detail_view,
-                    survey_create_view, survey_edit_view, survey_delete_view, survey_preview_view, survey_duplicate_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds,
+                    survey_create_view, survey_edit_view, survey_delete_view, survey_preview_view, survey_duplicate_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds, get_tournament_stages,
                     get_question_data, survey_responses_view, save_question_template, get_question_template, delete_question_template, survey_admin_view, survey_quiz_settings_view,
                     survey_response_move_to_waitlist, survey_response_move_to_accepted, survey_response_delete,
                     survey_send_availability,
+                    tournament_surveys_view,
                     )
 
 urlpatterns = [
    
+    # Tournament/Stage scoped survey list
+    path('series/<slug:tournament_slug>/surveys/', tournament_surveys_view, name='tournament-surveys'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/surveys/', tournament_surveys_view, name='stage-surveys'),
+
     # Survey URLs
     path('surveys/', survey_list_view, name='survey-list'),
     path('surveys/history/', survey_history_view, name='survey-history'),
@@ -21,6 +26,7 @@ urlpatterns = [
     path('surveys/api/search-posts/', search_posts_for_survey, name='search-posts-for-survey'),
     path('surveys/api/search-players/', search_players_for_survey, name='search-players-for-survey'),
     path('surveys/api/tournament-rounds/', get_tournament_rounds, name='get-tournament-rounds'),
+    path('surveys/api/tournament-stages/', get_tournament_stages, name='get-tournament-stages'),
     path('surveys/api/question/<int:question_id>/', get_question_data, name='get-question-data'),
 
     path('surveys/<slug:slug>/', survey_detail_view, name='survey-detail'),

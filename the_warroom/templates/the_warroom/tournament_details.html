@@ -1,0 +1,105 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ tournament.name }} - {% trans 'Details' %} | {% endblock %}
+
+{% block meta %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ meta_title }} - {% trans 'Details' %}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item active">{% trans 'Details' %}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ tournament.name }}</h1>
+            {% if tournament.designer %}
+            <small class="text-muted">Hosted by {{ tournament.designer.name }}</small>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if tournament.description %}
+    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
+    {% endif %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='details' %}
+
+    <!-- Tournament Specifications -->
+    <div class="card">
+        <div class="card-body">
+            <h4 class="card-title mb-3">{{ tournament.get_classification_display }} Details</h4>
+            <dl class="row mb-0">
+                <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
+                <dd class="col-sm-8">
+                    {% if tournament.status == 'Active' %}
+                    <span class="badge bg-success">{{ tournament.get_status_display }}</span>
+                    {% elif tournament.status == 'Completed' %}
+                    <span class="badge bg-secondary">{{ tournament.get_status_display }}</span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark">{{ tournament.get_status_display }}</span>
+                    {% endif %}
+                </dd>
+
+                <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_coalition_type_display }}</dd>
+
+                {% if tournament.moderators.all %}
+                <dt class="col-sm-4 text-muted">{% trans 'Moderators' %}</dt>
+                <dd class="col-sm-8">
+                    {% for mod in tournament.moderators.all %}
+                    <a href="{{ mod.get_absolute_url }}">{{ mod.display_name }}</a>{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </dd>
+                {% endif %}
+
+                {% if tournament.default_format %}
+                <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_default_format_display }}</dd>
+                {% endif %}
+
+                {% if tournament.guild %}
+                <dt class="col-sm-4 text-muted">{% trans 'Guild' %}</dt>
+                <dd class="col-sm-8">{{ tournament.guild.name }}</dd>
+                {% endif %}
+
+                <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
+                <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+
+                <dt class="col-sm-4 text-muted">{% trans 'Asset Mode' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_asset_mode_display }}</dd>
+
+                {% if tournament.enforce_player_count %}
+                <dt class="col-sm-4 text-muted">{% trans 'Player Count' %}</dt>
+                <dd class="col-sm-8">{{ tournament.min_players }} – {{ tournament.max_players }}</dd>
+                {% endif %}
+
+                {% if tournament.platform %}
+                <dt class="col-sm-4 text-muted">{% trans 'Platform' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_platform_display }}</dd>
+                {% endif %}
+
+                <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
+                <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+            </dl>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

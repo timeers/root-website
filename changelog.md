@@ -8,6 +8,8 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Public, Private, and Discord Guild locked Surveys
 - Survey History to view your responses and past surveys
 - Create groups of players from your survey's responses based on availability questions
+- Rearange player turn order in the record game form
+- Edit submitted and finalized games
 
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update
@@ -16,10 +18,12 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Using Celery for Discord status updates
 - Scorecards have a more modern look and improved UI
 - Improved Series' Asset and Player managment pages
+- Option to add Tournament Moderators
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences
 - It is now possible to delete turns from an existing Scorecard
+- Fixed bug with RDL player names importing incorrectly
 
 ## [1.10.2] - 2026-1-14 Battlefield Unification
 The Battlefield now has a new tab structure to quickly navigate between games, leaderboards, series and your submitted games. A similar tab structure is added to the Workshop.

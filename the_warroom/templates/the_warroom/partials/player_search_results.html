@@ -6,7 +6,9 @@
     <h6 class="text-muted mb-2">Available Players:</h6>
     {% endif %}
     {% for player in players %}
-        {% if round %}
+        {% if stage %}
+            {% include 'the_warroom/partials/stage_player_card.html' with player=player group='available_stage' %}
+        {% elif round %}
             {% include 'the_warroom/partials/player_card.html' with player=player group='available_round' %}
         {% else %}
             {% include 'the_warroom/partials/player_card.html' with player=player group='available' %}
@@ -15,10 +17,30 @@
 </div>
 {% elif request.GET.q %}
 <div class="search-results border rounded p-2 mt-2 bg-light">
-    <p class="text-muted mb-0">No players found matching "{{ request.GET.q }}"{% if round %} in {{ tournament.name }}{% endif %}</p>
+    <p class="text-muted {% if not round %}mb-2{% else %}mb-0{% endif %}">No players found matching "{{ request.GET.q }}"{% if round or stage %} in {{ tournament.name }}{% endif %}</p>
+</div>
+{% elif stage %}
+<div class="search-results border rounded p-2 mt-2 bg-light">
+    <p class="text-muted mb-0">All tournament players have been added to this stage.</p>
 </div>
 {% elif round %}
 <div class="search-results border rounded p-2 mt-2 bg-light">
     <p class="text-muted mb-0">All tournament players have been added to this round.</p>
+</div>
+{% endif %}
+
+{% if stage and unregistered_players %}
+<div class="search-results border rounded p-2 mt-2 bg-light">
+    <h6 class="text-muted mb-2">Not in tournament:</h6>
+    {% for player in unregistered_players %}
+        {% include 'the_warroom/partials/stage_player_card.html' with player=player group='unregistered' %}
+    {% endfor %}
+</div>
+{% endif %}
+{% if request.GET.q and not round and not has_exact_match %}
+<div class="search-results border rounded p-2 mt-2 bg-light">
+    <button class="btn btn-sm btn-outline-primary" onclick="openRegisterModal('{{ request.GET.q|escapejs }}')">
+        <i class="bi bi-person-plus me-1"></i>Register "{{ request.GET.q }}" as new player
+    </button>
 </div>
 {% endif %}

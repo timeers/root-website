@@ -258,3 +258,83 @@ class PlayerGameFilter(django_filters.FilterSet):
             ).filter(matched_players=len(selected_players))
 
         return super().filter_queryset(queryset.distinct())
+
+
+class TournamentGameFilter(django_filters.FilterSet):
+
+    map = django_filters.ModelChoiceFilter(
+        queryset=Map.objects.none(),
+        empty_label='All',
+    )
+    deck = django_filters.ModelChoiceFilter(
+        queryset=Deck.objects.none(),
+        empty_label='All',
+    )
+    faction = django_filters.ModelMultipleChoiceFilter(
+        queryset=Faction.objects.none(),
+        field_name='efforts__faction',
+        label='Factions',
+    )
+    vagabond = django_filters.ModelMultipleChoiceFilter(
+        queryset=Vagabond.objects.none(),
+        field_name='efforts__vagabond',
+        label='Vagabonds',
+    )
+    player = django_filters.ModelMultipleChoiceFilter(
+        queryset=Profile.objects.none(),
+        field_name='efforts__player',
+        label='Players',
+    )
+
+    class Meta:
+        model = Game
+        fields = ['faction', 'vagabond', 'map', 'deck', 'player']
+
+    def __init__(self, *args, tournament=None, stage=None, round=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._tournament = tournament
+        self._stage = stage
+        self._round = round
+
+        if round:
+            game_filter = Q(games__round=round, games__final=True)
+            effort_filter = Q(efforts__game__round=round, efforts__game__final=True)
+        elif stage:
+            game_filter = Q(games__round__stage=stage, games__final=True)
+            effort_filter = Q(efforts__game__round__stage=stage, efforts__game__final=True)
+        elif tournament:
+            game_filter = Q(games__round__stage__tournament=tournament, games__final=True)
+            effort_filter = Q(efforts__game__round__stage__tournament=tournament, efforts__game__final=True)
+        else:
+            return
+
+        self.filters['faction'].queryset = Faction.objects.filter(effort_filter).distinct().order_by('title')
+        self.filters['vagabond'].queryset = Vagabond.objects.filter(effort_filter).distinct().order_by('title')
+        self.filters['deck'].queryset = Deck.objects.filter(game_filter).distinct().order_by('title')
+        self.filters['map'].queryset = Map.objects.filter(game_filter).distinct().order_by('title')
+        self.filters['player'].queryset = Profile.objects.filter(effort_filter).distinct().order_by('display_name')
+
+    def filter_queryset(self, queryset):
+        selected_factions = self.data.getlist('faction')
+        selected_players = self.data.getlist('player')
+        selected_vagabonds = self.data.getlist('vagabond')
+
+        if selected_factions:
+            queryset = queryset.filter(efforts__faction__in=selected_factions)
+            queryset = queryset.annotate(
+                matched_factions=Count('efforts__faction', filter=Q(efforts__faction__in=selected_factions), distinct=True)
+            ).filter(matched_factions=len(selected_factions))
+
+        if selected_vagabonds:
+            queryset = queryset.filter(efforts__vagabond__in=selected_vagabonds)
+            queryset = queryset.annotate(
+                matched_vagabonds=Count('efforts__vagabond', filter=Q(efforts__vagabond__in=selected_vagabonds), distinct=True)
+            ).filter(matched_vagabonds=len(selected_vagabonds))
+
+        if selected_players:
+            queryset = queryset.filter(efforts__player__in=selected_players)
+            queryset = queryset.annotate(
+                matched_players=Count('efforts__player', filter=Q(efforts__player__in=selected_players), distinct=True)
+            ).filter(matched_players=len(selected_players))
+
+        return super().filter_queryset(queryset.distinct())

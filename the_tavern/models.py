@@ -63,14 +63,15 @@ class SurveyQuerySet(models.QuerySet):
         Return surveys where the user has an invite.
         Checks:
         - Direct invite (invited_players)
-        - Series membership (player in any series GroupingSession, no round)
-        - Round membership (player in any round GroupingSession)
+        - Series membership (player is a TournamentPlayer for the series)
+        - Round membership (player is a TournamentPlayer for the tournament)
         - Guild membership
         """
         return self.filter(
             Q(is_public=False) & (
                 Q(invited_players=profile) |
-                Q(series__grouping_sessions__session_players__profile=profile) |
+                Q(series__tournament_players__profile=profile) |
+                Q(stage__participants__tournament_player__profile=profile) |
                 Q(guild__members=profile)
             )
         ).exclude(
@@ -94,7 +95,7 @@ class Survey(models.Model):
     # Survey Owner Objects
     post = models.ForeignKey('the_keep.Post', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Post that this survey is about.")
     series = models.ForeignKey('the_warroom.Tournament', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Tournament or Series that this survey is about.")
-    series_round = models.ForeignKey('the_warroom.Round', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Tournament Round that this survey is about.")
+    stage = models.ForeignKey('the_warroom.Stage', on_delete=models.SET_NULL, null=True, blank=True, related_name='surveys', help_text="The Tournament Stage that this survey is about.")
 
     is_public = models.BooleanField(default=True, help_text="If False, only certain players can access.")    
     is_pinned = models.BooleanField(default=False, help_text="If True, will appear at the top of lists.")    
@@ -212,16 +213,16 @@ class Survey(models.Model):
         if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
             return True
 
-        # If Private with Series Round, only allow Round players
-        if self.series_round:
-            if self.series_round.players.filter(pk=user_profile.pk).exists():
+        # If Private with Stage, only allow Stage participants
+        if self.stage:
+            if self.stage.participants.filter(tournament_player__profile=user_profile).exists():
                 return True
             else:
                 return False
 
         # If Private with Series, only allow Series players
         if self.series:
-            if self.series.players.filter(pk=user_profile.pk).exists():
+            if self.series.tournament_players.filter(profile=user_profile).exists():
                 return True
             else:
                 return False
@@ -261,16 +262,16 @@ class Survey(models.Model):
         if self.guild and user_profile.guilds.filter(pk=self.guild.pk).exists():
             return True
 
-        # If Private with Series Round, only allow Round players
-        if self.series_round:
-            if self.series_round.players.filter(pk=user_profile.pk).exists():
+        # If Private with Stage, only allow Stage participants
+        if self.stage:
+            if self.stage.participants.filter(tournament_player__profile=user_profile).exists():
                 return True
             else:
                 return False
 
         # If Private with Series, only allow Series players
         if self.series:
-            if self.series.players.filter(pk=user_profile.pk).exists():
+            if self.series.tournament_players.filter(profile=user_profile).exists():
                 return True
             else:
                 return False

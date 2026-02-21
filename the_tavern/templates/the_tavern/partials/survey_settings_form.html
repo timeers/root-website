@@ -92,8 +92,16 @@
                 {% if user_tournaments %}
                 <div class="col-md-6 mb-2">
                     <label for="series" class="form-label">{% trans 'Series/Tournament' %}</label>
-                        <select class="form-select" id="series" name="series" onchange="loadSeriesRounds()"
-                                {% if survey.series_round_id %}data-preselected-round="{{ survey.series_round_id }}"{% endif %}>
+                    {% if prefill_series_id %}
+                        {# Locked: show a read-only badge and submit value via hidden input #}
+                        <input type="hidden" name="series" value="{{ prefill_series_id }}">
+                        <div class="form-control bg-light d-flex align-items-center gap-2">
+                            {% for t in user_tournaments %}{% if t.id == prefill_series_id %}{{ t.name }}{% endif %}{% endfor %}
+                            <i class="bi bi-lock text-muted ms-auto" title="{% trans 'Locked' %}"></i>
+                        </div>
+                    {% else %}
+                        <select class="form-select" id="series" name="series" onchange="loadSeriesStages()"
+                                {% if survey.stage_id %}data-preselected-stage="{{ survey.stage_id }}"{% endif %}>
                             <option value="">{% trans 'No series association' %}</option>
                             {% for tournament in user_tournaments %}
                                 <option value="{{ tournament.id }}" {% if survey.series_id == tournament.id %}selected{% endif %}>{{ tournament.name }}</option>
@@ -106,19 +114,32 @@
                                 {% trans 'Players invited to this tournament will have access' %}
                             </small>
                         </div>
+                    {% endif %}
                 </div>
                 <div class="col-md-6 mb-2">
-                    <label for="series_round" class="form-label">{% trans 'Round' %}</label>
-                    <select class="form-select" id="series_round" name="series_round" {% if not survey.series %}disabled{% endif %}>
-                        <option value="">{% trans 'All rounds / No specific round' %}</option>
-                    </select>
-                    <small class="form-text text-muted">{% trans 'Optionally associate with a specific round' %}</small>
-                    <div class='alert alert-info' id="series_round_access_note" style="display: none;">
-                        <i class="bi bi-info-circle"></i>
-                        <small class="form-text text-muted">
-                            {% trans 'Players invited to this round will have access' %}
-                        </small>
-                    </div>
+                    <label for="stage" class="form-label">{% trans 'Stage' %}</label>
+                    {% if prefill_stage_id %}
+                        {# Locked: show a read-only badge and submit value via hidden input #}
+                        <input type="hidden" name="stage" value="{{ prefill_stage_id }}">
+                        <div class="form-control bg-light d-flex align-items-center gap-2" id="stage">
+                            {# Stage name is loaded async; use data attr so JS can fill it in #}
+                            <span id="prefill-stage-name" data-stage-id="{{ prefill_stage_id }}">
+                                {% trans 'Loading...' %}
+                            </span>
+                            <i class="bi bi-lock text-muted ms-auto" title="{% trans 'Locked' %}"></i>
+                        </div>
+                    {% else %}
+                        <select class="form-select" id="stage" name="stage" {% if not survey.series and not prefill_series_id %}disabled{% endif %}>
+                            <option value="">{% trans 'All stages / No specific stage' %}</option>
+                        </select>
+                        <small class="form-text text-muted">{% trans 'Optionally associate with a specific stage' %}</small>
+                        <div class='alert alert-info' id="stage_access_note" style="display: none;">
+                            <i class="bi bi-info-circle"></i>
+                            <small class="form-text text-muted">
+                                {% trans 'Players in this stage will have access' %}
+                            </small>
+                        </div>
+                    {% endif %}
                 </div>
                 {% endif %}
                 {% if user_posts %}

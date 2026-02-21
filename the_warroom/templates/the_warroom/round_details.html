@@ -1,0 +1,98 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ round.name }} - {% trans 'Details' %} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            <li class="breadcrumb-item active">{% trans 'Details' %}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ round.name }}</h1>
+            <small class="text-muted">{{ tournament.name }} &rsaquo; {{ stage.name }}</small>
+        </div>
+    </div>
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/round_nav_header.html' with active_page='details' %}
+
+    <!-- Round Specifications -->
+    <div class="card">
+        <div class="card-body">
+            <h4 class="card-title mb-3">{% trans 'Round Details' %}</h4>
+            <dl class="row mb-0">
+                <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
+                <dd class="col-sm-8">
+                    {% if round.status == 'active' %}
+                    <span class="badge bg-success">{{ round.get_status_display }}</span>
+                    {% elif round.status == 'completed' %}
+                    <span class="badge bg-secondary">{{ round.get_status_display }}</span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark">{{ round.get_status_display }}</span>
+                    {% endif %}
+                </dd>
+
+                <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
+                <dd class="col-sm-8">
+                    {{ round.get_format }}
+                    {% if not round.round_specific_format %}
+                    <small class="text-muted">({% trans 'inherited from stage' %})</small>
+                    {% endif %}
+                </dd>
+
+                {% if round.min_players or round.max_players %}
+                <dt class="col-sm-4 text-muted">{% trans 'Players per Game' %}</dt>
+                <dd class="col-sm-8">
+                    {% if round.min_players != round.max_players %}
+                    {{ round.min_players }} – {{ round.max_players }}
+                    {% else %}
+                    {{ round.max_players }}
+                    {% endif %}
+                </dd>
+                {% endif %}
+
+                <dt class="col-sm-4 text-muted">{% trans 'Game Threshold' %}</dt>
+                <dd class="col-sm-8">
+                    {{ round.get_game_threshold }}
+                    {% if round.game_threshold is None or round.game_threshold == 0 %}
+                    <small class="text-muted">({% trans 'inherited' %})</small>
+                    {% endif %}
+                </dd>
+
+                <dt class="col-sm-4 text-muted">{% trans 'Leaderboard Positions' %}</dt>
+                <dd class="col-sm-8">
+                    {{ round.get_leaderboard_positions }}
+                    {% if round.leaderboard_positions is None %}
+                    <small class="text-muted">({% trans 'inherited' %})</small>
+                    {% endif %}
+                </dd>
+
+                {% if round.start_date %}
+                <dt class="col-sm-4 text-muted">{% trans 'Dates' %}</dt>
+                <dd class="col-sm-8">
+                    {{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
+                </dd>
+                {% endif %}
+
+                <dt class="col-sm-4 text-muted">{% trans 'Grouping Status' %}</dt>
+                <dd class="col-sm-8">{{ round.get_grouping_status_display }}</dd>
+
+                <dt class="col-sm-4 text-muted">{% trans 'Bracket Status' %}</dt>
+                <dd class="col-sm-8">{{ round.get_bracket_status_display }}</dd>
+            </dl>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

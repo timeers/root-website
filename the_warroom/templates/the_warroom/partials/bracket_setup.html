@@ -1,0 +1,223 @@
+{% load i18n %}
+{# Mode 2: Bracket configuration after finalization #}
+{# Shown when is_finalized == True #}
+
+<!-- Bracket Configuration -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> {% trans 'Bracket Configuration' %}</h5>
+    </div>
+    <div class="card-body">
+        {% if has_matches %}
+        {% if is_bracket_finalized %}
+        <div class="alert alert-success mb-3">
+            <i class="bi bi-lock-fill"></i>
+            <strong>{% trans 'Bracket Finalized' %}</strong> — {{ match_count }} match{{ match_count|pluralize:"es" }} locked.
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-3">
+            <i class="bi bi-check-circle"></i>
+            <strong>{% trans 'Bracket Generated' %}</strong> — {{ match_count }} match{{ match_count|pluralize:"es" }} created.
+        </div>
+        {% endif %}
+
+        <!-- Match List -->
+        <div class="mb-3">
+            {% for series in bracket_series %}
+            <div class="card mb-2">
+                <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        {% if series.is_bye %}
+                        <strong>{{ series.name }}</strong>
+                        <span class="badge bg-info ms-2">{% trans 'Bye' %}</span>
+                        {% else %}
+                        <strong>Match {{ forloop.counter }}</strong>
+                        {% if series.player_group %}
+                        <span class="text-muted ms-2">{{ series.player_group.name|default:series.player_group.group_number }}</span>
+                        {% endif %}
+                        {% if series.number_of_games > 1 %}
+                        <span class="badge bg-secondary ms-2">Best of {{ series.number_of_games }}</span>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                    <div>
+                        {% if series.status == 'Completed' %}
+                        <span class="badge bg-success">{% trans 'Done' %}</span>
+                        {% elif series.status == 'Active' %}
+                        <span class="badge bg-primary">{% trans 'Active' %}</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{% trans 'Pending' %}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if not is_bracket_finalized %}
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-success btn-sm" onclick="finalizeBracket()">
+                <i class="bi bi-lock-fill"></i> {% trans 'Finalize Bracket' %}
+            </button>
+            <button class="btn btn-outline-warning btn-sm" onclick="document.getElementById('bracketConfigForm').style.display = 'block'; this.parentElement.style.display = 'none';">
+                <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Regenerate Bracket' %}
+            </button>
+        </div>
+        {% endif %}
+
+        <div id="bracketConfigForm" style="display: none;">
+        {% else %}
+        <div id="bracketConfigForm">
+        {% endif %}
+
+        {% if not is_bracket_finalized %}
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label for="best_of" class="form-label fw-bold">{% trans 'Games per Match Series' %}</label>
+                    <select class="form-select" id="best_of">
+                        {% for val in best_of_choices %}
+                        <option value="{{ val }}" {% if val == 1 %}selected{% endif %}>
+                            {% if val == 1 %}Single Game{% else %}Best of {{ val }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">How many games are played per match-up</small>
+                </div>
+
+                {% if round_format == 'Double Elimination' %}
+                <div class="col-md-6">
+                    <label for="losers_stage" class="form-label fw-bold">{% trans 'Losers Stage' %}</label>
+                    <select class="form-select" id="losers_stage" onchange="toggleNewStageName()">
+                        <option value="">{% trans 'None (eliminate losers)' %}</option>
+                        {% for s in other_stages %}
+                        <option value="{{ s.id }}">{{ s.name }}</option>
+                        {% endfor %}
+                        <option value="new">{% trans '+ Create New Stage' %}</option>
+                    </select>
+                    <small class="text-muted">Where eliminated players advance to</small>
+
+                    <div id="newStageNameWrapper" class="mt-2" style="display: none;">
+                        <input type="text" class="form-control" id="losers_stage_name" placeholder="e.g. Losers Bracket">
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if ungrouped_count > 0 %}
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="create_byes">
+                    <label class="form-check-label" for="create_byes">
+                        <strong>{% trans 'Create byes for ungrouped players' %}</strong>
+                        <br><small class="text-muted">{{ ungrouped_count }} ungrouped player{{ ungrouped_count|pluralize }} will advance automatically without playing</small>
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+
+            <button class="btn btn-primary" onclick="generateBracket()">
+                <i class="bi bi-diagram-3"></i>
+                {% if has_matches %}{% trans 'Regenerate Bracket' %}{% else %}{% trans 'Generate Bracket' %}{% endif %}
+            </button>
+        {% endif %}
+        </div>
+    </div>
+</div>
+
+{# Groups (read-only) #}
+{% include 'the_warroom/partials/grouping_groups.html' with editable=False %}
+
+{# Ungrouped Players (read-only) #}
+{% include 'the_warroom/partials/grouping_ungrouped.html' with editable=False %}
+
+<style>
+.group-card {
+    transition: box-shadow 0.2s;
+}
+.group-card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+</style>
+
+{% if bracket_url and not is_bracket_finalized %}
+<script>
+function toggleNewStageName() {
+    const select = document.getElementById('losers_stage');
+    const wrapper = document.getElementById('newStageNameWrapper');
+    if (select && wrapper) {
+        wrapper.style.display = select.value === 'new' ? 'block' : 'none';
+    }
+}
+
+function generateBracket() {
+    const bestOf = parseInt(document.getElementById('best_of').value);
+    const body = { best_of: bestOf };
+
+    const createByes = document.getElementById('create_byes');
+    if (createByes && createByes.checked) {
+        body.create_byes = true;
+    }
+
+    const losersSelect = document.getElementById('losers_stage');
+    if (losersSelect) {
+        if (losersSelect.value === 'new') {
+            const name = document.getElementById('losers_stage_name').value.trim();
+            if (!name) {
+                alert('Please enter a name for the losers stage.');
+                return;
+            }
+            body.losers_stage_name = name;
+        } else if (losersSelect.value) {
+            body.losers_stage_id = parseInt(losersSelect.value);
+        }
+    }
+
+    fetch('{{ bracket_url }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify(body)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.warnings && data.warnings.length > 0) {
+                alert('Bracket generated with warnings:\n' + data.warnings.join('\n'));
+            }
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while generating the bracket.');
+    });
+}
+
+function finalizeBracket() {
+    if (!confirm('Finalize the bracket? Matches can no longer be regenerated.')) return;
+    fetch('{{ bracket_finalize_url }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while finalizing the bracket.');
+    });
+}
+</script>
+{% endif %}

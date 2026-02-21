@@ -1,0 +1,61 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{{ round.name }} - {{ stage.name }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item active">{{ round.name }}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0 root-title">{{ round.name }}</h1>
+            <small class="text-muted">{{ tournament.name }} &rsaquo; {{ stage.name }}</small>
+        </div>
+    </div>
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/round_nav_header.html' with active_page='overview' %}
+
+    <!-- Round info -->
+    <div class="row mb-4 g-3">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <dl class="mb-0">
+                        <dt class="text-muted small">{% trans 'Status' %}</dt>
+                        <dd>
+                            {% if round.status == 'active' %}
+                            <span class="badge bg-success">{{ round.get_status_display }}</span>
+                            {% elif round.status == 'completed' %}
+                            <span class="badge bg-secondary">{{ round.get_status_display }}</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">{{ round.get_status_display }}</span>
+                            {% endif %}
+                        </dd>
+                        {% if round.start_date %}
+                        <dt class="text-muted small">{% trans 'Dates' %}</dt>
+                        <dd>
+                            {{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
+                        </dd>
+                        {% endif %}
+                        <dt class="text-muted small">{% trans 'Format' %}</dt>
+                        <dd>{{ round.get_format }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% load i18n %}
+{# Shared partial: Participant Groups card #}
+{# Requires context: session, groups, is_processing, editable #}
+
+{% if session and not is_processing %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-columns-gap"></i> {% trans 'Participant Groups' %}</h5>
+    </div>
+    <div class="card-body">
+
+        {% if not editable %}
+            <div class="alert alert-success mb-4">
+                <i class="bi bi-lock-fill"></i>
+                <strong>{% trans 'Grouping Finalized' %}</strong>
+                <p class="mb-0">Groups have been finalized and can no longer be modified.</p>
+            </div>
+        {% endif %}
+        <div class="row g-3 mb-4" id="groups-container">
+            {% if groups %}
+            {% for group in groups %}
+            <div class="col-md-4 col-lg-3" data-group-id="{{ group.id }}" data-group-name="{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}">
+                <div class="card h-100 group-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}</strong>
+                        <div>
+                            <span class="badge bg-secondary">{{ group.member_count }}</span>
+                            {% if group.conflict_count %}
+                            <span class="badge bg-warning text-dark ms-1"
+                                role="button"
+                                data-bs-toggle="popover"
+                                data-bs-trigger="click hover"
+                                data-bs-placement="bottom"
+                                data-bs-title="Repeat matchup{{ group.conflict_count|pluralize }}"
+                                data-bs-content="{{ group.conflict_description }}">
+                                <i class="bi bi-exclamation-triangle-fill"></i> {{ group.conflict_count }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-body p-2">
+                        <!-- Group Stats -->
+                        {% if session.grouping_type == 'availability' %}
+                        <div class="small text-muted mb-2">
+                            <i class="bi bi-clock"></i> {{ group.total_overlap_hours }}h overlap
+                            {% if group.best_consecutive_block %}
+                            ({{ group.best_consecutive_block }}h consecutive)
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        <!-- Members List -->
+                        <ul class="list-group list-group-flush group-members {% if editable %}sortable-group{% endif %}" data-group-id="{{ group.id }}">
+                            {% for sp in group.tournament_players.all %}
+                            <li class="list-group-item d-flex align-items-center player-item" data-player-id="{{ sp.id }}" data-source="group">
+                                {% if editable %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
+                                {% if sp.profile.image %}
+                                <img src="{{ sp.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                                {% else %}
+                                <i class="bi bi-person-circle me-2"></i>
+                                {% endif %}
+                                <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                            </li>
+                            {% empty %}
+                            <li class="list-group-item text-muted text-center empty-placeholder">
+                                <small>{% trans 'Drop players here' %}</small>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% if editable and group.member_count == 0 %}
+                    <div class="card-footer">
+                        <button class="btn btn-sm btn-outline-danger w-100" onclick="deleteGroup({{ group.id }})">
+                            <i class="bi bi-trash"></i> {% trans 'Delete' %}
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            <!-- New Group Dropzone -->
+            {% if editable %}
+            <div class="col-md-4 col-lg-3">
+                <div class="card h-100 border-dashed" style="border-style: dashed !important;">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center text-muted" id="new-group-zone">
+                        <i class="bi bi-plus-circle fs-1 mb-2"></i>
+                        <p class="mb-0">{% trans 'Drop to create new group' %}</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}

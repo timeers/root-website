@@ -57,7 +57,7 @@
                     {% if user.is_authenticated %}
                         {% if user.profile.admin or user.profile == object.designer %}
                         <div style="display: flex; justify-content: flex-end;">
-                        <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'round-create' object.slug %}">{% trans 'Add Round' %} +</a>
+                        <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'tournament-settings' slug=object.slug %}">{% trans 'Add Round' %} +</a>
                         </div>
                         {% endif %}
                     {% endif %}

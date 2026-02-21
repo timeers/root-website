@@ -29,7 +29,7 @@ from the_gatehouse.tasks import send_discord_message_task
 from the_gatehouse.views import player_required, player_onboard_required, admin_onboard_required
 from the_gatehouse.models import Profile, DiscordGuild
 
-from the_warroom.models import Tournament, Round, Game, GroupingSession, PlayerGroup, SessionPlayer
+from the_warroom.models import Tournament, Round, Game, TournamentPlayer, PlayerGroup, Stage
 from the_warroom.services.grouping import GroupingService
 
 from the_keep.models import Post
@@ -166,6 +166,23 @@ def get_tournament_rounds(request):
     } for r in rounds]
 
     return JsonResponse({'rounds': data})
+
+
+@login_required
+def get_tournament_stages(request):
+    """AJAX endpoint for fetching stages of a tournament."""
+    tournament_id = request.GET.get('tournament_id')
+
+    if not tournament_id:
+        return JsonResponse({'stages': []})
+
+    stages = Stage.objects.filter(
+        tournament_id=tournament_id
+    ).order_by('order')
+
+    data = [{'id': s.id, 'name': s.name} for s in stages]
+
+    return JsonResponse({'stages': data})
 
 
 @login_required
@@ -320,20 +337,19 @@ def survey_list_view(request):
             )
         )
         
-        # Check if user is in series (via GroupingSession/SessionPlayer)
-        # Any player in any GroupingSession for the tournament can access
+        # Check if user is in series (via TournamentPlayer)
         user_in_series = Exists(
             Survey.objects.filter(
                 pk=OuterRef('pk'),
-                series__grouping_sessions__session_players__profile=profile
+                series__tournament_players__profile=profile
             )
         )
 
-        # Check if user is on the round's roster
-        user_in_round = Exists(
+        # Check if user is a participant in the linked stage
+        user_in_stage = Exists(
             Survey.objects.filter(
                 pk=OuterRef('pk'),
-                series_round__roster__profile=profile
+                stage__participants__tournament_player__profile=profile
             )
         )
         
@@ -345,7 +361,7 @@ def survey_list_view(request):
                 user_is_invited=user_invited,
                 user_in_guild=user_in_guild,
                 user_in_series=user_in_series,
-                user_in_round=user_in_round,
+                user_in_stage=user_in_stage,
                 # Can respond if: multiple responses allowed OR hasn't responded yet
                 can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
                 # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
@@ -358,9 +374,9 @@ def survey_list_view(request):
                     When(Q(user_is_invited=True), then=Value(True)),
                     # Guild members
                     When(Q(user_in_guild=True), then=Value(True)),
-                    # Series round (blocks if has round but user not in it)
-                    When(Q(series_round__isnull=False, user_in_round=True), then=Value(True)),
-                    When(Q(series_round__isnull=False, user_in_round=False), then=Value(False)),
+                    # Stage (blocks if has stage but user not in it)
+                    When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
+                    When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
                     # Series (blocks if has series but user not in it)
                     When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
                     When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
@@ -378,7 +394,7 @@ def survey_list_view(request):
                 user_is_invited=user_invited,
                 user_in_guild=user_in_guild,
                 user_in_series=user_in_series,
-                user_in_round=user_in_round,
+                user_in_stage=user_in_stage,
                 # Can respond if: multiple responses allowed OR hasn't responded yet
                 can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
                 # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
@@ -391,9 +407,9 @@ def survey_list_view(request):
                     When(Q(user_is_invited=True), then=Value(True)),
                     # Guild members
                     When(Q(user_in_guild=True), then=Value(True)),
-                    # Series round (blocks if has round but user not in it)
-                    When(Q(series_round__isnull=False, user_in_round=True), then=Value(True)),
-                    When(Q(series_round__isnull=False, user_in_round=False), then=Value(False)),
+                    # Stage (blocks if has stage but user not in it)
+                    When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
+                    When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
                     # Series (blocks if has series but user not in it)
                     When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
                     When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
@@ -412,7 +428,7 @@ def survey_list_view(request):
                 user_is_invited=user_invited,
                 user_in_guild=user_in_guild,
                 user_in_series=user_in_series,
-                user_in_round=user_in_round,
+                user_in_stage=user_in_stage,
                 # Can respond if: multiple responses allowed OR hasn't responded yet
                 can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
                 # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
@@ -425,9 +441,9 @@ def survey_list_view(request):
                     When(Q(user_is_invited=True), then=Value(True)),
                     # Guild members
                     When(Q(user_in_guild=True), then=Value(True)),
-                    # Series round (blocks if has round but user not in it)
-                    When(Q(series_round__isnull=False, user_in_round=True), then=Value(True)),
-                    When(Q(series_round__isnull=False, user_in_round=False), then=Value(False)),
+                    # Stage (blocks if has stage but user not in it)
+                    When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
+                    When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
                     # Series (blocks if has series but user not in it)
                     When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
                     When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
@@ -2020,7 +2036,7 @@ def survey_edit_view(request, slug):
             # Get associations
             guild_id = request.POST.get('guild') or None
             series_id = request.POST.get('series') or None
-            series_round_id = request.POST.get('series_round') or None
+            stage_id = request.POST.get('stage') or None
             post_id = request.POST.get('post') or None
 
             # Get date fields
@@ -2065,7 +2081,7 @@ def survey_edit_view(request, slug):
             # Update associations
             survey.guild_id = guild_id
             survey.series_id = series_id
-            survey.series_round_id = series_round_id
+            survey.stage_id = stage_id
             survey.post_id = post_id
 
             # If survey is now public, clear access restrictions
@@ -2286,7 +2302,9 @@ def survey_edit_view(request, slug):
     if profile.admin:
         user_tournaments = Tournament.objects.open()
     else:
-        user_tournaments = profile.hosted_tournaments.open()
+        user_tournaments = Tournament.objects.open().filter(
+            Q(designer=profile) | Q(moderators=profile)
+        ).distinct()
 
     # Get public posts that the user designed
     user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()
@@ -2466,7 +2484,7 @@ def survey_create_view(request):
             # Get optional association fields
             guild_id = request.POST.get('guild') or None
             series_id = request.POST.get('series') or None
-            series_round_id = request.POST.get('series_round') or None
+            stage_id = request.POST.get('stage') or None
             post_id = request.POST.get('post') or None
             is_private = request.POST.get('is_private') == 'on'
             is_public = not is_private
@@ -2493,7 +2511,7 @@ def survey_create_view(request):
                 created_by=profile,
                 guild_id=guild_id,
                 series_id=series_id,
-                series_round_id=series_round_id,
+                stage_id=stage_id,
                 post_id=post_id,
             )
 
@@ -2589,11 +2607,32 @@ def survey_create_view(request):
         user_tournaments = Tournament.objects.open()
         user_guilds = DiscordGuild.objects.all()
     else:
-        user_tournaments = profile.hosted_tournaments.open()
+        user_tournaments = Tournament.objects.open().filter(
+            Q(designer=profile) | Q(moderators=profile)
+        ).distinct()
         user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
 
     # Get public posts that the user designed
     user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()
+
+    # Handle pre-fill from query params (e.g. coming from the settings hub)
+    prefill_series_id = None
+    prefill_stage_id = None
+    series_param = request.GET.get('series')
+    stage_param = request.GET.get('stage')
+    if series_param:
+        try:
+            prefill_tournament = Tournament.objects.get(id=series_param)
+            if profile.admin or prefill_tournament in user_tournaments:
+                prefill_series_id = prefill_tournament.id
+                if stage_param:
+                    try:
+                        prefill_stage = Stage.objects.get(id=stage_param, tournament=prefill_tournament)
+                        prefill_stage_id = prefill_stage.id
+                    except Stage.DoesNotExist:
+                        pass
+        except Tournament.DoesNotExist:
+            pass
 
     context = {
         'likert_scales': likert_scales,
@@ -2602,8 +2641,41 @@ def survey_create_view(request):
         'user_tournaments': user_tournaments,
         'user_posts': user_posts,
         'is_edit_mode': False,
+        'prefill_series_id': prefill_series_id,
+        'prefill_stage_id': prefill_stage_id,
     }
     return render(request, 'the_tavern/create_survey.html', context)
+
+
+@login_required
+def tournament_surveys_view(request, tournament_slug, stage_slug=None):
+    """List surveys associated with a tournament or a specific stage."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    profile = request.user.profile
+
+    if not tournament.has_permission(profile):
+        raise PermissionDenied
+
+    stage = None
+    surveys = Survey.objects.filter(series=tournament)
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        surveys = surveys.filter(stage=stage)
+
+    if stage:
+        create_url = reverse('survey-create') + f'?series={tournament.id}&stage={stage.id}'
+    else:
+        create_url = reverse('survey-create') + f'?series={tournament.id}'
+
+    context = {
+        'tournament': tournament,
+        'stage': stage,
+        'surveys': surveys,
+        'create_url': create_url,
+        'current_title': stage.name if stage else tournament.name,
+        'current_url': request.path,
+    }
+    return render(request, 'the_tavern/tournament_surveys.html', context)
 
 
 @login_required
@@ -2770,11 +2842,10 @@ def survey_quiz_settings_view(request, slug):
 @player_onboard_required
 def survey_send_availability(request, slug):
     """
-    Send survey respondents to a specific Round's roster.
-    Lets the user select from the survey's linked tournament's rounds
-    and adds accepted respondents to that round's roster.
+    Send survey respondents to a specific Stage's roster.
+    Lets the user select from the survey's linked tournament's stages
+    and adds accepted respondents to that stage's roster.
     """
-    from the_warroom.models import GroupingSession, Round, SessionPlayer
     from the_warroom.services.grouping import GroupingService
 
     survey = get_object_or_404(Survey, slug=slug)
@@ -2788,54 +2859,32 @@ def survey_send_availability(request, slug):
         return redirect('survey-detail', slug=survey.slug)
 
     tournament = survey.series
-    rounds = tournament.rounds.order_by('round_number', 'start_date')
+    stages = tournament.stages.order_by('order')
 
     if request.method == 'POST':
-        from the_warroom.services.slugify_titles import slugify_round_name
+        stage_id = request.POST.get('stage_id')
 
-        round_id = request.POST.get('round_id')
+        # Sync survey responses to TournamentPlayer records
+        GroupingService.sync_survey_responses_to_tournament(tournament, survey)
 
-        # Get or create the tournament's GroupingSession and sync survey responses
-        session, _ = GroupingSession.objects.get_or_create(
-            tournament=tournament,
-            survey=survey,
-            defaults={
-                'name': f"{tournament.name} - Availability",
-                'grouping_type': GroupingSession.GroupingTypeChoices.AVAILABILITY,
-                'created_by': profile,
-            }
-        )
-        GroupingService.sync_survey_responses_to_session(session, survey)
-
-        if round_id == 'none' or not round_id:
-            # Just sync to tournament — no round
-            count = session.session_players.count()
+        if stage_id == 'none' or not stage_id:
+            # Just sync to tournament — no stage
+            count = TournamentPlayer.objects.filter(tournament=tournament).count()
             messages.success(request, f'Synced {count} player(s) to {tournament.name}.')
             return redirect('tournament-manage-players', slug=tournament.slug)
 
-        if round_id == 'new':
-            # Create a new round automatically
-            next_number = (tournament.rounds.aggregate(m=models.Max('round_number'))['m'] or 0) + 1
-            new_round = Round(
-                tournament=tournament,
-                round_number=next_number,
-                start_date=timezone.now(),
-                name=request.POST.get('new_round_name') or f"Round {next_number}",
-            )
-            slugify_round_name(new_round, save=True)
-            target_round = new_round
-        else:
-            target_round = get_object_or_404(Round, id=round_id, tournament=tournament)
+        target_stage = get_object_or_404(Stage, id=stage_id, tournament=tournament)
 
-        # Add all active SessionPlayers to the round roster
-        added_count = 0
-        for sp in session.session_players.filter(status=SessionPlayer.StatusChoices.ACTIVE):
-            if not target_round.roster.filter(pk=sp.pk).exists():
-                target_round.roster.add(sp)
-                added_count += 1
+        registered_players = TournamentPlayer.objects.filter(
+            tournament=tournament,
+            status=TournamentPlayer.StatusChoices.REGISTERED,
+        )
+        for tp in registered_players:
+            target_stage.add_player(tp.profile)
 
-        messages.success(request, f'Added {added_count} player(s) to {target_round.name or f"Round {target_round.round_number}"}.')
-        return redirect('round-manage-players', tournament_slug=tournament.slug, round_slug=target_round.slug)
+        added_count = registered_players.count()
+        messages.success(request, f'Synced {added_count} player(s) to {target_stage.name}.')
+        return redirect('stage-manage-players', tournament_slug=tournament.slug, stage_slug=target_stage.slug)
 
 
     return_to = request.GET.get('return_to') or survey.get_absolute_url()
@@ -2846,8 +2895,8 @@ def survey_send_availability(request, slug):
     context = {
         'survey': survey,
         'tournament': tournament,
-        'rounds': rounds,
-        'designated_round': survey.series_round,
+        'stages': stages,
+        'designated_stage': survey.stage,
         'return_to': return_to,
         'return_title': return_title,
         'current_url': current_url,
