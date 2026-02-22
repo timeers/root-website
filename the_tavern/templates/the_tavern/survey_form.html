@@ -1,7 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
 {% load survey_filters %}
-{% block title %}{% trans 'Edit Survey' %} | {% endblock %}
+{% block title %}{% if is_edit_mode %}{% trans 'Edit Survey' %}{% else %}{% trans 'Create Survey' %}{% endif %} | {% endblock %}
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
@@ -9,21 +9,18 @@
 
 {% block content %}
 <div class="content-section">
+    {% if is_edit_mode %}
     <div class="mb-4 d-flex justify-content-between align-items-center">
         <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
         </a>
-        <div class="btn-group">
-            <a href="{% url 'survey-preview' survey.slug %}" class="btn btn-sm btn-outline-primary" target="_blank">
-                <i class="bi bi-eye"></i> {% trans 'Preview' %}
-            </a>
-            <button type="button" class="btn btn-sm btn-primary" onclick="saveAndPreview()">
-                <i class="bi bi-save"></i> {% trans 'Save & Preview' %}
-            </button>
-        </div>
     </div>
+    {% else %}
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+    {% endif %}
 
-    <h1 class="root-title">{% trans 'Edit Survey' %}</h1>
+
+    <h1 class="root-title">{% if is_edit_mode %}{% trans 'Edit Survey' %}{% else %}{% trans 'Create New Survey' %}{% endif %}</h1>
 
     <form method="POST" id="survey-form" novalidate>
         {% csrf_token %}
@@ -37,13 +34,14 @@
                 <h5 class="mb-0">{% trans 'Questions' %}</h5>
             </div>
             <div class="card-body" id="questions-container">
-                {% if survey.questions.all %}
+                {% if is_edit_mode and survey.questions.all %}
                     {# Existing questions will be loaded here #}
                 {% else %}
                     <p class="text-muted">{% trans 'No questions added yet. Click "Add Question" to get started.' %}</p>
                 {% endif %}
             </div>
             <div class="card-footer d-flex justify-content-end align-items-center">
+                {% if is_edit_mode %}
                 <div class="hidden-questions-dropdown" style="display: none;">
                     <div class="dropdown">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -53,6 +51,7 @@
                         </ul>
                     </div>
                 </div>
+                {% endif %}
                 <div class="btn-group">
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#templateModal">
                         <i class="bi bi-download"></i> {% trans 'Load from Template' %}
@@ -67,6 +66,7 @@
         {# Hidden input to store questions JSON data #}
         <input type="hidden" name="questions_data" id="questions-data">
 
+        {% if is_edit_mode %}
         <div class="d-none d-md-flex justify-content-between">
             <div>
             <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
@@ -99,6 +99,14 @@
                 </button>
             </div>
         </div>
+        {% else %}
+        <div class="d-flex justify-content-between">
+            <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check-circle"></i> {% trans 'Create Survey' %}
+            </button>
+        </div>
+        {% endif %}
     </form>
 </div>
 
@@ -108,11 +116,13 @@
 {# Template Selection Modal #}
 {% include 'the_tavern/modals/template_selection_modal.html' %}
 
+{% if is_edit_mode %}
 {# Duplicate Survey Confirmation Modal #}
 {% include 'the_tavern/modals/duplicate_survey_modal.html' %}
 
 {# Delete Survey Confirmation Modal #}
 {% include 'the_tavern/modals/delete_survey_modal.html' %}
+{% endif %}
 
 {% endblock content %}
 

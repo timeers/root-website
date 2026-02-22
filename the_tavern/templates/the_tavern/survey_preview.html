@@ -264,12 +264,5 @@
 {% load static %}
 <script>
 // Add custom filter to create range
-(function() {
-    // Make sure Bootstrap tooltips work if any are added
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-})();
 </script>
 {% endblock scripts %}

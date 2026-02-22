@@ -828,6 +828,16 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'placeholder': 'Give a brief description of the series.',
             'rows': '2'
         })
+        
+        # Filter guild choices to user's guilds
+        if user:
+            from django.conf import settings
+            from the_gatehouse.models import DiscordGuild
+            config = settings.CONFIG
+            if user.profile.admin:
+                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
+            else:
+                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
 
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:

@@ -98,6 +98,12 @@
         $(document.body).on("click", "tr[data-href]", function () {
             window.location.href = this.dataset.href;
         });
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el); });
+    });
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        var tooltips = [].slice.call(evt.detail.target.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltips.map(function (el) { return new bootstrap.Tooltip(el); });
     });
 </script>
     {% block scripts %}{% endblock %}

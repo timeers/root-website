@@ -73,6 +73,36 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Question text validation - clear invalid state on input (delegated for dynamic elements)
+    document.addEventListener('input', function(e) {
+        if (e.target.classList.contains('question-text')) {
+            if (e.target.value.trim()) {
+                e.target.classList.remove('is-invalid');
+                const feedback = e.target.parentNode.querySelector('.invalid-feedback.validation-error');
+                if (feedback) feedback.remove();
+            }
+        }
+    });
+
+    // Question type validation - clear invalid state on change (delegated for dynamic elements)
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('question-type')) {
+            if (e.target.value) {
+                e.target.classList.remove('is-invalid');
+                const feedback = e.target.parentNode.querySelector('.invalid-feedback.validation-error');
+                if (feedback) feedback.remove();
+            }
+        }
+        // Likert scale validation - clear invalid state on change
+        if (e.target.classList.contains('likert-scale-select')) {
+            if (e.target.value) {
+                e.target.classList.remove('is-invalid');
+                const feedback = e.target.parentNode.querySelector('.invalid-feedback.validation-error');
+                if (feedback) feedback.remove();
+            }
+        }
+    });
+
     const searchInput = document.getElementById('player-search-input');
     if (searchInput) {
         searchInput.addEventListener('input', function() {
@@ -1605,6 +1635,24 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
     console.log('Found', questionCards.length, 'question cards');
     let validationErrors = [];
 
+    // Validate that at least one question exists
+    if (questionCards.length === 0) {
+        e.preventDefault();
+
+        // Clear previous validation errors
+        document.querySelectorAll('.validation-error').forEach(el => el.remove());
+        document.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+
+        const questionsContainer = document.getElementById('questions-container');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'text-danger small mt-2 validation-error';
+        errorDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> {% trans "Please add at least one question." %}';
+        questionsContainer.appendChild(errorDiv);
+
+        questionsContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+    }
+
     questionCards.forEach(card => {
         const questionData = {
             order: parseInt(card.dataset.order),
@@ -1613,6 +1661,26 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
             required: card.querySelector('.question-required').checked,
             help_text: card.querySelector('.question-help').value
         };
+
+        // Validate question text is not empty
+        if (!questionData.text.trim()) {
+            validationErrors.push({
+                questionId: card.dataset.questionId,
+                questionOrder: questionData.order,
+                type: 'question_text',
+                message: '{% trans "Please enter question text." %}'
+            });
+        }
+
+        // Validate question type is selected
+        if (!questionData.type) {
+            validationErrors.push({
+                questionId: card.dataset.questionId,
+                questionOrder: questionData.order,
+                type: 'question_type',
+                message: '{% trans "Please select a question type." %}'
+            });
+        }
 
         // Include existing question ID if present (edit mode)
         if (card.dataset.existingId) {
@@ -1698,6 +1766,16 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         } else if (questionData.type === 'LK') {
             const scaleSelect = card.querySelector('.likert-scale-select');
             questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
+
+            // Validation: require a scale to be selected
+            if (!questionData.likert_scale_id) {
+                validationErrors.push({
+                    questionId: card.dataset.questionId,
+                    questionOrder: questionData.order,
+                    type: 'likert_scale',
+                    message: '{% trans "Please select a scale." %}'
+                });
+            }
         } else if (questionData.type === 'TA') {
             // Time Availability - collect enabled days
             const dayCheckboxes = card.querySelectorAll('.ta-day-checkbox:checked');
@@ -1795,6 +1873,20 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                 if (validationErrors.indexOf(error) === 0) {
                     choicesSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
+            } else if (error.type === 'likert_scale') {
+                // Highlight scale select and show error
+                const scaleSelect = card.querySelector('.likert-scale-select');
+                scaleSelect.classList.add('is-invalid');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'invalid-feedback validation-error';
+                errorDiv.textContent = error.message;
+                scaleSelect.parentNode.appendChild(errorDiv);
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    scaleSelect.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
             } else if (error.type === 'ta_days') {
                 // Show error for Time Availability days
                 const errorDiv = card.querySelector(`#ta_days_error_${error.questionId}`);
@@ -1805,6 +1897,34 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                 // Scroll to first error
                 if (validationErrors.indexOf(error) === 0) {
                     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else if (error.type === 'question_text') {
+                // Highlight question text textarea and show error
+                const textarea = card.querySelector('.question-text');
+                textarea.classList.add('is-invalid');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'invalid-feedback validation-error';
+                errorDiv.textContent = error.message;
+                textarea.parentNode.appendChild(errorDiv);
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else if (error.type === 'question_type') {
+                // Highlight question type select and show error
+                const select = card.querySelector('.question-type');
+                select.classList.add('is-invalid');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'invalid-feedback validation-error';
+                errorDiv.textContent = error.message;
+                select.parentNode.appendChild(errorDiv);
+
+                // Scroll to first error
+                if (validationErrors.indexOf(error) === 0) {
+                    select.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             } else if (error.type === 'waitlist') {
                 // Show error for waitlist threshold
@@ -1851,70 +1971,6 @@ window.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Save and Preview function (edit mode only)
-function saveAndPreview() {
-    const form = document.getElementById('survey-form');
-
-    // If the form validates, add a redirect parameter and submit
-    if (form.checkValidity()) {
-        // Manually trigger the submit event handler to populate questions_data
-        const questionCards = document.querySelectorAll('.question-card');
-        const questions = [];
-
-        questionCards.forEach(card => {
-            const questionData = {
-                order: parseInt(card.dataset.order),
-                text: card.querySelector('.question-text').value,
-                type: card.querySelector('.question-type').value,
-                required: card.querySelector('.question-required').checked,
-                help_text: card.querySelector('.question-help').value
-            };
-
-            if (card.dataset.existingId) {
-                questionData.id = parseInt(card.dataset.existingId);
-            }
-
-            if (['MC', 'MS', 'YN', 'RK'].includes(questionData.type)) {
-                const choices = [];
-                card.querySelectorAll('.choice-item').forEach(choiceItem => {
-                    const input = choiceItem.querySelector('input');
-                    if (input.value.trim()) {
-                        const choiceData = { text: input.value.trim() };
-                        if (choiceItem.dataset.existingChoiceId) {
-                            choiceData.id = parseInt(choiceItem.dataset.existingChoiceId);
-                        }
-                        choices.push(choiceData);
-                    }
-                });
-                questionData.choices = choices;
-            } else if (questionData.type === 'LK') {
-                const scaleSelect = card.querySelector('.likert-scale-select');
-                questionData.likert_scale_id = scaleSelect ? scaleSelect.value : null;
-            }
-
-            questions.push(questionData);
-        });
-
-        document.getElementById('questions-data').value = JSON.stringify(questions);
-
-        // Add a hidden input to tell the backend to redirect to preview
-        let redirectInput = document.getElementById('redirect-to-preview');
-        if (!redirectInput) {
-            redirectInput = document.createElement('input');
-            redirectInput.type = 'hidden';
-            redirectInput.name = 'redirect_to_preview';
-            redirectInput.id = 'redirect-to-preview';
-            redirectInput.value = 'true';
-            form.appendChild(redirectInput);
-        }
-
-        // Submit the form
-        form.submit();
-    } else {
-        // Show validation errors
-        form.reportValidity();
-    }
-}
 {% endif %}
 
 // Template search functionality (available in both create and edit modes)
@@ -2058,6 +2114,13 @@ function openSaveTemplateModal(questionId) {
     // Build summary
     const questionText = card.querySelector('.question-text').value;
     const questionType = card.querySelector('.question-type').value;
+
+    // Validate required fields before opening modal
+    if (!questionText.trim() || !questionType) {
+        alert('Please fill in the question text and select a question type before saving as a template.');
+        return;
+    }
+
     const questionTypeDisplay = questionTypes[questionType] || questionType;
     const required = card.querySelector('.question-required').checked;
 
@@ -2286,5 +2349,140 @@ function addTemplateToList(templateId, templateName, templateTypeDisplay, isPubl
     {% if survey.end_date %}
     utcToLocal('{{ survey.end_date|date:"Y-m-d H:i" }}', 'end_date');
     {% endif %}
+
+// ============================================
+// Advanced Settings Summary
+// ============================================
+function updateAdvancedSettingsSummary() {
+    const container = document.getElementById('advanced-settings-summary');
+    if (!container) return;
+
+    const badges = [];
+
+    // Access Control
+    const isPrivate = document.getElementById('is_private');
+    if (isPrivate && isPrivate.checked) {
+        badges.push({icon: 'bi-shield-lock', text: '{% trans "Private" %}', color: 'bg-primary'});
+
+        const invitedCount = document.getElementById('invited-players-count');
+        if (invitedCount && parseInt(invitedCount.textContent) > 0) {
+            badges.push({icon: 'bi-people', text: invitedCount.textContent, color: 'bg-info text-dark'});
+        }
+
+        const guild = document.getElementById('guild');
+        if (guild && guild.value) {
+            badges.push({icon: 'bi-discord', text: guild.options[guild.selectedIndex].text, color: 'bg-info text-dark'});
+        }
+    } else {
+        badges.push({icon: 'bi-globe', text: '{% trans "Public" %}', color: 'bg-success'});
+    }
+
+    // Association
+    const series = document.getElementById('series');
+    const seriesHidden = document.querySelector('input[type="hidden"][name="series"]');
+    const stage = document.getElementById('stage');
+
+    let seriesName = '';
+    if (series && series.value) {
+        seriesName = series.options[series.selectedIndex].text;
+    } else if (!series && seriesHidden && seriesHidden.value) {
+        seriesName = seriesHidden.closest('.col-md-6')?.querySelector('.form-control')?.textContent?.trim() || '';
+    }
+
+    let stageName = '';
+    if (stage && stage.tagName === 'SELECT' && stage.value) {
+        stageName = stage.options[stage.selectedIndex].text;
+    }
+
+    if (seriesName) {
+        const text = stageName ? seriesName + ' - ' + stageName : seriesName;
+        badges.push({icon: 'bi-trophy', text: text, color: 'bg-secondary'});
+    }
+
+    const post = document.getElementById('post');
+    if (post && post.value) {
+        badges.push({icon: 'bi-file-text', text: post.options[post.selectedIndex].text, color: 'bg-secondary'});
+    }
+
+    // Schedule
+    const startDate = document.getElementById('start_date');
+    const endDate = document.getElementById('end_date');
+    const hasStart = startDate && startDate.value;
+    const hasEnd = endDate && endDate.value;
+
+    if (hasStart && hasEnd) {
+        const s = new Date(startDate.value).toLocaleDateString();
+        const e = new Date(endDate.value).toLocaleDateString();
+        badges.push({icon: 'bi-calendar-week', text: s + ' - ' + e, color: 'bg-dark'});
+    } else if (hasStart) {
+        badges.push({icon: 'bi-calendar-event', text: '{% trans "Starts" %} ' + new Date(startDate.value).toLocaleDateString(), color: 'bg-dark'});
+    } else if (hasEnd) {
+        badges.push({icon: 'bi-calendar-x', text: '{% trans "Ends" %} ' + new Date(endDate.value).toLocaleDateString(), color: 'bg-dark'});
+    }
+
+    // Settings — dynamically count checked checkboxes in the settings section
+    const settingsSection = document.getElementById('settings-section');
+    if (settingsSection) {
+        const checkedCount = settingsSection.querySelectorAll('.form-check-input:checked').length;
+        if (checkedCount > 0) {
+            if (checkedCount > 1) {
+                badges.push({icon: 'bi-ui-checks-grid', text: checkedCount + ' {% trans "Options" %}', color: 'bg-primary'});
+            }else{
+                badges.push({icon: 'bi-ui-checks-grid', text: checkedCount + ' {% trans "Option" %}', color: 'bg-primary'});
+            }
+        }
+    }
+
+    // Render
+    if (badges.length === 0) {
+        container.innerHTML = '<span class="text-muted small">{% trans "Default settings" %}</span>';
+    } else {
+        container.innerHTML = badges.map(function(b) {
+            return '<span class="badge ' + b.color + ' advanced-setting-badge"><i class="bi ' + b.icon + ' me-1"></i>' + b.text + '</span>';
+        }).join('');
+    }
+}
+
+// Update summary when advanced settings modal is closed (but not when swapping to invite modal)
+const advancedModal = document.getElementById('advancedSettingsModal');
+let _openingInviteFromAdvanced = false;
+
+if (advancedModal) {
+    advancedModal.addEventListener('hidden.bs.modal', function() {
+        if (!_openingInviteFromAdvanced) {
+            updateAdvancedSettingsSummary();
+        }
+    });
+}
+
+// Handle nested modals: hide advanced → show invite → on invite close, re-show advanced
+function openInvitePlayersModal() {
+    _openingInviteFromAdvanced = true;
+    const advModal = bootstrap.Modal.getInstance(advancedModal);
+    const invModalEl = document.getElementById('invitePlayersModal');
+    const invModal = bootstrap.Modal.getOrCreateInstance(invModalEl);
+
+    advancedModal.addEventListener('hidden.bs.modal', function onHidden() {
+        advancedModal.removeEventListener('hidden.bs.modal', onHidden);
+        invModal.show();
+    }, {once: true});
+    advModal.hide();
+}
+
+const inviteModalEl = document.getElementById('invitePlayersModal');
+if (inviteModalEl && advancedModal) {
+    inviteModalEl.addEventListener('hidden.bs.modal', function() {
+        if (_openingInviteFromAdvanced) {
+            _openingInviteFromAdvanced = false;
+            const advModal = bootstrap.Modal.getOrCreateInstance(advancedModal);
+            advModal.show();
+        }
+    });
+}
+
+// Initialize summary on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateAdvancedSettingsSummary();
+});
 
 </script>

@@ -292,42 +292,34 @@
 
                     <!-- Use Rounds -->
                     {% if use_rounds_locked %}
-                    <input type="hidden" name="use_rounds" value="on">
-                    <div class="row">
-                        <div class="col-md-6 mb-2">
-                            <div class="mb-2">
-                                <label class="form-label fw-semibold">Use Rounds</label>
-                                <div class="text-muted small">Rounds are enabled and cannot be disabled because a stage has multiple rounds.</div>
-                            </div>
-                        </div>
-                    </div>
+                        <input type="hidden" name="use_rounds" value="on">
                     {% else %}
-                    <div id="use-rounds-wrapper" style="display:none;">
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                <div class="form-check mb-2">
-                                    {{ form.use_rounds }}
-                                    <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
-                                        {{ form.use_rounds.label }}
-                                    </label>
-                                    {% if form.use_rounds.help_text %}
-                                    <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
-                                    {% endif %}
+                        <div id="use-rounds-wrapper" style="display:none;">
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    <div class="form-check mb-2">
+                                        {{ form.use_rounds }}
+                                        <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
+                                            {{ form.use_rounds.label }}
+                                        </label>
+                                        {% if form.use_rounds.help_text %}
+                                        <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
+                                        {% endif %}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
                     {% endif %}
 
                     {% if action == 'Create' %}
-                    <!-- Round name field (shown when both use_stages and use_rounds are checked) -->
-                    <div id="round-name-field" style="display:none;">
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                {{ form.round_name|as_crispy_field }}
+                        <!-- Round name field (shown when both use_stages and use_rounds are checked) -->
+                        <div id="round-name-field" style="display:none;">
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    {{ form.round_name|as_crispy_field }}
+                                </div>
                             </div>
                         </div>
-                    </div>
                     {% endif %}
                 </div>
             </div>

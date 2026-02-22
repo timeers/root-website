@@ -2403,7 +2403,7 @@ def survey_edit_view(request, slug):
         'user_tournaments': user_tournaments,
         'user_posts': user_posts,
     }
-    return render(request, 'the_tavern/edit_survey.html', context)
+    return render(request, 'the_tavern/survey_form.html', context)
 
 
 @login_required
@@ -2644,7 +2644,7 @@ def survey_create_view(request):
         'prefill_series_id': prefill_series_id,
         'prefill_stage_id': prefill_stage_id,
     }
-    return render(request, 'the_tavern/create_survey.html', context)
+    return render(request, 'the_tavern/survey_form.html', context)
 
 
 @login_required
