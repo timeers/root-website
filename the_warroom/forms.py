@@ -142,7 +142,7 @@ class GameCreateForm(forms.ModelForm):
                     start_date__lt=timezone.now()
                 ).exclude(
                     # Hide bracket rounds from regular players (moderators/designers can still see them)
-                    Q(matchseries__isnull=False),
+                    Q(series__isnull=False),
                     # Removed for now. Should add match creation in the Tournament instead of here
                     # ~Q(stage__tournament__designer=user.profile),
                     # ~Q(stage__tournament__moderators=user.profile),

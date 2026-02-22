@@ -645,15 +645,11 @@ class Round(models.Model):
 
     def get_min_players(self):
         """Get the minimum players per game for this round"""
-        if not self.tournament.enforce_player_count:
-            return 4
-        return self.min_players or self.stage.min_players or self.stage.tournament.min_players
+        return self.min_players or self.stage.min_players or self.stage.tournament.min_players or 4
 
     def get_max_players(self):
         """Get the maximum players per game for this round"""
-        if not self.tournament.enforce_player_count:
-            return 4
-        return self.max_players or self.stage.max_players or self.stage.tournament.max_players
+        return self.max_players or self.stage.max_players or self.stage.tournament.max_players or 4
 
     def current_player_queryset(self):
         """Return Profiles eligible to play in this round.
