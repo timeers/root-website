@@ -67,6 +67,7 @@ urlpatterns = [
     path('scorecards/', scorecard_list_view, name='scorecard-home'),
 
     # Tournaments
+    path('series/', tournaments_home, name='tournaments-home'),
     path('new/series/', tournament_dynamic_create, name='tournament-dynamic-create'),
     path('series/<slug:slug>/update/', tournament_dynamic_update, name='tournament-dynamic-update'),
 
@@ -143,7 +144,6 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/finalize-bracket/', round_finalize_bracket, name='round-finalize-bracket'),
 
 
-    path('series/', tournaments_home, name='tournaments-home'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),

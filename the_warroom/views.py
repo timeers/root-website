@@ -2599,6 +2599,11 @@ def tournament_remove_asset(request, slug, asset_type, asset_id):
 
 
 def tournaments_home(request):
+    if request.user.is_authenticated:
+        profile = request.user.profile
+    else:
+        profile = Profile.objects.none()
+
     scheduled_tournaments = Tournament.objects.filter(start_date__gt=timezone.now())
     scheduled_tournaments = scheduled_tournaments.annotate(
     unique_players_count=Count('rounds__games__efforts__player', distinct=True)
@@ -2612,8 +2617,14 @@ def tournaments_home(request):
 
     ongoing_tournaments = Tournament.objects.filter(
         Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-        start_date__lt=timezone.now()
+        start_date__lt=timezone.now(),
     )
+
+    if not profile or not profile.admin:
+        scheduled_tournaments = scheduled_tournaments.filter(publicly_visible=True)
+        concluded_tournaments = concluded_tournaments.filter(publicly_visible=True)
+        ongoing_tournaments = ongoing_tournaments.filter(publicly_visible=True)
+
     ongoing_tournaments = ongoing_tournaments.annotate(
     unique_players_count=Count('rounds__games__efforts__player', distinct=True)
     )
@@ -2626,11 +2637,12 @@ def tournaments_home(request):
         user_tournaments = Tournament.objects.filter(
             Q(designer=request.user.profile) |
             Q(moderators=request.user.profile) |
+            Q(tournament_players__profile=request.user.profile) |
             Q(rounds__games__efforts__player=request.user.profile)
         ).distinct().annotate(
             unique_players_count=Count('rounds__games__efforts__player', distinct=True)
         )
-    print(user_tournaments)
+
     # Theme
     theme = get_theme(request)
     background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(

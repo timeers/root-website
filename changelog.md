@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.11.0] - 2026-2-8 Surveys, Series & Scorecards
+## [1.11.0] - 2026-2-25 Surveys, Series & Scorecards
 This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design. 
 
 ### New Features
