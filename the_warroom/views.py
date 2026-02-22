@@ -2389,7 +2389,8 @@ def tournament_move_player(request, slug):
 def round_search_players(request, tournament_slug, stage_slug, round_slug):
     """HTMX endpoint: Search for players to add to round (only from tournament players, excluding eliminated)"""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     # Permission check
     if not tournament.has_permission(request.user.profile):
@@ -2432,7 +2433,8 @@ def round_move_player(request, tournament_slug, stage_slug, round_slug):
         return HttpResponse("Method not allowed", status=405)
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     # Permission check
     if not tournament.has_permission(request.user.profile):
@@ -2687,9 +2689,9 @@ def user_can_access_round(tournament_round, user):
 
 
 def round_detail_view(request, tournament_slug, stage_slug, round_slug):
-    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug.lower(), stage=stage, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'overview'
@@ -2698,7 +2700,7 @@ def round_detail_view(request, tournament_slug, stage_slug, round_slug):
 
 
 
-def round_component_leaderboard_view(request, tournament_slug, post_slug, round_slug=None):
+def round_component_leaderboard_view(request, tournament_slug, post_slug, stage_slug= None, round_slug=None):
 
     threshold = get_int_param(request.GET.get('threshold', ''))
     limit = get_int_param(request.GET.get('limit', ''))
@@ -2709,8 +2711,13 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, round_
     # Get the tournament from slug
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
     # Fetch the round using its slug, and filter it by the related tournament
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug.lower(), tournament=tournament)
+    else:
+        stage = None
+
     if round_slug:
-        round = get_object_or_404(Round, slug=round_slug.lower(), tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug.lower(), stage=stage)
     else:
         round = None
 
@@ -2732,8 +2739,10 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, round_
     base_filter = Q()
     if round:
         base_filter &= Q(game__round=round)
+    elif stage:
+        base_filter &= Q(game__round__stage=stage)
     else:
-        base_filter &= Q(game__round__tournament=tournament)
+        base_filter &= Q(game__round__stage__tournament=tournament)
 
     # Add component-specific filter
     component = object.component
@@ -2753,22 +2762,30 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, round_
 
     
     if not threshold:
-        threshold = round.get_game_threshold() if round else tournament.game_threshold
+        threshold = round.get_game_threshold() if round else stage.get_game_threshold() if stage else tournament.game_threshold
     if not limit:
-        limit = round.get_leaderboard_positions() if round else tournament.leaderboard_positions
+        limit = round.get_leaderboard_positions() if round else stage.get_leaderboard_positions() if stage else tournament.leaderboard_positions
 
     top_players = []
     most_players = []
     top_players = Profile.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold)
     most_players = Profile.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
     if round:
-        meta_title = f'{tournament.name} - {round.name}'
+        meta_title = f'{tournament.name} - {stage.name} ({round.name})'
         if object.component == "Deck":
-            title = f'{object.title} Deck - {tournament.name} ({round.name})'
+            title = f'{object.title} Deck - {tournament.name}: {stage.name} ({round.name})'
         elif object.component == "Map":
-            title = f'{object.title} Map - {tournament.name} ({round.name})'
+            title = f'{object.title} Map - {tournament.name}: {stage.name} ({round.name})'
         else:
-            title = f'{object.title} - {tournament.name} ({round.name})'
+            title = f'{object.title} - {tournament.name}: {stage.name} ({round.name})'
+    elif stage:
+        meta_title = f'{tournament.name} - {stage.name}'
+        if object.component == "Deck":
+            title = f'{object.title} Deck - {tournament.name} ({stage.name})'
+        elif object.component == "Map":
+            title = f'{object.title} Map - {tournament.name} ({stage.name})'
+        else:
+            title = f'{object.title} - {tournament.name} ({stage.name})'
     else:
         meta_title = f'{tournament.name}'
         if object.component == "Deck":
@@ -2782,6 +2799,7 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, round_
 
     context = {
         'selected_tournament': tournament,
+        'selected_stage': stage,
         'tournament_round': round,
         'top_players': top_players,
         'most_players': most_players,
@@ -2938,11 +2956,11 @@ def round_manage_view(request, tournament_slug, stage_slug, round_slug=None):
     round_instance = None
     # If round_slug is provided, update the existing round
     if round_slug:
-        round_instance = get_object_or_404(Round, slug=round_slug, stage=stage, tournament=tournament)
-        form = RoundCreateForm(request.POST or None, tournament=tournament, stage=stage, instance=round_instance, current_round=current_round)
+        round_instance = get_object_or_404(Round, slug=round_slug, stage=stage)
+        form = RoundCreateForm(request.POST or None, stage=stage, instance=round_instance, current_round=current_round)
     else:
         # Otherwise, create a new round
-        form = RoundCreateForm(request.POST or None, tournament=tournament, stage=stage, current_round=current_round)
+        form = RoundCreateForm(request.POST or None, stage=stage, current_round=current_round)
 
     if form.is_valid():
         round_instance = form.save(commit=False)
@@ -3463,7 +3481,8 @@ def tournament_settings_hub(request, slug):
 def round_settings_hub(request, tournament_slug, stage_slug, round_slug):
     """Settings hub page with links to all round management tools."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     # Permission check
     if not tournament.has_permission(request.user.profile):
@@ -3711,7 +3730,7 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
 def round_leaderboard_page(request, tournament_slug, stage_slug, round_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     games_qs = Game.objects.filter(
         round=round, final=True
@@ -3767,7 +3786,7 @@ def round_leaderboard_page(request, tournament_slug, stage_slug, round_slug):
 def round_games_page(request, tournament_slug, stage_slug, round_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     games_qs = Game.objects.filter(
         round=round, final=True
@@ -3808,7 +3827,7 @@ def round_games_page(request, tournament_slug, stage_slug, round_slug):
 def round_roster_page(request, tournament_slug, stage_slug, round_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     players = _round_roster_queryset(round)
 
@@ -3839,7 +3858,7 @@ def round_roster_page(request, tournament_slug, stage_slug, round_slug):
 def round_details_page(request, tournament_slug, stage_slug, round_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'details'
@@ -3849,7 +3868,7 @@ def round_details_page(request, tournament_slug, stage_slug, round_slug):
 def round_matches_page(request, tournament_slug, stage_slug, round_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     match_series = MatchSeries.objects.filter(round=round).select_related(
         'player_group',
@@ -4118,7 +4137,8 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
     Each round is linked to a Stage which holds the grouping configuration.
     """
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     # Only tournament creator or admin can access grouping
@@ -4310,7 +4330,8 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
 def round_grouping_status(request, tournament_slug, stage_slug, round_slug, session_id):
     """Check session status (for HTMX polling)."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):
@@ -4335,7 +4356,8 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):
@@ -4386,7 +4408,8 @@ def round_grouping_add_to_group(request, tournament_slug, stage_slug, round_slug
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):
@@ -4428,7 +4451,8 @@ def round_grouping_remove_from_group(request, tournament_slug, stage_slug, round
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):
@@ -4471,7 +4495,8 @@ def round_grouping_create_group(request, tournament_slug, stage_slug, round_slug
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):
@@ -4526,7 +4551,8 @@ def round_grouping_delete_group(request, tournament_slug, stage_slug, round_slug
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):
@@ -4560,7 +4586,8 @@ def round_grouping_finalize(request, tournament_slug, stage_slug, round_slug, se
     from django.http import JsonResponse
 
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    round = get_object_or_404(Round, slug=round_slug, tournament=tournament)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     if not tournament.has_permission(profile):

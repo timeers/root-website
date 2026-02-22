@@ -140,6 +140,12 @@ class GameCreateForm(forms.ModelForm):
                     ),
                     Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
                     start_date__lt=timezone.now()
+                ).exclude(
+                    # Hide bracket rounds from regular players (moderators/designers can still see them)
+                    Q(matchseries__isnull=False),
+                    # Removed for now. Should add match creation in the Tournament instead of here
+                    # ~Q(stage__tournament__designer=user.profile),
+                    # ~Q(stage__tournament__moderators=user.profile),
                 ).distinct()
 
 
@@ -828,12 +834,13 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'placeholder': 'Give a brief description of the series.',
             'rows': '2'
         })
-        
+
         # Filter guild choices to user's guilds
         if user:
-            from django.conf import settings
+            import json
             from the_gatehouse.models import DiscordGuild
-            config = settings.CONFIG
+            with open('/etc/config.json') as config_file:
+                config = json.load(config_file)
             if user.profile.admin:
                 self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
             else:
@@ -997,13 +1004,12 @@ class RoundCreateForm(forms.ModelForm):
             'max_players': 'Max Players per Group',
         }
 
-    def __init__(self, *args, tournament=None, stage=None, current_round=None, **kwargs):
+    def __init__(self, *args, stage=None, current_round=None, **kwargs):
         """
         Initialize the form, optionally accepting a tournament argument,
         and set the tournament field when saving.
         """
         # Store the tournament and stage instances
-        self.tournament = tournament
         self.stage = stage
         super().__init__(*args, **kwargs)
         self.fields['description'].widget.attrs.update({
@@ -1018,8 +1024,6 @@ class RoundCreateForm(forms.ModelForm):
 
         # Ensure current_round is passed and not None
         if current_round is not None:
-            # # Set the minimum value of round_number to current_round
-            # self.fields['round_number'].min_value = current_round
             # Set an initial value for round_number to current_round
             self.fields['round_number'].initial = current_round
 

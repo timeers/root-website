@@ -82,6 +82,7 @@ urlpatterns = [
     
     path('series/<slug:slug>/bracket/', tournament_bracket_view, name='tournament-bracket'),
     path('series/<slug:slug>/leaderboard/', tournament_leaderboard_page, name='tournament-leaderboard-page'),
+    path('series/<slug:tournament_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='tournament-leaderboard'),
     path('series/<slug:slug>/games/', tournament_games_page, name='tournament-games-page'),
     path('series/<slug:slug>/roster/', tournament_roster_page, name='tournament-roster-page'),
     path('series/<slug:slug>/details/', tournament_details_page, name='tournament-details-page'),
@@ -106,6 +107,7 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/players/search/', stage_search_players, name='stage-search-players'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/players/move/', stage_move_player, name='stage-move-player'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/leaderboard/', stage_leaderboard_page, name='stage-leaderboard-page'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='stage-leaderboard'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/games/', stage_games_page, name='stage-games-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/roster/', stage_roster_page, name='stage-roster-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/details/', stage_details_page, name='stage-details-page'),
@@ -114,12 +116,13 @@ urlpatterns = [
 
     # Rounds
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/new/round/', round_manage_view, name='round-create'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/', round_detail_view, name='round-detail'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/leaderboard/', round_leaderboard_page, name='round-leaderboard-page'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='round-leaderboard'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/games/', round_games_page, name='round-games-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/roster/', round_roster_page, name='round-roster-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/details/', round_details_page, name='round-details-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/matches/', round_matches_page, name='round-matches-page'),
-    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/', round_detail_view, name='round-detail'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/settings/', round_settings_hub, name='round-settings'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/', round_manage_players, name='round-manage-players'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/search/', round_search_players, name='round-search-players'),
@@ -139,14 +142,9 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/generate-bracket/', round_generate_bracket, name='round-generate-bracket'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/finalize-bracket/', round_finalize_bracket, name='round-finalize-bracket'),
 
-    path('series/<slug:tournament_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='tournament-leaderboard'),
-    path('series/<slug:tournament_slug>/round/<slug:round_slug>/leaderboard/<slug:post_slug>/', round_component_leaderboard_view, name='round-leaderboard'),
-
 
     path('series/', tournaments_home, name='tournaments-home'),
 
-    # path('hx/games/games-listview', GameListViewHX.as_view(), name='hx-game-list'),
-    # path("hx/games/<int:id>/", game_detail_hx_view, name='game-hx-detail'),
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),
     path("hx/games/game/delete/<int:id>/", game_hx_delete, name='game-hx-delete'),
