@@ -76,5 +76,9 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
+    from django.views.defaults import page_not_found
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += [
+        path('test-404/', lambda request: page_not_found(request, None)),
+    ]
    

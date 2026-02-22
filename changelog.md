@@ -19,6 +19,7 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Scorecards have a more modern look and improved UI
 - Improved Series' Asset and Player managment pages
 - Option to add Tournament Moderators
+- Cleaned up the 404 and 403 pages
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences
