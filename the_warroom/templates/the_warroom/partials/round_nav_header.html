@@ -12,10 +12,24 @@
                class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
                 {% trans 'Leaderboard' %}
             </a>
-            <a href="{% url 'round-games-page' tournament.slug stage.slug round.slug %}"
-               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
-                {% trans 'Games' %}
-            </a>
+            <div class="section-nav-tab-group">
+                <a href="{% url 'round-games-page' tournament.slug stage.slug round.slug %}"
+                   class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                    {% trans 'Games' %}
+                </a>
+                {% if has_matches and active_page == 'games' %}
+                <div class="section-sub-nav">
+                    <a href="{% url 'round-games-page' tournament.slug stage.slug round.slug %}"
+                       class="root-title section-sub-tab {% if active_sub_page == 'games' %}active{% endif %}">
+                        {% trans 'All Games' %}
+                    </a>
+                    <a href="{% url 'round-matches-page' tournament.slug stage.slug round.slug %}"
+                       class="root-title section-sub-tab {% if active_sub_page == 'matches' %}active{% endif %}">
+                        {% trans 'Scheduled Matches' %}
+                    </a>
+                </div>
+                {% endif %}
+            </div>
             <a href="{% url 'round-roster-page' tournament.slug stage.slug round.slug %}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
                 {% trans 'Roster' %}
@@ -24,12 +38,6 @@
                class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
                 {% trans 'Details' %}
             </a>
-            {% if has_matches %}
-            <a href="{% url 'round-matches-page' tournament.slug stage.slug round.slug %}"
-               class="section-nav-tab root-title {% if active_page == 'matches' %}active{% endif %}">
-                {% trans 'Matches' %}
-            </a>
-            {% endif %}
         </nav>
 
         <!-- Action Buttons -->

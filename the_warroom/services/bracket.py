@@ -405,9 +405,18 @@ class BracketService:
             cls._process_advancement(match)
             cls._check_round_complete(match.round)
         else:
-        # Else mark as in progress / active
+            # Else mark as in progress / active
             series.status = CompetitionStatus.ACTIVE
             series.save(update_fields=['status'])
+
+        # Activate any pending parent objects
+        round_obj = match.round
+        stage = round_obj.stage
+        tournament = stage.tournament if stage else None
+        for obj in (round_obj, stage, tournament):
+            if obj and obj.status == CompetitionStatus.PENDING:
+                obj.status = CompetitionStatus.ACTIVE
+                obj.save(update_fields=['status'])
 
 
     @classmethod

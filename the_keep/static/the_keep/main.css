@@ -2204,7 +2204,7 @@ tr.clickable-row:hover {
 .section-nav-tabs {
   display: flex;
   gap: 2rem;
-  align-items: center;
+  align-items: baseline;
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
@@ -2317,6 +2317,46 @@ tr.clickable-row:hover {
   border-radius: 10rem;
   margin-left: 0rem;
   vertical-align: middle;
+}
+
+/* Tab group: wraps a main tab + its sub-nav */
+.section-nav-tab-group {
+  position: relative;
+}
+
+/* Sub-navigation links centered beneath parent tab */
+.section-sub-nav {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  gap: 0.75rem;
+  white-space: nowrap;
+}
+
+.section-sub-tab {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #6c757d;
+  text-decoration: none;
+  letter-spacing: 0.03em;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.section-sub-tab:hover {
+  color: var(--button-color);
+}
+
+.section-sub-tab.active {
+  color: var(--button-color);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .section-sub-tab {
+    font-size: 0.65rem;
+  }
 }
 
 /* Changelog highlight styling */

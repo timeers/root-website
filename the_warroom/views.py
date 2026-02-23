@@ -3595,6 +3595,7 @@ def stage_games_page(request, tournament_slug, stage_slug):
     context = _stage_base_context(request, tournament, stage)
     context.update({
         'active_page': 'games',
+        'active_sub_page': 'games',
         'games': page_obj,
         'page_obj': page_obj,
         'games_count': paginator.count,
@@ -3655,10 +3656,13 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
         'matches__advancements__to_round',
         'series__player_group',
     )
-
+    has_bracket = Match.objects.filter(round__stage=stage).exists()
+    print(has_bracket)
     context = _stage_base_context(request, tournament, stage)
     context.update({
-        'active_page': 'bracket',
+        'active_page': 'games',
+        'active_sub_page': 'bracket',
+        'has_bracket': has_bracket,
         'rounds_with_matches': rounds_with_matches,
     })
     return render(request, 'the_warroom/stage_bracket.html', context)
@@ -3752,6 +3756,7 @@ def round_games_page(request, tournament_slug, stage_slug, round_slug):
     context = _round_base_context(request, tournament, stage, round)
     context.update({
         'active_page': 'games',
+        'active_sub_page': 'games',
         'games': page_obj,
         'page_obj': page_obj,
         'games_count': paginator.count,
@@ -3837,7 +3842,8 @@ def round_matches_page(request, tournament_slug, stage_slug, round_slug):
 
     context = _round_base_context(request, tournament, stage, round)
     context.update({
-        'active_page': 'matches',
+        'active_page': 'games',
+        'active_sub_page': 'matches',
         'match_series': match_series,
         'recordable_match_ids': recordable_match_ids,
     })
