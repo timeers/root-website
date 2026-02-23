@@ -17,7 +17,7 @@ from .views import (GameUpdateView, game_list_view, leaderboard_view,
                     tournament_settings_hub, round_settings_hub,
                     round_manage_view,
                     round_manage_players, round_search_players, round_move_player, RoundDeleteView,
-                    tournament_players_pagination, round_players_pagination, stage_players_pagination, round_games_pagination,
+                    round_games_pagination,
                     in_progress_view, round_component_leaderboard_view,
                     add_player_to_effort, my_submitted_games_view,
                     # Round grouping views
@@ -67,7 +67,6 @@ urlpatterns = [
     path('scorecards/', scorecard_list_view, name='scorecard-home'),
 
     # Tournaments
-    path('series/', tournaments_home, name='tournaments-home'),
     path('new/series/', tournament_dynamic_create, name='tournament-dynamic-create'),
     path('series/<slug:slug>/update/', tournament_dynamic_update, name='tournament-dynamic-update'),
 
@@ -94,9 +93,9 @@ urlpatterns = [
     path('series/<slug:slug>/', tournament_detail_view, name='tournament-detail'),
     path('series/<slug:slug>/delete/', TournamentDeleteView.as_view(), name='tournament-delete'),
 
-    path('hx/series/<int:id>/player-list/', tournament_players_pagination, name='tournament-players-pagination'),
-    path('hx/round/<int:id>/player-list/', round_players_pagination, name='round-players-pagination'),
-    path('hx/stage/<int:id>/player-list/', stage_players_pagination, name='stage-players-pagination'),
+    # path('hx/series/<int:id>/player-list/', tournament_players_pagination, name='tournament-players-pagination'),
+    # path('hx/round/<int:id>/player-list/', round_players_pagination, name='round-players-pagination'),
+    # path('hx/stage/<int:id>/player-list/', stage_players_pagination, name='stage-players-pagination'),
     path('hx/round/<int:id>/game-list/', round_games_pagination, name='round-games-pagination'),
     path('add-player-to-effort/', add_player_to_effort, name='add-player-to-effort'),
 
@@ -144,6 +143,7 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/finalize-bracket/', round_finalize_bracket, name='round-finalize-bracket'),
 
 
+    path('series/', tournaments_home, name='tournaments-home'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),

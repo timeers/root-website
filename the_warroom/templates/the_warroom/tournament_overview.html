@@ -27,9 +27,15 @@
     <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
         <div>
             <h1 class="mb-0 root-title">{{ tournament.name }}</h1>
-            {% if tournament.designer %}
-            <small class="text-muted">Hosted by {{ tournament.designer.name }}</small>
+            <small class="text-muted">
+            {% if tournament.guild %}
+            {{ tournament.guild }}
             {% endif %}
+            {{tournament.classification}}
+            {% if tournament.designer %}
+            Hosted by {{ tournament.designer.name }}
+            {% endif %}
+            </small>
         </div>
     </div>
 

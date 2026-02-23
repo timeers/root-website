@@ -49,16 +49,31 @@ def clean_nickname(raw_title):
 
     return nickname[:50]  # Truncate to 50 characters
 
-def get_round_and_stage(tournament):
+
+def get_single_round(tournament, stage):
     use_stages = tournament.use_stages
     use_rounds = tournament.use_rounds
-    if use_stages:
-        only_stage = None
-        only_round = None
-    else:
+
+    if not stage and not use_stages:
         only_stage = tournament.stages.first()
-        if use_rounds or not only_stage:
-            only_round = None
-        else:
-            only_round = only_stage.rounds.first()
-    return only_stage, only_round
+    elif stage:
+        only_stage = stage
+    else:
+        only_stage = None
+
+    if not use_rounds and only_stage:
+        only_round = only_stage.rounds.first()
+    else:
+        only_round = None
+
+    return only_round
+
+def get_single_stage(tournament):
+    use_stages = tournament.use_stages
+
+    if not use_stages:
+        only_stage = tournament.stages.first()
+    else:
+        only_stage = None
+
+    return only_stage

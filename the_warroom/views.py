@@ -36,6 +36,8 @@ from .forms import (GameCreateForm, GameCreateFormV2, GameInfoUpdateForm, Effort
                     RoundManagePlayersForm)
 from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
 
+from .utils import get_single_round, get_single_stage
+
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 
 from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
@@ -1725,6 +1727,11 @@ def _round_base_context(request, tournament, stage, round):
 def tournament_detail_view(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
+    single_stage = get_single_stage(tournament)
+    single_round = get_single_round(tournament, stage=single_stage)
+
+    print(f'Stage: {single_stage}, Round: {single_round}')
+
     stages = Stage.objects.filter(tournament=tournament).prefetch_related(
         Prefetch('rounds', queryset=Round.objects.order_by('round_number'))
     ).order_by('order')
@@ -1965,50 +1972,7 @@ def tournament_details_page(request, slug):
     return render(request, 'the_warroom/tournament_details.html', context)
 
 
-def tournament_players_pagination(request, id):
-    if not request.htmx:
-        return HttpResponse(status=404)
-    tournament = get_object_or_404(Tournament, id=id)
 
-    players = Profile.objects.filter(Q(efforts__game__round__stage__tournament=tournament)|Q(tournament_participations__tournament=tournament))
-
-    players = players.annotate(
-        total_efforts=Count('efforts', distinct=True, filter=Q(efforts__game__round__stage__tournament=tournament, efforts__game__final=True)),
-        win_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__round__stage__tournament=tournament, efforts__game__final=True)),
-        coalition_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__stage__tournament=tournament, efforts__game__final=True))
-    )
-    # Annotate with win_rate after filtering
-    players = players.annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        ),
-        tourney_points=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
-    ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
-
-    # Paginate players
-    paginator = Paginator(players, settings.PAGE_SIZE)  # Use the queryset directly
-    page_number = request.GET.get('page', 1)   # Get the page number from the request
-
-    try:
-        page_obj = paginator.get_page(page_number)  # Get the specific page of players
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
-    return render(request, 'the_warroom/partials/player_list.html', {'players': page_obj, 'object': tournament})
-
-    
 @admin_required_class_based_view  
 class TournamentDeleteView(DeleteView):
     model = Tournament
@@ -2773,9 +2737,9 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, stage_
     efforts = Effort.objects.filter(base_filter)
 
     
-    if not threshold:
+    if threshold is None:
         threshold = round.get_game_threshold() if round else stage.get_game_threshold() if stage else tournament.game_threshold
-    if not limit:
+    if limit is None:
         limit = round.get_leaderboard_positions() if round else stage.get_leaderboard_positions() if stage else tournament.leaderboard_positions
 
     top_players = []
@@ -2823,66 +2787,6 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, stage_
     }
     
     return render(request, 'the_warroom/tournament_leaderboard.html', context)
-
-
-
-
-def round_players_pagination(request, id):
-    if not request.htmx:
-        return HttpResponse(status=404)
-    round = get_object_or_404(Round, id=id)
-
-    if round.stage:
-        stage_player_ids = StageParticipant.objects.filter(
-            stage=round.stage
-        ).values_list('tournament_player__profile_id', flat=True)
-        players = Profile.objects.filter(
-            Q(efforts__game__round=round) | Q(id__in=stage_player_ids)
-        ).distinct()
-    else:
-        players = Profile.objects.filter(
-            Q(efforts__game__round=round) |
-            Q(tournament_participations__tournament=round.get_tournament())
-        ).distinct()
-
-    players = players.annotate(
-        total_efforts=Count('efforts', distinct=True, filter=Q(efforts__game__round=round, efforts__game__final=True)),
-        win_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__round=round, efforts__game__final=True)),
-        coalition_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round=round, efforts__game__final=True))
-    )
-
-    # Annotate with win_rate after filtering
-    players = players.annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        ),
-        tourney_points=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),  # Points - 0.5 for coalitions
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
-    ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
-
-
-
-    # Paginate players
-    paginator = Paginator(players, settings.PAGE_SIZE)  # Use the queryset directly
-    page_number = request.GET.get('page', 1)   # Get the page number from the request
-
-    try:
-        page_obj = paginator.get_page(page_number)  # Get the specific page of players
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)  # Redirect to the last page if invalid
-
-    return render(request, 'the_warroom/partials/player_list.html', {'players': page_obj, 'object': round})
 
 
 def stage_players_pagination(request, id):
@@ -3574,6 +3478,8 @@ def stage_detail_view(request, tournament_slug, stage_slug):
     """Stage overview — lists rounds belonging to this stage."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    # If the stage does not use Rounds then this will be it's only round
+    single_round = get_single_round(tournament, stage=stage)
     rounds = stage.rounds.all().order_by('round_number')
 
     context = _stage_base_context(request, tournament, stage)
