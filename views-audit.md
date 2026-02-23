@@ -312,7 +312,7 @@ Record issues found during the audit that need to be fixed or investigated later
 
 ### Tournaments/Series
 - [ ] `tournament-create` - TournamentCreateView
-- [ ] `tournament-detail` - tournament_detail_view
+- [ ] `tournament-detail` - tournament_overview_page
 - [ ] `tournament-update` - TournamentUpdateView
 - [ ] `tournament-designer-update` - TournamentDesignerUpdateView
 - [ ] `tournament-delete` - TournamentDeleteView

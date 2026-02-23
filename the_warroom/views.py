@@ -1724,7 +1724,7 @@ def _round_base_context(request, tournament, stage, round):
     }
 
 
-def tournament_detail_view(request, slug):
+def tournament_overview_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
     single_stage = get_single_stage(tournament)
@@ -1968,6 +1968,27 @@ def tournament_details_page(request, slug):
 
     context = _tournament_base_context(request, tournament)
     context['active_page'] = 'details'
+
+    if tournament.asset_mode != AssetModeChoices.OPEN:
+
+        assets = tournament.get_asset_querysets()
+        maps = assets['maps']
+        factions = assets['factions']
+        decks = assets['decks']
+        vagabonds = assets['vagabonds']
+        landmarks = assets['landmarks']
+        tweaks = assets['tweaks']
+        hirelings = assets['hirelings']
+
+        context['asset_types'] = [
+            ('faction', 'Factions', factions, 'bi-shield'),
+            ('map', 'Maps', maps, 'bi-map'),
+            ('deck', 'Decks', decks, 'bi-stack'),
+            ('hireling', 'Hirelings', hirelings, 'bi-person-badge'),
+            ('landmark', 'Landmarks', landmarks, 'bi-geo-alt'),
+            ('tweak', 'House Rules', tweaks, 'bi-wrench'),
+            ('vagabond', 'Vagabonds', vagabonds, 'bi-person-walking'),
+        ]
 
     return render(request, 'the_warroom/tournament_details.html', context)
 
@@ -3325,7 +3346,7 @@ def tournament_manage_players(request, slug):
 
 
 @player_onboard_required
-def tournament_manage_assets_v2(request, slug):
+def tournament_manage_assets(request, slug):
     """Dedicated asset management page with settings + HTMX asset categories."""
     tournament = get_object_or_404(Tournament, slug=slug)
 
@@ -3364,7 +3385,7 @@ def tournament_manage_assets_v2(request, slug):
             ('vagabond', 'Vagabonds', tournament.vagabonds.all(), 'bi-person-walking'),
         ],
     }
-    return render(request, 'the_warroom/tournament_manage_assets_v2.html', context)
+    return render(request, 'the_warroom/tournament_manage_assets.html', context)
 
 
 @player_onboard_required

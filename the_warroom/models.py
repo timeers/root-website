@@ -65,6 +65,16 @@ class CompetitionStatus(models.TextChoices):
     PENDING = "Pending"
     COMPLETED = "Completed"
 
+ASSET_TYPES = {
+    'maps': Map,
+    'factions': Faction,
+    'decks': Deck,
+    'vagabonds': Vagabond,
+    'landmarks': Landmark,
+    'tweaks': Tweak,
+    'hirelings': Hireling,
+}
+
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
 # Currently hidden on the site and not really being used.
 class Tournament(models.Model):
@@ -198,6 +208,23 @@ class Tournament(models.Model):
     def get_update_url(self):
         return reverse('tournament-dynamic-update', kwargs={'slug': self.slug})
 
+    def get_asset_querysets(self):
+        """Return a dict of querysets for each asset type, filtered by asset_mode."""
+        if self.asset_mode == AssetModeChoices.OPEN:
+            assets = {key: model.objects.all() for key, model in ASSET_TYPES.items()}
+        elif self.asset_mode == AssetModeChoices.OFFICIAL:
+            assets = {key: model.objects.filter(official=True) for key, model in ASSET_TYPES.items()}
+        else:
+            # SELECTED mode
+            assets = {key: getattr(self, key) for key in ASSET_TYPES}
+
+        if self.platform == PlatformChoices.DWD:
+            assets = {key: qs.filter(in_root_digital=True) for key, qs in assets.items()}
+
+        if not self.include_clockwork:
+            assets['factions'] = assets['factions'].exclude(component="Clockwork")
+
+        return assets
 
     def game_count(self):
         # Counts the number of games associated with this tournament

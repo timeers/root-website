@@ -1,49 +1,8 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Round, AssetModeChoices, StageParticipant, TournamentPlayer
+from .models import Round, StageParticipant, TournamentPlayer
 from the_gatehouse.models import Profile
-from the_keep.models import Map, Faction, Deck, Vagabond, Landmark, Tweak, Hireling
 from django.shortcuts import get_object_or_404
-
-
-def get_tournament_asset_querysets(tournament):
-    """Return a dict of querysets for each asset type, filtered by the tournament's asset_mode."""
-    if tournament.asset_mode == AssetModeChoices.OPEN:
-        assets = {
-            'maps': Map.objects.all(),
-            'factions': Faction.objects.all(),
-            'decks': Deck.objects.all(),
-            'vagabonds': Vagabond.objects.all(),
-            'landmarks': Landmark.objects.all(),
-            'tweaks': Tweak.objects.all(),
-            'hirelings': Hireling.objects.all(),
-        }
-    elif tournament.asset_mode == AssetModeChoices.OFFICIAL:
-        assets = {
-            'maps': Map.objects.filter(official=True),
-            'factions': Faction.objects.filter(official=True),
-            'decks': Deck.objects.filter(official=True),
-            'vagabonds': Vagabond.objects.filter(official=True),
-            'landmarks': Landmark.objects.filter(official=True),
-            'tweaks': Tweak.objects.filter(official=True),
-            'hirelings': Hireling.objects.filter(official=True),
-        }
-    else:
-        # SELECTED mode
-        assets = {
-            'maps': tournament.maps,
-            'factions': tournament.factions,
-            'decks': tournament.decks,
-            'vagabonds': tournament.vagabonds,
-            'landmarks': tournament.landmarks,
-            'tweaks': tournament.tweaks,
-            'hirelings': tournament.hirelings,
-        }
-
-    if not tournament.include_clockwork:
-        assets['factions'] = assets['factions'].exclude(component="Clockwork")
-
-    return assets
 
 
 def get_options_for_tournament(request, pk):
@@ -51,7 +10,7 @@ def get_options_for_tournament(request, pk):
         round = get_object_or_404(Round, id=pk)
         tournament = round.get_tournament()
 
-        assets = get_tournament_asset_querysets(tournament)
+        assets = tournament.get_asset_querysets()
         maps = assets['maps']
         factions = assets['factions']
         decks = assets['decks']

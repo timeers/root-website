@@ -20,19 +20,12 @@
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
             <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a></li>
-            <li class="breadcrumb-item active">{% trans 'Details' %}</li>
         </ol>
     </nav>
 
     <!-- Header -->
-    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
-        <div>
-            <h1 class="mb-0 root-title">{{ tournament.name }}</h1>
-            {% if tournament.designer %}
-            <small class="text-muted">Hosted by {{ tournament.designer.name }}</small>
-            {% endif %}
-        </div>
-    </div>
+    {% include 'the_warroom/partials/tournament_title_header.html' with active_page='overview' %}
+
 
     {% if tournament.description %}
     <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
@@ -82,9 +75,6 @@
                 <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
                 <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
 
-                <dt class="col-sm-4 text-muted">{% trans 'Asset Mode' %}</dt>
-                <dd class="col-sm-8">{{ tournament.get_asset_mode_display }}</dd>
-
                 {% if tournament.enforce_player_count %}
                 <dt class="col-sm-4 text-muted">{% trans 'Player Count' %}</dt>
                 <dd class="col-sm-8">{{ tournament.min_players }} – {{ tournament.max_players }}</dd>
@@ -92,12 +82,18 @@
 
                 {% if tournament.platform %}
                 <dt class="col-sm-4 text-muted">{% trans 'Platform' %}</dt>
-                <dd class="col-sm-8">{{ tournament.get_platform_display }}</dd>
+                <dd class="col-sm-8">{{ tournament.platform }}</dd>
                 {% endif %}
 
                 <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
                 <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
             </dl>
+
+            {% if asset_types %}
+            <hr class="my-3">
+            <h5 class="mb-3">{% trans 'Allowed Assets' %}</h5>
+            {% include 'the_warroom/partials/asset_display.html' %}
+            {% endif %}
         </div>
     </div>
 
