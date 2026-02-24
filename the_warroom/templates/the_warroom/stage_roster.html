@@ -16,12 +16,8 @@
     </nav>
 
     <!-- Header -->
-    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
-        <div>
-            <h1 class="mb-0 root-title">{{ stage.name }}</h1>
-            <small class="text-muted">{{ tournament.name }}</small>
-        </div>
-    </div>
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=stage.name %}
+
 
     <!-- Nav Header -->
     {% include 'the_warroom/partials/stage_nav_header.html' with active_page='roster' %}
