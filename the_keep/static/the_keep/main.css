@@ -500,7 +500,7 @@ em, i {
   opacity: 0.6; /* dim it slightly */
 }
 
-  .user-icon {
+  .external-link-image {
     max-height: 40px;
     max-width: 40px; 
     height: auto;  

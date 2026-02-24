@@ -1648,6 +1648,7 @@ def _tournament_base_context(request, tournament):
     if request.user.is_authenticated:
         active_rounds = Round.objects.filter(
             stage__tournament=tournament,
+            series__isnull=True,
         ).filter(
             Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
             start_date__lt=timezone.now()
@@ -1680,6 +1681,8 @@ def _stage_base_context(request, tournament, stage):
         active_rounds = stage.rounds.filter(
             Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
             start_date__lt=timezone.now()
+        ).exclude(
+            series__isnull=False
         )
         for r in active_rounds:
             if user_can_access_round(r, request.user):
@@ -1705,7 +1708,7 @@ def _round_base_context(request, tournament, stage, round):
     """Shared context for all round tab pages."""
     playable_round = None
     if request.user.is_authenticated:
-        if user_can_access_round(round, request.user):
+        if user_can_access_round(round, request.user) and not round.series.exists():
             playable_round = round
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)

@@ -1,6 +1,6 @@
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <div>
-        <img class="user-icon" src="{{ comment.player.image.url }}">
+        <img class="lg-avatar-icon" src="{{ comment.player.image.url }}">
         <a href="{% url 'player-detail' comment.player.slug %}">{{ comment.player.name }}</a>
         : {{ comment.body }}
         <small class="text-muted">{{ comment.date_posted |date:"F j, Y" }}</small>
