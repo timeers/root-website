@@ -8,6 +8,7 @@
                class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
                 {% trans 'Overview' %}
             </a>
+            {% if has_games %}
             <a href="{% url 'round-leaderboard-page' tournament.slug stage.slug round.slug %}"
                class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
                 {% trans 'Leaderboard' %}
@@ -30,10 +31,18 @@
                 </div>
                 {% endif %}
             </div>
+            {% elif has_matches %}
+            <a href="{% url 'round-matches-page' tournament.slug stage.slug round.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                {% trans 'Games' %}
+            </a>
+            {% endif %}
+            {% if has_games or has_players %}
             <a href="{% url 'round-roster-page' tournament.slug stage.slug round.slug %}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
                 {% trans 'Roster' %}
             </a>
+            {% endif %}
             <a href="{% url 'round-details-page' tournament.slug stage.slug round.slug %}"
                class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
                 {% trans 'Details' %}

@@ -1,8 +1,8 @@
 {% load i18n %}
 {# Shared partial: Participant Groups card #}
-{# Requires context: session, groups, is_processing, editable #}
+{# Requires context: stage, groups, is_processing, editable #}
 
-{% if session and not is_processing %}
+{% if stage and not is_processing %}
 <div class="card mb-4">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-columns-gap"></i> {% trans 'Participant Groups' %}</h5>
@@ -40,7 +40,7 @@
                     </div>
                     <div class="card-body p-2">
                         <!-- Group Stats -->
-                        {% if session.grouping_type == 'availability' %}
+                        {% if stage.grouping_type == 'availability' %}
                         <div class="small text-muted mb-2">
                             <i class="bi bi-clock"></i> {{ group.total_overlap_hours }}h overlap
                             {% if group.best_consecutive_block %}

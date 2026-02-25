@@ -22,7 +22,7 @@
             <h1 class="root-title mb-2">{% if is_finalized %}{% trans 'Match Generation' %}{% else %}{% trans 'Player Grouping' %}{% endif %}</h1>
             <p class="text-muted mb-0">{{ tournament.name }} - {{ round.name|default:round.round_number }}</p>
         </div>
-        {% if session and not is_processing %}
+        {% if stage and not is_processing %}
         <div class="d-flex gap-2">
             {% if not is_finalized %}
             <button class="btn btn-success" onclick="finalizeSession()">

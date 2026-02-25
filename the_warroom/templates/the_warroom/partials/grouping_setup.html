@@ -14,7 +14,7 @@
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-gear"></i> {% trans 'Grouping Settings' %}</h5>
-            {% if session and not is_processing %}
+            {% if stage and not is_processing %}
             <form method="post" style="display: inline;">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="reset_session">
@@ -26,6 +26,20 @@
             {% endif %}
         </div>
     <div class="card-body">
+        {% if total_players == 0 %}
+        <div class="alert alert-warning mb-4">
+            <h6 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> {% trans 'No Players' %}</h6>
+            <p class="mb-3">{% trans 'There are no players in this stage yet. Add players through player management or create a survey for participants to sign up.' %}</p>
+            <div class="d-flex gap-2">
+                <a href="{% url 'stage-manage-players' tournament.slug stage.slug %}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-people"></i> {% trans 'Manage Players' %}
+                </a>
+                <a href="{% url 'stage-surveys' tournament.slug stage.slug %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-clipboard-check"></i> {% trans 'Surveys' %}
+                </a>
+            </div>
+        </div>
+        {% endif %}
         <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="generate">
@@ -36,7 +50,7 @@
                 <label class="form-label fw-bold">{% trans 'Grouping Method' %}</label>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_random" value="random"
-                        {% if not session or session.grouping_type == 'random' %}checked{% endif %}>
+                        {% if not stage or stage.grouping_type == 'random' %}checked{% endif %}>
                     <label class="form-check-label" for="type_random">
                         <strong>{% trans 'Random Assignment' %}</strong>
                         <br><small class="text-muted">Randomly distribute players into groups</small>
@@ -44,7 +58,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_swiss" value="swiss"
-                        {% if session and session.grouping_type == 'swiss' %}checked{% endif %}>
+                        {% if stage and stage.grouping_type == 'swiss' %}checked{% endif %}>
                     <label class="form-check-label" for="type_swiss">
                         <strong>{% trans 'Avoid Repeats' %}</strong>
                         <br><small class="text-muted">Groups players who haven't played together in prior rounds. Best for multi-round events.</small>
@@ -52,7 +66,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_manual" value="manual"
-                        {% if session and session.grouping_type == 'manual' %}checked{% endif %}>
+                        {% if stage and stage.grouping_type == 'manual' %}checked{% endif %}>
                     <label class="form-check-label" for="type_manual">
                         <strong>{% trans 'Manual Assignment' %}</strong>
                         <br><small class="text-muted">Manually drag players into groups</small>
@@ -65,7 +79,7 @@
                 <label class="form-label fw-bold">{% trans 'Grouping Method' %}</label>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_availability" value="availability"
-                        {% if not session or session.grouping_type == 'availability' or not session.grouping_type %}checked{% endif %}>
+                        {% if not stage or stage.grouping_type == 'availability' or not stage.grouping_type %}checked{% endif %}>
                     <label class="form-check-label" for="type_availability">
                         <strong>{% trans 'Availability Optimized' %}</strong>
                         <br><small class="text-muted">Prioritizes best availability matches, may leave some players ungrouped</small>
@@ -73,7 +87,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_swiss_avail" value="swiss"
-                        {% if session and session.grouping_type == 'swiss' %}checked{% endif %}>
+                        {% if stage and stage.grouping_type == 'swiss' %}checked{% endif %}>
                     <label class="form-check-label" for="type_swiss_avail">
                         <strong>{% trans 'Avoid Repeats' %}</strong>
                         <br><small class="text-muted">Prioritizes grouping players who haven't played together in prior rounds.</small>
@@ -81,7 +95,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_random_avail" value="random"
-                        {% if session and session.grouping_type == 'random' %}checked{% endif %}>
+                        {% if stage and stage.grouping_type == 'random' %}checked{% endif %}>
                     <label class="form-check-label" for="type_random_avail">
                         <strong>{% trans 'Random Assignment' %}</strong>
                         <br><small class="text-muted">Randomly assigns players to groups evenly</small>
@@ -89,7 +103,7 @@
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="radio" name="grouping_type" id="type_manual_avail" value="manual"
-                        {% if session and session.grouping_type == 'manual' %}checked{% endif %}>
+                        {% if stage and stage.grouping_type == 'manual' %}checked{% endif %}>
                     <label class="form-check-label" for="type_manual_avail">
                         <strong>{% trans 'Manual Assignment' %}</strong>
                         <br><small class="text-muted">Pre-creates empty groups for you to drag players into</small>
@@ -113,7 +127,7 @@
                     <label for="naming_convention" class="form-label">{% trans 'Group Naming' %}</label>
                     <select class="form-select" id="naming_convention" name="naming_convention">
                         {% for value, label in naming_conventions %}
-                        <option value="{{ value }}" {% if session.naming_convention == value %}selected{% endif %}>
+                        <option value="{{ value }}" {% if stage.naming_convention == value %}selected{% endif %}>
                             {{ label }}
                         </option>
                         {% endfor %}
@@ -128,13 +142,13 @@
                 <div class="card-body">
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="include_waitlist" name="include_waitlist"
-                            {% if session and session.include_waitlist %}checked{% endif %}
+                            {% if stage and stage.include_waitlist %}checked{% endif %}
                             onchange="toggleWaitlistCount()">
                         <label class="form-check-label" for="include_waitlist">
                             <strong>{% trans 'Include Waitlist Players' %}</strong>
                         </label>
                     </div>
-                    <div id="waitlist_count_wrapper" style="{% if not session or not session.include_waitlist %}display: none;{% endif %}">
+                    <div id="waitlist_count_wrapper" style="{% if not stage or not stage.include_waitlist %}display: none;{% endif %}">
                         <label for="waitlist_count" class="form-label">{% trans 'Number of waitlist players to include' %}</label>
                         <input type="number" class="form-control" id="waitlist_count" name="waitlist_count"
                             value="{% if included_waitlist_count|default:0 > 0 %}{{ included_waitlist_count }}{% else %}{{ waitlist_count }}{% endif %}"
@@ -146,11 +160,11 @@
             {% endif %}
 
             <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary" {% if total_players == 0 %}disabled{% endif %}>
                     <i class="bi bi-play-fill"></i>
-                    {% if session %}{% trans 'Regenerate Groups' %}{% else %}{% trans 'Generate Groups' %}{% endif %}
+                    {% trans 'Generate Groups' %}
                 </button>
-                <a href="{{ return_to }}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+                <a href="{{ round.get_settings_url }}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
             </div>
         </form>
     </div>
@@ -166,9 +180,9 @@
     </div>
     <p class="text-muted mt-3">{% trans 'Generating groups, please wait...' %}</p>
 </div>
-{% if session %}
+{% if stage %}
 <div
-    hx-get="{{ base_url }}{{ session.id }}/status/"
+    hx-get="{{ base_url }}{{ stage.id }}/status/"
     hx-trigger="every 2s"
     hx-swap="none"
     style="display:none;">
@@ -247,11 +261,11 @@
 }
 </style>
 
-{% if session and not is_processing %}
+{% if stage and not is_processing %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 <script>
 const csrfToken = '{{ csrf_token }}';
-const sessionId = {{ session.id }};
+const stageId = {{ stage.id }};
 const baseUrl = '{{ base_url }}';
 const minPlayers = {{ round.get_min_players }};
 const maxPlayers = {{ round.get_max_players }};
@@ -346,7 +360,7 @@ if (newGroupZone) {
 function assignPlayerToGroup(playerId, toGroupId) {
     // Unified function to add/move player to a group
     // Works for all scenarios: ungrouped→group, waitlist→group, group→group
-    fetch(`${baseUrl}${sessionId}/add-to-group/`, {
+    fetch(`${baseUrl}${stageId}/add-to-group/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -382,7 +396,7 @@ function movePlayer(playerId, fromGroupId, toGroupId) {
 }
 
 function removeFromGroup(playerId) {
-    fetch(`${baseUrl}${sessionId}/remove-from-group/`, {
+    fetch(`${baseUrl}${stageId}/remove-from-group/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -414,7 +428,7 @@ function createNewGroup(playerId, source) {
         body.player_id = playerId;
     }
 
-    fetch(`${baseUrl}${sessionId}/create-group/`, {
+    fetch(`${baseUrl}${stageId}/create-group/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -439,7 +453,7 @@ function createNewGroup(playerId, source) {
 function deleteGroup(groupId) {
     if (!confirm('Delete this empty group?')) return;
 
-    fetch(`${baseUrl}${sessionId}/delete-group/`, {
+    fetch(`${baseUrl}${stageId}/delete-group/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -497,7 +511,7 @@ function finalizeSession() {
 }
 
 function confirmFinalize() {
-    fetch(`${baseUrl}${sessionId}/finalize/`, {
+    fetch(`${baseUrl}${stageId}/finalize/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

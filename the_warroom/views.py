@@ -1663,12 +1663,16 @@ def _tournament_base_context(request, tournament):
         playable_round = None
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
+    has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
     return {
         'tournament': tournament,
         'object': tournament,
         'playable_round': playable_round,
         'can_manage': can_manage,
+        'has_games': has_games,
+        'has_players': has_players,
         'meta_title': tournament.name,
         'meta_description': tournament.description,
     }
@@ -1691,6 +1695,8 @@ def _stage_base_context(request, tournament, stage):
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)
     has_bracket = Match.objects.filter(round__stage=stage).exists()
+    has_games = Game.objects.filter(round__stage=stage).exists()
+    has_players = StageParticipant.objects.filter(stage=stage).exists()
 
     return {
         'tournament': tournament,
@@ -1699,6 +1705,8 @@ def _stage_base_context(request, tournament, stage):
         'playable_round': playable_round,
         'can_manage': can_manage,
         'has_bracket': has_bracket,
+        'has_games': has_games,
+        'has_players': has_players,
         'meta_title': f"{stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }
@@ -1713,6 +1721,8 @@ def _round_base_context(request, tournament, stage, round):
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)
     has_matches = MatchSeries.objects.filter(round=round).exists()
+    has_games = Game.objects.filter(round=round).exists()
+    has_players = StageParticipant.objects.filter(stage=stage).exists()
 
     return {
         'tournament': tournament,
@@ -1722,6 +1732,8 @@ def _round_base_context(request, tournament, stage, round):
         'playable_round': playable_round,
         'can_manage': can_manage,
         'has_matches': has_matches,
+        'has_games': has_games,
+        'has_players': has_players,
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }
@@ -2943,18 +2955,18 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         obj = self.get_object()
         profile = self.request.user.profile
         # Only allow deletion for admins or the tournament designer (not moderators)
-        return profile.admin or profile == obj.tournament.designer
+        return profile.admin or profile == obj.stage.tournament.designer
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['round'] = self.object
-        context['tournament'] = self.object.tournament
+        context['tournament'] = self.object.stage.tournament
         return context
 
     # Dynamically set the success URL based on the round's tournament
     def get_success_url(self):
         # Redirect to the tournament detail page using the tournament slug
-        tournament_slug = self.object.tournament.slug
+        tournament_slug = self.object.stage.slug
         return reverse_lazy('tournament-detail', kwargs={'slug': tournament_slug})
     
     def post(self, request, *args, **kwargs):
@@ -4224,8 +4236,6 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
         )
         ungrouped_players = active_players_qs.exclude(id__in=grouped_ids).select_related('profile')
 
-    return_to = round.get_absolute_url()
-
     context = {
         'tournament': tournament,
         'round': round,
@@ -4241,9 +4251,7 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
         'is_processing': is_processing,
         'is_finalized': is_finalized,
         'has_error': has_error,
-        'return_to': return_to,
         'naming_conventions': NameConvention.choices,
-        'session': stage,
         'base_url': reverse('round-grouping-setup', kwargs={
             'tournament_slug': tournament.slug,
             'stage_slug': stage.slug,
