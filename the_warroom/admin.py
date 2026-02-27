@@ -577,7 +577,7 @@ admin.site.register(TournamentPlayer, TournamentPlayerAdmin)
 
 class MatchAdvancementInline(admin.TabularInline):
     model = MatchAdvancement
-    fk_name = 'from_match'
+    fk_name = 'from_series'
     extra = 1
 
 
@@ -587,6 +587,7 @@ class MatchSeriesAdmin(admin.ModelAdmin):
     list_filter = ['round__tournament']
     raw_id_fields = ['round', 'player_group']
     filter_horizontal = ['winners']
+    inlines = [MatchAdvancementInline]
 
 
 @admin.register(Match)
@@ -594,10 +595,9 @@ class MatchAdmin(admin.ModelAdmin):
     list_display = ['__str__', 'round', 'match_number', 'series', 'game']
     list_filter = ['round__tournament']
     raw_id_fields = ['round', 'series', 'game']
-    inlines = [MatchAdvancementInline]
 
 
 @admin.register(MatchAdvancement)
 class MatchAdvancementAdmin(admin.ModelAdmin):
-    list_display = ['from_match', 'position', 'to_match', 'to_round']
-    raw_id_fields = ['from_match', 'to_match', 'to_round']
+    list_display = ['from_series', 'position', 'to_stage']
+    raw_id_fields = ['from_series', 'to_stage']

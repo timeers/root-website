@@ -84,11 +84,27 @@
                     <small class="text-muted">How many games are played per match-up</small>
                 </div>
 
+                <div class="col-md-6">
+                    <label for="winners_stage" class="form-label fw-bold">{% trans 'Winners advance to' %}</label>
+                    <select class="form-select" id="winners_stage" onchange="toggleNewWinnersStageName()">
+                        <option value="">{% trans 'Stay in current stage' %}</option>
+                        {% for s in other_stages %}
+                        <option value="{{ s.id }}">{{ s.name }}</option>
+                        {% endfor %}
+                        <option value="new">{% trans '+ Create New Stage' %}</option>
+                    </select>
+                    <small class="text-muted">Where match winners advance to</small>
+
+                    <div id="newWinnersStageNameWrapper" class="mt-2" style="display: none;">
+                        <input type="text" class="form-control" id="winners_stage_name" placeholder="e.g. Finals Stage">
+                    </div>
+                </div>
+
                 {% if round_format == 'Double Elimination' %}
                 <div class="col-md-6">
-                    <label for="losers_stage" class="form-label fw-bold">{% trans 'Losers Stage' %}</label>
-                    <select class="form-select" id="losers_stage" onchange="toggleNewStageName()">
-                        <option value="">{% trans 'None (eliminate losers)' %}</option>
+                    <label for="losers_stage" class="form-label fw-bold">{% trans 'Losers advance to' %}</label>
+                    <select class="form-select" id="losers_stage" onchange="toggleNewLossersStageName()">
+                        <option value="">{% trans 'Eliminated (no advancement)' %}</option>
                         {% for s in other_stages %}
                         <option value="{{ s.id }}">{{ s.name }}</option>
                         {% endfor %}
@@ -96,7 +112,7 @@
                     </select>
                     <small class="text-muted">Where eliminated players advance to</small>
 
-                    <div id="newStageNameWrapper" class="mt-2" style="display: none;">
+                    <div id="newLosersStageNameWrapper" class="mt-2" style="display: none;">
                         <input type="text" class="form-control" id="losers_stage_name" placeholder="e.g. Losers Bracket">
                     </div>
                 </div>
@@ -141,9 +157,17 @@
 
 {% if bracket_url and not is_bracket_finalized %}
 <script>
-function toggleNewStageName() {
+function toggleNewWinnersStageName() {
+    const select = document.getElementById('winners_stage');
+    const wrapper = document.getElementById('newWinnersStageNameWrapper');
+    if (select && wrapper) {
+        wrapper.style.display = select.value === 'new' ? 'block' : 'none';
+    }
+}
+
+function toggleNewLossersStageName() {
     const select = document.getElementById('losers_stage');
-    const wrapper = document.getElementById('newStageNameWrapper');
+    const wrapper = document.getElementById('newLosersStageNameWrapper');
     if (select && wrapper) {
         wrapper.style.display = select.value === 'new' ? 'block' : 'none';
     }
@@ -158,6 +182,22 @@ function generateBracket() {
         body.create_byes = true;
     }
 
+    // Winners stage
+    const winnersSelect = document.getElementById('winners_stage');
+    if (winnersSelect) {
+        if (winnersSelect.value === 'new') {
+            const name = document.getElementById('winners_stage_name').value.trim();
+            if (!name) {
+                alert('Please enter a name for the winners stage.');
+                return;
+            }
+            body.winners_stage_name = name;
+        } else if (winnersSelect.value) {
+            body.winners_stage_id = parseInt(winnersSelect.value);
+        }
+    }
+
+    // Losers stage
     const losersSelect = document.getElementById('losers_stage');
     if (losersSelect) {
         if (losersSelect.value === 'new') {

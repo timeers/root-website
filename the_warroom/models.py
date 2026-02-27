@@ -848,41 +848,26 @@ class Match(models.Model):
 
 
 class MatchAdvancement(models.Model):
-    """Defines how players advance from one match to the next match or into a new round."""
+    """Defines how players advance from a MatchSeries into another Stage."""
     class PositionChoices(models.TextChoices):
         WINNER = 'winner', 'Winner'
         LOSER = 'loser', 'Loser'
 
-    from_match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name='advancements')
-    position = models.CharField(max_length=10, choices=PositionChoices.choices)
-
-    # Exactly one of these must be set (XOR — enforced in clean())
-    to_match = models.ForeignKey(
-        Match, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='incoming_advancements'
+    from_series = models.ForeignKey(
+        MatchSeries, on_delete=models.CASCADE, related_name='advancements'
     )
-    to_round = models.ForeignKey(
-        Round, on_delete=models.SET_NULL,
+    position = models.CharField(max_length=10, choices=PositionChoices.choices)
+    to_stage = models.ForeignKey(
+        Stage, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='incoming_advancements'
     )
 
     class Meta:
-        unique_together = [('from_match', 'position')]
-
-    def clean(self):
-        if self.to_match_id and self.to_round_id:
-            raise ValidationError("Only one of to_match or to_round can be set, not both.")
-        if not self.to_match_id and not self.to_round_id:
-            raise ValidationError("One of to_match or to_round must be set.")
+        unique_together = [('from_series', 'position')]
 
     def __str__(self):
-        if self.to_match_id:
-            dest = f"Match {self.to_match}"
-        elif self.to_round_id:
-            dest = f"Round {self.to_round}"
-        else:
-            dest = "No destination"
-        return f"{self.from_match} {self.position} → {dest}"
+        dest = f"Stage {self.to_stage}" if self.to_stage_id else "Current stage"
+        return f"{self.from_series} {self.position} → {dest}"
 
 
 # This is a game with the basic game attributes and a variable number of seats (Efforts) linked to it

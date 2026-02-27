@@ -85,7 +85,7 @@ class BracketService:
         Stage 1 (is_first=True): one MatchSeries+Match per existing PlayerGroup.
         Later stages: empty MatchSeries+Match shells; count determined by advancing
         player count and the round's min/max player constraints.
-        Advancements: each match winner → to_round=next_round (if not terminal).
+        Advancements: each series winner → to_stage (if not terminal).
 
         Returns:
             tuple[int, list[str]]: (number of matches created, warning messages)
@@ -136,14 +136,13 @@ class BracketService:
                     f"below minimum of {min_per_match}."
                 )
 
-        if next_round:
-            for match in Match.objects.filter(round=bracket_round).order_by('match_number'):
+        if next_round and next_round.stage_id:
+            for ms in MatchSeries.objects.filter(round=bracket_round).order_by('id'):
                 MatchAdvancement.objects.create(
-                    from_match=match,
+                    from_series=ms,
                     position=MatchAdvancement.PositionChoices.WINNER,
-                    to_round=next_round,
+                    to_stage=next_round.stage,
                 )
-        # Terminal stage: no advancements created (MatchAdvancement.clean() requires a destination)
 
         return match_count, warnings
 
@@ -192,7 +191,7 @@ class BracketService:
 
     @classmethod
     @transaction.atomic
-    def generate_round_bracket(cls, round, best_of=1, losers_stage=None, create_byes=False):
+    def generate_round_bracket(cls, round, best_of=1, losers_stage=None, winners_stage=None, create_byes=False):
         """
         Generate MatchSeries, Matches, MatchSeats, and MatchAdvancements
         for a single round based on its finalized PlayerGroups.
@@ -201,7 +200,9 @@ class BracketService:
             round: Round instance (must have grouping_status == FINALIZED)
             best_of: Number of games per match series (1, 3, 5, 7)
             losers_stage: Stage instance for double elimination loser advancement.
-                          If provided, losers are routed to the first round of this stage.
+            winners_stage: Stage instance for explicit winner advancement.
+                           If None, winners stay in the current stage.
+            create_byes: If True, create bye series for ungrouped players.
 
         Returns:
             list[str]: warning messages about constraint violations
@@ -217,7 +218,7 @@ class BracketService:
             raise ValueError("Round has no player groups. Generate groups first.")
 
         # Clear existing bracket data for this round (idempotent)
-        MatchAdvancement.objects.filter(from_match__round=round).delete()
+        MatchAdvancement.objects.filter(from_series__round=round).delete()
         Match.objects.filter(round=round).delete()
         MatchSeries.objects.filter(round=round).delete()
 
@@ -225,29 +226,17 @@ class BracketService:
         max_per_match = round.get_max_players()
         warnings = []
 
-        # Find next round in the same stage for winner advancement
-        next_round = None
-        if round.stage_id:
-            next_round = (
-                Round.objects.filter(stage=round.stage, round_number__gt=round.round_number)
-                .order_by('round_number')
-                .first()
+        # Seed losers stage with a first round if it doesn't have one
+        if losers_stage and not losers_stage.rounds.exists():
+            Round.objects.create(
+                tournament=round.get_tournament(),
+                stage=losers_stage,
+                name=f"{losers_stage.name} Round 1",
+                round_number=1,
+                start_date=timezone.now(),
+                min_players=round.get_min_players(),
+                max_players=round.get_max_players(),
             )
-
-        # Find losers target round (auto-create if needed)
-        losers_round = None
-        if losers_stage:
-            losers_round = losers_stage.rounds.order_by('round_number').first()
-            if not losers_round:
-                losers_round = Round.objects.create(
-                    tournament=round.get_tournament(),
-                    stage=losers_stage,
-                    name=f"{losers_stage.name} Round 1",
-                    round_number=1,
-                    start_date=timezone.now(),
-                    min_players=round.get_min_players(),
-                    max_players=round.get_max_players(),
-                )
 
         for group in groups:
             player_count = group.tournament_players.count()
@@ -291,20 +280,20 @@ class BracketService:
                             seat_number=i + 1,
                         )
 
-            # Wire WINNER advancement
-            if next_round and first_match:
+            # Wire WINNER advancement (to explicit stage, if set)
+            if winners_stage:
                 MatchAdvancement.objects.create(
-                    from_match=first_match,
+                    from_series=series,
                     position=MatchAdvancement.PositionChoices.WINNER,
-                    to_round=next_round,
+                    to_stage=winners_stage,
                 )
 
             # Wire LOSER advancement (double elimination)
-            if losers_round and first_match:
+            if losers_stage:
                 MatchAdvancement.objects.create(
-                    from_match=first_match,
+                    from_series=series,
                     position=MatchAdvancement.PositionChoices.LOSER,
-                    to_round=losers_round,
+                    to_stage=losers_stage,
                 )
 
         # ── Bye series for ungrouped players ────────────────────────
@@ -347,11 +336,11 @@ class BracketService:
                     seat_number=1,
                 )
 
-                if next_round:
+                if winners_stage:
                     MatchAdvancement.objects.create(
-                        from_match=bye_match,
+                        from_series=bye_series,
                         position=MatchAdvancement.PositionChoices.WINNER,
-                        to_round=next_round,
+                        to_stage=winners_stage,
                     )
 
         return warnings
@@ -402,7 +391,7 @@ class BracketService:
 
         # Check if this round is now complete
         if series.is_complete():
-            cls._process_advancement(match)
+            cls._process_advancement(series)
             cls._check_round_complete(match.round)
         else:
             # Else mark as in progress / active
@@ -439,32 +428,36 @@ class BracketService:
             series.save(update_fields=['status'])
 
     @classmethod
-    def _process_advancement(cls, match):
-        """Process winner and loser advancements for a completed match."""
-        series = match.series
+    def _process_advancement(cls, series):
+        """Process winner and loser advancements for a completed series."""
         if not series.winners.exists():
             return
 
-        for advancement in match.advancements.all():
+        winner_tp_ids = set(
+            series.winners.values_list('tournament_player_id', flat=True)
+        )
+
+        for advancement in series.advancements.all():
+            if not advancement.to_stage:
+                continue
+
             if advancement.position == MatchAdvancement.PositionChoices.WINNER:
-                # Winners stay in their current stage; they're available
-                # for grouping in the next round when the organizer is ready
-                pass
-            elif advancement.position == MatchAdvancement.PositionChoices.LOSER:
-                # Create StageParticipant in the losers stage for each non-winner
-                if advancement.to_round and advancement.to_round.stage:
-                    losers_stage = advancement.to_round.stage
-                    winner_tp_ids = set(
-                        series.winners.values_list('tournament_player_id', flat=True)
+                # Create StageParticipants for winners in the target stage
+                for sp in series.winners.all():
+                    StageParticipant.objects.get_or_create(
+                        stage=advancement.to_stage,
+                        tournament_player=sp.tournament_player,
+                        defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
                     )
-                    # All players in the group except the winners
-                    if series.player_group:
-                        for tp in series.player_group.tournament_players.exclude(id__in=winner_tp_ids):
-                            StageParticipant.objects.get_or_create(
-                                stage=losers_stage,
-                                tournament_player=tp,
-                                defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
-                            )
+            elif advancement.position == MatchAdvancement.PositionChoices.LOSER:
+                # Create StageParticipants for losers (non-winners) in the losers stage
+                if series.player_group:
+                    for tp in series.player_group.tournament_players.exclude(id__in=winner_tp_ids):
+                        StageParticipant.objects.get_or_create(
+                            stage=advancement.to_stage,
+                            tournament_player=tp,
+                            defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
+                        )
 
     @classmethod
     @transaction.atomic
@@ -498,7 +491,26 @@ class BracketService:
         """
         Populate StageParticipant records in the next stage
         from all series winners in the completed stage.
+        Skips winners already advanced via explicit MatchAdvancement records.
         """
+        # Find series whose winners were NOT explicitly advanced
+        all_series_ids = set(
+            MatchSeries.objects.filter(
+                round__stage=completed_stage
+            ).values_list('id', flat=True)
+        )
+        explicitly_advanced_ids = set(
+            MatchAdvancement.objects.filter(
+                from_series_id__in=all_series_ids,
+                position=MatchAdvancement.PositionChoices.WINNER,
+                to_stage__isnull=False,
+            ).values_list('from_series_id', flat=True)
+        )
+        unhandled_series_ids = all_series_ids - explicitly_advanced_ids
+
+        if not unhandled_series_ids:
+            return
+
         next_stage = (
             Stage.objects.filter(
                 tournament=completed_stage.tournament,
@@ -510,12 +522,11 @@ class BracketService:
         if not next_stage:
             return
 
-        # Collect all series winners from all rounds in the completed stage
+        # Collect winners only from series without explicit advancement
         winner_tp_ids = StageParticipant.objects.filter(
-            won_series__round__stage=completed_stage,
+            won_series__id__in=unhandled_series_ids,
         ).values_list('tournament_player_id', flat=True).distinct()
 
-        from the_warroom.models import TournamentPlayer
         for tp_id in winner_tp_ids:
             tp = TournamentPlayer.objects.get(id=tp_id)
             StageParticipant.objects.get_or_create(

@@ -3668,7 +3668,7 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
     rounds = stage.rounds.all().order_by('round_number')
     rounds_with_matches = rounds.prefetch_related(
         'matches__series__player_group__tournament_players__profile',
-        'matches__advancements__to_round',
+        'series__advancements__to_stage',
         'series__player_group',
     )
     has_bracket = Match.objects.filter(round__stage=stage).exists()
@@ -4609,8 +4609,27 @@ def round_generate_bracket(request, tournament_slug, stage_slug, round_slug):
             status='Pending',
         )
 
+    winners_stage = None
+    winners_stage_id = data.get('winners_stage_id')
+    winners_stage_name = data.get('winners_stage_name', '').strip()
+
+    if winners_stage_id:
+        winners_stage = get_object_or_404(Stage, id=winners_stage_id, tournament=tournament)
+    elif winners_stage_name:
+        max_order = tournament.stages.aggregate(max_order=models.Max('order'))['max_order'] or 0
+        winners_stage = Stage.objects.create(
+            tournament=tournament,
+            name=winners_stage_name,
+            order=max_order + 1,
+            stage_format=round.get_format(),
+            status='Pending',
+        )
+
     try:
-        warnings = BracketService.generate_round_bracket(round, best_of=best_of, losers_stage=losers_stage, create_byes=create_byes)
+        warnings = BracketService.generate_round_bracket(
+            round, best_of=best_of, losers_stage=losers_stage,
+            winners_stage=winners_stage, create_byes=create_byes,
+        )
         return JsonResponse({
             'success': True,
             'warnings': warnings,

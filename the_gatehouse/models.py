@@ -95,6 +95,8 @@ class DiscordGuild(models.Model):
         help_text="Discord server invite URL")
     request_message = models.TextField(blank=True, null=True)
     server_rules = models.TextField(blank=True, null=True)
+    
+
     auto_approve_invite = models.BooleanField(default=False)
 
     # From Discord API
