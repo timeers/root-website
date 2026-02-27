@@ -1552,7 +1552,11 @@ def guild_join_request(request, guild_id):
             return redirect(next_url)
         elif existing_request.status == DiscordGuildJoinRequest.Status.APPROVED:
             # Redirect to guild invite page where they can join
-            messages.success(request, f"Your request to join {guild.name} has been approved!")
+            if guild.approval_message:
+                approval_message = guild.approval_message
+            else:
+                approval_message = f"Your request to join {guild.name} has been approved!"
+            messages.success(request, approval_message)
             return redirect(f"{reverse('guild-invite', kwargs={'guild_id': guild_id})}?next={next_url}")
         elif existing_request.status == DiscordGuildJoinRequest.Status.REJECTED:
             # Allow resubmission - delete old rejected request
