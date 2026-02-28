@@ -3,12 +3,21 @@ from django.utils.text import slugify
 from unidecode import unidecode
 from the_warroom.models import Round, Tournament, Stage
 
+RESERVED_SLUGS = {
+    'edit', 'lang', 'add', 'delete', 
+    'concluded', 'ongoing', 'my-series', 'scheduled',
+    'groups', 'tournaments', 'leagues',
+    }
+
 def slugify_tournament_name(instance, save=False, new_slug=None):
     if new_slug is not None:
         slug = new_slug
     else:
         slug = slugify(unidecode(instance.name))
 
+    # Check if the slug is reserved
+    if slug in RESERVED_SLUGS:
+        slug = f"{slug}-{random.randint(1000, 9999)}"
 
     qs = Tournament.objects.filter(slug=slug).exclude(id=instance.id)
     if qs.exists():
