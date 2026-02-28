@@ -1071,8 +1071,10 @@ class Tweak(Post):
 
         game_threshold = get_game_threshold()
         player_threshold = get_player_threshold()
-
-        official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
+        if self.based_on:
+            official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(pk=self.based_on.pk)
+        else:
+            official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
         official_faction_queryset = official_factions.filter(efforts__game__tweaks=self).distinct()
         official_faction_count = official_faction_queryset.count()
@@ -1650,7 +1652,10 @@ class Faction(Post):
         game_threshold = get_game_threshold()
         player_threshold = get_player_threshold()
 
-        official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(id=self.id)
+        if self.based_on:
+            official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(Q(id=self.id) | Q(pk=self.based_on.pk))
+        else:
+            official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(id=self.id)
         faction_threshold = official_factions.count()
         official_faction_queryset = official_factions.filter(efforts__game__efforts__faction=self).distinct()
         official_faction_count = official_faction_queryset.count()
@@ -1828,7 +1833,10 @@ class Hireling(Post):
         game_threshold = get_game_threshold()
         player_threshold = get_player_threshold()
 
-        official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
+        if self.based_on:
+            official_factions = Faction.objects.filter(official=True, status=1, component="Faction").exclude(pk=self.based_on.pk)
+        else:
+            official_factions = Faction.objects.filter(official=True, status=1, component="Faction")
         faction_threshold = official_factions.count()
         official_faction_queryset = official_factions.filter(efforts__game__hirelings=self).distinct()
         official_faction_count = official_faction_queryset.count()

@@ -328,7 +328,7 @@ class Effort(models.Model):
     # notes = models.TextField(null=True, blank=True)
     date_posted = models.DateTimeField(default=timezone.now)
     date_modified = models.DateTimeField(auto_now=True)
-    player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
+    # player_status = models.CharField(max_length=50, choices=StatusChoices.choices, default=StatusChoices.ACTIVE)
 
 
     def save(self, *args, **kwargs):
