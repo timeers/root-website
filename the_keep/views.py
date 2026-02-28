@@ -1481,12 +1481,13 @@ def component_games(request, slug, component):
         if not request.user.profile.weird:
             games = games.filter(official=True)
 
-    # Apply distinct and prefetch_related to all cases  
-    prefetch_values = [
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-        'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-    ]
-    games = games.distinct().prefetch_related(*prefetch_values)
+    # Apply distinct, select_related for FKs, prefetch_related for M2M + efforts
+    opts = Game.with_efforts()
+    games = games.distinct().select_related(
+        *opts['select'], 'undrafted_faction', 'undrafted_vagabond'
+    ).prefetch_related(
+        *opts['prefetch'], 'hirelings', 'landmarks', 'tweaks'
+    )
 
     game_filter = GameFilter(request.GET, user=request.user, queryset=games)
 
@@ -1505,11 +1506,11 @@ def component_games(request, slug, component):
     if not page_number:
         
         if obj.component == "Faction":
-            efforts = Effort.objects.filter(game__in=filtered_games, faction=obj)
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'), faction=obj)
         elif obj.component == "Vagabond":
-            efforts = Effort.objects.filter(game__in=filtered_games, vagabond=obj)
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'), vagabond=obj)
         else:
-            efforts = Effort.objects.filter(game__in=filtered_games)
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'))
 
         game_values = efforts.aggregate(
             total_efforts=Count('id'),
@@ -1544,12 +1545,16 @@ def component_games(request, slug, component):
     meta_description = f'Games recorded with {obj.title}'
     meta_image_url = obj.get_meta_image_url(language)
 
+    filtered_count = paginator.count
+    has_filters = any(v for k, v in request.GET.items() if k != 'page')
+    games_total = games.count() if has_filters else filtered_count
+
     context = {
         'object': obj,
-        'games_total': games.count(),
-        'filtered_games': filtered_games.count(),
+        'games_total': games_total,
+        'filtered_games': filtered_count,
         'games': page_obj,  # Pagination applied here
-        'is_paginated': len(filtered_games) > paginate_by,
+        'is_paginated': paginator.num_pages > 1,
         'form': game_filter.form,
         'filterset': game_filter,
         'win_count': win_count,

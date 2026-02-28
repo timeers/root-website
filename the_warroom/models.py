@@ -1,5 +1,5 @@
 from django.db import models, transaction
-from django.db.models import Q, Sum, Max
+from django.db.models import Q, Sum, Max, Prefetch
 
 from django.utils import timezone 
 from django.urls import reverse
@@ -920,11 +920,25 @@ class Game(models.Model):
 
     def get_efforts(self):
         return self.efforts.all()
-    
+
     def get_winners(self):
         return self.get_efforts().filter(win=True)
 
-    
+    @staticmethod
+    def with_efforts():
+        """Standard select/prefetch for game list views."""
+        return {
+            'select': ['deck', 'map', 'round__stage__tournament'],
+            'prefetch': [
+                Prefetch(
+                    'efforts',
+                    queryset=Effort.objects.select_related(
+                        'player', 'faction', 'vagabond', 'coalition_with'
+                    )
+                ),
+            ],
+        }
+
     def clean(self):
         # Check for duplicates among non-blank links
         if self.link:

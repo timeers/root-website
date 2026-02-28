@@ -83,23 +83,17 @@ def game_list_view(request):
     
     # Build queryset
     t0 = time.perf_counter()
+    opts = Game.with_efforts()
     if request.user.is_authenticated and not request.user.profile.weird:
-        queryset = Game.objects.filter(official=True, final=True).prefetch_related(
-            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-            'map', 'deck',
-            # 'hirelings', 'landmarks', 'tweaks', 
-        )
+        queryset = Game.objects.filter(official=True, final=True)
     else:
-        queryset = Game.objects.filter(final=True).prefetch_related(
-            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-            'map', 'deck',
-            # 'hirelings', 'landmarks', 'tweaks', 
-        )
-    
+        queryset = Game.objects.filter(final=True)
+    queryset = queryset.select_related(*opts['select']).prefetch_related(*opts['prefetch'])
+
     # Apply filters
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
     games = filterset.qs.order_by('-date_posted')
-    
+
     t1 = time.perf_counter()
     # print(f"[TIMING] queryset assembly: {t1 - t0:.4f}s")
     
@@ -193,19 +187,13 @@ def leaderboard_view(request):
         template_name = 'the_warroom/leaderboard_home.html'
     
     # Build queryset
+    opts = Game.with_efforts()
     if request.user.is_authenticated and not request.user.profile.weird:
-        queryset = Game.objects.filter(official=True, final=True).prefetch_related(
-            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-            'map', 'deck',
-            # 'hirelings', 'landmarks', 'tweaks', 
-        )
+        queryset = Game.objects.filter(official=True, final=True)
     else:
-        queryset = Game.objects.filter(final=True).prefetch_related(
-            'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-            'map', 'deck',
-            # 'hirelings', 'landmarks', 'tweaks', 
-        )
-    
+        queryset = Game.objects.filter(final=True)
+    queryset = queryset.select_related(*opts['select']).prefetch_related(*opts['prefetch'])
+
     # Apply filters
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
     games = filterset.qs.order_by('-date_posted')
@@ -294,10 +282,11 @@ def player_game_list_view(request, slug=None):
     if request.user.is_authenticated and not request.user.profile.weird:
         queryset = queryset.filter(official=True)
 
-    queryset = queryset.prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond',
-        'round__tournament', 'hirelings', 'landmarks', 'tweaks',
-        'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    opts = Game.with_efforts()
+    queryset = queryset.select_related(
+        *opts['select'], 'undrafted_faction', 'undrafted_vagabond'
+    ).prefetch_related(
+        *opts['prefetch'], 'hirelings', 'landmarks', 'tweaks'
     ).distinct()
 
     filterset = PlayerGameFilter(request.GET, queryset=queryset, player=player)
@@ -369,10 +358,11 @@ def my_submitted_games_view(request):
     if not player.weird:
         queryset = queryset.filter(official=True)
 
-    queryset = queryset.prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond',
-        'round__tournament', 'hirelings', 'landmarks', 'tweaks',
-        'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
+    opts = Game.with_efforts()
+    queryset = queryset.select_related(
+        *opts['select'], 'undrafted_faction', 'undrafted_vagabond'
+    ).prefetch_related(
+        *opts['prefetch'], 'hirelings', 'landmarks', 'tweaks'
     ).distinct()
 
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
@@ -1761,11 +1751,10 @@ def tournament_overview_page(request, slug):
 def tournament_leaderboard_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
+    opts = Game.with_efforts()
     games_qs = Game.objects.filter(
         round__stage__tournament=tournament, final=True
-    ).prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'map', 'deck'
-    )
+    ).select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, tournament=tournament)
     filtered_games = filterset.qs
@@ -1815,12 +1804,10 @@ def tournament_leaderboard_page(request, slug):
 def tournament_games_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
+    opts = Game.with_efforts()
     games_qs = Game.objects.filter(
         round__stage__tournament=tournament, final=True
-    ).prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond',
-        'round__stage', 'map', 'deck'
-    ).order_by('-date_posted')
+    ).select_related(*opts['select']).prefetch_related(*opts['prefetch']).order_by('-date_posted')
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, tournament=tournament)
     games = filterset.qs
@@ -2996,11 +2983,12 @@ def in_progress_view(request):
     language_code = get_language()
     language_object = Language.objects.filter(code=language_code).first()
     user_profile = request.user.profile
-    prefetch_game = [
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-        'hirelings', 'landmarks', 'tweaks', 'map', 'deck'
-    ]
-    in_progress_games = Game.objects.filter(recorder=user_profile, final=False).prefetch_related(*prefetch_game)
+    opts = Game.with_efforts()
+    in_progress_games = Game.objects.filter(
+        recorder=user_profile, final=False
+    ).select_related(*opts['select']).prefetch_related(
+        *opts['prefetch'], 'hirelings', 'landmarks', 'tweaks'
+    )
     prefetch_scorecard = [
         'faction', 'effort__game'
     ]
@@ -3530,11 +3518,10 @@ def stage_leaderboard_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
+    opts = Game.with_efforts()
     games_qs = Game.objects.filter(
         round__stage=stage, final=True
-    ).prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'map', 'deck'
-    )
+    ).select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, stage=stage)
     filtered_games = filterset.qs
@@ -3585,12 +3572,10 @@ def stage_games_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
+    opts = Game.with_efforts()
     games_qs = Game.objects.filter(
         round__stage=stage, final=True
-    ).prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond',
-        'round__stage', 'map', 'deck'
-    ).order_by('-date_posted')
+    ).select_related(*opts['select']).prefetch_related(*opts['prefetch']).order_by('-date_posted')
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, stage=stage)
     games = filterset.qs
@@ -3690,11 +3675,10 @@ def round_leaderboard_page(request, tournament_slug, stage_slug, round_slug):
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
+    opts = Game.with_efforts()
     games_qs = Game.objects.filter(
         round=round, final=True
-    ).prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'map', 'deck'
-    )
+    ).select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, round=round)
     filtered_games = filterset.qs
@@ -3746,12 +3730,10 @@ def round_games_page(request, tournament_slug, stage_slug, round_slug):
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
+    opts = Game.with_efforts()
     games_qs = Game.objects.filter(
         round=round, final=True
-    ).prefetch_related(
-        'efforts__player', 'efforts__faction', 'efforts__vagabond',
-        'round__stage', 'map', 'deck'
-    ).order_by('-date_posted')
+    ).select_related(*opts['select']).prefetch_related(*opts['prefetch']).order_by('-date_posted')
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, round=round)
     games = filterset.qs
