@@ -1039,9 +1039,13 @@ function addChoice(questionId, defaultValue = '', existingId = null, readonly = 
         }
     }
 
+    const lockIcon = hasResponses ? '<i class="bi bi-lock-fill text-muted" title="This choice has responses and cannot be edited"></i>' : '';
+    const isReadonly = readonly || hasResponses;
+
     const choiceHtml = `
         <div class="choice-item ${hasResponses ? 'border-start border-warning border-3 ps-2' : ''}" data-choice-id="${choiceId}" ${existingId ? 'data-existing-choice-id="' + existingId + '"' : ''} data-has-responses="${hasResponses}">
-            <input type="text" class="form-control ${hasResponses ? 'bg-warning-subtle' : ''}" placeholder="Choice text" value="${defaultValue}" ${readonly ? 'readonly' : ''} required>
+            <input type="text" class="form-control ${hasResponses ? 'bg-warning-subtle' : ''}" placeholder="Choice text" value="${defaultValue}" ${isReadonly ? 'readonly' : ''} required>
+            ${lockIcon}
             ${actionButton}
         </div>
     `;

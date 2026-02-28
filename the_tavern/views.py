@@ -2165,12 +2165,14 @@ def survey_edit_view(request, slug):
                             # Track existing choice IDs (include hidden ones for restore)
                             existing_choice_ids = set(question.choices.values_list('id', flat=True))
                             updated_choice_ids = set()
+                            choices_with_responses = get_choices_with_responses(survey)
 
                             for idx, choice_data in enumerate(q_data['choices']):
                                 if isinstance(choice_data, dict) and choice_data.get('id'):
                                     # Update existing choice (or restore if hidden)
                                     choice = Choice.objects.get(id=choice_data['id'], question=question)
-                                    choice.text = choice_data['text']
+                                    if choice.id not in choices_with_responses:
+                                        choice.text = choice_data['text']
                                     choice.order = idx
                                     choice.is_hidden = False  # Unhide if restoring
                                     choice.save()
@@ -2188,7 +2190,6 @@ def survey_edit_view(request, slug):
                             # Delete or hide choices that were removed
                             choices_to_delete = existing_choice_ids - updated_choice_ids
                             if choices_to_delete:
-                                choices_with_responses = get_choices_with_responses(survey)
                                 for c_id in choices_to_delete:
                                     if c_id in choices_with_responses:
                                         # Choice has responses - hide instead of delete
