@@ -645,18 +645,6 @@ document.getElementById("edit-card-image").addEventListener("change", function(e
   }
 });
 
-
-// Unfocus modals on cancel - loop through all modals
-const modalIds = ['editCardModal', 'addCardModal', 'deleteCardModal', 'editDeckModal'];
-
-modalIds.forEach(modalId => {
-  const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.addEventListener('hide.bs.modal', function (e) {
-      document.activeElement.blur();
-    });
-  }
-});
 {% endif %}
 
 </script>

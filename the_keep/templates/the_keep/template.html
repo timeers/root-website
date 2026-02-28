@@ -105,6 +105,10 @@
         var tooltips = [].slice.call(evt.detail.target.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltips.map(function (el) { return new bootstrap.Tooltip(el); });
     });
+    // Fix aria-hidden warning: blur focused element before Bootstrap hides modal
+    document.addEventListener('hide.bs.modal', function () {
+        document.activeElement.blur();
+    });
 </script>
     {% block scripts %}{% endblock %}
 <script>

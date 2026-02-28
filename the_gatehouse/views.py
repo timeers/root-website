@@ -1053,7 +1053,7 @@ def post_feedback(request, slug):
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
-@player_onboard_required
+@login_required
 def post_request(request):
 
     if request.user.profile.player:

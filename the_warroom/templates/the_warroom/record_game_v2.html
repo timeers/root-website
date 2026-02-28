@@ -354,9 +354,8 @@ document.getElementById("open-register-modal").addEventListener("click", functio
     new bootstrap.Modal(document.getElementById("registerPlayerModal")).show();
 });
 
-// Blur active element when register modal closes
+// Clear stored data when register modal closes
 document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
-    document.activeElement.blur();
     $(this).data('source-select-id', null);
 });
 {% endif %}

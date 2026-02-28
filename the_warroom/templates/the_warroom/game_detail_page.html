@@ -542,11 +542,6 @@ document.addEventListener('htmx:afterRequest', function(event) {
   }
 });
 
-// Blur handler for effort modal
-document.getElementById('addPlayerToEffortModal').addEventListener('hide.bs.modal', function() {
-  document.activeElement.blur();
-});
-
 // Handle register player form responses (works for both modal and regular form)
 document.addEventListener('htmx:afterRequest', function(event) {
     // Handle both register-form and register-player-modal-form
@@ -667,10 +662,8 @@ document.addEventListener('htmx:afterRequest', function(event) {
     }
 });
 
-// Blur active element when register modal closes to prevent aria-hidden warning
+// Clear stored data when register modal closes
 document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
-  document.activeElement.blur();
-  // Also clear the stored source select ID and context
   $(this).data('source-select-id', null);
   $(this).data('source-context', null);
 });

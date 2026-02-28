@@ -24,6 +24,7 @@ from .models import (Survey, SurveyResponse, Question, QuestionTemplate, Choice,
                      GameComment, PostComment)
 
 from the_gatehouse.services.discordservice import send_new_survey_notification
+from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.utils import build_absolute_uri, generate_name, NameConvention
 from the_gatehouse.tasks import send_discord_message_task
 from the_gatehouse.views import player_required, player_onboard_required, admin_onboard_required
@@ -32,7 +33,7 @@ from the_gatehouse.models import Profile, DiscordGuild
 from the_warroom.models import Tournament, Round, Game, TournamentPlayer, PlayerGroup, Stage
 from the_warroom.services.grouping import GroupingService
 
-from the_keep.models import Post
+from the_keep.models import Post, PNPAsset
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -508,9 +509,14 @@ def survey_list_view(request):
             'show_status': True,
         })
 
+    theme = get_theme(request)
+    background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(theme=theme, page='resources')
+
 
     meta_title = "Surveys"
     meta_description = "Explore community surveys about the board game Root - or create your own to gather feedback on factions, matchups, house rules, or scheduling availability."
+
+    shared_assets = PNPAsset.objects.filter(shared_by__slug=profile.slug) if profile else None
 
     context = {
         'my_surveys': my_surveys[:SURVEY_LIST_PAGE_SIZE],
@@ -534,8 +540,14 @@ def survey_list_view(request):
         'current_url': current_url,
         'current_title': current_title,
 
+        'active_page': 'surveys',
+        'shared_assets': shared_assets,
         'profile': profile,
         'show_status': True,
+
+        'background_image': background_image,
+        'foreground_images': foreground_images,
+        'background_pattern': background_pattern,
     }
     return render(request, 'the_tavern/survey_list.html', context)
 

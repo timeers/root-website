@@ -119,10 +119,6 @@
 {% block scripts %}
 <script>
 
-    document.getElementById('cardDetailModal').addEventListener('hide.bs.modal', function (e) {
-    document.activeElement.blur();
-    });
-
     {% if not is_edit %}
     function showCardModal(cardElement) {
         // Get card data

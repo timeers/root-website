@@ -1,7 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n static %}
 {% block title %}{% trans 'Surveys' %} | {% endblock %}
-
+{% block main_width_class %}col-md-9{% endblock %}
 {% block meta %}    {# Open Graph tags #}
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
@@ -13,6 +13,7 @@
 {% endblock meta%}
 
 {% block content %}
+{% include 'the_keep/partials/workshop_nav_header.html' %}
 <div class="content-section">
     {# Header with Create and History Button #}
     <div class="d-flex flex-column flex-md-row gap-3 justify-content-md-between align-items-md-center mb-4">
@@ -34,12 +35,7 @@
                     <span class="d-sm-inline">{% trans 'History' %}</span>
                 </a>
             {% endif %}
-            {% if can_create_survey %}
-                <a href="{% url 'survey-create' %}" class="btn btn-primary btn-sm">
-                    <i class="bi bi-plus-circle"></i>
-                    <span class="d-sm-inline">{% trans 'Create Survey' %}</span>
-                </a>
-            {% endif %}
+
         </div>
     </div>
 
