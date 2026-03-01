@@ -122,7 +122,6 @@
                             </div>
 
                             {# Guild Selection - Right Side #}
-                            {% if user_guilds %}
                             <div class="col-md-6">
                                 <label for="guild" class="form-label">{% trans 'Guild' %}</label>
                                 <select class="form-select" id="guild" name="guild">
@@ -135,9 +134,11 @@
                                         {% endif %}
                                     {% endfor %}
                                 </select>
-                                <small class="form-text text-muted">{% trans 'Restrict survey to Discord guild members' %}</small>
+                                <small class="form-text text-muted d-block">{% trans 'Restrict survey to Discord guild members' %}</small>
+                                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="openAddGuildModal()">
+                                    <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                                </button>
                             </div>
-                            {% endif %}
                         </div>
                     </div>
                 </div>

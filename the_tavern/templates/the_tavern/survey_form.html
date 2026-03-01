@@ -124,6 +124,9 @@
 {% include 'the_tavern/modals/delete_survey_modal.html' %}
 {% endif %}
 
+{# Add Guild from Invite Modal #}
+{% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='guild' %}
+
 {% endblock content %}
 
 {% block styles %}

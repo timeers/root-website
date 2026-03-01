@@ -1,0 +1,138 @@
+{% load i18n %}
+<div class="modal fade" id="addGuildModal" tabindex="-1" aria-labelledby="addGuildModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addGuildModalLabel">
+                    <i class="bi bi-discord me-2"></i>{% trans 'Add a Guild' %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">
+                    {% trans 'Paste a Discord invite link for a guild you are a member of. We will verify your membership and add the guild to your available options. The invite link will not be saved.' %}
+                </p>
+                <div class="mb-3">
+                    <label for="guild-invite-input" class="form-label">{% trans 'Discord Invite Link' %}</label>
+                    <input type="text" class="form-control" id="guild-invite-input"
+                           placeholder="https://discord.gg/abc123">
+                </div>
+                <div id="add-guild-error" class="alert alert-danger d-none"></div>
+                <div id="add-guild-success" class="alert alert-success d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="add-guild-submit-btn" onclick="submitAddGuild('{{ guild_select_id|default:'guild' }}')">
+                    <span id="add-guild-spinner" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+                    <i class="bi bi-plus-circle me-1" id="add-guild-icon"></i>{% trans 'Add Guild' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function submitAddGuild(selectId) {
+    const input = document.getElementById('guild-invite-input');
+    const errorDiv = document.getElementById('add-guild-error');
+    const successDiv = document.getElementById('add-guild-success');
+    const submitBtn = document.getElementById('add-guild-submit-btn');
+    const spinner = document.getElementById('add-guild-spinner');
+    const icon = document.getElementById('add-guild-icon');
+
+    errorDiv.classList.add('d-none');
+    successDiv.classList.add('d-none');
+
+    const inviteValue = input.value.trim();
+    if (!inviteValue) {
+        errorDiv.textContent = 'Please enter a Discord invite link or code.';
+        errorDiv.classList.remove('d-none');
+        return;
+    }
+
+    submitBtn.disabled = true;
+    spinner.classList.remove('d-none');
+    icon.classList.add('d-none');
+
+    fetch("{% url 'add-guild-from-invite' %}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ invite: inviteValue })
+    })
+    .then(response => response.json())
+    .then(data => {
+        submitBtn.disabled = false;
+        spinner.classList.add('d-none');
+        icon.classList.remove('d-none');
+
+        if (data.success) {
+            const guild = data.guild;
+            const select = document.getElementById(selectId);
+
+            if (select) {
+                let exists = false;
+                for (let opt of select.options) {
+                    if (opt.value == guild.id) {
+                        exists = true;
+                        opt.selected = true;
+                        break;
+                    }
+                }
+
+                if (!exists) {
+                    const option = new Option(guild.name, guild.id);
+                    if (guild.icon_url) {
+                        option.dataset.icon = guild.icon_url;
+                    }
+                    select.add(option);
+                    option.selected = true;
+                }
+
+                // Refresh Select2 if active on this element
+                if (typeof $ !== 'undefined' && $.fn.select2 && $(select).data('select2')) {
+                    $(select).trigger('change');
+                }
+            }
+
+            successDiv.textContent = guild.name + ' has been added!';
+            successDiv.classList.remove('d-none');
+
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('addGuildModal'));
+                if (modal) modal.hide();
+                input.value = '';
+                errorDiv.classList.add('d-none');
+                successDiv.classList.add('d-none');
+                // Update advanced settings summary if available (survey form)
+                if (typeof updateAdvancedSettingsSummary === 'function') {
+                    updateAdvancedSettingsSummary();
+                }
+            }, 1000);
+        } else {
+            errorDiv.textContent = data.error || 'An error occurred. Please try again.';
+            errorDiv.classList.remove('d-none');
+        }
+    })
+    .catch(() => {
+        submitBtn.disabled = false;
+        spinner.classList.add('d-none');
+        icon.classList.remove('d-none');
+        errorDiv.textContent = 'Network error. Please check your connection and try again.';
+        errorDiv.classList.remove('d-none');
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const addGuildModal = document.getElementById('addGuildModal');
+    if (addGuildModal) {
+        addGuildModal.addEventListener('hidden.bs.modal', function() {
+            document.getElementById('guild-invite-input').value = '';
+            document.getElementById('add-guild-error').classList.add('d-none');
+            document.getElementById('add-guild-success').classList.add('d-none');
+        });
+    }
+});
+</script>

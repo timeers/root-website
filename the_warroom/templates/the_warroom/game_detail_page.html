@@ -129,45 +129,24 @@
 
 
 
-{% if user.profile.admin %}
-    <article class="d-flex content-section">
-        <div class="w-100">
-        <h2>Admin Options</h2>
-        <div>
-            Admin users can edit and delete game data.<br>
-                This cannot be undone and should be handled with care.
-            </div>
-        <small>
-            <a class="btn btn-secondary" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
-            <a class="btn btn-danger" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
+{% if edit_permission %}
+<div class="text-center mb-3">
+<div class="card d-inline-block">
+    <div class="card-header bg-transparent text-center">
+        <small class="root-title text-muted">
+            {% if edit_permission.reason == 'organizer' %}
+                {{ game.get_tournament.classification }} {% trans 'Organizer Actions' %}
+            {% else %}
+                {{ edit_permission.reason_label }}
+            {% endif %}
         </small>
-        </div>
-        </article>
-{% elif user.profile == game.recorder and not game.final %}
-    <article class="d-flex content-section">
-        <div class="w-100">
-        <h2>{% trans 'Edit Options' %}</h2>
-        <div>
-            {% trans 'This game is in progress and can still be edited.' %}
-        </div>
-    <small>
-        <a class="btn btn-secondary" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
-        <a class="btn btn-danger" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
-    </small>
     </div>
-    </article>
-{% elif user.profile == game.recorder and user.is_authenticated %}
-<article class="d-flex content-section">
-    <div class="w-100">
-    {% comment %} <h2>Update Details</h2> {% endcomment %}
-    <div>
-        {% trans 'Change the Nickname, Notes or Discord Link for this game.' %}
+    <div class="card-body text-center">
+        <a class="btn btn-outline-secondary btn-sm" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
+        <a class="btn btn-outline-danger btn-sm ms-2" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
     </div>
-<small>
-    <a class="btn btn-secondary" href="{% url 'game-update-info' game.pk %}">{% trans 'Update' %}</a>
-</small>
 </div>
-</article>
+</div>
 {% endif %}
 
 {% if user.profile.player %}

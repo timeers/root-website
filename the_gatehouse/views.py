@@ -24,7 +24,7 @@ from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest
-from .services.discordservice import update_discord_avatar, get_discord_invite_info
+from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
@@ -1206,6 +1206,119 @@ def french_root_invite(request, slug=None):
             return redirect('archive-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+def _parse_invite_code(invite_input):
+    """Extract Discord invite code from various input formats."""
+    from urllib.parse import urlparse
+
+    invite_input = invite_input.strip()
+
+    if invite_input.startswith('discord.gg/') or invite_input.startswith('discord.com/'):
+        invite_input = 'https://' + invite_input
+
+    parsed = urlparse(invite_input)
+
+    if parsed.netloc in ('discord.gg', 'www.discord.gg'):
+        code = parsed.path.strip('/')
+        if code:
+            return code.split('?')[0]
+
+    if parsed.netloc in ('discord.com', 'www.discord.com'):
+        path = parsed.path.strip('/')
+        if path.startswith('invite/'):
+            code = path[7:]
+            if code:
+                return code.split('?')[0]
+
+    # Treat as raw invite code
+    clean = invite_input.split('?')[0].strip('/')
+    if clean and len(clean) <= 32 and all(c.isalnum() or c in '-_' for c in clean):
+        return clean
+
+    return None
+
+
+@login_required
+def add_guild_from_invite(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method.'}, status=405)
+
+    import json as json_mod
+    try:
+        body = json_mod.loads(request.body)
+    except (json_mod.JSONDecodeError, ValueError):
+        return JsonResponse({'success': False, 'error': 'Invalid request body.'}, status=400)
+
+    invite_input = body.get('invite', '').strip()
+    if not invite_input:
+        return JsonResponse({'success': False, 'error': 'Please provide a Discord invite link or code.'}, status=400)
+
+    invite_code = _parse_invite_code(invite_input)
+    if not invite_code:
+        return JsonResponse({
+            'success': False,
+            'error': 'Could not parse a valid invite code. Accepted formats: discord.gg/CODE, discord.com/invite/CODE, or just the code.'
+        }, status=400)
+
+    guild_info = get_discord_invite_info(invite_code)
+    if not guild_info.get('success'):
+        return JsonResponse({'success': False, 'error': guild_info.get('error', 'Invalid or expired invite link.')}, status=400)
+
+    guild_id = guild_info['guild_id']
+
+    import json
+    with open('/etc/config.json') as config_file:
+        config = json.load(config_file)
+    if guild_id == config['WW_GUILD_ID']:
+        return JsonResponse({'success': False, 'error': 'This guild cannot be added via invite link.'}, status=400)
+
+    user_guilds = get_user_guilds(request.user)
+    if user_guilds is None:
+        return JsonResponse({
+            'success': False,
+            'error': 'Could not verify your Discord guild membership. Please try logging out and back in.'
+        }, status=400)
+
+    user_guild_ids = [g['id'] for g in user_guilds]
+    if guild_id not in user_guild_ids:
+        return JsonResponse({
+            'success': False,
+            'error': 'You must be a member of this Discord server to add it. Join the server first, then try again.'
+        }, status=403)
+
+    guild, created = DiscordGuild.objects.get_or_create(
+        guild_id=guild_id,
+        defaults={
+            'name': guild_info['name'],
+            'actual_name': guild_info['name'],
+            'description': guild_info.get('description') or '',
+            'icon_hash': guild_info.get('icon_hash') or '',
+            'banner_hash': guild_info.get('banner_hash') or '',
+            'member_count': guild_info.get('member_count', 0),
+            'online_count': guild_info.get('online_count', 0),
+        }
+    )
+    if not created:
+        guild.actual_name = guild_info['name']
+        guild.description = guild_info.get('description') or ''
+        guild.icon_hash = guild_info.get('icon_hash') or ''
+        guild.banner_hash = guild_info.get('banner_hash') or ''
+        guild.member_count = guild_info.get('member_count', 0)
+        guild.online_count = guild_info.get('online_count', 0)
+        guild.save()
+
+    request.user.profile.guilds.add(guild)
+
+    return JsonResponse({
+        'success': True,
+        'guild': {
+            'id': guild.id,
+            'guild_id': guild.guild_id,
+            'name': guild.guild_name(),
+            'icon_url': guild.get_icon_url() or '',
+        }
+    })
+
 
 @login_required
 def join_discord_server(request):

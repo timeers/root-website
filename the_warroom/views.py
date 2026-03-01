@@ -3,7 +3,7 @@ import json
 
 from itertools import groupby
 from django.shortcuts import render
-from django.views.generic import ListView, UpdateView, CreateView, DeleteView
+from django.views.generic import DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
@@ -25,22 +25,21 @@ from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
-                     Match, MatchSeries, MatchSeat, CompetitionStatus)
+                     Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission)
 from .services.grouping import GroupingService, build_opponent_history
-from .forms import (GameCreateForm, GameCreateFormV2, GameInfoUpdateForm, EffortCreateForm,
+from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     RoundCreateForm, StageCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
-                    TournamentManageAssetsForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
-                    RoundManagePlayersForm)
+                    )
 from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
 
 from .utils import get_single_round, get_single_stage
 
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 
-from the_gatehouse.models import Profile, BackgroundImage, ForegroundImage, Language
+from the_gatehouse.models import Profile, Language
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -482,10 +481,7 @@ def game_detail_view(request, id=None, league_id=None):
         all_players = Profile.objects.all()
         open_roster = True
 
-    can_edit = (
-        request.user.is_authenticated and 
-        (request.user.profile.admin or game.recorder == request.user.profile)
-    )
+    edit_permission = game.can_edit(request.user.profile) if request.user.is_authenticated else EditPermission(False)
 
     commentform = GameCommentCreateForm()
     context = {
@@ -495,7 +491,8 @@ def game_detail_view(request, id=None, league_id=None):
         'efforts': efforts,
         'scorecard_count': scorecard_count,
         'show_detail': show_detail,
-        'can_edit': can_edit,
+        'can_edit': edit_permission,
+        'edit_permission': edit_permission,
         'all_players': all_players,
         'open_roster': open_roster,
     }
@@ -514,14 +511,13 @@ def game_delete_view(request, id=None):
         raise Http404
     
     profile = request.user.profile
-    if obj.final and not profile.admin:
-        messages.error(request, "Game cannot be deleted.")
-        return redirect(obj.get_absolute_url())
-    elif not profile.admin and profile != obj.recorder:
+    permission = obj.can_edit(profile)
+    if not permission.allowed:
         messages.error(request, "You do not have permission to delete this game.")
-        return redirect(obj.get_absolute_url())    
+        return redirect(obj.get_absolute_url())
 
     if request.method == "POST":
+        ScoreCard.objects.filter(effort__game=obj).update(final=False)
         obj.delete()
         success_url = reverse('games-home')
         if request.htmx:
@@ -592,25 +588,6 @@ def game_detail_hx_view(request, id=None):
     return render(request, "the_warroom/partials/game_detail.html", context)
 
 
-
-class GameUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
-    model = Game
-    form_class = GameInfoUpdateForm
-    template_name = 'the_warroom/game_update.html'  # Customize this as needed
-    context_object_name = 'game'  # Optional, if you want to use it in your template
-    
-    def get_object(self, queryset=None):
-        """
-        Override get_object to ensure the logged-in user is the recorder of the game.
-        """
-        game = super().get_object(queryset)
-        
-        return game
-    
-    def test_func(self):
-        obj = self.get_object()
-        # Only allow access if the logged-in user is the designer of the object
-        return self.request.user.profile == obj.recorder
 
 
 @player_onboard_required
@@ -776,31 +753,6 @@ def _can_record_match(profile, match):
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
 
-def _can_edit_game(profile, game):
-    """Check if profile can edit an existing game."""
-    if profile.admin:
-        return True
-    # Match-linked game: tournament staff always, participants if non-final
-    try:
-        match = game.match
-        if match:
-            tournament = match.round.get_tournament()
-            if tournament.has_permission(profile):
-                return True
-            if not game.final:
-                return _get_match_profiles(match).filter(pk=profile.pk).exists()
-            return False
-    except Match.DoesNotExist:
-        pass
-    # Round-linked game: recorder or tournament staff
-    if game.round:
-        tournament = game.round.get_tournament()
-        if profile == game.recorder or tournament.has_permission(profile):
-            return True
-        return False
-    # Standalone game: recorder only
-    return profile == game.recorder
-
 
 @player_onboard_required
 def manage_game_v2(request, id=None):
@@ -843,7 +795,7 @@ def manage_game_v2(request, id=None):
             id = obj.id
 
     if id:
-        if not _can_edit_game(user.profile, obj):
+        if not obj.can_edit(user.profile):
             messages.error(request, "You do not have permission to edit this game.")
             return redirect(obj.get_absolute_url())
 

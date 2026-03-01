@@ -1,7 +1,9 @@
+from dataclasses import dataclass
+
 from django.db import models, transaction
 from django.db.models import Q, Sum, Max, Prefetch
 
-from django.utils import timezone 
+from django.utils import timezone
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
@@ -10,6 +12,23 @@ from the_gatehouse.models import Profile, DiscordGuild
 from the_gatehouse.utils import NameConvention
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
 from the_keep.utils import delete_old_image
+
+
+@dataclass
+class EditPermission:
+    allowed: bool
+    reason: str = None
+    def __bool__(self):
+        return self.allowed
+    @property
+    def reason_label(self):
+        labels = {
+            'recorder': 'Recorder Actions',
+            'participant': 'Match Participant Actions',
+            'organizer': 'Organizer Actions',
+            'admin': 'Admin Actions',
+        }
+        return labels.get(self.reason, '')
 
 class PlatformChoices(models.TextChoices):
     TTS = 'Tabletop Simulator'
@@ -955,11 +974,41 @@ class Game(models.Model):
         return reverse("game-hx-detail", kwargs={"id": self.id})
     
     def get_edit_url(self):
-        return reverse("game-update", kwargs={"id": self.id})
+        return reverse("game-update-v2", kwargs={"id": self.id})
     
     def get_delete_url(self):
         return reverse("game-delete", kwargs={"id": self.id})
-    
+
+    def get_tournament(self):
+        """Return the tournament this game belongs to, if any."""
+        if self.round:
+            return self.round.get_tournament()
+        return None
+
+    def can_edit(self, profile):
+        """Check if profile can edit this game. Returns EditPermission(allowed, reason).
+        Checks from lowest to highest permission level."""
+        has_match = hasattr(self, 'match') and self.match is not None
+        # Recorder: any non-final game, or finalized non-match game
+        if profile == self.recorder:
+            if not self.final or not has_match:
+                return EditPermission(True, 'recorder')
+        # Match participants can edit non-final match games
+        if has_match and not self.final:
+            if Profile.objects.filter(
+                tournament_participations__stage_participations__matchseat__series=self.match.series,
+                pk=profile.pk
+            ).exists():
+                return EditPermission(True, 'participant')
+        # Tournament organizer/moderator
+        tournament = self.get_tournament()
+        if tournament and tournament.has_permission(profile):
+            return EditPermission(True, 'organizer')
+        # Admin
+        if profile.admin:
+            return EditPermission(True, 'admin')
+        return EditPermission(False)
+
     class Meta:
         ordering = ['-date_posted']
 

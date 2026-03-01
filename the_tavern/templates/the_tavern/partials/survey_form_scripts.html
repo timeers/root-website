@@ -2484,6 +2484,33 @@ if (inviteModalEl && advancedModal) {
     });
 }
 
+// Handle nested modals: hide advanced → show add guild → on add guild close, re-show advanced
+let _openingAddGuildFromAdvanced = false;
+
+function openAddGuildModal() {
+    _openingAddGuildFromAdvanced = true;
+    const advModal = bootstrap.Modal.getInstance(advancedModal);
+    const addGuildModalEl = document.getElementById('addGuildModal');
+    const addGuildModal = bootstrap.Modal.getOrCreateInstance(addGuildModalEl);
+
+    advancedModal.addEventListener('hidden.bs.modal', function onHidden() {
+        advancedModal.removeEventListener('hidden.bs.modal', onHidden);
+        addGuildModal.show();
+    }, {once: true});
+    advModal.hide();
+}
+
+const addGuildModalEl = document.getElementById('addGuildModal');
+if (addGuildModalEl && advancedModal) {
+    addGuildModalEl.addEventListener('hidden.bs.modal', function() {
+        if (_openingAddGuildFromAdvanced) {
+            _openingAddGuildFromAdvanced = false;
+            const advModal = bootstrap.Modal.getOrCreateInstance(advancedModal);
+            advModal.show();
+        }
+    });
+}
+
 // Initialize summary on page load
 document.addEventListener('DOMContentLoaded', function() {
     updateAdvancedSettingsSummary();

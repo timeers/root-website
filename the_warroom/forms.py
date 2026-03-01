@@ -7,40 +7,6 @@ from django.core.exceptions import ValidationError
 from django.db.models import Max, Q
 from django.utils.translation import gettext as _
 
-# A form to update the misc info of a game.
-class GameInfoUpdateForm(forms.ModelForm):  
-    required_css_class = 'required-field'
-    link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)
-    class Meta:
-        model = Game
-        fields = ['nickname', 'notes', 'link', 'date_posted']
-
-    def __init__(self, *args, **kwargs):
-        # Call the parent constructor
-        super(GameInfoUpdateForm, self).__init__(*args, **kwargs)
-
-        # Get today's date in the required format (YYYY-MM-DD)
-        today = timezone.now().date()
-        self.fields['date_posted'].widget = forms.DateInput(
-            format='%Y-%m-%d', 
-            attrs={
-                'class': 'datepicker form-control',
-                'max': today  # Set the max attribute to today's date
-            }
-        )
-        self.fields['notes'].widget.attrs.update({
-            'rows': '2',
-            'placeholder': 'Game Notes...',
-            'class': 'form-control full-width', 
-        })
-        self.fields['link'].widget.attrs.update({
-            'placeholder': 'Link to Game Thread',
-            'class': 'form-control full-width', 
-        })
-        self.fields['nickname'].widget.attrs.update({
-            'placeholder': _('Game Nickname (optional)'),
-            'class': 'form-control full-width', 
-        })
 
 
 

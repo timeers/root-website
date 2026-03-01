@@ -43,7 +43,7 @@
                             {% trans 'Record' %} +
                         </button>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
+                            <li><a class="dropdown-item" href="{% url 'record-game-v2' %}">{% trans 'New Game' %}</a></li>
                             <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
                             {% if user.profile.player and active_page == 'series' %}
                             <li><a class="dropdown-item" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a></li>
@@ -59,7 +59,7 @@
                             {% trans 'Record' %} +
                         </button>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="{% url 'record-game' %}">{% trans 'New Game' %}</a></li>
+                            <li><a class="dropdown-item" href="{% url 'record-game-v2' %}">{% trans 'New Game' %}</a></li>
                             <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
                             {% if user.profile.player and active_page == 'series' %}
                             <li><a class="dropdown-item" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a></li>

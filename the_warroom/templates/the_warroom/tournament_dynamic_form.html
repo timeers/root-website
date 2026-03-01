@@ -49,6 +49,9 @@
                                 </div>
                                 <div class="col-md-6 col-lg-4 mb-2">
                                     {{ form.guild|as_crispy_field }}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-1" data-bs-toggle="modal" data-bs-target="#addGuildModal">
+                                        <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                                    </button>
                                 </div>
                             </div>
                             <div class="row">
@@ -337,6 +340,8 @@
         </form>
 
     </div>
+
+{% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='id_guild' %}
 {% endblock content %}
 
 {% block head %}
