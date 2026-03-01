@@ -10,6 +10,7 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Create groups of players from your survey's responses based on availability questions
 - Rearange player turn order in the record game form
 - Edit submitted and finalized games
+- Add Discord Guilds to Surveys or Tournaments to require guild membership for participation
 
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update

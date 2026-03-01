@@ -3892,7 +3892,7 @@ def stage_search_players(request, tournament_slug, stage_slug):
             Q(display_name__icontains=query)
         )
 
-    available_players = available_players[:10]
+    available_players = available_players[:50]
 
     unregistered_players = []
     if query:
@@ -4291,6 +4291,52 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
         return JsonResponse({'error': str(e)}, status=400)
 
 
+def _get_group_data(group, history):
+    """Build group stats dict including conflict data from opponent history."""
+    group.refresh_from_db()
+    members = list(group.tournament_players.select_related('profile').all())
+    member_ids = [tp.id for tp in members]
+    conflict_count = 0
+    conflict_pairs = []
+    for i, a in enumerate(member_ids):
+        for b in member_ids[i + 1:]:
+            times = history.get(a, {}).get(b, 0)
+            if times > 0:
+                conflict_count += times
+                name_a = next(tp.profile.display_name for tp in members if tp.id == a)
+                name_b = next(tp.profile.display_name for tp in members if tp.id == b)
+                conflict_pairs.append(f"{name_a} & {name_b}")
+    return {
+        'id': group.id,
+        'member_count': len(members),
+        'total_overlap_hours': group.total_overlap_hours,
+        'best_consecutive_block': group.best_consecutive_block,
+        'conflict_count': conflict_count,
+        'conflict_description': ', '.join(conflict_pairs),
+    }
+
+
+def _get_ungrouped_count(stage, round):
+    """Count ungrouped active players for a round."""
+    if stage:
+        active_tp_ids = StageParticipant.objects.filter(
+            stage=stage,
+            status=StageParticipant.ParticipantStatus.ACTIVE
+        ).values_list('tournament_player_id', flat=True)
+        active_players_qs = TournamentPlayer.objects.filter(id__in=active_tp_ids)
+    else:
+        active_players_qs = TournamentPlayer.objects.filter(
+            tournament=round.stage.tournament if round.stage else round.tournament,
+            status=TournamentPlayer.StatusChoices.REGISTERED
+        )
+    grouped_ids = set(
+        TournamentPlayer.objects.filter(
+            player_groups__round=round
+        ).values_list('id', flat=True)
+    )
+    return active_players_qs.exclude(id__in=grouped_ids).count()
+
+
 @login_required
 @require_http_methods(['POST'])
 def round_grouping_add_to_group(request, tournament_slug, stage_slug, round_slug, session_id):
@@ -4318,18 +4364,22 @@ def round_grouping_add_to_group(request, tournament_slug, stage_slug, round_slug
         tournament_player = get_object_or_404(TournamentPlayer, id=player_id, tournament=stage.tournament)
         group = get_object_or_404(PlayerGroup, id=group_id, round=round)
 
+        # Capture old group before assignment (for group→group moves)
+        old_groups = list(tournament_player.player_groups.filter(round=round))
+        old_group = old_groups[0] if old_groups else None
+
         GroupingService.assign_player_to_group(tournament_player, group, round=round, moved_by=profile)
 
-        group.refresh_from_db()
-        return JsonResponse({
+        history = build_opponent_history(stage, round) if stage else {}
+        result = {
             'success': True,
-            'group': {
-                'id': group.id,
-                'member_count': group.member_count,
-                'total_overlap_hours': group.total_overlap_hours,
-                'best_consecutive_block': group.best_consecutive_block,
-            }
-        })
+            'to_group': _get_group_data(group, history),
+            'ungrouped_count': _get_ungrouped_count(stage, round),
+        }
+        if old_group and old_group.id != group.id:
+            result['from_group'] = _get_group_data(old_group, history)
+
+        return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -4359,19 +4409,19 @@ def round_grouping_remove_from_group(request, tournament_slug, stage_slug, round
         group_id = data.get('group_id')
 
         tournament_player = get_object_or_404(TournamentPlayer, id=player_id, tournament=stage.tournament)
-        old_group = get_object_or_404(PlayerGroup, id=group_id, round=round) if group_id else None
+        # Look up old group from DB if not provided by client
+        if group_id:
+            old_group = get_object_or_404(PlayerGroup, id=group_id, round=round)
+        else:
+            old_groups = list(tournament_player.player_groups.filter(round=round))
+            old_group = old_groups[0] if old_groups else None
 
         GroupingService.remove_from_group(tournament_player, round=round)
 
-        result = {'success': True}
+        history = build_opponent_history(stage, round) if stage else {}
+        result = {'success': True, 'ungrouped_count': _get_ungrouped_count(stage, round)}
         if old_group:
-            old_group.refresh_from_db()
-            result['from_group'] = {
-                'id': old_group.id,
-                'member_count': old_group.member_count,
-                'total_overlap_hours': old_group.total_overlap_hours,
-                'best_consecutive_block': old_group.best_consecutive_block,
-            }
+            result['from_group'] = _get_group_data(old_group, history)
 
         return JsonResponse(result)
     except Exception as e:
@@ -4413,23 +4463,30 @@ def round_grouping_create_group(request, tournament_slug, stage_slug, round_slug
             created_by=profile,
         )
 
-        # If player_id provided, add that player to the new group
+        # If player_id provided, capture old group then add to new group
+        old_group = None
         if player_id:
             tournament_player = TournamentPlayer.objects.filter(
                 tournament=stage.tournament,
                 id=player_id
             ).first()
             if tournament_player:
+                old_groups = list(tournament_player.player_groups.filter(round=round))
+                old_group = old_groups[0] if old_groups else None
                 GroupingService.assign_player_to_group(tournament_player, new_group, round=round, moved_by=profile)
 
-        return JsonResponse({
+        history = build_opponent_history(stage, round) if stage else {}
+        result = {
             'success': True,
-            'group': {
-                'id': new_group.id,
-                'group_number': new_group.group_number,
-                'member_count': new_group.member_count,
-            }
-        })
+            'group': _get_group_data(new_group, history),
+            'ungrouped_count': _get_ungrouped_count(stage, round),
+        }
+        result['group']['group_number'] = new_group.group_number
+        result['group']['name'] = new_group.name
+        if old_group:
+            result['from_group'] = _get_group_data(old_group, history)
+
+        return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 

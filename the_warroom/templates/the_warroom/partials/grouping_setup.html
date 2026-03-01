@@ -236,16 +236,23 @@
 .group-card:hover {
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
 }
+.group-card > .card-body {
+    display: flex;
+    flex-direction: column;
+}
+.group-card .group-members {
+    flex: 1;
+    min-height: 60px;
+}
 .player-item {
     cursor: grab;
-    transition: background-color 0.2s;
 }
-.player-item:hover {
+.player-item:not(.sortable-ghost):not(.sortable-drag):hover {
     background-color: rgba(0, 123, 255, 0.1);
 }
 .sortable-ghost {
     opacity: 0.4;
-    background-color: #c8ebfb;
+    background-color: #c8ebfb !important;
 }
 .sortable-drag {
     opacity: 0.9;
@@ -269,6 +276,7 @@ const stageId = {{ stage.id }};
 const baseUrl = '{{ base_url }}';
 const minPlayers = {{ round.get_min_players }};
 const maxPlayers = {{ round.get_max_players }};
+const isAvailability = '{{ stage.grouping_type }}' === 'availability';
 
 // Initialise Bootstrap popovers (used for conflict badges)
 // Deferred so Bootstrap is guaranteed to be loaded
@@ -287,27 +295,140 @@ function toggleWaitlistCount() {
     }
 }
 
-// Initialize Sortable for each group
-document.querySelectorAll('.sortable-group').forEach(container => {
+// --- DOM update helpers ---
+
+function updateGroupCard(groupData) {
+    // Find the column wrapper by data-group-id
+    const col = document.querySelector(`#groups-container > [data-group-id="${groupData.id}"]`);
+    if (!col) return;
+
+    // Update member count badge
+    const countBadge = col.querySelector('.card-header .badge.bg-secondary');
+    if (countBadge) countBadge.textContent = groupData.member_count;
+
+    // Update conflict badge
+    const header = col.querySelector('.card-header > div');
+    if (header) {
+        let conflictBadge = header.querySelector('.badge.bg-warning');
+        if (groupData.conflict_count > 0) {
+            if (!conflictBadge) {
+                conflictBadge = document.createElement('span');
+                conflictBadge.className = 'badge bg-warning text-dark ms-1';
+                conflictBadge.setAttribute('role', 'button');
+                conflictBadge.setAttribute('data-bs-toggle', 'popover');
+                conflictBadge.setAttribute('data-bs-trigger', 'click hover');
+                conflictBadge.setAttribute('data-bs-placement', 'bottom');
+                header.appendChild(conflictBadge);
+            }
+            conflictBadge.setAttribute('data-bs-title', `Repeat matchup${groupData.conflict_count === 1 ? '' : 's'}`);
+            conflictBadge.setAttribute('data-bs-content', groupData.conflict_description);
+            conflictBadge.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> ${groupData.conflict_count}`;
+            // Dispose old popover and re-init
+            const existing = bootstrap.Popover.getInstance(conflictBadge);
+            if (existing) existing.dispose();
+            new bootstrap.Popover(conflictBadge);
+        } else if (conflictBadge) {
+            const existing = bootstrap.Popover.getInstance(conflictBadge);
+            if (existing) existing.dispose();
+            conflictBadge.remove();
+        }
+    }
+
+    // Update availability stats
+    if (isAvailability) {
+        const cardBody = col.querySelector('.card-body');
+        let statsDiv = cardBody.querySelector('.small.text-muted');
+        if (groupData.member_count > 0) {
+            const consecutive = groupData.best_consecutive_block
+                ? ` (${groupData.best_consecutive_block}h consecutive)` : '';
+            const statsHtml = `<i class="bi bi-clock"></i> ${groupData.total_overlap_hours}h overlap${consecutive}`;
+            if (!statsDiv) {
+                statsDiv = document.createElement('div');
+                statsDiv.className = 'small text-muted mb-2';
+                cardBody.insertBefore(statsDiv, cardBody.firstChild);
+            }
+            statsDiv.innerHTML = statsHtml;
+        } else if (statsDiv) {
+            statsDiv.remove();
+        }
+    }
+
+    // Show/hide empty placeholder
+    const list = col.querySelector('.group-members');
+    if (list) {
+        const players = list.querySelectorAll('.player-item');
+        let placeholder = list.querySelector('.empty-placeholder');
+        if (players.length === 0) {
+            if (!placeholder) {
+                placeholder = document.createElement('li');
+                placeholder.className = 'list-group-item text-muted text-center empty-placeholder';
+                placeholder.innerHTML = '<small>Drop players here</small>';
+                list.appendChild(placeholder);
+            }
+            placeholder.style.display = '';
+        } else if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+    }
+
+    // Show/hide delete button
+    const footer = col.querySelector('.card-footer');
+    if (groupData.member_count === 0) {
+        if (!footer) {
+            const card = col.querySelector('.card');
+            const newFooter = document.createElement('div');
+            newFooter.className = 'card-footer';
+            newFooter.innerHTML = `<button class="btn btn-sm btn-outline-danger w-100" onclick="deleteGroup(${groupData.id})"><i class="bi bi-trash"></i> Delete</button>`;
+            card.appendChild(newFooter);
+        }
+    } else if (footer) {
+        footer.remove();
+    }
+}
+
+function updateUngroupedCount(count) {
+    // Update the "(N)" in the ungrouped card header
+    const header = document.querySelector('.card .card-header h5 .bi-person-x');
+    if (header) {
+        const h5 = header.closest('h5');
+        if (h5) {
+            h5.innerHTML = `<i class="bi bi-person-x"></i> Ungrouped Players (${count})`;
+        }
+    }
+
+    // Show/hide "Drop players here" placeholder inside the always-visible list
+    const ungroupedList = document.getElementById('ungrouped-players');
+    if (!ungroupedList) return;
+
+    let emptyMsg = ungroupedList.querySelector('.ungrouped-empty-msg');
+    const hasPlayers = ungroupedList.querySelectorAll('.player-item').length > 0;
+    if (!hasPlayers) {
+        if (!emptyMsg) {
+            emptyMsg = document.createElement('li');
+            emptyMsg.className = 'list-group-item text-muted text-center ungrouped-empty-msg';
+            emptyMsg.innerHTML = '<small>Drop players here</small>';
+            ungroupedList.appendChild(emptyMsg);
+        }
+        emptyMsg.style.display = '';
+    } else if (emptyMsg) {
+        emptyMsg.style.display = 'none';
+    }
+}
+
+function initSortableGroup(container) {
     new Sortable(container, {
         group: 'players',
         animation: 150,
-        handle: '.drag-handle',
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
         onAdd: function(evt) {
             const playerId = evt.item.dataset.playerId;
             const toGroupId = evt.to.dataset.groupId;
-
-            // Hide empty placeholder if it exists
             const placeholder = evt.to.querySelector('.empty-placeholder');
             if (placeholder) placeholder.style.display = 'none';
-
-            // Assign player to group (works for ungrouped→group and group→group)
             assignPlayerToGroup(playerId, toGroupId);
         },
         onRemove: function(evt) {
-            // Show empty placeholder if group is now empty
             const remaining = Array.from(evt.from.children).filter(
                 el => !el.classList.contains('empty-placeholder')
             );
@@ -323,25 +444,59 @@ document.querySelectorAll('.sortable-group').forEach(container => {
             }
         }
     });
-});
+}
 
-// Initialize Sortable for ungrouped
+function buildGroupCardHtml(groupData, playerItem) {
+    // Build a full group card column for a newly created group
+    const playerHtml = playerItem ? playerItem.outerHTML : `<li class="list-group-item text-muted text-center empty-placeholder"><small>Drop players here</small></li>`;
+    const groupName = groupData.name || `Group ${groupData.group_number}`;
+    let statsHtml = '';
+    if (isAvailability && groupData.member_count > 0) {
+        const consecutive = groupData.best_consecutive_block
+            ? ` (${groupData.best_consecutive_block}h consecutive)` : '';
+        statsHtml = `<div class="small text-muted mb-2"><i class="bi bi-clock"></i> ${groupData.total_overlap_hours}h overlap${consecutive}</div>`;
+    }
+    let conflictHtml = '';
+    if (groupData.conflict_count > 0) {
+        conflictHtml = `<span class="badge bg-warning text-dark ms-1" role="button" data-bs-toggle="popover" data-bs-trigger="click hover" data-bs-placement="bottom" data-bs-title="Repeat matchup${groupData.conflict_count === 1 ? '' : 's'}" data-bs-content="${groupData.conflict_description}"><i class="bi bi-exclamation-triangle-fill"></i> ${groupData.conflict_count}</span>`;
+    }
+    return `<div class="col-md-4 col-lg-3" data-group-id="${groupData.id}" data-group-name="${groupName}">
+        <div class="card h-100 group-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>${groupName}</strong>
+                <div>
+                    <span class="badge bg-secondary">${groupData.member_count}</span>
+                    ${conflictHtml}
+                </div>
+            </div>
+            <div class="card-body p-2">
+                ${statsHtml}
+                <ul class="list-group list-group-flush group-members sortable-group" data-group-id="${groupData.id}">
+                    ${playerHtml}
+                </ul>
+            </div>
+        </div>
+    </div>`;
+}
+
+// --- Initialize Sortable ---
+
+document.querySelectorAll('.sortable-group').forEach(initSortableGroup);
+
 const ungroupedContainer = document.getElementById('ungrouped-players');
 if (ungroupedContainer) {
     new Sortable(ungroupedContainer, {
         group: 'players',
         animation: 150,
-        handle: '.drag-handle',
         ghostClass: 'sortable-ghost',
         onAdd: function(evt) {
             const playerId = evt.item.dataset.playerId;
-            // Removing from group to ungrouped
-            removeFromGroup(playerId);
+            const fromGroupId = evt.from.dataset.groupId;
+            removeFromGroup(playerId, fromGroupId);
         }
     });
 }
 
-// Initialize Sortable for new group zone
 const newGroupZone = document.getElementById('new-group-zone');
 if (newGroupZone) {
     new Sortable(newGroupZone, {
@@ -349,17 +504,17 @@ if (newGroupZone) {
         animation: 150,
         onAdd: function(evt) {
             const playerId = evt.item.dataset.playerId;
-            const source = evt.item.dataset.source;
-            createNewGroup(playerId, source);
-            // Remove the item - it will be re-rendered when page refreshes
-            evt.item.remove();
+            // Temporarily hold the DOM element — it will be moved into the new card
+            const playerItem = evt.item;
+            playerItem.remove();
+            createNewGroup(playerId, playerItem);
         }
     });
 }
 
+// --- API functions ---
+
 function assignPlayerToGroup(playerId, toGroupId) {
-    // Unified function to add/move player to a group
-    // Works for all scenarios: ungrouped→group, waitlist→group, group→group
     fetch(`${baseUrl}${stageId}/add-to-group/`, {
         method: 'POST',
         headers: {
@@ -374,7 +529,9 @@ function assignPlayerToGroup(playerId, toGroupId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            location.reload();
+            updateGroupCard(data.to_group);
+            if (data.from_group) updateGroupCard(data.from_group);
+            updateUngroupedCount(data.ungrouped_count);
         } else {
             alert('Error: ' + data.error);
             location.reload();
@@ -386,16 +543,7 @@ function assignPlayerToGroup(playerId, toGroupId) {
     });
 }
 
-// Legacy aliases for backward compatibility
-function addToGroup(playerId, groupId) {
-    assignPlayerToGroup(playerId, groupId);
-}
-
-function movePlayer(playerId, fromGroupId, toGroupId) {
-    assignPlayerToGroup(playerId, toGroupId);
-}
-
-function removeFromGroup(playerId) {
+function removeFromGroup(playerId, groupId) {
     fetch(`${baseUrl}${stageId}/remove-from-group/`, {
         method: 'POST',
         headers: {
@@ -403,13 +551,15 @@ function removeFromGroup(playerId) {
             'X-CSRFToken': csrfToken
         },
         body: JSON.stringify({
-            player_id: playerId
+            player_id: playerId,
+            group_id: groupId
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            location.reload();
+            if (data.from_group) updateGroupCard(data.from_group);
+            updateUngroupedCount(data.ungrouped_count);
         } else {
             alert('Error: ' + data.error);
             location.reload();
@@ -421,12 +571,9 @@ function removeFromGroup(playerId) {
     });
 }
 
-function createNewGroup(playerId, source) {
+function createNewGroup(playerId, playerItem) {
     const body = {};
-
-    if (playerId) {
-        body.player_id = playerId;
-    }
+    if (playerId) body.player_id = playerId;
 
     fetch(`${baseUrl}${stageId}/create-group/`, {
         method: 'POST',
@@ -439,9 +586,27 @@ function createNewGroup(playerId, source) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            location.reload();
+            // Insert new group card before the "new group" dropzone
+            const dropzone = document.querySelector('#groups-container > .col-md-4:last-child');
+            const temp = document.createElement('div');
+            temp.innerHTML = buildGroupCardHtml(data.group, playerItem);
+            const newCol = temp.firstElementChild;
+            dropzone.parentNode.insertBefore(newCol, dropzone);
+
+            // Initialize sortable on the new group's player list
+            const newList = newCol.querySelector('.sortable-group');
+            if (newList) initSortableGroup(newList);
+
+            // Initialize any popovers
+            newCol.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => {
+                new bootstrap.Popover(el);
+            });
+
+            if (data.from_group) updateGroupCard(data.from_group);
+            updateUngroupedCount(data.ungrouped_count);
         } else {
             alert('Error: ' + data.error);
+            location.reload();
         }
     })
     .catch(error => {
@@ -466,7 +631,8 @@ function deleteGroup(groupId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            location.reload();
+            const col = document.querySelector(`#groups-container > [data-group-id="${groupId}"]`);
+            if (col) col.remove();
         } else {
             alert('Error: ' + data.error);
         }

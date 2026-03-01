@@ -7,8 +7,7 @@
         <h5 class="mb-0"><i class="bi bi-person-x"></i> {% trans 'Ungrouped Players' %} ({{ ungrouped_count }})</h5>
     </div>
     <div class="card-body">
-        {% if ungrouped_players %}
-        <ul class="list-group list-group-flush {% if editable %}sortable-ungrouped{% endif %}" id="ungrouped-players" data-group-id="ungrouped">
+        <ul class="list-group list-group-flush {% if editable %}sortable-ungrouped{% endif %}" id="ungrouped-players" data-group-id="ungrouped" style="min-height: 40px;">
             {% for sp in ungrouped_players %}
             <li class="list-group-item d-flex align-items-center player-item ungrouped-item" data-player-id="{{ sp.id }}" data-source="ungrouped">
                 {% if editable %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
@@ -22,10 +21,9 @@
                 <small class="text-muted">{{ sp.availability_hours|length }}h</small>
                 {% endif %}
             </li>
+            {% empty %}
+            <li class="list-group-item text-muted text-center ungrouped-empty-msg"><small>{% trans 'Drop players here' %}</small></li>
             {% endfor %}
         </ul>
-        {% else %}
-        <p class="text-muted mb-0">No ungrouped players.</p>
-        {% endif %}
     </div>
 </div>

@@ -167,8 +167,8 @@ function movePlayer(playerId, fromGroup, toGroup) {
 
         updatePlayerCounts();
 
-        // Refresh search results if player was removed
-        if (!toGroup) {
+        // Refresh search results if player was added or removed
+        if (!toGroup || !fromGroup) {
             refreshSearchResults();
         }
     })

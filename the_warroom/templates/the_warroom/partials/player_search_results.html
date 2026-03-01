@@ -5,6 +5,7 @@
     {% else %}
     <h6 class="text-muted mb-2">Available Players:</h6>
     {% endif %}
+    <div style="max-height: 270px; overflow-y: auto;">
     {% for player in players %}
         {% if stage %}
             {% include 'the_warroom/partials/stage_player_card.html' with player=player group='available_stage' %}
@@ -14,6 +15,7 @@
             {% include 'the_warroom/partials/player_card.html' with player=player group='available' %}
         {% endif %}
     {% endfor %}
+    </div>
 </div>
 {% elif request.GET.q %}
 <div class="search-results border rounded p-2 mt-2 bg-light">
