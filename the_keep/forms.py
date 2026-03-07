@@ -369,6 +369,7 @@ class PostCreateForm(forms.ModelForm):
         ('2', 'Testing'),
         ('3', 'Development'),
         ('4', 'Inactive'),
+        ('9', 'Submitted'),
     ]
     status = forms.ChoiceField(
         choices=STATUS_CHOICES, initial="3",
@@ -444,7 +445,7 @@ class PostCreateForm(forms.ModelForm):
             'rows': '2'
             })
         
-        post_instance = kwargs.pop('instance', None)
+        post_instance = self.instance if self.instance and self.instance.pk else None
 
         if post_instance and post_instance.title and not user.profile.admin:
             self.fields['title'].disabled = True
@@ -465,19 +466,15 @@ class PostCreateForm(forms.ModelForm):
             self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(discord__in=exclude_profiles)
             self.fields['designer'].queryset = self.fields['designer'].queryset.exclude(discord__in=exclude_profiles)
             # self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
-            # Limit language choices to English and the user's language
-            if user_language:
-                self.fields['language'].queryset = Language.objects.filter(
-                    pk__in=[user_language.pk, Language.objects.get(code='en').pk]
-                )
-            else:
-                # If no language only allow English
-                self.fields['language'].queryset = Language.objects.filter(code='en')
- 
 
-        # Remove language if it already exists
+        # Remove language for non-admins when editing; admins can change it
         if post_instance:
-            self.fields.pop('language', None)
+            if user.profile.admin:
+                used_languages = PostTranslation.objects.filter(post=post_instance).values_list('language_id', flat=True)
+                self.fields['language'].queryset = Language.objects.exclude(id__in=used_languages)
+                self.fields['language'].initial = post_instance.language
+            else:
+                self.fields.pop('language', None)
             self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(
                 id=post_instance.designer.id
             )
@@ -529,6 +526,9 @@ class PostCreateForm(forms.ModelForm):
             # Remove '1' (Stable) if not already stable
             self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '1']
 
+        if not user.profile.admin:
+            # Remove '9' (Submitted) if not admin
+            self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '9']
 
     def clean(self):
             cleaned_data = super().clean()
