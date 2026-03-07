@@ -1585,6 +1585,27 @@ def scorecard_list_view(request):
 # ============================
 
 
+def _build_used_asset_types(games_qs):
+    """Build asset_types list from assets actually used in finalized games."""
+    factions = Faction.objects.filter(efforts__game__in=games_qs).distinct()
+    vagabonds = Vagabond.objects.filter(efforts__game__in=games_qs).distinct()
+    maps = Map.objects.filter(games__in=games_qs).distinct()
+    decks = Deck.objects.filter(games__in=games_qs).distinct()
+    landmarks = Landmark.objects.filter(games__in=games_qs).distinct()
+    tweaks = Tweak.objects.filter(games__in=games_qs).distinct()
+    hirelings = Hireling.objects.filter(games__in=games_qs).distinct()
+
+    return [
+        ('faction', 'Factions', factions, 'bi-shield'),
+        ('map', 'Maps', maps, 'bi-map'),
+        ('deck', 'Decks', decks, 'bi-stack'),
+        ('hireling', 'Hirelings', hirelings, 'bi-person-badge'),
+        ('landmark', 'Landmarks', landmarks, 'bi-geo-alt'),
+        ('tweak', 'House Rules', tweaks, 'bi-wrench'),
+        ('vagabond', 'Vagabonds', vagabonds, 'bi-person-walking'),
+    ]
+
+
 def _tournament_base_context(request, tournament):
     """Shared context for all tournament pages."""
     if request.user.is_authenticated:
@@ -1722,10 +1743,12 @@ def tournament_leaderboard_page(request, slug):
 
     efforts = Effort.objects.filter(game__in=filtered_games)
 
-    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False)
-    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False)
-    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False)
-    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False)
+    faction_link = lambda f: reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': f.slug})
+    player_link = lambda p: reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': p.slug})
+    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
+    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
@@ -1924,25 +1947,20 @@ def tournament_details_page(request, slug):
     context['active_page'] = 'details'
 
     if tournament.asset_mode != AssetModeChoices.OPEN:
-
         assets = tournament.get_asset_querysets()
-        maps = assets['maps']
-        factions = assets['factions']
-        decks = assets['decks']
-        vagabonds = assets['vagabonds']
-        landmarks = assets['landmarks']
-        tweaks = assets['tweaks']
-        hirelings = assets['hirelings']
-
         context['asset_types'] = [
-            ('faction', 'Factions', factions, 'bi-shield'),
-            ('map', 'Maps', maps, 'bi-map'),
-            ('deck', 'Decks', decks, 'bi-stack'),
-            ('hireling', 'Hirelings', hirelings, 'bi-person-badge'),
-            ('landmark', 'Landmarks', landmarks, 'bi-geo-alt'),
-            ('tweak', 'House Rules', tweaks, 'bi-wrench'),
-            ('vagabond', 'Vagabonds', vagabonds, 'bi-person-walking'),
+            ('faction', 'Factions', assets['factions'], 'bi-shield'),
+            ('map', 'Maps', assets['maps'], 'bi-map'),
+            ('deck', 'Decks', assets['decks'], 'bi-stack'),
+            ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
+            ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
+            ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
+            ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
         ]
+    else:
+        games_qs = Game.objects.filter(round__stage__tournament=tournament, final=True)
+        if games_qs.exists():
+            context['asset_types'] = _build_used_asset_types(games_qs)
 
     return render(request, 'the_warroom/tournament_details.html', context)
 
@@ -2601,6 +2619,8 @@ def tournaments_home(request):
     return render(request, 'the_warroom/tournaments_home.html', context)
 
 
+def about_series_view(request):
+    return render(request, 'the_warroom/about_series.html')
 
 
 
@@ -2639,7 +2659,7 @@ def user_can_access_round(tournament_round, user):
 
 
 
-def round_detail_view(request, tournament_slug, stage_slug, round_slug):
+def round_overview_page(request, tournament_slug, stage_slug, round_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
@@ -2651,17 +2671,15 @@ def round_detail_view(request, tournament_slug, stage_slug, round_slug):
 
 
 
-def round_component_leaderboard_view(request, tournament_slug, post_slug, stage_slug= None, round_slug=None):
+def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_slug=None, round_slug=None):
 
     threshold = get_int_param(request.GET.get('threshold', ''))
     limit = get_int_param(request.GET.get('limit', ''))
     if limit is not None:
         limit = min(limit, 50)
 
-
     # Get the tournament from slug
     tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
-    # Fetch the round using its slug, and filter it by the related tournament
     if stage_slug:
         stage = get_object_or_404(Stage, slug=stage_slug.lower(), tournament=tournament)
     else:
@@ -2686,82 +2704,278 @@ def round_component_leaderboard_view(request, tournament_slug, post_slug, stage_
     Klass = component_mapping.get(post.component)
     object = get_object_or_404(Klass, slug=post_slug)
 
-    # Base filter: filter by round or tournament
-    base_filter = Q()
+    # Build game queryset scoped to tournament/stage/round
+    game_filter = Q(final=True)
     if round:
-        base_filter &= Q(game__round=round)
+        game_filter &= Q(round=round)
     elif stage:
-        base_filter &= Q(game__round__stage=stage)
+        game_filter &= Q(round__stage=stage)
     else:
-        base_filter &= Q(game__round__stage__tournament=tournament)
+        game_filter &= Q(round__stage__tournament=tournament)
 
-    # Add component-specific filter
+    # Add component-specific game filter
     component = object.component
     if component == "Map":
-        base_filter &= Q(game__map=object)
+        game_filter &= Q(map=object)
     elif component == "Deck":
-        base_filter &= Q(game__deck=object)
+        game_filter &= Q(deck=object)
+    elif component == "Landmark":
+        game_filter &= Q(landmarks=object)
+    elif component == "Tweak":
+        game_filter &= Q(tweaks=object)
+    elif component == "Hireling":
+        game_filter &= Q(hirelings=object)
     elif component == "Vagabond":
-        base_filter &= Q(vagabond=object)
+        game_filter &= Q(efforts__vagabond=object)
     elif component == "Faction":
-        base_filter &= Q(faction=object)
+        game_filter &= Q(efforts__faction=object)
 
-    # Always exclude efforts with no player
-    base_filter &= Q(player__isnull=False)
+    opts = Game.with_efforts()
+    games_qs = Game.objects.filter(game_filter).select_related(*opts['select']).prefetch_related(*opts['prefetch']).distinct()
 
-    efforts = Effort.objects.filter(base_filter)
+    # Apply user filter
+    filterset = TournamentGameFilter(request.GET, queryset=games_qs, tournament=tournament if not stage else None, stage=stage if not round else None, round=round)
+    filtered_games = filterset.qs.order_by('-date_posted')
 
-    
+    # Build efforts from filtered games with component-specific effort filter
+    effort_filter = Q(game__in=filtered_games, player__isnull=False)
+    if component == "Vagabond":
+        effort_filter &= Q(vagabond=object)
+    elif component == "Faction":
+        effort_filter &= Q(faction=object)
+
+    efforts = Effort.objects.filter(effort_filter)
+
     if threshold is None:
-        threshold = round.get_game_threshold() if round else stage.get_game_threshold() if stage else tournament.game_threshold
+        threshold = 1
     if limit is None:
         limit = round.get_leaderboard_positions() if round else stage.get_leaderboard_positions() if stage else tournament.leaderboard_positions
 
-    top_players = []
-    most_players = []
-    top_players = Profile.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold)
-    most_players = Profile.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold)
+    if round:
+        player_link = lambda p: reverse('round-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'profile_slug': p.slug})
+    elif stage:
+        player_link = lambda p: reverse('stage-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'profile_slug': p.slug})
+    else:
+        player_link = lambda p: reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': p.slug})
+
+    top_players = Profile.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold, as_json=False, link_builder=player_link)
+    most_players = Profile.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold, as_json=False, link_builder=player_link)
+
+    # Faction leaderboards (for non-faction components)
+    top_factions = []
+    most_factions = []
+    if component != "Faction":
+        if round:
+            faction_link = lambda f: reverse('round-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'post_slug': f.slug})
+        elif stage:
+            faction_link = lambda f: reverse('stage-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'post_slug': f.slug})
+        else:
+            faction_link = lambda f: reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': f.slug})
+        top_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold, as_json=False, link_builder=faction_link)
+        most_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold, as_json=False, link_builder=faction_link)
+
     if round:
         meta_title = f'{tournament.name} - {stage.name} ({round.name})'
-        if object.component == "Deck":
+        if component == "Deck":
             title = f'{object.title} Deck - {tournament.name}: {stage.name} ({round.name})'
-        elif object.component == "Map":
+        elif component == "Map":
             title = f'{object.title} Map - {tournament.name}: {stage.name} ({round.name})'
         else:
             title = f'{object.title} - {tournament.name}: {stage.name} ({round.name})'
     elif stage:
         meta_title = f'{tournament.name} - {stage.name}'
-        if object.component == "Deck":
+        if component == "Deck":
             title = f'{object.title} Deck - {tournament.name} ({stage.name})'
-        elif object.component == "Map":
+        elif component == "Map":
             title = f'{object.title} Map - {tournament.name} ({stage.name})'
         else:
             title = f'{object.title} - {tournament.name} ({stage.name})'
     else:
         meta_title = f'{tournament.name}'
-        if object.component == "Deck":
+        if component == "Deck":
             title = f'{object.title} Deck - {tournament.name}'
-        elif object.component == "Map":
+        elif component == "Map":
             title = f'{object.title} Map - {tournament.name}'
         else:
             title = f'{object.title} - {tournament.name}'
-    meta_description = f'Player Leaderboard for {object.title}'
+    meta_description = f'Leaderboard for {object.title}'
 
+    # Build filter URL for the current page
+    if round:
+        filter_url = reverse('round-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'post_slug': post_slug})
+    elif stage:
+        filter_url = reverse('stage-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'post_slug': post_slug})
+    else:
+        filter_url = reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': post_slug})
+
+    # Paginate games
+    games_count = filtered_games.count()
+    paginator = Paginator(filtered_games, settings.PAGE_SIZE)
+    page_number = request.GET.get('page')
+    try:
+        page_obj = paginator.page(page_number)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
+    # Build query string without 'page' for pagination links
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    query_string = query_params.urlencode()
 
     context = {
         'selected_tournament': tournament,
+        'tournament': tournament,
         'selected_stage': stage,
         'tournament_round': round,
         'top_players': top_players,
         'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+        'has_top_players': bool(top_players),
+        'has_most_players': bool(most_players),
+        'has_top_factions': bool(top_factions),
+        'has_most_factions': bool(most_factions),
         'leaderboard_threshold': threshold,
+        'leaderboard_places': limit,
+        'games_count': games_count,
+        'games': page_obj,
+        'page_obj': page_obj,
+        'query_string': query_string,
+        'form': filterset.form,
+        'filter_url': filter_url,
         'meta_title': meta_title,
         'meta_description': meta_description,
         'title': title,
         'post_name': object.title,
+        'post_url': object.get_absolute_url(),
+        'post_image': object.small_picture.url if object.small_picture else (object.picture.url if object.picture else None),
+        'post_image_class': 'lg-faction-icon',
     }
-    
-    return render(request, 'the_warroom/tournament_leaderboard.html', context)
+
+    return render(request, 'the_warroom/scoped_leaderboard.html', context)
+
+
+def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_slug=None, round_slug=None):
+
+    threshold = get_int_param(request.GET.get('threshold', ''))
+    limit = get_int_param(request.GET.get('limit', ''))
+    if limit is not None:
+        limit = min(limit, 50)
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug.lower(), tournament=tournament)
+    else:
+        stage = None
+
+    if round_slug:
+        round = get_object_or_404(Round, slug=round_slug.lower(), stage=stage)
+    else:
+        round = None
+
+    player = get_object_or_404(Profile, slug=profile_slug.lower())
+
+    # Build game queryset scoped to tournament/stage/round for this player
+    game_filter = Q(final=True, efforts__player=player)
+    if round:
+        game_filter &= Q(round=round)
+    elif stage:
+        game_filter &= Q(round__stage=stage)
+    else:
+        game_filter &= Q(round__stage__tournament=tournament)
+
+    opts = Game.with_efforts()
+    games_qs = Game.objects.filter(game_filter).select_related(*opts['select']).prefetch_related(*opts['prefetch']).distinct()
+
+    # Apply user filter
+    filterset = TournamentGameFilter(request.GET, queryset=games_qs, tournament=tournament if not stage else None, stage=stage if not round else None, round=round)
+    filtered_games = filterset.qs.order_by('-date_posted')
+
+    # Build efforts from filtered games for this player
+    efforts = Effort.objects.filter(game__in=filtered_games, player=player)
+
+    if threshold is None:
+        threshold = 1
+    if limit is None:
+        limit = round.get_leaderboard_positions() if round else stage.get_leaderboard_positions() if stage else tournament.leaderboard_positions
+
+    if round:
+        faction_link = lambda f: reverse('round-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'post_slug': f.slug})
+    elif stage:
+        faction_link = lambda f: reverse('stage-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'post_slug': f.slug})
+    else:
+        faction_link = lambda f: reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': f.slug})
+
+    top_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold, link_builder=faction_link)
+    most_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold, link_builder=faction_link)
+
+    if round:
+        meta_title = f'{tournament.name} - {stage.name} ({round.name})'
+        title = f'{player.display_name} - {tournament.name}: {stage.name} ({round.name})'
+    elif stage:
+        meta_title = f'{tournament.name} - {stage.name}'
+        title = f'{player.display_name} - {tournament.name} ({stage.name})'
+    else:
+        meta_title = f'{tournament.name}'
+        title = f'{player.display_name} - {tournament.name}'
+    meta_description = f'Faction Leaderboard for {player.display_name}'
+
+    # Build filter URL for the current page
+    if round:
+        filter_url = reverse('round-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'profile_slug': profile_slug})
+    elif stage:
+        filter_url = reverse('stage-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'profile_slug': profile_slug})
+    else:
+        filter_url = reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': profile_slug})
+
+    # Paginate games
+    games_count = filtered_games.count()
+    paginator = Paginator(filtered_games, settings.PAGE_SIZE)
+    page_number = request.GET.get('page')
+    try:
+        page_obj = paginator.page(page_number)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
+    # Build query string without 'page' for pagination links
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    query_string = query_params.urlencode()
+
+    context = {
+        'selected_tournament': tournament,
+        'tournament': tournament,
+        'selected_stage': stage,
+        'tournament_round': round,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
+        'has_top_factions': bool(top_factions),
+        'has_most_factions': bool(most_factions),
+        'has_top_players': False,
+        'has_most_players': False,
+        'leaderboard_threshold': threshold,
+        'leaderboard_places': limit,
+        'games_count': games_count,
+        'games': page_obj,
+        'page_obj': page_obj,
+        'query_string': query_string,
+        'form': filterset.form,
+        'filter_url': filter_url,
+        'meta_title': meta_title,
+        'meta_description': meta_description,
+        'title': title,
+        'post_name': player.display_name,
+        'post_url': player.get_absolute_url(),
+        'post_image': player.image.url,
+        'post_image_class': 'lg-avatar-icon',
+    }
+
+    return render(request, 'the_warroom/scoped_leaderboard.html', context)
 
 
 def stage_players_pagination(request, id):
@@ -3450,7 +3664,7 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
 
 
 @player_onboard_required
-def stage_detail_view(request, tournament_slug, stage_slug):
+def stage_overview_page(request, tournament_slug, stage_slug):
     """Stage overview — lists rounds belonging to this stage."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
@@ -3463,6 +3677,7 @@ def stage_detail_view(request, tournament_slug, stage_slug):
         'rounds': rounds,
         'active_page': 'overview',
     })
+
     return render(request, 'the_warroom/stage_overview.html', context)
 
 
@@ -3489,10 +3704,12 @@ def stage_leaderboard_page(request, tournament_slug, stage_slug):
 
     efforts = Effort.objects.filter(game__in=filtered_games)
 
-    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False)
-    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False)
-    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False)
-    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False)
+    faction_link = lambda f: reverse('stage-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'post_slug': f.slug})
+    player_link = lambda p: reverse('stage-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'profile_slug': p.slug})
+    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
+    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
@@ -3595,6 +3812,23 @@ def stage_details_page(request, tournament_slug, stage_slug):
 
     context = _stage_base_context(request, tournament, stage)
     context['active_page'] = 'details'
+
+    if tournament.asset_mode != AssetModeChoices.OPEN:
+        assets = tournament.get_asset_querysets()
+        context['asset_types'] = [
+            ('faction', 'Factions', assets['factions'], 'bi-shield'),
+            ('map', 'Maps', assets['maps'], 'bi-map'),
+            ('deck', 'Decks', assets['decks'], 'bi-stack'),
+            ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
+            ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
+            ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
+            ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
+        ]
+    else:
+        games_qs = Game.objects.filter(round__stage=stage, final=True)
+        if games_qs.exists():
+            context['asset_types'] = _build_used_asset_types(games_qs)
+
     return render(request, 'the_warroom/stage_details.html', context)
 
 
@@ -3646,10 +3880,12 @@ def round_leaderboard_page(request, tournament_slug, stage_slug, round_slug):
 
     efforts = Effort.objects.filter(game__in=filtered_games)
 
-    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False)
-    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False)
-    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False)
-    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False)
+    faction_link = lambda f: reverse('round-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'post_slug': f.slug})
+    player_link = lambda p: reverse('round-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'profile_slug': p.slug})
+    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
+    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
@@ -3755,6 +3991,23 @@ def round_details_page(request, tournament_slug, stage_slug, round_slug):
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'details'
+
+    if tournament.asset_mode != AssetModeChoices.OPEN:
+        assets = tournament.get_asset_querysets()
+        context['asset_types'] = [
+            ('faction', 'Factions', assets['factions'], 'bi-shield'),
+            ('map', 'Maps', assets['maps'], 'bi-map'),
+            ('deck', 'Decks', assets['decks'], 'bi-stack'),
+            ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
+            ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
+            ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
+            ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
+        ]
+    else:
+        games_qs = Game.objects.filter(round=round, final=True)
+        if games_qs.exists():
+            context['asset_types'] = _build_used_asset_types(games_qs)
+
     return render(request, 'the_warroom/round_details.html', context)
 
 

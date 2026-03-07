@@ -1,0 +1,169 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ title }} - {% trans 'Leaderboard' %} | {% endblock %}
+
+{% block meta %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ meta_title }} - {% trans 'Leaderboard' %}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+            {% if selected_stage %}
+            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=selected_stage.slug %}">{{ selected_stage.name }}</a></li>
+            {% endif %}
+            {% if tournament_round %}
+            <li class="breadcrumb-item"><a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=selected_stage.slug round_slug=tournament_round.slug %}">{{ tournament_round.name }}</a></li>
+            {% endif %}
+            {% if tournament_round %}
+            <li class="breadcrumb-item"><a href="{% url 'round-leaderboard-page' tournament.slug selected_stage.slug tournament_round.slug %}">{% trans 'Leaderboard' %}</a></li>
+            {% elif selected_stage %}
+            <li class="breadcrumb-item"><a href="{% url 'stage-leaderboard-page' tournament.slug selected_stage.slug %}">{% trans 'Leaderboard' %}</a></li>
+            {% else %}
+            <li class="breadcrumb-item"><a href="{% url 'tournament-leaderboard-page' tournament.slug %}">{% trans 'Leaderboard' %}</a></li>
+            {% endif %}
+            <li class="breadcrumb-item active">{{ post_name }}</li>
+        </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="position-relative text-center mb-3">
+        <h1 class="root-title mb-0">
+            {% if post_image %}<img src="{{ post_image }}" class="{{ post_image_class }} me-2" alt="">{% endif %}{{ post_name }}
+        </h1>
+        {% if post_url %}
+        <a href="{{ post_url }}" class="btn btn-outline-secondary btn-sm position-absolute top-50 end-0 translate-middle-y">
+            <i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Page' %}
+        </a>
+        {% endif %}
+    </div>
+
+    {% include 'the_warroom/partials/leaderboard_list_home.html' %}
+
+    <!-- Filter -->
+    {% if form %}
+    <article class="content-section">
+        <div class="w-100">
+            <h3>{% trans 'Filters' %}</h3>
+            <form method="get" action="{{ filter_url }}">
+                <div class="row">
+                    <div class="col-md-6 mb-1">
+                        {{ form.map }}
+                    </div>
+                    <div class="col-md-6 mb-1">
+                        {{ form.deck }}
+                    </div>
+                </div>
+
+                <div class="mb-1">
+                {% if form.factions %}
+                    {{ form.factions }}
+                {% elif form.faction %}
+                    {{ form.faction }}
+                {% endif %}
+                </div>
+
+                {% if form.vagabond %}
+                <div class="mb-1">
+                    {{ form.vagabond }}
+                </div>
+                {% endif %}
+
+                {% if form.player %}
+                <div class="mb-1">
+                    {{ form.player }}
+                </div>
+                {% endif %}
+
+                <div class="row">
+                    <div class="col-md-6 mb-1">
+                        <label for="id_limit">{% trans 'Leaderboard Places' %}</label>
+                        <input type="number" id="id_limit" name="limit" min="1" max="25" class="form-control" value="{{ leaderboard_places }}">
+                    </div>
+                    <div class="col-md-6 mb-1">
+                        <label for="id_threshold">{% trans 'Leaderboard Threshold' %}</label>
+                        <input type="number" id="id_threshold" name="threshold" min="0" max="1000" class="form-control" value="{{ leaderboard_threshold }}">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary mb-1">{% trans 'Filter' %}</button>
+            </form>
+        </div>
+    </article>
+    {% endif %}
+
+    <!-- Games -->
+    {% if games %}
+    <article class="content-section">
+        <div class="w-100">
+            <h3 class="root-title">{% trans 'Games' %} ({{ games_count }})</h3>
+        </div>
+    </article>
+    {% for game in games %}
+        {% include 'the_warroom/partials/game_detail_button.html' %}
+    {% endfor %}
+
+    {% if page_obj.has_previous or page_obj.has_next %}
+    <nav aria-label="Page navigation">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="{{ filter_url }}?{{ query_string }}&page={{ page_obj.previous_page_number }}">{% trans 'Previous' %}</a>
+            </li>
+            {% endif %}
+
+            {% for num in page_obj.paginator.page_range %}
+                {% if num == page_obj.number %}
+                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ filter_url }}?{{ query_string }}&page={{ num }}">{{ num }}</a>
+                </li>
+                {% endif %}
+            {% endfor %}
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="{{ filter_url }}?{{ query_string }}&page={{ page_obj.next_page_number }}">{% trans 'Next' %}</a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+    {% endif %}
+
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+    const selectPlaceholders = {
+        '#id_faction': "{% trans 'Select Factions' %}",
+        '#id_player': "{% trans 'Select Players' %}",
+        '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+        '#id_map': "{% trans 'Select a Map' %}",
+        '#id_deck': "{% trans 'Select a Deck' %}"
+    };
+
+    Object.keys(selectPlaceholders).forEach(id => {
+        if ($(id).length) {
+            $(id).select2({
+                placeholder: selectPlaceholders[id],
+                allowClear: true,
+                width: '100%'
+            });
+        }
+    });
+</script>
+{% endblock %}

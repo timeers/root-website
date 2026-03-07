@@ -10,10 +10,10 @@
             <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
             <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
             {% if stage %}
-            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
             {% endif %}
             {% if round %}
-            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
             {% endif %}
             <li class="breadcrumb-item active">Settings</li>
         </ol>
@@ -23,11 +23,11 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{{ object_type }} Settings</h2>
         {% if round %}
-        <a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
+        <a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Back to Round
         </a>
         {% elif stage %}
-        <a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary">
+        <a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Back to Stage
         </a>
         {% else %}

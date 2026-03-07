@@ -85,6 +85,13 @@
                 <dd class="col-sm-8">{{ tournament.platform }}</dd>
                 {% endif %}
 
+                {% if tournament.start_date %}
+                <dt class="col-sm-4 text-muted">{% trans 'Dates' %}</dt>
+                <dd class="col-sm-8">
+                    {{ tournament.start_date|date:"M j, Y" }}{% if tournament.end_date %} – {{ tournament.end_date|date:"M j, Y" }}{% endif %}
+                </dd>
+                {% endif %}
+
                 <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
                 <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
             </dl>

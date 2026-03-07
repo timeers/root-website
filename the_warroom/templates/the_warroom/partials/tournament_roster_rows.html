@@ -9,7 +9,7 @@
     <tr>
     {% endif %}
         <td>
-            <a href="{{ player.get_absolute_url }}" class="d-flex align-items-center text-decoration-none">
+            <a href="{% if round %}{% url 'round-player-leaderboard' tournament.slug stage.slug round.slug player.slug %}{% elif stage %}{% url 'stage-player-leaderboard' tournament.slug stage.slug player.slug %}{% else %}{% url 'tournament-player-leaderboard' tournament.slug player.slug %}{% endif %}" class="d-flex align-items-center text-decoration-none">
                 <img src="{{ player.image.url }}" class="md-avatar-icon me-2 flex-shrink-0" alt="">
                 <span>{{ player.display_name }}</span>
             </a>

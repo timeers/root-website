@@ -328,14 +328,14 @@ Record issues found during the audit that need to be fixed or investigated later
 
 ### Rounds
 - [ ] `round-create` - round_manage_view
-- [ ] `round-detail` - round_detail_view
+- [ ] `round-detail` - round_overview_page
 - [ ] `round-players` - round_manage_players
 - [ ] `round-update` - round_manage_view
 - [ ] `round-delete` - RoundDeleteView
 
 ### Leaderboards
-- [ ] `tournament-leaderboard` - round_component_leaderboard_view
-- [ ] `round-leaderboard` - round_component_leaderboard_view
+- [ ] `tournament-leaderboard` - tournament_component_leaderboard
+- [ ] `round-leaderboard` - tournament_component_leaderboard
 
 ### HTMX Game Actions
 - [ ] `bookmark-game` - bookmark_game

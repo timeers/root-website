@@ -4,7 +4,7 @@
     <div class="section-nav-header">
         <!-- Navigation Tabs -->
         <nav class="section-nav-tabs">
-            <a href="{% url 'stage-detail' tournament.slug stage.slug %}"
+            <a href="{% url 'stage-overview' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
                 {% trans 'Overview' %}
             </a>

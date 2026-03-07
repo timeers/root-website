@@ -1559,12 +1559,13 @@ class Faction(Post):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
         """
         Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many factions will be displayed.
         The game threshold is how many games a faction needs to play to qualify.
         If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
+        link_builder: optional callable(faction) -> str URL. Defaults to faction-detail.
         """
         language_code = get_language()
         
@@ -1626,6 +1627,14 @@ class Faction(Post):
             )
         )
         
+        # Materialize queryset and set leaderboard_link on each faction
+        results = list(queryset)
+        for faction in results:
+            if link_builder:
+                faction.leaderboard_link = link_builder(faction)
+            else:
+                faction.leaderboard_link = reverse('faction-detail', kwargs={'slug': faction.slug})
+
         # Return as JSON if requested
         if as_json:
             return [
@@ -1638,10 +1647,10 @@ class Faction(Post):
                     'slug': faction.slug,
                     'image_url': faction.small_icon.url if faction.small_icon else None,
                 }
-                for faction in queryset
+                for faction in results
             ]
-        
-        return queryset
+
+        return results
 
 
 

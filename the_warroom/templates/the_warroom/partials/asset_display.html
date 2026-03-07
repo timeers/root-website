@@ -50,7 +50,7 @@
     </h6>
     <div class="asset-card-grid">
         {% for asset in assets %}
-        <a href="{{ asset.get_absolute_url }}" class="text-decoration-none text-body">
+        <a href="{% if round %}{% url 'round-component-leaderboard' tournament.slug stage.slug round.slug asset.slug %}{% elif stage %}{% url 'stage-component-leaderboard' tournament.slug stage.slug asset.slug %}{% else %}{% url 'tournament-component-leaderboard' tournament.slug asset.slug %}{% endif %}" class="text-decoration-none text-body">
             <div class="asset-card">
                 <div class="asset-card-img">
                     {% if asset.picture %}

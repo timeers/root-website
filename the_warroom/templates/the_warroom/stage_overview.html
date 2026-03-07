@@ -21,52 +21,6 @@
     <!-- Nav Header -->
     {% include 'the_warroom/partials/stage_nav_header.html' with active_page='overview' %}
 
-    <!-- Stage info cards -->
-    <div class="row mb-4 g-3">
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <dl class="mb-0">
-                        {% if tournament.classification == 'Tournament' %}
-                        <dt class="text-muted small">{% trans 'Format' %}</dt>
-                        <dd>{{ stage.get_stage_format_display }}</dd>
-                        <dt class="text-muted small">{% trans 'Advancement' %}</dt>
-                        <dd>{{ stage.get_advancement_type_display }}</dd>
-                        {% endif %}
-                        <dt class="text-muted small">{% trans 'Status' %}</dt>
-                        <dd>
-                            {% if stage.status == 'active' %}
-                            <span class="badge bg-success">{{ stage.get_status_display }}</span>
-                            {% elif stage.status == 'completed' %}
-                            <span class="badge bg-secondary">{{ stage.get_status_display }}</span>
-                            {% else %}
-                            <span class="badge bg-warning text-dark">{{ stage.get_status_display }}</span>
-                            {% endif %}
-                        </dd>
-                    </dl>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <dl class="mb-0">
-                        <dt class="text-muted small">{% trans 'Players per Group' %}</dt>
-                        <dd>
-                            {% if stage.min_players != stage.max_players %}
-                            {{ stage.min_players }} – {{ stage.max_players }}
-                            {% else %}
-                            {{ stage.max_players }}
-                            {% endif %}
-                        </dd>
-                        <dt class="text-muted small">{% trans 'Grouping Type' %}</dt>
-                        <dd>{{ stage.get_grouping_type_display }}</dd>
-                    </dl>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Rounds -->
     {% if tournament.use_rounds %}
     <div class="d-flex justify-content-between align-items-center mb-3">

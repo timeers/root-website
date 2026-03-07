@@ -464,7 +464,7 @@ class Stage(models.Model):
         return f"{self.tournament.name} - {self.name}"
 
     def get_absolute_url(self):
-        return reverse('stage-detail', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+        return reverse('stage-overview', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
 
     def get_settings_url(self):
         return reverse('stage-settings', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
@@ -645,7 +645,7 @@ class Round(models.Model):
         return self.stage.slug if self.stage else None
 
     def get_absolute_url(self):
-        return reverse('round-detail', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
+        return reverse('round-overview', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_settings_url(self):
         return reverse('round-settings', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})

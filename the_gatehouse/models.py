@@ -725,11 +725,12 @@ class Profile(models.Model):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
         """
         Get the players with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many players will be displayed.
         The game theshold is how many games a player needs to play to qualify.
+        link_builder: optional callable(profile) -> str URL. Defaults to player-detail.
         """
         # Start with the base queryset for profiles
         queryset = cls.objects.filter(efforts__in=effort_qs)
@@ -772,7 +773,15 @@ class Profile(models.Model):
             queryset = queryset.order_by('-win_rate', '-total_efforts')
 
         queryset = queryset[:limit]
-        
+
+        # Materialize queryset and set leaderboard_link on each profile
+        results = list(queryset)
+        for profile in results:
+            if link_builder:
+                profile.leaderboard_link = link_builder(profile)
+            else:
+                profile.leaderboard_link = reverse('player-detail', kwargs={'slug': profile.slug})
+
         # Return as JSON if requested
         if as_json:
             return [
@@ -785,10 +794,10 @@ class Profile(models.Model):
                     'slug': profile.slug,
                     'image_url': profile.image.url if profile.image else None,
                 }
-                for profile in queryset
+                for profile in results
             ]
-                
-        return queryset
+
+        return results
 
 
 

@@ -34,37 +34,7 @@
     <!-- Nav Header -->
     {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='overview' %}
 
-    <!-- Tournament info card -->
-    <div class="row mb-4">
-        <div class="col-md-6 col-lg-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <dl class="mb-0">
-                        <dt class="text-muted small">{% trans 'Classification' %}</dt>
-                        <dd>{{ tournament.get_classification_display }}</dd>
-                        <dt class="text-muted small">{% trans 'Status' %}</dt>
-                        <dd>
-                            {% if tournament.status == 'Active' %}
-                            <span class="badge bg-success">{{ tournament.get_status_display }}</span>
-                            {% elif tournament.status == 'Completed' %}
-                            <span class="badge bg-secondary">{{ tournament.get_status_display }}</span>
-                            {% else %}
-                            <span class="badge bg-warning text-dark">{{ tournament.get_status_display }}</span>
-                            {% endif %}
-                        </dd>
-                        {% if tournament.start_date %}
-                        <dt class="text-muted small">{% trans 'Dates' %}</dt>
-                        <dd>
-                            {{ tournament.start_date|date:"M j, Y" }}{% if tournament.end_date %} – {{ tournament.end_date|date:"M j, Y" }}{% endif %}
-                        </dd>
-                        {% endif %}
-                    </dl>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    {% if tournament.use_stages %}
     <!-- Stages list -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-layers me-2"></i>{% trans 'Stages' %}</h4>
@@ -76,42 +46,39 @@
     {% if stages %}
     <div class="list-group mb-4">
         {% for stage in stages %}
-        <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <a href="{{ stage.get_absolute_url }}" class="fw-semibold text-decoration-none">{{ stage.name }}</a>
-                    {% if stage.status == 'Active' %}
-                    <span class="badge bg-success ms-2">{% trans 'Active' %}</span>
-                    {% elif stage.status == 'Completed' %}
-                    <span class="badge bg-secondary ms-2">{% trans 'Completed' %}</span>
-                    {% else %}
-                    <span class="badge bg-warning text-dark ms-2">{% trans 'Pending' %}</span>
-                    {% endif %}
-                    {% if stage.start_date %}
-                    <small class="text-muted ms-2">
-                        <i class="bi bi-calendar me-1"></i>{{ stage.start_date|date:"M j, Y" }}{% if stage.end_date %} – {{ stage.end_date|date:"M j, Y" }}{% endif %}
-                    </small>
-                    {% endif %}
+        <div class="list-group-item p-0">
+            <a href="{{ stage.get_absolute_url }}" class="d-flex justify-content-between align-items-center p-3 text-decoration-none list-group-item-action">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="root-title fw-semibold">{{ stage.name }}</span>
+
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    <small class="text-muted">{{ stage.get_stage_format_display }}</small>
+                    {% if stage.status == 'Active' %}
+                    <span class="badge bg-success">{% trans 'Active' %}</span>
+                    {% elif stage.status == 'Completed' %}
+                    <span class="badge bg-secondary">{% trans 'Completed' %}</span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark">{% trans 'Pending' %}</span>
+                    {% endif %}
                     {% if can_manage %}
-                    <a href="{{ stage.get_settings_url }}" class="btn btn-outline-secondary btn-sm" title="Stage Settings">
+                    <span onclick="event.preventDefault(); event.stopPropagation(); window.location.href='{{ stage.get_settings_url }}';"
+                          class="btn btn-outline-secondary btn-sm" title="{% trans 'Stage Settings' %}">
                         <i class="bi bi-gear"></i>
-                    </a>
+                    </span>
                     {% endif %}
                 </div>
-            </div>
+            </a>
 
             {% if tournament.use_rounds and stage.rounds.all %}
-            <div class="list-group list-group-flush mt-2 ms-4">
+            <div class="list-group list-group-flush ms-4 border-start border-2" style="border-color: var(--bs-border-color);">
                 {% for round in stage.rounds.all %}
                 <a href="{{ round.get_absolute_url }}"
-                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center border-0 py-1">
-                    <div>
-                        <span>{{ round.name|default:round.round_number }}</span>
+                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center border-0 py-2 ps-3">
+                    <div class="d-flex align-items-center gap-2">
+                        {% comment %} <i class="bi bi-chevron-right text-muted small"></i> {% endcomment %}
+                        <span class='root-title'>{{ round.name|default:round.round_number }}</span>
                         {% if round.start_date %}
-                        <small class="text-muted ms-2">
+                        <small class="text-muted">
                             <i class="bi bi-calendar me-1"></i>{{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
                         </small>
                         {% endif %}
@@ -125,17 +92,17 @@
                         <span class="badge bg-warning text-dark">{% trans 'Pending' %}</span>
                         {% endif %}
                         {% if can_manage %}
-                        <a href="{{ round.get_settings_url }}" class="btn btn-outline-secondary btn-sm"
-                           onclick="event.preventDefault(); window.location.href=this.href;">
+                        <span onclick="event.preventDefault(); event.stopPropagation(); window.location.href='{{ round.get_settings_url }}';"
+                              class="btn btn-outline-secondary btn-sm" title="{% trans 'Round Settings' %}">
                             <i class="bi bi-gear"></i>
-                        </a>
+                        </span>
                         {% endif %}
                     </div>
                 </a>
                 {% endfor %}
             </div>
             {% elif tournament.use_rounds %}
-            <div class="ms-4 mt-2">
+            <div class="ms-4 border-start border-2 ps-3 py-2" style="border-color: var(--bs-border-color);">
                 <small class="text-muted">
                     <i class="bi bi-info-circle me-1"></i>{% trans 'No rounds yet.' %}
                     {% if can_manage %}
@@ -157,7 +124,7 @@
     {% endif %}
 
 
-    {% endif %}
+
 
 </div>
 {% endblock %}

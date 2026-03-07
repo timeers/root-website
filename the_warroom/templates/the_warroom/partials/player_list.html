@@ -3,31 +3,31 @@
 
 
         {% for player in players %}
-                    
+
         {% if forloop.last and players.has_next %}
             {% if object.type == "Tournament" %}
-                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.slug }}"
+                <tr id="LAST" data-href="{% url 'tournament-player-leaderboard' object.slug player.slug %}"
                 hx-trigger="revealed"
                 hx-get="{% url 'tournament-players-pagination' object.id %}?page={{ players.number|add:1 }}"
                 hx-swap="afterend">
             {% elif object.type == "Stage" %}
-                <tr id="LAST" data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}"
+                <tr id="LAST" data-href="{% url 'stage-player-leaderboard' object.tournament.slug object.slug player.slug %}"
                 hx-trigger="revealed"
                 hx-get="{% url 'stage-players-pagination' object.id %}?page={{ players.number|add:1 }}"
                 hx-swap="afterend">
             {% else %}
-                <tr id="LAST" data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}&round_slug={{ object.slug }}"
+                <tr id="LAST" data-href="{% url 'round-player-leaderboard' object.stage.tournament.slug object.stage.slug object.slug player.slug %}"
                 hx-trigger="revealed"
                 hx-get="{% url 'round-players-pagination' object.id %}?page={{ players.number|add:1 }}"
                 hx-swap="afterend">
             {% endif %}
         {% else %}
             {% if object.type == "Tournament" %}
-                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.slug }}">
+                <tr data-href="{% url 'tournament-player-leaderboard' object.slug player.slug %}">
             {% elif object.type == "Stage" %}
-                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}">
+                <tr data-href="{% url 'stage-player-leaderboard' object.tournament.slug object.slug player.slug %}">
             {% else %}
-                <tr data-href="{% url 'player-stats' player.slug %}?tournament_slug={{ object.tournament.slug }}&round_slug={{ object.slug }}">
+                <tr data-href="{% url 'round-player-leaderboard' object.stage.tournament.slug object.stage.slug object.slug player.slug %}">
             {% endif %}
         {% endif %}
 

@@ -10,8 +10,8 @@
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
             <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
             <li class="breadcrumb-item active">{% trans 'Leaderboard' %}</li>
         </ol>
     </nav>

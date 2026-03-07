@@ -10,8 +10,8 @@
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
             <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'stage-detail' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'round-detail' tournament_slug=tournament.slug stage_slug=stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=stage.slug round_slug=round.slug %}">{{ round.name }}</a></li>
             <li class="breadcrumb-item active">{% trans 'Details' %}</li>
         </ol>
     </nav>
@@ -86,6 +86,13 @@
                 <dt class="col-sm-4 text-muted">{% trans 'Bracket Status' %}</dt>
                 <dd class="col-sm-8">{{ round.get_bracket_status_display }}</dd>
             </dl>
+
+            {% if asset_types %}
+            <hr class="my-3">
+            <h5 class="mb-3">{% trans 'Allowed Assets' %}</h5>
+            {% include 'the_warroom/partials/asset_display.html' %}
+            {% endif %}
+
         </div>
     </div>
 
