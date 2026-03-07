@@ -29,36 +29,53 @@
         {% csrf_token %}
         <input type="hidden" name="timezone_offset_hours" id="id_timezone_offset_hours" value="">
 
-        {% if survey.is_registration and survey.series and survey.series.rules %}
-        <div class="card mb-4 border-warning">
-            <div class="card-header bg-warning bg-opacity-25">
-                <h5 class="mb-0">
-                    <i class="bi bi-scroll me-2"></i>{% trans 'Tournament Rules' %} - {{ survey.series.name }}
-                </h5>
-            </div>
-            <div class="card-body">
-                <div style="max-height: 400px; overflow-y: auto; padding: 1rem; background-color: var(--bs-light); border-radius: 0.375rem;">
-                    {{ survey.series.rules|linebreaks }}
+        {% for section_data in sections_data %}
+        <div class="survey-section" data-section-index="{{ forloop.counter0 }}"
+             {% if not forloop.first %}style="display: none;"{% endif %}>
+
+            {% if section_data.section %}
+                {% if section_data.section.title or section_data.section.description %}
+                <div class="mb-4">
+                    {% if section_data.section.title %}
+                        <h3>{{ section_data.section.title }}</h3>
+                    {% endif %}
+                    {% if section_data.section.description %}
+                        <p class="text-muted">{{ section_data.section.description }}</p>
+                    {% endif %}
                 </div>
-                <hr>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="rules_agreement" name="rules_agreement" required>
-                    <label class="form-check-label" for="rules_agreement">
-                        <strong>{% trans 'I have read and agree to the tournament rules' %}</strong> <span class="text-danger">*</span>
-                    </label>
-                    <div class="invalid-feedback" id="rules_agreement_error" style="display: none;">
-                        {% trans 'You must agree to the tournament rules to submit this survey.' %}
+                {% endif %}
+            {% endif %}
+
+            {% if forloop.first and survey.is_registration and survey.series and survey.series.rules %}
+            <div class="card mb-4 border-warning">
+                <div class="card-header bg-warning bg-opacity-25">
+                    <h5 class="mb-0">
+                        <i class="bi bi-scroll me-2"></i>{{ survey.series.name }} - {% trans 'Rules' %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div style="max-height: 400px; overflow-y: auto; padding: 1rem; background-color: var(--bs-light); border-radius: 0.375rem;">
+                        {{ survey.series.rules|linebreaks }}
+                    </div>
+                    <hr>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="rules_agreement" name="rules_agreement" required>
+                        <label class="form-check-label" for="rules_agreement">
+                            <strong>{% trans 'I have read and agree to these rules' %}</strong> <span class="text-danger">*</span>
+                        </label>
+                        <div class="invalid-feedback" id="rules_agreement_error" style="display: none;">
+                            {% trans 'You must agree to the tournament rules to submit this survey.' %}
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-        {% endif %}
+            {% endif %}
 
-        {% for question in visible_questions %}
+            {% for question in section_data.questions %}
             <div class="card mb-4">
                 <div class="card-body">
                     <h5 class="card-title">
-                        {{ forloop.counter }}. {{ question.text }}
+                        {{ question_numbers|get_item:question.id }}. {{ question.text }}
                         {% if question.required %}
                             <span class="text-danger">*</span>
                         {% endif %}
@@ -308,21 +325,35 @@
                     {% endif %}
                 </div>
             </div>
+            {% endfor %}
+        </div>
         {% endfor %}
 
         <hr>
 
         <div class="d-flex justify-content-between align-items-center">
-            <small class="text-muted">
-                <span class="text-danger">*</span> {% trans 'Required fields' %}
-            </small>
-            <button type="submit" class="btn btn-primary">
-                {% if is_editing %}
-                    <i class="bi bi-pencil-square"></i> {% trans 'Update Response' %}
-                {% else %}
-                    {% trans 'Submit Survey' %}
-                {% endif %}
-            </button>
+            <div>
+                <button type="button" class="btn btn-outline-secondary survey-nav-prev"
+                        style="display: none;" onclick="navigateSection(-1)">
+                    <i class="bi bi-arrow-left"></i> {% trans 'Back' %}
+                </button>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <small class="text-muted">
+                    <span class="text-danger">*</span> {% trans 'Required fields' %}
+                </small>
+                <span class="text-muted survey-section-indicator"></span>
+                <button type="button" class="btn btn-primary survey-nav-next" onclick="navigateSection(1)">
+                    {% trans 'Next' %} <i class="bi bi-arrow-right"></i>
+                </button>
+                <button type="submit" class="btn btn-primary survey-nav-submit" style="display: none;">
+                    {% if is_editing %}
+                        <i class="bi bi-pencil-square"></i> {% trans 'Update Response' %}
+                    {% else %}
+                        {% trans 'Submit Survey' %}
+                    {% endif %}
+                </button>
+            </div>
         </div>
     </form>
 </div>
@@ -392,6 +423,142 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // ============================================
+    // Section Navigation
+    // ============================================
+    const sections = document.querySelectorAll('.survey-section');
+    const totalSections = sections.length;
+    let currentSection = 0;
+
+    function updateSectionNav() {
+        const prevBtn = document.querySelector('.survey-nav-prev');
+        const nextBtn = document.querySelector('.survey-nav-next');
+        const submitBtn = document.querySelector('.survey-nav-submit');
+        const indicator = document.querySelector('.survey-section-indicator');
+
+        // Show/hide sections
+        sections.forEach((s, i) => {
+            s.style.display = i === currentSection ? '' : 'none';
+        });
+
+        if (totalSections <= 1) {
+            // No sections or single section - hide navigation, show submit
+            if (prevBtn) prevBtn.style.display = 'none';
+            if (nextBtn) nextBtn.style.display = 'none';
+            if (submitBtn) submitBtn.style.display = '';
+            if (indicator) indicator.textContent = '';
+            return;
+        }
+
+        if (prevBtn) prevBtn.style.display = currentSection > 0 ? '' : 'none';
+        if (nextBtn) nextBtn.style.display = currentSection < totalSections - 1 ? '' : 'none';
+        if (submitBtn) submitBtn.style.display = currentSection === totalSections - 1 ? '' : 'none';
+        if (indicator) indicator.textContent = `Page ${currentSection + 1} of ${totalSections}`;
+    }
+
+    function validateCurrentSection() {
+        const currentSectionEl = sections[currentSection];
+        let valid = true;
+
+        // Validate required radio groups
+        const radioGroups = new Set();
+        currentSectionEl.querySelectorAll('input[type="radio"][required]').forEach(r => {
+            radioGroups.add(r.name);
+        });
+        radioGroups.forEach(name => {
+            const checked = currentSectionEl.querySelector(`input[name="${name}"]:checked`);
+            if (!checked) {
+                valid = false;
+                // Add visual feedback
+                const container = currentSectionEl.querySelector(`input[name="${name}"]`).closest('.card');
+                if (container) container.classList.add('border-danger');
+            }
+        });
+
+        // Validate required text/select/textarea inputs
+        currentSectionEl.querySelectorAll('input[required]:not([type="radio"]):not([type="checkbox"]), select[required], textarea[required]').forEach(field => {
+            if (!field.value.trim()) {
+                field.classList.add('is-invalid');
+                valid = false;
+            } else {
+                field.classList.remove('is-invalid');
+            }
+        });
+
+        // Validate rules agreement checkbox (if present in this section)
+        const rulesCheckbox = currentSectionEl.querySelector('#rules_agreement');
+        if (rulesCheckbox && rulesCheckbox.required && !rulesCheckbox.checked) {
+            const errorDiv = document.getElementById('rules_agreement_error');
+            if (errorDiv) errorDiv.style.display = 'block';
+            valid = false;
+        }
+
+        // Validate required checkbox groups (MS, TA, DY)
+        currentSectionEl.querySelectorAll('.ms-checkbox-group[data-required="true"]').forEach(group => {
+            const checked = group.querySelector('input[type="checkbox"]:checked');
+            if (!checked) {
+                const errorDiv = document.getElementById(`ms_error_${group.dataset.questionId}`);
+                if (errorDiv) errorDiv.style.display = 'block';
+                valid = false;
+            }
+        });
+
+        // Validate required time availability
+        currentSectionEl.querySelectorAll('.time-availability-grid').forEach(grid => {
+            const questionId = grid.dataset.questionId;
+            const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
+            const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
+            const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+            if (isRequired && !isChecked) {
+                const errorDiv = document.getElementById(`time_error_${questionId}`);
+                if (errorDiv) errorDiv.style.display = 'block';
+                valid = false;
+            }
+        });
+
+        // Validate required day availability
+        currentSectionEl.querySelectorAll('.day-availability-grid').forEach(grid => {
+            const questionId = grid.dataset.questionId;
+            const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
+            const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
+            const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+            if (isRequired && !isChecked) {
+                const errorDiv = document.getElementById(`day_error_${questionId}`);
+                if (errorDiv) errorDiv.style.display = 'block';
+                valid = false;
+            }
+        });
+
+        if (!valid) {
+            // Scroll to first problem
+            const firstInvalid = currentSectionEl.querySelector('.is-invalid, .border-danger, .invalid-feedback[style*="display: block"]');
+            if (firstInvalid) {
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        return valid;
+    }
+
+    // Make navigateSection available globally
+    window.navigateSection = function(direction) {
+        if (direction > 0 && !validateCurrentSection()) {
+            return;
+        }
+
+        currentSection += direction;
+        currentSection = Math.max(0, Math.min(totalSections - 1, currentSection));
+        updateSectionNav();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // Initialize section navigation
+    updateSectionNav();
+
+    // ============================================
+    // Timezone and other existing functionality
+    // ============================================
+
     // Capture timezone offset and store in hidden field
     const now = new Date();
     const timezoneOffsetMinutes = now.getTimezoneOffset();

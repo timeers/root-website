@@ -19,7 +19,7 @@ from django.views.decorators.http import require_http_methods
 
 from .forms import GameCommentCreateForm, PostCommentCreateForm
 from .forms import SurveyResponseForm
-from .models import (Survey, SurveyResponse, Question, QuestionTemplate, Choice, 
+from .models import (Survey, SurveySection, SurveyResponse, Question, QuestionTemplate, Choice,
                      Answer, RankedAnswer, RankedPostAnswer, TA_DAY_CODES, LikertScale,
                      GameComment, PostComment)
 
@@ -812,20 +812,38 @@ def survey_take_view(request, slug):
             if validation_errors:
                 for error in validation_errors:
                     messages.error(request, error)
+                sections_data = survey.get_sections_with_questions()
+                question_numbers = {}
+                counter = 1
+                for sd in sections_data:
+                    for q in sd['questions']:
+                        question_numbers[q.id] = counter
+                        counter += 1
                 return render(request, 'the_tavern/take_survey.html', {
                     'survey': survey,
                     'form': form,
                     'visible_questions': visible_questions,
+                    'sections_data': sections_data,
+                    'question_numbers': question_numbers,
                 })
 
             # Validate rules agreement for registration surveys
             if survey.is_registration and survey.series and survey.series.rules:
                 if request.POST.get('rules_agreement') != 'on':
                     messages.error(request, _('You must agree to the tournament rules to submit this survey.'))
+                    sections_data = survey.get_sections_with_questions()
+                    question_numbers = {}
+                    counter = 1
+                    for sd in sections_data:
+                        for q in sd['questions']:
+                            question_numbers[q.id] = counter
+                            counter += 1
                     return render(request, 'the_tavern/take_survey.html', {
                         'survey': survey,
                         'form': form,
                         'visible_questions': visible_questions,
+                        'sections_data': sections_data,
+                        'question_numbers': question_numbers,
                     })
 
             # Get timezone offset from form
@@ -980,6 +998,15 @@ def survey_take_view(request, slug):
     # Get only visible (non-hidden) questions for display
     visible_questions = survey.questions.filter(is_hidden=False)
 
+    # Build sections data and continuous question numbering
+    sections_data = survey.get_sections_with_questions()
+    question_numbers = {}
+    counter = 1
+    for section_data in sections_data:
+        for q in section_data['questions']:
+            question_numbers[q.id] = counter
+            counter += 1
+
     return_to = request.GET.get('return_to') or reverse('survey-list')
     return_title = request.GET.get('return_title') or 'Back to Surveys'
     current_url = request.path
@@ -989,8 +1016,8 @@ def survey_take_view(request, slug):
         'survey': survey,
         'form': form,
         'visible_questions': visible_questions,
-        'return_title': return_title,
-        'return_to': return_to,
+        'sections_data': sections_data,
+        'question_numbers': question_numbers,
         'return_title': return_title,
         'return_to': return_to,
     }
@@ -1082,21 +1109,39 @@ def survey_user_response_edit_view(request, slug, response_id):
             if validation_errors:
                 for error in validation_errors:
                     messages.error(request, error)
+                edit_sections = survey.get_sections_with_questions()
+                edit_qnums = {}
+                c = 1
+                for sd in edit_sections:
+                    for q in sd['questions']:
+                        edit_qnums[q.id] = c
+                        c += 1
                 return render(request, 'the_tavern/take_survey.html', {
                     'survey': survey,
                     'form': form,
                     'is_editing': is_editing,
+                    'sections_data': edit_sections,
+                    'question_numbers': edit_qnums,
                 })
 
             # Validate rules agreement for registration surveys
             if survey.is_registration and survey.series and survey.series.rules:
                 if request.POST.get('rules_agreement') != 'on':
                     messages.error(request, _('You must agree to the tournament rules to submit this survey.'))
+                    edit_sections = survey.get_sections_with_questions()
+                    edit_qnums = {}
+                    c = 1
+                    for sd in edit_sections:
+                        for q in sd['questions']:
+                            edit_qnums[q.id] = c
+                            c += 1
                     return render(request, 'the_tavern/take_survey.html', {
                         'survey': survey,
                         'form': form,
                         'is_editing': is_editing,
                         'visible_questions': survey.questions.filter(is_hidden=False),
+                        'sections_data': edit_sections,
+                        'question_numbers': edit_qnums,
                     })
 
             # Update timezone offset if provided
@@ -1261,11 +1306,22 @@ def survey_user_response_edit_view(request, slug, response_id):
 
     visible_questions = survey.questions.filter(is_hidden=False)
 
+    # Build sections data and continuous question numbering
+    sections_data = survey.get_sections_with_questions()
+    question_numbers = {}
+    counter = 1
+    for sd in sections_data:
+        for q in sd['questions']:
+            question_numbers[q.id] = counter
+            counter += 1
+
     context = {
         'survey': survey,
         'form': form,
         'is_editing': is_editing,
         'visible_questions': visible_questions,
+        'sections_data': sections_data,
+        'question_numbers': question_numbers,
     }
     return render(request, 'the_tavern/take_survey.html', context)
 
@@ -1529,10 +1585,13 @@ def survey_results_view(request, slug):
     current_url = request.path
     current_title = 'Back to Results'
 
+    sections_data = survey.get_sections_with_questions()
+
     context = {
         'survey': survey,
         'total_responses': survey.response_count(),
         'questions_with_results': questions_with_results,
+        'sections_data': sections_data,
         'return_title': return_title,
         'return_to': return_to,
         'current_url': current_url,
@@ -1803,6 +1862,15 @@ def survey_preview_view(request, slug):
     # Get only visible (non-hidden) questions for display
     visible_questions = survey.questions.filter(is_hidden=False)
 
+    # Build sections data and continuous question numbering
+    sections_data = survey.get_sections_with_questions()
+    question_numbers = {}
+    counter = 1
+    for section_data in sections_data:
+        for q in section_data['questions']:
+            question_numbers[q.id] = counter
+            counter += 1
+
     context = {
         'survey': survey,
         'form': form,
@@ -1815,6 +1883,8 @@ def survey_preview_view(request, slug):
         'current_url': current_url,
         'current_title': current_title,
         'visible_questions': visible_questions,
+        'sections_data': sections_data,
+        'question_numbers': question_numbers,
     }
     return render(request, 'the_tavern/survey_preview.html', context)
 
@@ -2133,6 +2203,41 @@ def survey_edit_view(request, slug):
                 # Only update invited players if not public
                 survey.invited_players.set(Profile.objects.filter(id__in=invited_player_ids))
 
+            # Process sections from JSON
+            sections_json = request.POST.get('sections_data')
+            section_map = {}  # temp_id -> SurveySection
+            existing_section_ids = set(survey.sections.values_list('id', flat=True))
+            updated_section_ids = set()
+
+            if sections_json:
+                sections_list = json.loads(sections_json)
+                for s_data in sections_list:
+                    if s_data.get('id'):
+                        # Update existing section
+                        section = SurveySection.objects.get(id=s_data['id'], survey=survey)
+                        section.title = s_data.get('title', '')
+                        section.description = s_data.get('description', '')
+                        section.order = s_data.get('order', 0)
+                        section.save()
+                        updated_section_ids.add(section.id)
+                        section_map[s_data.get('temp_id', str(s_data['id']))] = section
+                    else:
+                        # Create new section
+                        section = SurveySection.objects.create(
+                            survey=survey,
+                            title=s_data.get('title', ''),
+                            description=s_data.get('description', ''),
+                            order=s_data.get('order', 0),
+                        )
+                        updated_section_ids.add(section.id)
+                        section_map[s_data['temp_id']] = section
+
+            # Delete removed sections (unlink questions first)
+            sections_to_delete = existing_section_ids - updated_section_ids
+            if sections_to_delete:
+                Question.objects.filter(section_id__in=sections_to_delete).update(section=None)
+                SurveySection.objects.filter(id__in=sections_to_delete).delete()
+
             # Get questions data from JSON
             questions_json = request.POST.get('questions_data')
             if questions_json:
@@ -2143,6 +2248,10 @@ def survey_edit_view(request, slug):
                 updated_question_ids = set()
 
                 for q_data in questions_data:
+                    # Resolve section FK
+                    section_ref = q_data.get('section_temp_id')
+                    question_section = section_map.get(section_ref) if section_ref else None
+
                     if q_data.get('id'):
                         # Update existing question (or restore if hidden)
                         question = Question.objects.get(id=q_data['id'], survey=survey)
@@ -2152,6 +2261,7 @@ def survey_edit_view(request, slug):
                         question.required = q_data.get('required', True)
                         question.help_text = q_data.get('help_text', '')
                         question.is_hidden = False  # Unhide if restoring
+                        question.section = question_section
 
                         # Update likert scale if needed
                         if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
@@ -2240,7 +2350,8 @@ def survey_edit_view(request, slug):
                             question_type=q_data['type'],
                             order=q_data['order'],
                             required=q_data.get('required', True),
-                            help_text=q_data.get('help_text', '')
+                            help_text=q_data.get('help_text', ''),
+                            section=question_section,
                         )
 
                         # Add likert scale if needed
@@ -2384,6 +2495,7 @@ def survey_edit_view(request, slug):
             'has_responses': question.id in questions_with_responses,
             'response_count': question_response_count,
             'ta_enabled_days': question.ta_enabled_days if question.ta_enabled_days else TA_DAY_CODES,
+            'section_id': question.section_id,
         }
 
         # Add choices if applicable (only non-hidden)
@@ -2440,11 +2552,23 @@ def survey_edit_view(request, slug):
         }
         hidden_questions.append(hq_data)
 
+    # Prepare existing sections data for JavaScript
+    existing_sections = []
+    for section in survey.sections.all():
+        existing_sections.append({
+            'id': section.id,
+            'temp_id': f'section-{section.id}',
+            'title': section.title,
+            'description': section.description,
+            'order': section.order,
+        })
+
     context = {
         'survey': survey,
         'likert_scales': likert_scales,
         'question_templates': question_templates,
         'existing_questions': json.dumps(existing_questions),
+        'existing_sections': json.dumps(existing_sections),
         'hidden_questions': json.dumps(hidden_questions),
         'is_edit_mode': True,
         'response_count': survey.responses.count(),
@@ -2574,12 +2698,30 @@ def survey_create_view(request):
             if invited_player_ids:
                 survey.invited_players.set(Profile.objects.filter(id__in=invited_player_ids))
 
+            # Create sections from JSON
+            sections_json = request.POST.get('sections_data')
+            section_map = {}  # temp_id -> SurveySection instance
+            if sections_json:
+                sections_list = json.loads(sections_json)
+                for s_data in sections_list:
+                    section = SurveySection.objects.create(
+                        survey=survey,
+                        title=s_data.get('title', ''),
+                        description=s_data.get('description', ''),
+                        order=s_data.get('order', 0),
+                    )
+                    section_map[s_data['temp_id']] = section
+
             # Get questions data from JSON
             questions_json = request.POST.get('questions_data')
             if questions_json:
                 questions_data = json.loads(questions_json)
 
                 for q_data in questions_data:
+                    # Resolve section FK
+                    section_ref = q_data.get('section_temp_id')
+                    section = section_map.get(section_ref) if section_ref else None
+
                     # Create question
                     question = Question.objects.create(
                         survey=survey,
@@ -2587,7 +2729,8 @@ def survey_create_view(request):
                         question_type=q_data['type'],
                         order=q_data['order'],
                         required=q_data.get('required', True),
-                        help_text=q_data.get('help_text', '')
+                        help_text=q_data.get('help_text', ''),
+                        section=section,
                     )
 
                     # Add likert scale if needed

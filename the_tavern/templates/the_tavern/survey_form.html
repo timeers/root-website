@@ -56,6 +56,9 @@
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#templateModal">
                         <i class="bi bi-download"></i> {% trans 'Load from Template' %}
                     </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="addPageBreak()">
+                        <i class="bi bi-arrows-expand"></i> {% trans 'Add Section' %}
+                    </button>
                     <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
                         <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
                     </button>
@@ -63,8 +66,9 @@
             </div>
         </div>
 
-        {# Hidden input to store questions JSON data #}
+        {# Hidden inputs to store questions and sections JSON data #}
         <input type="hidden" name="questions_data" id="questions-data">
+        <input type="hidden" name="sections_data" id="sections-data">
 
         {% if is_edit_mode %}
         <div class="d-none d-md-flex justify-content-between">

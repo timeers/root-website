@@ -178,6 +178,36 @@ Include this in {% block styles %} for survey-related pages
         opacity: 0.6;
     }
 
+    /* Section (page break) card styles in survey builder */
+    .section-card {
+        border: 1px solid #198754;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+        background-color: #f0fdf4;
+    }
+
+    .section-card-header {
+        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid #c3e6cb;
+    }
+
+    .section-card-body {
+        padding: 0.5rem 1rem;
+    }
+
+    .section-card .section-title::placeholder,
+    .section-card .section-description::placeholder {
+        color: #6c757d;
+        opacity: 0.6;
+    }
+
+    /* Section navigation in take_survey */
+    .survey-section-indicator {
+        font-size: 0.9rem;
+    }
+
     /* Utility classes */
     .gap-2 {
         gap: 0.5rem;

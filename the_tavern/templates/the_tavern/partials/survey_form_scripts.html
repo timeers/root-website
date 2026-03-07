@@ -312,6 +312,120 @@ function removeInvitedPlayer(playerId) {
 }
 
 // ============================================
+// Section (Page Break) Management
+// ============================================
+let sectionCounter = 0;
+
+function createSectionCardHtml(options) {
+    const { sectionId, order, title = '', description = '', existingId = null } = options;
+
+    let dataAttrs = `data-section-id="${sectionId}" data-order="${order}"`;
+    if (existingId !== null) {
+        dataAttrs += ` data-existing-id="${existingId}"`;
+    }
+
+    return `
+        <div class="section-card" ${dataAttrs}>
+            <div class="section-card-header">
+                <span class="drag-handle me-2" style="cursor: move;"><i class="bi bi-grip-vertical"></i></span>
+                <i class="bi bi-arrows-expand me-2 text-success"></i>
+                <strong class="section-label text-success">{% trans 'Section Header' %}</strong>
+                <div class="flex-fill"></div>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeSectionCard('${sectionId}')">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="section-card-body">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <input type="text" class="form-control form-control-sm section-title"
+                               placeholder="Section ${order}" value="${title}">
+                    </div>
+                    <div class="col-md-6">
+                        <input type="text" class="form-control form-control-sm section-description"
+                               placeholder="{% trans 'Description (optional)' %}" value="${description}">
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function addPageBreak() {
+    const container = document.getElementById('questions-container');
+
+    // Remove "no questions" message if present
+    const noQMsg = container.querySelector('p.text-muted');
+    if (noQMsg) noQMsg.remove();
+
+    const existingSectionCards = container.querySelectorAll('.section-card');
+
+    if (existingSectionCards.length === 0) {
+        // First page break: insert "Section 1" at top + "Section 2" at bottom
+        sectionCounter++;
+        const section1Id = `section-${sectionCounter}`;
+        const section1Html = createSectionCardHtml({
+            sectionId: section1Id,
+            order: 1,
+        });
+        container.insertAdjacentHTML('afterbegin', section1Html);
+
+        sectionCounter++;
+        const section2Id = `section-${sectionCounter}`;
+        const section2Html = createSectionCardHtml({
+            sectionId: section2Id,
+            order: 2,
+        });
+        container.insertAdjacentHTML('beforeend', section2Html);
+    } else {
+        // Add new section card at the bottom
+        sectionCounter++;
+        const newSectionId = `section-${sectionCounter}`;
+        const newOrder = existingSectionCards.length + 1;
+        const sectionHtml = createSectionCardHtml({
+            sectionId: newSectionId,
+            order: newOrder,
+        });
+        container.insertAdjacentHTML('beforeend', sectionHtml);
+    }
+
+    renumberSectionCards();
+    initializeSortable();
+}
+
+function removeSectionCard(sectionId) {
+    const container = document.getElementById('questions-container');
+    const card = container.querySelector(`[data-section-id="${sectionId}"]`);
+    if (!card) return;
+
+    const remainingSectionCards = container.querySelectorAll('.section-card');
+
+    if (remainingSectionCards.length <= 2) {
+        // Removing second-to-last section also removes the last one
+        if (confirm('{% trans "Remove all page breaks? The survey will return to a single page." %}')) {
+            container.querySelectorAll('.section-card').forEach(c => c.remove());
+        }
+    } else {
+        card.remove();
+        renumberSectionCards();
+    }
+}
+
+function renumberSectionCards() {
+    const container = document.getElementById('questions-container');
+    const sectionCards = container.querySelectorAll('.section-card');
+    sectionCards.forEach((card, idx) => {
+        card.dataset.order = idx + 1;
+        // Update placeholder text on the title input
+        const titleInput = card.querySelector('.section-title');
+        if (titleInput && !titleInput.value) {
+            titleInput.placeholder = `Section ${idx + 1}`;
+        }
+    });
+}
+
+
+// ============================================
 // Question Management
 // ============================================
 let questionCounter = 0;
@@ -478,6 +592,8 @@ function createQuestionHtml(options) {
 const existingQuestions = {{ existing_questions|safe }};
 // Hidden questions for restore functionality
 const hiddenQuestions = {{ hidden_questions|safe }};
+// Existing sections for page breaks
+const existingSections = {{ existing_sections|safe }};
 {% endif %}
 
 // Series/Stage dynamic loading
@@ -615,14 +731,17 @@ function initializeSortable() {
         sortableInstance.destroy();
     }
 
-    // Only initialize if there are questions
-    if (container.querySelectorAll('.question-card').length > 0) {
+    // Only initialize if there are questions or section cards
+    const draggableItems = container.querySelectorAll('.question-card, .section-card');
+    if (draggableItems.length > 0) {
         sortableInstance = new Sortable(container, {
             animation: 150,
             handle: '.drag-handle',
             ghostClass: 'sortable-ghost',
+            draggable: '.question-card, .section-card',
             onEnd: function(evt) {
                 renumberQuestions();
+                renumberSectionCards();
             }
         });
     }
@@ -633,7 +752,38 @@ function loadExistingQuestions() {
     const container = document.getElementById('questions-container');
     container.innerHTML = '';
 
+    // Build a map of section_id -> section data for interleaving
+    const sectionMap = {};
+    if (existingSections && existingSections.length > 0) {
+        existingSections.forEach(s => {
+            sectionMap[s.id] = s;
+        });
+    }
+
+    // Group questions by section_id to determine where to insert section cards
+    // Track which sections we've already inserted
+    const insertedSections = new Set();
+    let lastSectionId = '__none__'; // sentinel
+
     existingQuestions.forEach((question, index) => {
+        const qSectionId = question.section_id || null;
+
+        // If the section changed, insert the section card
+        if (qSectionId !== null && !insertedSections.has(qSectionId) && sectionMap[qSectionId]) {
+            const sData = sectionMap[qSectionId];
+            sectionCounter++;
+            const sectionCardId = `section-${sData.id}`;
+            const sectionHtml = createSectionCardHtml({
+                sectionId: sectionCardId,
+                order: sData.order,
+                title: sData.title,
+                description: sData.description,
+                existingId: sData.id,
+            });
+            container.insertAdjacentHTML('beforeend', sectionHtml);
+            insertedSections.add(qSectionId);
+        }
+
         questionCounter++;
         const questionId = `question-${questionCounter}`;
 
@@ -657,6 +807,25 @@ function loadExistingQuestions() {
         }
     });
 
+    // Insert any sections that had no questions (shouldn't happen normally, but just in case)
+    if (existingSections) {
+        existingSections.forEach(s => {
+            if (!insertedSections.has(s.id)) {
+                sectionCounter++;
+                const sectionCardId = `section-${s.id}`;
+                const sectionHtml = createSectionCardHtml({
+                    sectionId: sectionCardId,
+                    order: s.order,
+                    title: s.title,
+                    description: s.description,
+                    existingId: s.id,
+                });
+                container.insertAdjacentHTML('beforeend', sectionHtml);
+            }
+        });
+    }
+
+    renumberSectionCards();
     initializeSortable();
 }
 {% endif %}
@@ -1678,6 +1847,7 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
 
     questionCards.forEach(card => {
         const questionData = {
+            _cardId: card.dataset.questionId,
             order: parseInt(card.dataset.order),
             text: card.querySelector('.question-text').value,
             type: card.querySelector('.question-type').value,
@@ -1971,11 +2141,51 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         return false;
     }
 
+    // Walk through container children to determine section assignments
+    // and serialize sections data
+    const containerChildren = document.getElementById('questions-container').children;
+    const sectionsPayload = [];
+    let currentSectionTempId = null;
+    let sectionOrder = 0;
+
+    for (const child of containerChildren) {
+        if (child.classList.contains('section-card')) {
+            sectionOrder++;
+            const tempId = child.dataset.sectionId;
+            const sData = {
+                temp_id: tempId,
+                title: child.querySelector('.section-title').value,
+                description: child.querySelector('.section-description').value,
+                order: sectionOrder,
+            };
+            if (child.dataset.existingId) {
+                sData.id = parseInt(child.dataset.existingId);
+            }
+            sectionsPayload.push(sData);
+            currentSectionTempId = tempId;
+        } else if (child.classList.contains('question-card')) {
+            // Find the matching question data and assign section
+            const cardOrder = parseInt(child.dataset.order);
+            const questionId = child.dataset.questionId;
+            const match = questions.find(q =>
+                (q.id && child.dataset.existingId && q.id === parseInt(child.dataset.existingId)) ||
+                q._cardId === questionId
+            );
+            if (match) {
+                match.section_temp_id = currentSectionTempId;
+            }
+        }
+    }
+
+    // Clean up temporary _cardId fields before serialization
+    questions.forEach(q => delete q._cardId);
+
     console.log('Questions data:', questions);
+    console.log('Sections data:', sectionsPayload);
     // Store as JSON
     const jsonData = JSON.stringify(questions);
-    console.log('JSON data:', jsonData);
     document.getElementById('questions-data').value = jsonData;
+    document.getElementById('sections-data').value = JSON.stringify(sectionsPayload);
 });
 
 {% if existing_questions %}

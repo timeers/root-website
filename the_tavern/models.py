@@ -161,6 +161,31 @@ class Survey(models.Model):
             return True
         return False
 
+    def get_sections_with_questions(self):
+        """Return ordered sections with their visible questions.
+        Questions without a section are grouped into an implicit first section.
+        Returns list of dicts: [{section: SurveySection|None, questions: QuerySet}, ...]
+        """
+        visible_questions = self.questions.filter(is_hidden=False)
+        unsectioned = visible_questions.filter(section__isnull=True)
+        sections_data = []
+
+        if unsectioned.exists():
+            sections_data.append({
+                'section': None,
+                'questions': unsectioned,
+            })
+
+        for section in self.sections.all():
+            section_questions = visible_questions.filter(section=section)
+            if section_questions.exists():
+                sections_data.append({
+                    'section': section,
+                    'questions': section_questions,
+                })
+
+        return sections_data
+
     def question_count(self):
         """Get total number of visible (non-hidden) questions"""
         return self.questions.filter(is_hidden=False).count()
@@ -457,6 +482,23 @@ def get_default_ta_days():
     return TA_DAY_CODES.copy()
 
 
+# A Survey can optionally be divided into sections (pages)
+# Questions belonging to a section are displayed together on one page
+class SurveySection(models.Model):
+    survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='sections')
+    title = models.CharField(max_length=200, blank=True, help_text="Section title (optional)")
+    description = models.TextField(blank=True, help_text="Section description (optional)")
+    order = models.PositiveIntegerField(default=0, help_text="Display order in survey")
+
+    class Meta:
+        ordering = ['survey', 'order', 'id']
+        verbose_name = 'Survey Section'
+        verbose_name_plural = 'Survey Sections'
+
+    def __str__(self):
+        return f"{self.survey.title} - Section {self.order}: {self.title or '(Untitled)'}"
+
+
 # Each Survey is made up of one or more questions
 # The Type determines what kind of question it is
 class Question(models.Model):
@@ -475,6 +517,12 @@ class Question(models.Model):
         NUMERIC = 'NU', 'Numeric'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
+    section = models.ForeignKey(
+        SurveySection, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='questions',
+        help_text="Section this question belongs to (optional)"
+    )
     text = models.TextField(help_text="The question text")
     likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL, help_text="Required for Likert Scale questions")
     question_type = models.CharField(max_length=2, choices=QuestionType.choices)
@@ -540,7 +588,7 @@ class Question(models.Model):
     )
 
     class Meta:
-        ordering = ['survey', 'order', 'id']
+        ordering = ['survey', 'section__order', 'order', 'id']
         verbose_name = 'Question'
         verbose_name_plural = 'Questions'
 

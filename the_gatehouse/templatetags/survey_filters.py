@@ -18,8 +18,11 @@ def get_item(dictionary, key):
     """Get an item from a dictionary by key"""
     if not dictionary:
         return None
-    # Convert key to string since JSON keys are strings
-    return dictionary.get(str(key))
+    # Try the key as-is first, then as string (for JSON keys)
+    result = dictionary.get(key)
+    if result is None:
+        result = dictionary.get(str(key))
+    return result
 
 @register.filter
 def get_form_field(form, field_name):
