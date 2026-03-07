@@ -121,6 +121,7 @@ class Tournament(models.Model):
         help_text='Moderators can manage players, stages, rounds, and surveys but cannot edit the Series itself.'
     )
     description = models.TextField(null=True, blank=True)
+    rules = models.TextField(null=True, blank=True, help_text='Tournament rules that participants must agree to when registering.')
     picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
     classification = models.CharField(

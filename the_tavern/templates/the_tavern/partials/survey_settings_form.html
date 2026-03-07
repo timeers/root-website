@@ -201,6 +201,21 @@
                             {% endif %}
                         </div>
                         {% endif %}
+                        {# Registration Survey Toggle - only visible when series is selected #}
+                        <div class="col-md-12 mb-2" id="registration-survey-container"
+                             style="display: {% if survey.is_registration and survey.series_id %}block{% else %}none{% endif %};">
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" id="is_registration" name="is_registration"
+                                       {% if survey.is_registration %}checked{% endif %}>
+                                <label class="form-check-label" for="is_registration">
+                                    {% trans 'Registration Survey' %}
+                                    <i class="bi bi-question-circle text-muted ms-1"
+                                       data-bs-toggle="tooltip"
+                                       title="{% trans 'Tournament rules will be displayed at the top of the survey with a required agreement checkbox' %}"></i>
+                                </label>
+                            </div>
+                            <small class="form-text text-muted">{% trans 'When enabled, respondents must agree to the tournament rules before submitting' %}</small>
+                        </div>
                         {% if user_posts %}
                         <div class="col-md-6 mb-2">
                             <label for="post" class="form-label">{% trans 'Subject' %}</label>

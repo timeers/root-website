@@ -119,6 +119,7 @@ class Survey(models.Model):
     
     waitlist_threshold = models.IntegerField(null=True, blank=True)
     has_waitlist = models.BooleanField(default=False)
+    is_registration = models.BooleanField(default=False, help_text='Display tournament rules with a required agreement checkbox.')
 
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_surveys')
 

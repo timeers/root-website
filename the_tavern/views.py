@@ -818,6 +818,16 @@ def survey_take_view(request, slug):
                     'visible_questions': visible_questions,
                 })
 
+            # Validate rules agreement for registration surveys
+            if survey.is_registration and survey.series and survey.series.rules:
+                if request.POST.get('rules_agreement') != 'on':
+                    messages.error(request, _('You must agree to the tournament rules to submit this survey.'))
+                    return render(request, 'the_tavern/take_survey.html', {
+                        'survey': survey,
+                        'form': form,
+                        'visible_questions': visible_questions,
+                    })
+
             # Get timezone offset from form
             timezone_offset = request.POST.get('timezone_offset_hours', '').strip()
             try:
@@ -1077,6 +1087,17 @@ def survey_user_response_edit_view(request, slug, response_id):
                     'form': form,
                     'is_editing': is_editing,
                 })
+
+            # Validate rules agreement for registration surveys
+            if survey.is_registration and survey.series and survey.series.rules:
+                if request.POST.get('rules_agreement') != 'on':
+                    messages.error(request, _('You must agree to the tournament rules to submit this survey.'))
+                    return render(request, 'the_tavern/take_survey.html', {
+                        'survey': survey,
+                        'form': form,
+                        'is_editing': is_editing,
+                        'visible_questions': survey.questions.filter(is_hidden=False),
+                    })
 
             # Update timezone offset if provided
             timezone_offset = request.POST.get('timezone_offset_hours', '').strip()
@@ -2034,6 +2055,7 @@ def survey_edit_view(request, slug):
             show_results_on_close = request.POST.get('show_results_on_close') == 'on'
             is_quiz = request.POST.get('is_quiz') == 'on'
             has_waitlist = request.POST.get('has_waitlist') == 'on'
+            is_registration = request.POST.get('is_registration') == 'on'
 
             # Get waitlist threshold (validated client-side)
             waitlist_threshold = None
@@ -2050,6 +2072,10 @@ def survey_edit_view(request, slug):
             series_id = request.POST.get('series') or None
             stage_id = request.POST.get('stage') or None
             post_id = request.POST.get('post') or None
+
+            # Registration only makes sense with a tournament
+            if is_registration and not series_id:
+                is_registration = False
 
             # Get date fields
             start_date = request.POST.get('start_date')
@@ -2086,6 +2112,7 @@ def survey_edit_view(request, slug):
             survey.show_results_on_close = show_results_on_close
             survey.is_quiz = is_quiz
             survey.has_waitlist = has_waitlist
+            survey.is_registration = is_registration
             survey.waitlist_threshold = waitlist_threshold
             survey.start_date = start_date_obj
             survey.end_date = end_date_obj
@@ -2312,12 +2339,21 @@ def survey_edit_view(request, slug):
     if survey.guild:
         user_guilds = user_guilds | DiscordGuild.objects.filter(pk=survey.guild.pk)
 
+    # All tournaments (open first), filtered by permission
+    _open_q = Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
     if profile.admin:
-        user_tournaments = Tournament.objects.open()
+        user_tournaments = Tournament.objects.all()
     else:
-        user_tournaments = Tournament.objects.open().filter(
+        user_tournaments = Tournament.objects.filter(
             Q(designer=profile) | Q(moderators=profile)
         ).distinct()
+    user_tournaments = user_tournaments.annotate(
+        open_sort=Case(
+            When(_open_q, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+    ).order_by('open_sort', 'name')
 
     # Get public posts that the user designed
     user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()
@@ -2463,6 +2499,7 @@ def survey_create_view(request):
             show_results_on_close = request.POST.get('show_results_on_close') == 'on'
             is_quiz = request.POST.get('is_quiz') == 'on'
             has_waitlist = request.POST.get('has_waitlist') == 'on'
+            is_registration = request.POST.get('is_registration') == 'on'
 
             # Get waitlist threshold (validated client-side)
             waitlist_threshold = None
@@ -2502,6 +2539,10 @@ def survey_create_view(request):
             is_private = request.POST.get('is_private') == 'on'
             is_public = not is_private
 
+            # Registration only makes sense with a tournament
+            if is_registration and not series_id:
+                is_registration = False
+
             # Get invited players
             invited_players_str = request.POST.get('invited_players', '')
             invited_player_ids = [int(id) for id in invited_players_str.split(',') if id.strip()]
@@ -2518,6 +2559,7 @@ def survey_create_view(request):
                 show_results_on_close=show_results_on_close,
                 is_quiz=is_quiz,
                 has_waitlist=has_waitlist,
+                is_registration=is_registration,
                 waitlist_threshold=waitlist_threshold,
                 start_date=start_date_obj,
                 end_date=end_date_obj,
@@ -2616,14 +2658,23 @@ def survey_create_view(request):
         })
 
     # Get user's guilds and hosted tournaments for dropdowns
+    # All tournaments (open first), filtered by permission
+    _open_q = Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
     if profile.admin:
-        user_tournaments = Tournament.objects.open()
+        user_tournaments = Tournament.objects.all()
         user_guilds = DiscordGuild.objects.all()
     else:
-        user_tournaments = Tournament.objects.open().filter(
+        user_tournaments = Tournament.objects.filter(
             Q(designer=profile) | Q(moderators=profile)
         ).distinct()
         user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+    user_tournaments = user_tournaments.annotate(
+        open_sort=Case(
+            When(_open_q, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+    ).order_by('open_sort', 'name')
 
     # Get public posts that the user designed
     user_posts = Post.objects.filter(designer=profile, status__lte=4).distinct()

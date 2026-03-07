@@ -753,7 +753,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
     class Meta:
         model = Tournament
         fields = [
-            'name', 'classification', 'designer', 'guild', 'description',
+            'name', 'classification', 'designer', 'guild', 'description', 'rules',
             'start_date', 'end_date', 'publicly_visible',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster',
             'platform', 'default_format', 'link_required',
@@ -774,6 +774,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
+            'rules': 'Rules (Optional)',
             'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
@@ -799,6 +800,12 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Give a brief description of the series.',
             'rows': '2'
+        })
+
+        # Add placeholder for rules
+        self.fields['rules'].widget.attrs.update({
+            'placeholder': 'Define the rules for your series. Players will need to agree to these rules when registering via a registration survey.',
+            'rows': '6'
         })
 
         # Filter guild choices to user's guilds
@@ -896,7 +903,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
     class Meta:
         model = Tournament
         fields = [
-            'name', 'classification', 'designer', 'guild', 'description',
+            'name', 'classification', 'designer', 'guild', 'description', 'rules',
             'start_date', 'end_date', 'publicly_visible',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster',
             'platform', 'link_required',
@@ -912,6 +919,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'designer': 'Owner',
             'guild': 'Discord Guild',
             'description': 'Description (Optional)',
+            'rules': 'Rules (Optional)',
             'start_date': 'Start Date',
             'end_date': 'End Date (Optional)',
             'publicly_visible': 'Display on Series home page',
@@ -945,6 +953,12 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
         self.fields['description'].widget.attrs.update({
             'placeholder': 'Brief description of the series.',
             'rows': '2',
+        })
+
+        # Add placeholder for rules
+        self.fields['rules'].widget.attrs.update({
+            'placeholder': 'Define the rules for your series. Players will need to agree to these rules when registering via a registration survey.',
+            'rows': '6'
         })
 
         # Remove admin-only fields for non-admins

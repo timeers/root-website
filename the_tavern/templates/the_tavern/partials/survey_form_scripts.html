@@ -528,6 +528,23 @@ function loadSeriesStages(preselectedStageId = null) {
         });
 }
 
+function toggleRegistrationSurveyOption() {
+    const seriesSelect = document.getElementById('series');
+    const seriesHidden = document.querySelector('input[type="hidden"][name="series"]');
+    const registrationContainer = document.getElementById('registration-survey-container');
+
+    if (!registrationContainer) return;
+
+    const hasSeriesSelected = (seriesSelect && seriesSelect.value) || (seriesHidden && seriesHidden.value);
+    registrationContainer.style.display = hasSeriesSelected ? 'block' : 'none';
+
+    // Uncheck is_registration if no series selected
+    if (!hasSeriesSelected) {
+        const isRegistration = document.getElementById('is_registration');
+        if (isRegistration) isRegistration.checked = false;
+    }
+}
+
 // Initialize series dropdown on page load
 document.addEventListener('DOMContentLoaded', function() {
     const seriesSelect = document.getElementById('series');
@@ -545,6 +562,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (seriesSelectEl) {
         seriesSelectEl.addEventListener('change', function() {
             toggleTournamentAccessNote('series');
+            toggleRegistrationSurveyOption();
         });
     }
 
@@ -564,6 +582,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Call on page load to set initial state for series
     // (stage will be called after loadSeriesStages completes)
     toggleTournamentAccessNote('series');
+    toggleRegistrationSurveyOption();
 
     // Resolve locked stage name (when pre-filled and locked from settings hub)
     const prefillStageEl = document.getElementById('prefill-stage-name');
@@ -2401,6 +2420,11 @@ function updateAdvancedSettingsSummary() {
     if (seriesName) {
         const text = stageName ? seriesName + ' - ' + stageName : seriesName;
         badges.push({icon: 'bi-trophy', text: text, color: 'bg-secondary'});
+    }
+
+    const isRegistration = document.getElementById('is_registration');
+    if (isRegistration && isRegistration.checked) {
+        badges.push({icon: 'bi-clipboard-check', text: '{% trans "Registration" %}', color: 'bg-warning text-dark'});
     }
 
     const post = document.getElementById('post');

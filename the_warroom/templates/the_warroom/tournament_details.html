@@ -96,6 +96,14 @@
                 <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
             </dl>
 
+            {% if tournament.rules %}
+            <hr class="my-3">
+            <h5 class="mb-3"><i class="bi bi-scroll me-2"></i>{% trans 'Rules' %}</h5>
+            <div style="max-height: 500px; overflow-y: auto;">
+                {{ tournament.rules|linebreaks }}
+            </div>
+            {% endif %}
+
             {% if asset_types %}
             <hr class="my-3">
             <h5 class="mb-3">{% trans 'Allowed Assets' %}</h5>
