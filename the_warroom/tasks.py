@@ -6,6 +6,7 @@ from dateutil import parser
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from the_gatehouse.utils import format_bulleted_list
@@ -334,7 +335,9 @@ def check_all_league_rounds(delete=False, list_games=True):
     tournament, _ = Tournament.objects.get_or_create(name='Root Digital League')
     results = {}
     total_missing_count = 0
-    for round_obj in Round.objects.filter(tournament=tournament):
+    for round_obj in Round.objects.filter(
+        Q(tournament=tournament, stage__isnull=True) | Q(stage__tournament=tournament)
+    ):
         site_count, api_count, missing_count = compare_league_game_count(round_obj)
 
         if missing_count > 0:

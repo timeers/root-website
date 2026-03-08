@@ -1,7 +1,7 @@
 # Changelog
 
 ## [1.11.0] - 2026-3-8 Surveys, Series & Scorecards
-This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design. 
+This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design and games can be edited or deleted after submission.
 
 ### New Features
 - Surveys (Multiple Choice, Multiple Selection, Open Ended, Yes/No, Scale, Ranking, Availability, Time, Date)
@@ -23,12 +23,14 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Cleaned up the 404 and 403 pages
 - Removed based on Faction from the Stable Status page
 - Improved games queryset loading
+- RDL now uses new Tournament > Stage > Round format for API
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences
 - It is now possible to delete turns from an existing Scorecard
 - Fixed bug with RDL player names importing incorrectly
 - Fixed modal bug on Guild invite approval form
+
 
 ## [1.10.2] - 2026-1-14 Battlefield Unification
 The Battlefield now has a new tab structure to quickly navigate between games, leaderboards, series and your submitted games. A similar tab structure is added to the Workshop.

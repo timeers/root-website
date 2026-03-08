@@ -1,11 +1,14 @@
+import re
+
 from dateutil import parser, relativedelta
 from datetime import timedelta, datetime
 
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from the_keep.models import Faction, Vagabond, Deck, Map, Landmark, Hireling, Profile, StatusChoices
 
-from the_warroom.models import Game, Effort, PlatformChoices, Tournament, Round
+from the_warroom.models import Game, Effort, PlatformChoices, Tournament, Round, Stage, CompetitionStatus
 from the_warroom.utils import clean_nickname
 
 from the_gatehouse.tasks import send_discord_message_task
@@ -243,8 +246,16 @@ def create_game_from_api(match_data):
 
     return game
 
+def extract_round_prefix(round_name: str) -> str:
+    """Extract the non-numeric prefix from a round name.
+    Examples: 'M04' -> 'M', 'A03' -> 'A', 'LH01' -> 'LH'
+    """
+    match = re.match(r'^([A-Za-z]+)', round_name)
+    return match.group(1) if match else round_name
+
+
 def get_game_round(date_registered: datetime, round_name: str, tournament: Tournament):
-     # Add 1 day to avoid edge-case month rollover issues if the first game is showing on the previous month
+    # Add 1 day to avoid edge-case month rollover issues if the first game is showing on the previous month
     adjusted_date = date_registered + timedelta(days=1)
     # Start day of League
     first_of_month = adjusted_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -253,17 +264,65 @@ def get_game_round(date_registered: datetime, round_name: str, tournament: Tourn
     # Subtract one day to get the last day of the second month
     end_of_target_month = three_months_later - timedelta(days=1)
 
-    game_round, created = Round.objects.get_or_create(
-        name=round_name,
+    prefix = extract_round_prefix(round_name)
+
+    # 1. Check for legacy stageless round (transition period)
+    legacy_round = Round.objects.filter(
+        name=round_name, tournament=tournament, stage__isnull=True
+    ).first()
+    if legacy_round:
+        return legacy_round
+
+    # 2. Check all stages for an existing round with this name
+    existing_round = Round.objects.filter(
+        name=round_name, stage__tournament=tournament
+    ).first()
+    if existing_round:
+        return existing_round
+
+    # 3. Find a stage that has rounds with the same prefix
+    matching_stage = Stage.objects.filter(
         tournament=tournament,
-        defaults={
-            'round_number': tournament.rounds.count() + 1,
-            'start_date': first_of_month,
-            'end_date': end_of_target_month,
-            'game_threshold': 25,
-        }
+        rounds__name__regex=rf'^{re.escape(prefix)}\d'
+    ).distinct().order_by('-order').first()
+
+    if matching_stage:
+        new_round = Round.objects.create(
+            name=round_name,
+            stage=matching_stage,
+            tournament=tournament,
+            round_number=matching_stage.rounds.count() + 1,
+            start_date=first_of_month,
+            end_date=end_of_target_month,
+            game_threshold=25,
+        )
+        return new_round
+
+    # 4. No matching stage — create a new stage with the prefix as its name
+    highest_order = tournament.stages.aggregate(
+        max_order=Max('order')
+    )['max_order'] or 0
+
+    new_stage = Stage.objects.create(
+        tournament=tournament,
+        name=prefix,
+        order=highest_order + 1,
+        status=CompetitionStatus.ACTIVE,
+        game_threshold=25,
+        start_date=first_of_month,
     )
-    return game_round
+
+    new_round = Round.objects.create(
+        name=round_name,
+        stage=new_stage,
+        tournament=tournament,
+        round_number=1,
+        start_date=first_of_month,
+        end_date=end_of_target_month,
+        game_threshold=25,
+    )
+
+    return new_round
 
 def update_game_from_api(game, match_data):
     """Update an existing Game object with new data from API."""
