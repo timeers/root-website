@@ -29,6 +29,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECRET_KEY = os.environ.get('SECRET_KEY')
 SECRET_KEY = config['SECRET_KEY']
 
+# Token for RDL Match API
+RDL_API_TOKEN = config.get('RDL_API_TOKEN', '')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = (config['DEBUG_VALUE'] == 'True')
 

@@ -5,6 +5,7 @@ from celery import shared_task
 from dateutil import parser
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -19,6 +20,7 @@ from .services.root_league_api import create_game_from_api, create_efforts_from_
 # Import League Games from Pliskin.dev REST API
 
 BASE_URL = "https://rootleague.pliskin.dev/api/match/"
+API_HEADERS = {'Authorization': f'Token {settings.RDL_API_TOKEN}'} if getattr(settings, 'RDL_API_TOKEN', '') else {}
 
 # Imports all games from the last 1 day
 @shared_task
@@ -78,20 +80,20 @@ def import_league_games(limit=25, tournament_name="", days_back=1, date_from=Non
             params['date_closed__lte'] = end_date.isoformat()
         
         try:
-            response = requests.get(BASE_URL, params=params, timeout=30)
+            response = requests.get(BASE_URL, params=params, headers=API_HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
             print(f"Error fetching API data: {e}")
             error_count += 1
             break
-        
+
         results = data.get('results', [])
-        
+
         if not results:
             has_more = False
             break
-        
+
         for match_data in results:
             try:
                 # Check if game already exists by league_id
@@ -220,23 +222,23 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
             params['date_modified__lte'] = end_date.isoformat()
         
         try:
-            response = requests.get(BASE_URL, params=params, timeout=30)
+            response = requests.get(BASE_URL, params=params, headers=API_HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
             print(f"Error fetching API data: {e}")
             error_count += 1
             break
-        
+
         results = data.get('results', [])
-        
+
         if not results:
             has_more = False
             break
-        
+
         for match_data in results:
             try:
-                
+
                 # Parse dates
                 date_closed = parser.parse(match_data.get('date_closed'))
                 date_modified = parser.parse(match_data.get('date_modified'))
@@ -420,7 +422,7 @@ def find_deleted_games(league_round, limit=200):
     # Fetch all pages from the API
     while url:
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, headers=API_HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
@@ -497,7 +499,7 @@ def count_games_from_api(tournament_name):
         }
     
     try:
-        response = requests.get(BASE_URL, params=params, timeout=30)
+        response = requests.get(BASE_URL, params=params, headers=API_HEADERS, timeout=30)
         response.raise_for_status()
         data = response.json()
         return data.get('count', 0)
