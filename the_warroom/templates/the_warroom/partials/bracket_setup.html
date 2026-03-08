@@ -21,37 +21,66 @@
         </div>
         {% endif %}
 
-        <!-- Match List -->
-        <div class="mb-3">
+        <!-- Match Cards Grid -->
+        <div class="row g-3 mb-4">
             {% for series in bracket_series %}
-            <div class="card mb-2">
-                <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
-                    <div>
-                        {% if series.is_bye %}
-                        <strong>{{ series.name }}</strong>
-                        <span class="badge bg-info ms-2">{% trans 'Bye' %}</span>
-                        {% else %}
-                        <strong>Match {{ forloop.counter }}</strong>
-                        {% if series.player_group %}
-                        <span class="text-muted ms-2">{{ series.player_group.name|default:series.player_group.group_number }}</span>
-                        {% endif %}
-                        {% if series.number_of_games > 1 %}
-                        <span class="badge bg-secondary ms-2">Best of {{ series.number_of_games }}</span>
-                        {% endif %}
-                        {% endif %}
+            <div class="col-md-4 col-lg-3" data-series-id="{{ series.id }}">
+                <div class="card h-100 group-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            {% if series.is_bye %}
+                            <strong>{{ series.name }}</strong>
+                            {% else %}
+                            <strong>{{series.player_group}}</strong>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex align-items-center gap-1">
+                            {% if is_bracket_finalized and not series.is_bye %}
+                            <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal({{ series.id }})" title="{% trans 'Edit' %}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            {% endif %}
+                            {% if series.is_bye %}
+                            <span class="badge bg-info">{% trans 'Bye' %}</span>
+                            {% endif %}
+                            {% if series.number_of_games > 1 %}
+                            <span class="badge bg-secondary">Bo{{ series.number_of_games }}</span>
+                            {% endif %}
+                        </div>
                     </div>
-                    <div>
-                        {% if series.status == 'Completed' %}
-                        <span class="badge bg-success">{% trans 'Done' %}</span>
-                        {% elif series.status == 'Active' %}
-                        <span class="badge bg-primary">{% trans 'Active' %}</span>
-                        {% else %}
-                        <span class="badge bg-secondary">{% trans 'Pending' %}</span>
-                        {% endif %}
+                    <div class="card-body p-2">
+                        <ul class="list-group list-group-flush">
+                            {% for seat in series.matchseat_set.all %}
+                            <li class="list-group-item d-flex align-items-center">
+                                {% if seat.stage_participant.tournament_player.profile.image %}
+                                <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                                {% else %}
+                                <i class="bi bi-person-circle me-2"></i>
+                                {% endif %}
+                                <span class="flex-grow-1">{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
+                            </li>
+                            {% empty %}
+                            <li class="list-group-item text-muted text-center">
+                                <small>{% trans 'No participants' %}</small>
+                            </li>
+                            {% endfor %}
+                        </ul>
                     </div>
                 </div>
             </div>
             {% endfor %}
+            {% if is_bracket_finalized %}
+            <div class="col-md-4 col-lg-3" id="addSeriesCard">
+                <div class="card h-100 group-card d-flex align-items-center justify-content-center"
+                     style="min-height: 120px; border-style: dashed !important; cursor: pointer;"
+                     onclick="createNewSeries()">
+                    <div class="card-body text-center text-muted">
+                        <i class="bi bi-plus-circle fs-2"></i>
+                        <p class="mb-0 mt-2"><strong>{% trans 'Add Match' %}</strong></p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
 
         {% if not is_bracket_finalized %}
@@ -140,11 +169,13 @@
     </div>
 </div>
 
-{# Groups (read-only) #}
+{% if not is_bracket_finalized %}
+{# Groups (read-only) - hidden once bracket is finalized #}
 {% include 'the_warroom/partials/grouping_groups.html' with editable=False %}
 
-{# Ungrouped Players (read-only) #}
+{# Ungrouped Players (read-only) - hidden once bracket is finalized #}
 {% include 'the_warroom/partials/grouping_ungrouped.html' with editable=False %}
+{% endif %}
 
 <style>
 .group-card {
@@ -154,6 +185,79 @@
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
 }
 </style>
+
+{% if is_bracket_finalized and edit_series_url %}
+{% include 'the_warroom/partials/series_edit_modal.html' %}
+<script>
+var _seriesEditUrl = '{{ edit_series_url }}';
+var _seriesCsrfToken = '{{ csrf_token }}';
+var _seriesDataMap = {{ series_data_json|safe }};
+var _stageParticipants = {{ stage_participants_json|safe }};
+var _recordGameUrl = '{{ record_game_url }}';
+var _createSeriesUrl = '{{ create_series_url }}';
+var _deleteSeriesUrl = '{{ delete_series_url }}';
+
+function createNewSeries() {
+    const addCard = document.getElementById('addSeriesCard');
+    addCard.style.pointerEvents = 'none';
+    addCard.style.opacity = '0.5';
+
+    fetch(_createSeriesUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': _seriesCsrfToken,
+        },
+        body: JSON.stringify({}),
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+        addCard.style.pointerEvents = '';
+        addCard.style.opacity = '';
+
+        if (!ok || !data.success) {
+            alert('Error: ' + (data.error || 'Unknown error'));
+            return;
+        }
+
+        const series = data.series;
+        _seriesDataMap[series.id] = series;
+
+        const grid = addCard.parentElement;
+        const newCol = document.createElement('div');
+        newCol.className = 'col-md-4 col-lg-3';
+        newCol.dataset.seriesId = series.id;
+        newCol.innerHTML = `
+            <div class="card h-100 group-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div><strong>${series.name || 'Match Series'}</strong></div>
+                    <div class="d-flex align-items-center gap-1">
+                        <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal(${series.id})" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-2">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item text-muted text-center">
+                            <small>No participants</small>
+                        </li>
+                    </ul>
+                </div>
+            </div>`;
+        grid.insertBefore(newCol, addCard);
+
+        openSeriesEditModal(series.id);
+    })
+    .catch(error => {
+        addCard.style.pointerEvents = '';
+        addCard.style.opacity = '';
+        console.error('Error:', error);
+        alert('An error occurred while creating the series.');
+    });
+}
+</script>
+{% endif %}
 
 {% if bracket_url and not is_bracket_finalized %}
 <script>

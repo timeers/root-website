@@ -24,10 +24,12 @@
     {% include 'the_warroom/partials/round_nav_header.html' %}
 
     <!-- Match Series -->
-    {% if match_series %}
+    {% if not is_bracket_finalized %}
+    <p class="text-muted">{% trans 'The bracket must be finalized before matches are available.' %}</p>
+    {% elif match_series %}
     <div class="row g-3">
         {% for series in match_series %}
-        <div class="col-md-6 col-lg-4">
+        <div class="col-md-6 col-lg-4" data-series-id="{{ series.id }}">
             <div class="card h-100">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <strong>
@@ -37,10 +39,12 @@
                         {% trans 'Match' %} {{ forloop.counter }}
                         {% endif %}
                     </strong>
-                    <div>
-                        {% comment %} {% if series.number_of_games > 1 %}
-                        <span class="badge bg-info">Bo{{ series.number_of_games }}</span>
-                        {% endif %} {% endcomment %}
+                    <div class="d-flex align-items-center gap-1">
+                        {% if can_manage and not series.is_bye %}
+                        <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal({{ series.id }})" title="{% trans 'Edit' %}">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        {% endif %}
                         {% if series.status == 'Completed' %}
                         <strong class="text-success">{% trans 'Complete' %}</strong>
                         <i class="bi bi-check-circle text-success"></i>
@@ -54,27 +58,26 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    {% if series.player_group %}
-                    {% for tp in series.player_group.tournament_players.all %}
+                    {% for seat in series.matchseat_set.all %}
                     <div class="d-flex align-items-center gap-2 mb-1">
                         <div class="parent">
-                            {% if tp.profile.image %}
-                            <img src="{{ tp.profile.image.url }}" alt="" class="avatar-icon image1">
+                            {% if seat.stage_participant.tournament_player.profile.image %}
+                            <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="avatar-icon image1">
                             {% else %}
                             <i class="bi bi-person-circle image1"></i>
                             {% endif %}
-                            {% if series|is_series_winner:tp.id %}
+                            {% if series|is_series_winner:seat.stage_participant.tournament_player_id %}
                             <img class="image2" src="{% static 'images/winner.png' %}" alt="Winner" style="max-height:30px;max-width:30px;top:1px;left:-5px;">
                             {% endif %}
                         </div>
-                        {% if series|is_series_winner:tp.id %}
-                        <strong>{{ tp.profile.display_name }}</strong>
+                        {% if series|is_series_winner:seat.stage_participant.tournament_player_id %}
+                        <strong>{{ seat.stage_participant.tournament_player.profile.display_name }}</strong>
                         {% else %}
-                        <span>{{ tp.profile.display_name }}</span>
+                        <span>{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
                         {% endif %}
                     </div>
-                    {% endfor %}
-                    {% elif series.is_bye %}
+                    {% empty %}
+                    {% if series.is_bye %}
                     {% for bye_winner in series.winners.all %}
                     <div class="d-flex align-items-center gap-2 mb-1">
                         {% if bye_winner.tournament_player.profile.image %}
@@ -89,6 +92,7 @@
                     {% else %}
                     <p class="text-muted mb-0">{% trans 'Players TBD' %}</p>
                     {% endif %}
+                    {% endfor %}
 
                     {% if series.number_of_games > 1 %}
                     <hr class="my-2">
@@ -142,6 +146,17 @@
     </div>
     {% else %}
     <p class="text-muted">{% trans 'No matches have been generated yet.' %}</p>
+    {% endif %}
+
+    {% if can_manage and is_bracket_finalized and edit_series_url %}
+    {% include 'the_warroom/partials/series_edit_modal.html' %}
+    <script>
+    var _seriesEditUrl = '{{ edit_series_url }}';
+    var _seriesCsrfToken = '{{ csrf_token }}';
+    var _seriesDataMap = {{ series_data_json|safe }};
+    var _stageParticipants = {{ stage_participants_json|safe }};
+    var _recordGameUrl = '{{ record_game_url }}';
+    </script>
     {% endif %}
 
 </div>

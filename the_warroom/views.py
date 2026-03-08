@@ -1,3 +1,4 @@
+import re
 import time
 import json
 
@@ -25,7 +26,7 @@ from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
-                     Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission)
+                     Match, MatchSeries, MatchSeat, MatchAdvancement, CompetitionStatus, EditPermission)
 from .services.grouping import GroupingService, build_opponent_history
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
@@ -783,6 +784,11 @@ def manage_game_v2(request, id=None):
         obj = Game()
 
     initial_game_status = obj.final
+
+    # Block game recording if bracket is not finalized
+    if match_mode and match.round.bracket_status != Round.BracketStatusChoices.FINALIZED:
+        messages.error(request, "The bracket must be finalized before games can be recorded.")
+        return redirect('round-matches-page', match.round.stage.tournament.slug, match.round.stage.slug, match.round.slug)
 
     # Permission checks
     if match_mode and not id:
@@ -1687,6 +1693,8 @@ def _round_base_context(request, tournament, stage, round):
     has_games = Game.objects.filter(round=round).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
 
+    is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
+
     return {
         'tournament': tournament,
         'stage': stage,
@@ -1697,6 +1705,7 @@ def _round_base_context(request, tournament, stage, round):
         'has_matches': has_matches,
         'has_games': has_games,
         'has_players': has_players,
+        'is_bracket_finalized': is_bracket_finalized,
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }
@@ -4021,7 +4030,7 @@ def round_matches_page(request, tournament_slug, stage_slug, round_slug):
     ).prefetch_related(
         'winners__tournament_player__profile',
         'matches__game',
-        'player_group__tournament_players__profile',
+        'matchseat_set__stage_participant__tournament_player__profile',
     ).order_by('id')
 
     recordable_match_ids = set()
@@ -4049,6 +4058,10 @@ def round_matches_page(request, tournament_slug, stage_slug, round_slug):
         'match_series': match_series,
         'recordable_match_ids': recordable_match_ids,
     })
+
+    # Add series edit modal context for managers
+    if context.get('can_manage') and context.get('is_bracket_finalized'):
+        context.update(_build_series_edit_context(tournament, stage, round))
 
     return render(request, 'the_warroom/round_matches.html', context)
 
@@ -4416,6 +4429,15 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
                 _group.conflict_count = 0
                 _group.conflict_description = ''
 
+        # Annotate groups with has_series for edit modal match-clearing warnings
+        _groups_with_series = set(
+            MatchSeries.objects.filter(
+                player_group__in=[g.id for g in groups]
+            ).values_list('player_group_id', flat=True)
+        )
+        for _group in groups:
+            _group.has_series = _group.id in _groups_with_series
+
         grouped_ids = set(
             TournamentPlayer.objects.filter(
                 player_groups__round=round
@@ -4448,7 +4470,7 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
         'round_format': round.get_format(),
         'has_matches': round.matches.exists(),
         'match_count': round.matches.count(),
-        'bracket_series': MatchSeries.objects.filter(round=round).select_related('player_group').order_by('id') if is_finalized else [],
+        'bracket_series': MatchSeries.objects.filter(round=round).select_related('player_group').prefetch_related('matchseat_set__stage_participant__tournament_player__profile').order_by('id') if is_finalized else [],
         'other_stages': tournament.stages.exclude(id=stage.id).order_by('order') if stage else Stage.objects.none(),
         'best_of_choices': [1, 3, 5, 7],
         'bracket_url': reverse('round-generate-bracket', kwargs={
@@ -4463,6 +4485,19 @@ def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
             'round_slug': round.slug,
         }) if stage else '',
     }
+    # Add series edit modal context when bracket is finalized
+    if round.bracket_status == Round.BracketStatusChoices.FINALIZED and stage:
+        context.update(_build_series_edit_context(tournament, stage, round))
+        context['create_series_url'] = reverse('round-create-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
+        context['delete_series_url'] = reverse('round-delete-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
     return render(request, 'the_warroom/round_grouping.html', context)
 
 
@@ -4561,6 +4596,9 @@ def _get_group_data(group, history):
                 conflict_pairs.append(f"{name_a} & {name_b}")
     return {
         'id': group.id,
+        'name': group.name,
+        'discord_thread': group.discord_thread,
+        'video_link': group.video_link,
         'member_count': len(members),
         'total_overlap_hours': group.total_overlap_hours,
         'best_consecutive_block': group.best_consecutive_block,
@@ -4569,8 +4607,8 @@ def _get_group_data(group, history):
     }
 
 
-def _get_ungrouped_count(stage, round):
-    """Count ungrouped active players for a round."""
+def _get_ungrouped_players(stage, round):
+    """Return ungrouped active players queryset for a round."""
     if stage:
         active_tp_ids = StageParticipant.objects.filter(
             stage=stage,
@@ -4587,7 +4625,12 @@ def _get_ungrouped_count(stage, round):
             player_groups__round=round
         ).values_list('id', flat=True)
     )
-    return active_players_qs.exclude(id__in=grouped_ids).count()
+    return active_players_qs.exclude(id__in=grouped_ids).select_related('profile')
+
+
+def _get_ungrouped_count(stage, round):
+    """Count ungrouped active players for a round."""
+    return _get_ungrouped_players(stage, round).count()
 
 
 @login_required
@@ -4779,6 +4822,160 @@ def round_grouping_delete_group(request, tournament_slug, stage_slug, round_slug
         return JsonResponse({'error': str(e)}, status=400)
 
 
+DISCORD_URL_PATTERN = re.compile(r'^https://(discord\.com|discordapp\.com)/')
+VIDEO_URL_PATTERN = re.compile(r'^https://(www\.)?(youtube\.com|youtu\.be|twitch\.tv)/')
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, session_id):
+    """Edit group metadata (name, discord_thread, video_link) and optionally update participants."""
+    from django.http import JsonResponse
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    profile = request.user.profile
+
+    if not tournament.has_permission(profile):
+        raise PermissionDenied
+
+    stage = get_object_or_404(Stage, id=session_id)
+
+    try:
+        data = json.loads(request.body)
+        group_id = data.get('group_id')
+        group = get_object_or_404(PlayerGroup, id=group_id, round=round)
+
+        # Validate and update metadata
+        name = data.get('name', '').strip()
+        discord_thread = data.get('discord_thread', '').strip()
+        video_link = data.get('video_link', '').strip()
+
+        if discord_thread and not DISCORD_URL_PATTERN.match(discord_thread):
+            return JsonResponse({'error': 'Discord thread must be a discord.com link'}, status=400)
+
+        if video_link and not VIDEO_URL_PATTERN.match(video_link):
+            return JsonResponse({'error': 'Video link must be a YouTube or Twitch link'}, status=400)
+
+        group.name = name
+        group.discord_thread = discord_thread
+        group.video_link = video_link
+        group.save(update_fields=['name', 'discord_thread', 'video_link'])
+
+        history = build_opponent_history(stage, round) if stage else {}
+        participants_changed = False
+        matches_cleared = False
+        affected_groups = []
+
+        # Handle participant changes if provided
+        if 'participants' in data:
+            if round.bracket_status == Round.BracketStatusChoices.FINALIZED:
+                return JsonResponse({'error': 'Cannot change participants after bracket is finalized'}, status=400)
+
+            new_participant_ids = set(data['participants'])
+            current_ids = set(group.tournament_players.values_list('id', flat=True))
+
+            if new_participant_ids != current_ids:
+                participants_changed = True
+
+                # Clear all matches for the entire round
+                has_matches = Match.objects.filter(round=round).exists()
+                if has_matches:
+                    MatchAdvancement.objects.filter(from_series__round=round).delete()
+                    Match.objects.filter(round=round).delete()
+                    MatchSeries.objects.filter(round=round).delete()
+                    round.bracket_status = Round.BracketStatusChoices.DRAFT
+                    round.save(update_fields=['bracket_status'])
+                    matches_cleared = True
+
+                removed_ids = current_ids - new_participant_ids
+                added_ids = new_participant_ids - current_ids
+
+                # Track groups that lose players
+                affected_group_ids = set()
+
+                # Remove players from this group
+                for tp_id in removed_ids:
+                    tp = TournamentPlayer.objects.filter(id=tp_id, tournament=stage.tournament).first()
+                    if tp:
+                        group.tournament_players.remove(tp)
+
+                # Add players to this group
+                for tp_id in added_ids:
+                    tp = TournamentPlayer.objects.filter(id=tp_id, tournament=stage.tournament).first()
+                    if not tp:
+                        return JsonResponse({'error': f'Player {tp_id} not found', 'reload': True}, status=400)
+
+                    # Check if player is in another group for this round
+                    old_groups = list(tp.player_groups.filter(round=round))
+                    for old_group in old_groups:
+                        if old_group.id != group.id:
+                            affected_group_ids.add(old_group.id)
+                            old_group.tournament_players.remove(tp)
+                            old_group.recalculate_overlap()
+
+                    group.tournament_players.add(tp)
+
+                group.recalculate_overlap()
+
+                # Build affected groups data
+                for ag_id in affected_group_ids:
+                    try:
+                        ag = PlayerGroup.objects.get(id=ag_id)
+                        ag_data = _get_group_data(ag, history)
+                        ag_data['members'] = [
+                            {
+                                'id': tp.id,
+                                'display_name': tp.profile.display_name,
+                                'image_url': tp.profile.image.url if tp.profile.image else '',
+                            }
+                            for tp in ag.tournament_players.select_related('profile').all()
+                        ]
+                        affected_groups.append(ag_data)
+                    except PlayerGroup.DoesNotExist:
+                        pass
+
+        # Build main group response
+        group.refresh_from_db()
+        group_data = _get_group_data(group, history)
+        group_data['members'] = [
+            {
+                'id': tp.id,
+                'display_name': tp.profile.display_name,
+                'image_url': tp.profile.image.url if tp.profile.image else '',
+            }
+            for tp in group.tournament_players.select_related('profile').all()
+        ]
+
+        result = {
+            'success': True,
+            'group': group_data,
+            'affected_groups': affected_groups,
+            'participants_changed': participants_changed,
+            'matches_cleared': matches_cleared,
+        }
+
+        if participants_changed:
+            # Return full ungrouped players list for DOM rebuild
+            ungrouped_qs = _get_ungrouped_players(stage, round)
+            result['ungrouped_players'] = [
+                {
+                    'id': tp.id,
+                    'display_name': tp.profile.display_name,
+                    'image_url': tp.profile.image.url if tp.profile.image else '',
+                }
+                for tp in ungrouped_qs
+            ]
+            result['ungrouped_count'] = len(result['ungrouped_players'])
+        else:
+            result['ungrouped_count'] = _get_ungrouped_count(stage, round)
+
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({'error': str(e), 'reload': True}, status=400)
+
+
 @login_required
 @require_http_methods(['POST'])
 def round_grouping_finalize(request, tournament_slug, stage_slug, round_slug, session_id):
@@ -4906,3 +5103,316 @@ def round_finalize_bracket(request, tournament_slug, stage_slug, round_slug):
     round.save(update_fields=['bracket_status'])
 
     return JsonResponse({'success': True, 'status': 'finalized'})
+
+
+def _build_series_edit_context(tournament, stage, round):
+    """Build context variables needed for the series edit modal on both pages."""
+    edit_url = reverse('round-edit-series', kwargs={
+        'tournament_slug': tournament.slug,
+        'stage_slug': stage.slug,
+        'round_slug': round.slug,
+    })
+
+    # Build series data map (keyed by series id)
+    all_series = MatchSeries.objects.filter(round=round).select_related('player_group').prefetch_related(
+        'matchseat_set__stage_participant__tournament_player__profile',
+        'matches__game',
+    ).order_by('id')
+
+    series_map = {}
+    for s in all_series:
+        group = s.player_group
+        seats = []
+        for seat in s.matchseat_set.all():
+            sp = seat.stage_participant
+            tp = sp.tournament_player
+            seats.append({
+                'id': seat.id,
+                'participant_id': sp.id,
+                'display_name': tp.profile.display_name,
+                'image_url': tp.profile.image.url if tp.profile.image else '',
+                'status': sp.status,
+            })
+        matches = []
+        for i, m in enumerate(s.matches.all(), 1):
+            matches.append({
+                'id': m.id,
+                'name': m.name or f'Game {i}',
+                'match_number': m.match_number,
+                'scheduled_time': m.scheduled_time.isoformat() if m.scheduled_time else None,
+                'has_game': m.game_id is not None,
+                'game_url': m.game.get_absolute_url() if m.game_id else '',
+                'game_final': m.game.final if m.game_id else False,
+                'status': m.status,
+            })
+        series_map[s.id] = {
+            'id': s.id,
+            'name': group.name if group else (s.name or ''),
+            'discord_thread': group.discord_thread if group else '',
+            'video_link': group.video_link if group else '',
+            'number_of_games': s.number_of_games,
+            'is_bye': s.is_bye,
+            'status': s.status,
+            'seats': seats,
+            'matches': matches,
+        }
+
+    # Build stage participants list
+    participants = StageParticipant.objects.filter(stage=stage).select_related(
+        'tournament_player__profile'
+    ).order_by('tournament_player__profile__display_name')
+    participants_list = [
+        {
+            'id': sp.id,
+            'display_name': sp.tournament_player.profile.display_name,
+            'image_url': sp.tournament_player.profile.image.url if sp.tournament_player.profile.image else '',
+            'status': sp.status,
+        }
+        for sp in participants
+    ]
+
+    return {
+        'edit_series_url': edit_url,
+        'record_game_url': reverse('record-game-v2'),
+        'series_data_json': json.dumps(series_map),
+        'stage_participants_json': json.dumps(participants_list),
+    }
+
+
+def _build_series_response(series):
+    """Build JSON-serializable dict for a MatchSeries including seats and matches."""
+    series.refresh_from_db()
+    seats = MatchSeat.objects.filter(series=series).select_related(
+        'stage_participant__tournament_player__profile'
+    ).order_by('seat_number')
+    matches = Match.objects.filter(series=series).select_related('game').order_by('match_number')
+
+    group = series.player_group
+    return {
+        'id': series.id,
+        'name': group.name if group else (series.name or ''),
+        'discord_thread': group.discord_thread if group else '',
+        'video_link': group.video_link if group else '',
+        'number_of_games': series.number_of_games,
+        'is_bye': series.is_bye,
+        'status': series.status,
+        'seats': [
+            {
+                'id': seat.id,
+                'participant_id': seat.stage_participant_id,
+                'display_name': seat.stage_participant.tournament_player.profile.display_name,
+                'image_url': seat.stage_participant.tournament_player.profile.image.url if seat.stage_participant.tournament_player.profile.image else '',
+                'status': seat.stage_participant.status,
+            }
+            for seat in seats
+        ],
+        'matches': [
+            {
+                'id': m.id,
+                'name': m.name or f'Game {i}',
+                'match_number': m.match_number,
+                'scheduled_time': m.scheduled_time.isoformat() if m.scheduled_time else None,
+                'has_game': m.game_id is not None,
+                'game_url': m.game.get_absolute_url() if m.game_id else '',
+                'game_final': m.game.final if m.game_id else False,
+                'status': m.status,
+            }
+            for i, m in enumerate(matches, 1)
+        ],
+    }
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_edit_series(request, tournament_slug, stage_slug, round_slug):
+    """Edit a MatchSeries: group metadata, match scheduled times, add/remove matches and seats."""
+    from django.http import JsonResponse
+    from datetime import datetime
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    try:
+        data = json.loads(request.body)
+        series_id = data.get('series_id')
+        series = get_object_or_404(MatchSeries, id=series_id, round=round)
+
+        # --- PlayerGroup metadata ---
+        group = series.player_group
+        if group:
+            name = data.get('name', '').strip()
+            discord_thread = data.get('discord_thread', '').strip()
+            video_link = data.get('video_link', '').strip()
+
+            if discord_thread and not DISCORD_URL_PATTERN.match(discord_thread):
+                return JsonResponse({'error': 'Discord thread must be a discord.com link'}, status=400)
+            if video_link and not VIDEO_URL_PATTERN.match(video_link):
+                return JsonResponse({'error': 'Video link must be a YouTube or Twitch link'}, status=400)
+
+            group.name = name
+            group.discord_thread = discord_thread
+            group.video_link = video_link
+            group.save(update_fields=['name', 'discord_thread', 'video_link'])
+
+        # --- Match scheduled_time updates ---
+        for match_data in data.get('matches', []):
+            match_id = match_data.get('id')
+            if match_id is None:
+                continue
+            match = Match.objects.filter(id=match_id, series=series).first()
+            if not match:
+                continue
+            scheduled_str = match_data.get('scheduled_time')
+            if scheduled_str:
+                try:
+                    match.scheduled_time = datetime.fromisoformat(scheduled_str.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    return JsonResponse({'error': f'Invalid date format for match {match_id}'}, status=400)
+            else:
+                match.scheduled_time = None
+            match.save(update_fields=['scheduled_time'])
+
+        # --- Delete matches ---
+        for match_id in data.get('delete_match_ids', []):
+            match = Match.objects.filter(id=match_id, series=series).first()
+            if not match:
+                continue
+            if match.game_id is not None:
+                return JsonResponse({'error': f'Cannot delete match "{match.name}" — it has a linked game'}, status=400)
+            match.delete()
+
+        # --- Add matches ---
+        add_count = data.get('add_matches', 0)
+        for _ in range(add_count):
+            Match.objects.create(round=round, series=series)
+
+        # --- Remove seats ---
+        for seat_id in data.get('remove_seat_ids', []):
+            MatchSeat.objects.filter(id=seat_id, series=series).delete()
+
+        # --- Add seats ---
+        for sp_id in data.get('add_seat_participant_ids', []):
+            sp = StageParticipant.objects.filter(id=sp_id, stage=stage).first()
+            if not sp:
+                return JsonResponse({'error': f'Stage participant {sp_id} not found'}, status=400)
+            if MatchSeat.objects.filter(series=series, stage_participant=sp).exists():
+                continue
+            last_seat = MatchSeat.objects.filter(series=series).order_by('-seat_number').first()
+            next_num = (last_seat.seat_number + 1) if last_seat and last_seat.seat_number is not None else 1
+            MatchSeat.objects.create(series=series, stage_participant=sp, seat_number=next_num)
+
+        # --- Update number_of_games and regenerate match names ---
+        new_count = series.matches.count()
+        if new_count != series.number_of_games:
+            series.number_of_games = new_count
+            series.save(update_fields=['number_of_games'])
+
+        # Regenerate match names from group name
+        if group:
+            for i, m in enumerate(series.matches.order_by('match_number'), 1):
+                new_name = group.name if new_count == 1 else f"{group.name} Game {i}"
+                if m.name != new_name:
+                    m.name = new_name
+                    m.save(update_fields=['name'])
+
+        # --- Recalculate series status ---
+        matches_qs = series.matches.all()
+        if not matches_qs.exists():
+            new_status = CompetitionStatus.PENDING
+        elif all(m.status == CompetitionStatus.COMPLETED for m in matches_qs):
+            new_status = CompetitionStatus.COMPLETED
+        elif any(m.game_id is not None for m in matches_qs):
+            new_status = CompetitionStatus.ACTIVE
+        else:
+            new_status = CompetitionStatus.PENDING
+        if series.status != new_status:
+            series.status = new_status
+            series.save(update_fields=['status'])
+
+        return JsonResponse({
+            'success': True,
+            'series': _build_series_response(series),
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_create_series(request, tournament_slug, stage_slug, round_slug):
+    """Create a new MatchSeries with a backing PlayerGroup and one default Match."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    if round.bracket_status != Round.BracketStatusChoices.FINALIZED:
+        return JsonResponse({'error': 'Bracket must be finalized before adding series.'}, status=400)
+
+    try:
+        max_group_num = round.player_groups.aggregate(
+            models.Max('group_number')
+        )['group_number__max'] or 0
+        new_group_num = max_group_num + 1
+
+        group = PlayerGroup.objects.create(
+            round=round,
+            group_number=new_group_num,
+            name=generate_name(new_group_num, NameConvention(stage.naming_convention)),
+            created_by=request.user.profile,
+        )
+
+        series = MatchSeries.objects.create(
+            round=round,
+            player_group=group,
+            number_of_games=1,
+        )
+
+        Match.objects.create(round=round, series=series)
+
+        return JsonResponse({
+            'success': True,
+            'series': _build_series_response(series),
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_delete_series(request, tournament_slug, stage_slug, round_slug):
+    """Delete a MatchSeries and its backing PlayerGroup."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    try:
+        data = json.loads(request.body)
+        series_id = data.get('series_id')
+        series = get_object_or_404(MatchSeries, id=series_id, round=round)
+
+        # Block deletion if any match has a linked game
+        if series.matches.filter(game__isnull=False).exists():
+            return JsonResponse({'error': 'Cannot delete a series that has recorded games.'}, status=400)
+
+        # Delete the backing PlayerGroup (if any) before the series
+        group = series.player_group
+        series.delete()  # Cascades to Match, MatchSeat, MatchAdvancement
+        if group:
+            group.delete()
+
+        return JsonResponse({'success': True, 'deleted_id': series_id})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)

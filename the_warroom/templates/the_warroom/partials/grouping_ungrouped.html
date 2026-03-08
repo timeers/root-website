@@ -22,7 +22,13 @@
                 {% endif %}
             </li>
             {% empty %}
-            <li class="list-group-item text-muted text-center ungrouped-empty-msg"><small>{% trans 'Drop players here' %}</small></li>
+            <li class="list-group-item text-muted text-center ungrouped-empty-msg">
+                {% if editable %}
+                <small>{% trans 'Drop players here' %}</small>
+                {% else %}
+                <small>{% trans 'No ungrouped players' %}</small>
+                {% endif %}
+            </li>
             {% endfor %}
         </ul>
     </div>

@@ -19,10 +19,15 @@
         <div class="row g-3 mb-4" id="groups-container">
             {% if groups %}
             {% for group in groups %}
-            <div class="col-md-4 col-lg-3" data-group-id="{{ group.id }}" data-group-name="{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}">
+            <div class="col-md-4 col-lg-3" data-group-id="{{ group.id }}" data-group-name="{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}" data-group-discord="{{ group.discord_thread|default:'' }}" data-group-video="{{ group.video_link|default:'' }}">
                 <div class="card h-100 group-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}</strong>
+                        <div class="d-flex align-items-center">
+                            <strong>{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}</strong>
+                            <button class="btn btn-sm btn-link p-0 ms-2 text-muted" onclick="openGroupEditModal({{ group.id }})" title="{% trans 'Edit group' %}">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                        </div>
                         <div>
                             <span class="badge bg-secondary">{{ group.member_count }}</span>
                             {% if group.conflict_count %}
@@ -46,6 +51,16 @@
                             {% if group.best_consecutive_block %}
                             ({{ group.best_consecutive_block }}h consecutive)
                             {% endif %}
+                        </div>
+                        {% endif %}
+                        {% if group.discord_thread %}
+                        <div class="small mb-1 group-link-display">
+                            <i class="bi bi-discord"></i> <a href="{{ group.discord_thread }}" target="_blank" rel="noopener">{% trans 'Thread' %}</a>
+                        </div>
+                        {% endif %}
+                        {% if group.video_link %}
+                        <div class="small mb-1 group-link-display">
+                            <i class="bi bi-camera-video"></i> <a href="{{ group.video_link }}" target="_blank" rel="noopener">{% trans 'Video' %}</a>
                         </div>
                         {% endif %}
                         <!-- Members List -->
@@ -93,4 +108,5 @@
         </div>
     </div>
 </div>
+{% include 'the_warroom/partials/grouping_edit_modal.html' %}
 {% endif %}

@@ -18,7 +18,7 @@
                    class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                     {% trans 'Games' %}
                 </a>
-                {% if has_matches and active_page == 'games' %}
+                {% if has_matches and is_bracket_finalized and active_page == 'games' %}
                 <div class="section-sub-nav">
                     <a href="{% url 'round-games-page' tournament.slug stage.slug round.slug %}"
                        class="root-title section-sub-tab {% if active_sub_page == 'games' %}active{% endif %}">
@@ -31,7 +31,7 @@
                 </div>
                 {% endif %}
             </div>
-            {% elif has_matches %}
+            {% elif has_matches and is_bracket_finalized %}
             <a href="{% url 'round-matches-page' tournament.slug stage.slug round.slug %}"
                class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}

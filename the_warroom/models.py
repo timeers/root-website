@@ -589,20 +589,18 @@ class Round(models.Model):
         blank=True,
     )
 
-    status = models.CharField(
-        max_length=16,
-        choices=CompetitionStatus.choices,
-        default=CompetitionStatus.PENDING
-    )
-
-    slug = models.SlugField(null=True, blank=True)
-
     # Grouping lifecycle — scoped to this round, independent of other rounds using the same session
     class GroupingStatusChoices(models.TextChoices):
         PROCESSING = 'processing', 'Processing'
         DRAFT = 'draft', 'Draft'
         FINALIZED = 'finalized', 'Finalized'
         ERROR = 'error', 'Error'
+
+    status = models.CharField(
+        max_length=16,
+        choices=CompetitionStatus.choices,
+        default=CompetitionStatus.PENDING
+    )
 
     grouping_status = models.CharField(
         max_length=20,
@@ -627,6 +625,8 @@ class Round(models.Model):
         help_text="Status of the bracket for this round"
     )
 
+    slug = models.SlugField(null=True, blank=True)
+    
     objects = RoundQuerySet.as_manager()
 
     @property
@@ -824,6 +824,7 @@ class Match(models.Model):
         choices=CompetitionStatus.choices,
         default=CompetitionStatus.PENDING
     )
+    scheduled_time = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['round', 'match_number']
@@ -836,7 +837,8 @@ class Match(models.Model):
         if not self.name and self.series_id and self.series.player_group_id:
             group_name = self.series.player_group.name
             if self.series.number_of_games > 1:
-                self.name = f"{group_name} Game {self.match_number}"
+                series_position = Match.objects.filter(series=self.series).count() + 1
+                self.name = f"{group_name} Game {series_position}"
             else:
                 self.name = group_name
         super().save(*args, **kwargs)
@@ -1255,6 +1257,16 @@ class PlayerGroup(models.Model):
         max_length=100,
         blank=True,
         help_text="Optional custom name for this group"
+    )
+    discord_thread = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text="Discord thread URL for this group"
+    )
+    video_link = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text="Video stream/recording URL for this group"
     )
 
     # Availability metrics (for availability-based sessions)

@@ -38,7 +38,7 @@
 
     <!-- Round Stats -->
     <div class="row g-3 mb-4">
-        <div class="col-md-4">
+        <div class="{% if has_matches %}col-md-3{% else %}col-md-4{% endif %}">
             <div class="card h-100">
                 <div class="card-body text-center">
                     <i class="bi bi-people fs-2 text-primary"></i>
@@ -47,7 +47,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="{% if has_matches %}col-md-3{% else %}col-md-4{% endif %}">
             <div class="card h-100">
                 <div class="card-body text-center">
                     <i class="bi bi-question-circle fs-2 text-success"></i>
@@ -56,15 +56,26 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="{% if has_matches %}col-md-3{% else %}col-md-4{% endif %}">
             <div class="card h-100 border-info">
                 <div class="card-body text-center">
-                    <i class="bi bi-diagram-3 fs-2 text-info"></i>
+                    <i class="bi bi-columns-gap fs-2 text-info"></i>
                     <h3 class="mb-0 mt-2">{{ group_count }}</h3>
                     <small class="text-muted">{% trans 'Group' %}{{ group_count|pluralize }}</small>
                 </div>
             </div>
         </div>
+        {% if has_matches %}
+        <div class="col-md-3">
+            <div class="card h-100 border-warning">
+                <div class="card-body text-center">
+                    <i class="bi bi-diagram-3 fs-2 text-warning"></i>
+                    <h3 class="mb-0 mt-2">{{ match_count }}</h3>
+                    <small class="text-muted">{% trans 'Match' %}{{ match_count|pluralize:"es" }}</small>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     {% if is_finalized %}
