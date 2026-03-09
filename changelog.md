@@ -24,12 +24,14 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Removed based on Faction from the Stable Status page
 - Improved games queryset loading
 - RDL now uses new Tournament > Stage > Round format for API
+- RDL game import now uses the Match API Token
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences
 - It is now possible to delete turns from an existing Scorecard
 - Fixed bug with RDL player names importing incorrectly
 - Fixed modal bug on Guild invite approval form
+- RDL cleanup bug that could delete all RDL games fixed
 
 
 ## [1.10.2] - 2026-1-14 Battlefield Unification

@@ -2632,6 +2632,10 @@ def about_series_view(request):
     return render(request, 'the_warroom/about_series.html')
 
 
+def about_games_view(request):
+    return render(request, 'the_warroom/about_games.html')
+
+
 
 
 

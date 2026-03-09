@@ -4,7 +4,7 @@ from .views import (game_list_view, leaderboard_view,
                     game_detail_view,
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game,
-                    manage_game_v2, about_series_view,
+                    manage_game_v2, about_series_view, about_games_view,
                     scorecard_detail_view,
                     scorecard_assign_view, scorecard_delete_view, scorecard_list_view, effort_assign_view,
                     scorecard_manage_view,
@@ -151,6 +151,7 @@ urlpatterns = [
 
 
     path('about/series/', about_series_view, name='about-series'),
+    path('about/games/', about_games_view, name='about-games'),
     path('series/', tournaments_home, name='tournaments-home'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),

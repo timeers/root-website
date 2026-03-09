@@ -1,0 +1,299 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{% trans 'About Games' %} | {% endblock %}
+
+{% block styles %}
+<style>
+    .permissions-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    .permissions-table thead th {
+        background-color: var(--table-header-bg, #f8f9fa);
+        border-bottom: 2px solid var(--bs-border-color);
+        padding: 10px 12px;
+        text-align: center;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .permissions-table thead th:first-child {
+        text-align: left;
+    }
+    .permissions-table tbody td {
+        padding: 10px 12px;
+        text-align: center;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .permissions-table tbody td:first-child {
+        text-align: left;
+        font-weight: 500;
+    }
+    .permissions-table tbody tr:hover {
+        background-color: var(--table-hover-bg, rgba(0,0,0,0.02));
+    }
+    .perm-yes {
+        color: #198754;
+        font-weight: bold;
+    }
+    .perm-no {
+        color: #adb5bd;
+    }
+    .perm-limited {
+        color: #fd7e14;
+        font-size: 0.8rem;
+    }
+    .about-section {
+        margin-bottom: 2rem;
+    }
+    .about-section h5 {
+        margin-bottom: 1rem;
+    }
+
+    @media (max-width: 576px) {
+        .permissions-table {
+            font-size: 0.8rem;
+        }
+        .permissions-table thead th,
+        .permissions-table tbody td {
+            padding: 8px 6px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'games-home' %}">{% trans 'Games' %}</a></li>
+            <li class="breadcrumb-item active">{% trans 'About' %}</li>
+        </ol>
+    </nav>
+
+    <h2 class="root-title mb-4">{% trans 'About Games' %}</h2>
+
+    <!-- What is a Game -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Games' %}</h5>
+            <p>
+                {% blocktrans %}
+                A Game is a record of a played game of Root. It captures the key details of each session
+                including which <strong>Map</strong> and <strong>Deck</strong> were used, the <strong>Platform</strong>
+                it was played on (Tabletop Simulator, Root Digital, or In Person), and any optional components
+                like <strong>Hirelings</strong>, <strong>Landmarks</strong>, or <strong>House Rules</strong>.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                Games can be recorded as standalone or as part of a <strong>Series</strong>.
+                When part of a Series, game results contribute to leaderboards and bracket advancement.
+                Any logged-in user can record a game.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Efforts -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Seats' %}</h5>
+            <p>
+                {% blocktrans %}
+                Each player or faction in a game is represented by an <strong>Seat</strong>. A Seat records which
+                <strong>Player</strong> played which <strong>Faction</strong>, their final <strong>score</strong>, and whether they <strong>won</strong> the game.
+                Seats are recorded in turn order.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                Seats also track special win conditions like <strong>Dominance</strong> victories and <strong>Coalitions</strong>.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                For Vagabonds, the Vagabond's character is recorded as well.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Scorecards -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Scorecards' %}</h5>
+            <p>
+                {% blocktrans %}
+                A <strong>Scorecard</strong> provides a detailed turn-by-turn breakdown of how a faction
+                scored their points in a game. Each turn can track points across several categories:
+                {% endblocktrans %}
+            </p>
+            <ul>
+                <li>{% trans '<strong>Battle points:</strong> points gained from removing cardboard (buildings or tokens)' %}</li>
+                <li>{% trans '<strong>Crafting points:</strong> points gained from crafting items' %}</li>
+                <li>{% trans '<strong>Faction points:</strong> points gained from faction-specific abilities' %}</li>
+                <li>{% trans '<strong>Other points:</strong> points from other sources (e.g. The Tower or Charm Offensive)' %}</li>
+            </ul>
+            <p>
+                {% blocktrans %}
+                Or if you prefer you can choose to use the simplified view to record points without worrying about the category.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                Scorecards can be linked to a <strong>Seat</strong> in a game, connecting the turn-by-turn
+                data to the overall game record. If they are not linked they will show up in the "In Progress" tab of the Battlefield.
+                {% endblocktrans %}
+            </p>
+
+            <p>
+                {% blocktrans %}
+                Scorecards can be recorded during or after a game is recorded. 
+                To set up Scorecards while you play, click "Record Socrecard" in the Battlefield. Click "Save and Add New Seat" to add the next faction.
+                Once all factions have been added you can quickly rotate through the seats using the navigation buttons at the bottom of the page.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Permissions Table -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Permissions' %}</h5>
+            <p class="text-muted mb-3">
+                {% blocktrans %}
+                Different actions are available depending on your relationship to a game.
+                {% endblocktrans %}
+            </p>
+            <div class="table-responsive">
+                <table class="permissions-table">
+                    <thead>
+                        <tr>
+                            <th>{% trans 'Action' %}</th>
+                            <th>{% trans 'Recorder' %}</th>
+                            <th>{% trans 'Participants' %}</th>
+                            <th>{% trans 'Logged In' %}</th>
+                            <th>{% trans 'Logged Out' %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Recording -->
+                        <tr>
+                            <td colspan="5" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Recording Games' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Record a Game' %}</td>
+                            <td>—</td>
+                            <td>—</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Edit a Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Delete a Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Add Scorecard to a Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+                        <!-- Scorecards -->
+                        <tr>
+                            <td colspan="5" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Standalone Scorecards' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Create a Scorecard' %}</td>
+                            <td>—</td>
+                            <td>—</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Edit a Scorecard' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Link Scorecard to a Game they Recorded' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Link Scorecard to a Game they Played In' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+                        <!-- Viewing -->
+                        <tr>
+                            <td colspan="5" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Viewing' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Games' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Scorecards' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Bookmark a Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans "View a Game's External Link" %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="text-muted mb-3">
+                {% blocktrans %}
+                Note that games added to a Series can be edited or deleted by the moderators of that Series. Users can only add games to a Series with special permissions.
+                {% endblocktrans %}
+            </p>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

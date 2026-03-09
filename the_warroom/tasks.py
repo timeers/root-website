@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from the_gatehouse.utils import format_bulleted_list
-from the_gatehouse.tasks import send_rich_discord_message_task
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 
 from .models import Game, Tournament, Round
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
@@ -342,6 +342,10 @@ def check_all_league_rounds(delete=False, list_games=True):
     ):
         site_count, api_count, missing_count = compare_league_game_count(round_obj)
 
+        if missing_count is None:
+            print(f"Skipping '{round_obj.name}': API unreachable")
+            continue
+
         if missing_count > 0:
             results[round_obj.name] = {
                 'site_count': site_count,
@@ -370,8 +374,16 @@ def check_all_league_rounds(delete=False, list_games=True):
 
                     # Only delete if explicitly requested
                     if delete == True:
-                        count, _ = Game.objects.filter(league_id__in=deleted_ids, round=round_obj).delete()
-                        print(f"Deleted {count} games from '{round_obj.name}'")
+                        # Safety: refuse to delete more than half a round's games
+                        if len(deleted_ids) > site_count * 0.5:
+                            print(f"SAFETY: Refusing to delete {len(deleted_ids)}/{site_count} games from '{round_obj.name}' (>50%)")
+                            send_discord_message_task.delay(
+                                f"SAFETY: Refusing to delete {len(deleted_ids)}/{site_count} games from '{round_obj.name}' (>50%)",
+                                'report'
+                            )
+                        else:
+                            count, _ = Game.objects.filter(league_id__in=deleted_ids, round=round_obj).delete()
+                            print(f"Deleted {count} games from '{round_obj.name}'")
     if not results:
         print("All Root Digital League rounds are up to date.")
     else:
@@ -430,7 +442,7 @@ def find_deleted_games(league_round, limit=200):
             raise
 
         results = data.get("results", [])
-        api_game_ids.update(g["id"] for g in results if "id" in g)
+        api_game_ids.update(str(g["id"]) for g in results if "id" in g)
 
         # Move to the next page
         url = data.get("next")
@@ -479,6 +491,9 @@ def compare_league_game_count(league_round):
 
     api_count = count_games_from_api(tournament_name=tournament_name)
 
+    if api_count is None:
+        return site_count, None, None
+
     missing_count = site_count - api_count
 
 
@@ -505,4 +520,4 @@ def count_games_from_api(tournament_name):
         return data.get('count', 0)
     except requests.RequestException as e:
         print(f"Error fetching API data: {e}")
-        return 0
+        return None
