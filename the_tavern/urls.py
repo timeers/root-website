@@ -6,6 +6,7 @@ from .views import (
                     survey_response_move_to_waitlist, survey_response_move_to_accepted, survey_response_delete,
                     survey_send_availability,
                     tournament_surveys_view,
+                    about_surveys_view,
                     )
 
 urlpatterns = [
@@ -19,6 +20,7 @@ urlpatterns = [
     path('surveys/history/', survey_history_view, name='survey-history'),
     path('surveys/create/', survey_create_view, name='survey-create'),
     path('surveys/admin/', survey_admin_view, name='survey-admin'),
+    path('about/surveys/', about_surveys_view, name='about-surveys'),
 
     path('surveys/api/save-question-template/', save_question_template, name='save-question-template'),
     path('surveys/api/get-question-template/<int:template_id>/', get_question_template, name='get-question-template'),

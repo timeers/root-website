@@ -3110,3 +3110,7 @@ def survey_send_availability(request, slug):
         'current_title': current_title,
     }
     return render(request, 'the_tavern/survey_send_availability.html', context)
+
+
+def about_surveys_view(request):
+    return render(request, 'the_tavern/about_surveys.html')
