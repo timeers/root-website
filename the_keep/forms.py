@@ -1176,7 +1176,7 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
         widget=forms.RadioSelect(),
         required=True
     )
-    reach = forms.IntegerField(initial=0, min_value=0, max_value=10)
+    reach = forms.IntegerField(initial=0, min_value=0, max_value=10, required=False)
     complexity = create_style_choice_field('Complexity')
     card_wealth = create_style_choice_field('Card Wealth')
     aggression = create_style_choice_field('Aggression')
@@ -1244,6 +1244,8 @@ class FactionCreateForm(PostCreateForm):  # Inherit from PostCreateForm
 
     def clean(self):
         cleaned_data = super().clean()
+        if cleaned_data.get('reach') is None:
+            cleaned_data['reach'] = 0
         self.clean_reach_and_type(cleaned_data)
         self.clean_title_uniqueness(cleaned_data)
         return cleaned_data
