@@ -9,9 +9,13 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted small">
-                    {% trans 'Paste a Discord invite link for a guild you are a member of. We will verify your membership and add the guild to your available options. The invite link will not be saved.' %}
+                <p class="text-muted small mb-1">
+                    {% trans "Paste a Discord invite link for a guild you belong to." %}
                 </p>
+                <div class="alert alert-info d-flex align-items-center small py-2 mb-3">
+                    <i class="bi bi-lock me-2"></i>
+                    <span>{% trans "The link is used once to verify your membership and fetch the guild's name and icon, then immediately discarded. It is never stored or shared." %}</span>
+                </div>
                 <div class="mb-3">
                     <label for="guild-invite-input" class="form-label">{% trans 'Discord Invite Link' %}</label>
                     <input type="text" class="form-control" id="guild-invite-input"

@@ -2,11 +2,14 @@ import requests
 import json
 import emoji
 
+from datetime import timedelta
+
 from allauth.socialaccount.models import SocialAccount
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
+from django.utils import timezone
 
 from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
 
@@ -93,31 +96,69 @@ def update_discord_avatar(user, force=False):
     return None
 
 
-def get_user_guilds(user):
+def get_valid_discord_token(user):
+    """Get a valid Discord access token, refreshing if expired."""
     try:
         social_account = user.socialaccount_set.get(provider='discord')
-        access_token = social_account.socialtoken_set.first()
+    except user.socialaccount_set.model.DoesNotExist:
+        logger.warning("No Discord social account found for user %s", user)
+        return None
 
-        if access_token is None:
-            print("No access token found.")
-            return None  # Handle no token scenario
+    token_obj = social_account.socialtoken_set.first()
+    if token_obj is None:
+        logger.warning("No access token found for user %s", user)
+        return None
 
+    # Check if token is expired (with 60s buffer)
+    if token_obj.expires_at and timezone.now() >= token_obj.expires_at - timedelta(seconds=60):
+        if not token_obj.token_secret:
+            logger.warning("Token expired and no refresh token available for user %s", user)
+            return None
+
+        try:
+            response = requests.post(
+                'https://discord.com/api/v10/oauth2/token',
+                data={
+                    'client_id': config['DISCORD_ID'],
+                    'client_secret': config['DISCORD_SECRET'],
+                    'grant_type': 'refresh_token',
+                    'refresh_token': token_obj.token_secret,
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            token_obj.token = data['access_token']
+            if 'refresh_token' in data:
+                token_obj.token_secret = data['refresh_token']
+            token_obj.expires_at = timezone.now() + timedelta(seconds=int(data.get('expires_in', 604800)))
+            token_obj.save()
+            logger.info("Refreshed Discord token for user %s", user)
+        except requests.RequestException as e:
+            logger.error("Failed to refresh Discord token for user %s: %s", user, e)
+            return None
+
+    return token_obj.token
+
+
+def get_user_guilds(user):
+    access_token = get_valid_discord_token(user)
+    if access_token is None:
+        return None
+
+    try:
         url = 'https://discord.com/api/v10/users/@me/guilds'
-        headers = {
-            'Authorization': f'Bearer {access_token.token}',  # Use the token attribute
-        }
+        headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers)
 
         if response.status_code == 200:
-            return response.json()  # List of guilds
+            return response.json()
         else:
-            print("Failed to fetch guilds:", response.status_code, response.text)
-            return None  # Handle non-200 response appropriately
-    except user.socialaccount_set.model.DoesNotExist:
-        print("No Discord social account found for the user.")
-        return None
+            logger.warning("Failed to fetch guilds for user %s: %s %s", user, response.status_code, response.text)
+            return None
     except Exception as e:
-        print("An error occurred:", str(e))
+        logger.error("Error fetching guilds for user %s: %s", user, e)
         return None
 
 def update_user_guilds(user, guilds):
