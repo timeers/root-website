@@ -41,13 +41,25 @@
             <dl class="row mb-0">
                 <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
                 <dd class="col-sm-8">
-                    {% if tournament.status == 'Active' %}
-                    <span class="badge bg-success">{{ tournament.get_status_display }}</span>
-                    {% elif tournament.status == 'Completed' %}
-                    <span class="badge bg-secondary">{{ tournament.get_status_display }}</span>
-                    {% else %}
-                    <span class="badge bg-warning text-dark">{{ tournament.get_status_display }}</span>
-                    {% endif %}
+
+                {% if tournament.status == 'Active' %}
+                        <span class='text-primary'>
+                                {% trans 'Active' %}
+                        </span>
+                        <i class="bi bi-play-circle-fill text-primary"></i>
+                {% elif tournament.status == 'Pending' %}
+                        <span class='text-warning'>
+                                {% trans 'Scheduled' %}
+                        </span>
+                        <i class="bi bi-clock-fill text-warning"></i>
+                {% else %}
+                        <span class='text-success'>
+                                {% trans 'Concluded' %}
+                        </span>
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                {% endif %}
+
+
                 </dd>
 
                 <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>

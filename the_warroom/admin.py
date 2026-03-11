@@ -36,7 +36,7 @@ class StageInline(admin.TabularInline):
     fields = ('name', 'order', 'stage_format', 'grouping_type', 'naming_convention', 'include_waitlist')
 
 class TournamentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'start_date', 'end_date', 'platform')
+    list_display = ('name', 'classification', 'start_date', 'end_date', 'platform')
     search_fields = ('name', 'description')
     inlines = [StageInline]
 

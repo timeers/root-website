@@ -353,6 +353,15 @@ class Tournament(models.Model):
 
     def save(self, *args, **kwargs):
 
+        # Auto-set status based on dates
+        now = timezone.now()
+        if self.end_date and self.end_date < now:
+            self.status = CompetitionStatus.COMPLETED
+        elif self.start_date and self.start_date <= now:
+            self.status = CompetitionStatus.ACTIVE
+        else:
+            self.status = CompetitionStatus.PENDING
+
         # Check if the image field has changed (only works if the instance is already saved)
         if self.pk:  # If the object already exists in the database
             old_instance = Tournament.objects.get(pk=self.pk)
@@ -363,7 +372,7 @@ class Tournament(models.Model):
             new_image = getattr(self, field_name)
             if old_image != new_image:
                 delete_old_image(old_image)
-        
+
         super().save(*args, **kwargs)
 
 

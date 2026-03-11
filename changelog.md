@@ -1,10 +1,11 @@
 # Changelog
 
-## [1.11.0] - 2026-3-8 Surveys, Series & Scorecards
-This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design and games can be edited or deleted after submission.
+## [1.11.0] - 2026-3-8 A Series of Surveys & Scorecards
+This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design and games can be edited or deleted after submission. Thank you to safailla and trippingrannys for their suggestions that went into this update.
 
 ### New Features
 - Surveys (Multiple Choice, Multiple Selection, Open Ended, Yes/No, Scale, Ranking, Availability, Time, Date)
+- Surveys can be used as tournament registration forms
 - Public, Private, and Discord Guild locked Surveys
 - Survey History to view your responses and past surveys
 - Create groups of players from your survey's responses based on availability questions

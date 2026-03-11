@@ -344,6 +344,7 @@ em, i {
   .hidden-status > div {
     overflow: hidden;
   }
+  .list-group-item-action:hover .hidden-status,
   .post-card:hover .hidden-status {
     grid-template-columns: 1fr;
     opacity: 1;  /* Fade in the content when hovered */
@@ -363,6 +364,7 @@ em, i {
   .hidden-status {
     transition: none;
   }
+  .list-group-item-action:hover .hidden-status,
   .post-card:hover .hidden-status {
     transition: none;
   }
@@ -384,7 +386,8 @@ em, i {
     grid-template-rows: 0fr;
     opacity: 0;  /* Keep content hidden even on hover */
   }
-
+  
+    .list-group-item-action:hover .hidden-status,
     .post-card:hover .hidden-snippet,
     .post-card:hover .hidden-status {
       grid-template-columns: 0fr;

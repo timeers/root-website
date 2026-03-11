@@ -18,7 +18,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import IntegrityError, models
 
-from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery
+from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
 from django.utils.translation import get_language
@@ -2564,50 +2564,138 @@ def tournament_remove_asset(request, slug, asset_type, asset_id):
     return HttpResponse('')
 
 
-def tournaments_home(request):
-    if request.user.is_authenticated:
-        profile = request.user.profile
-    else:
-        profile = Profile.objects.none()
+SERIES_SMALL_PAGE_SIZE = 5
+SERIES_LARGE_PAGE_SIZE = 15
 
-    scheduled_tournaments = Tournament.objects.filter(start_date__gt=timezone.now())
-    scheduled_tournaments = scheduled_tournaments.annotate(
-    unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+SERIES_PAGE_SIZES = {
+    'my': SERIES_SMALL_PAGE_SIZE,
+    'participating': SERIES_SMALL_PAGE_SIZE,
+    'community': SERIES_SMALL_PAGE_SIZE,
+    'public': SERIES_LARGE_PAGE_SIZE,
+}
+
+SERIES_CLASSIFICATIONS = [
+    ('groups', Tournament.ClassificationTypes.GROUP),
+    ('tournaments', Tournament.ClassificationTypes.TOURNAMENT),
+    ('leagues', Tournament.ClassificationTypes.LEAGUE),
+]
+
+SERIES_SECTIONS = ['my', 'participating', 'community', 'public']
+
+
+def _get_series_base_queryset(classification, profile=None):
+    """Build an annotated Tournament queryset for a classification type."""
+    qs = Tournament.objects.filter(classification=classification)
+
+    qs = qs.annotate(
+        annotated_game_count=Count(
+            'rounds__games',
+            filter=Q(rounds__games__final=True),
+            distinct=True
+        ),
+        unique_players_count=Count(
+            'rounds__games__efforts__player',
+            distinct=True
+        ),
+        # Sort order: Active=0, Pending=1, Completed=2
+        status_sort=Case(
+            When(status=CompetitionStatus.ACTIVE, then=Value(0)),
+            When(status=CompetitionStatus.PENDING, then=Value(1)),
+            default=Value(2),
+            output_field=IntegerField()
+        ),
     )
 
-
-    concluded_tournaments = Tournament.objects.filter(end_date__lt=timezone.now())
-    concluded_tournaments = concluded_tournaments.annotate(
-    unique_players_count=Count('rounds__games__efforts__player', distinct=True)
-    )
-
-    ongoing_tournaments = Tournament.objects.filter(
-        Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-        start_date__lt=timezone.now(),
-    )
-
-    if not profile or not profile.admin:
-        scheduled_tournaments = scheduled_tournaments.filter(publicly_visible=True)
-        concluded_tournaments = concluded_tournaments.filter(publicly_visible=True)
-        ongoing_tournaments = ongoing_tournaments.filter(publicly_visible=True)
-
-    ongoing_tournaments = ongoing_tournaments.annotate(
-    unique_players_count=Count('rounds__games__efforts__player', distinct=True)
-    )
-
-    # all_tournaments = Tournament.objects.all()
-
-    # Get user's tournaments (where they are designer or have played)
-    user_tournaments = None
-    if request.user.is_authenticated:
-        user_tournaments = Tournament.objects.filter(
-            Q(designer=request.user.profile) |
-            Q(moderators=request.user.profile) |
-            Q(tournament_players__profile=request.user.profile) |
-            Q(rounds__games__efforts__player=request.user.profile)
-        ).distinct().annotate(
-            unique_players_count=Count('rounds__games__efforts__player', distinct=True)
+    if profile:
+        user_in_guild = Exists(
+            Profile.guilds.through.objects.filter(
+                profile_id=profile.pk,
+                discordguild_id=OuterRef('guild_id')
+            )
         )
+        qs = qs.annotate(user_in_guild=user_in_guild)
+
+    qs = qs.order_by('status_sort', '-start_date')
+    qs = qs.select_related('guild', 'designer')
+
+    return qs
+
+
+def tournaments_home(request):
+    profile = request.user.profile if request.user.is_authenticated else None
+    is_admin = profile and profile.admin
+
+    load_type = request.GET.get('load_type', None)
+
+    # Build querysets for all classifications and sections
+    all_data = {}
+    for cls_key, cls_value in SERIES_CLASSIFICATIONS:
+        base_qs = _get_series_base_queryset(cls_value, profile)
+
+        if profile:
+            my_filter = Q(designer=profile) | Q(moderators=profile)
+            participating_filter = Q(tournament_players__profile=profile)
+            community_filter = Q(guild__in=profile.guilds.all())
+
+            my_qs = base_qs.filter(my_filter).distinct()
+            participating_qs = base_qs.filter(participating_filter).exclude(my_filter).distinct()
+            community_qs = base_qs.filter(community_filter).exclude(my_filter).exclude(participating_filter).distinct()
+
+            if is_admin:
+                public_qs = base_qs.exclude(my_filter).exclude(participating_filter).exclude(community_filter).distinct()
+            else:
+                public_qs = base_qs.filter(publicly_visible=True).exclude(my_filter).exclude(participating_filter).exclude(community_filter).distinct()
+        else:
+            my_qs = Tournament.objects.none()
+            participating_qs = Tournament.objects.none()
+            community_qs = Tournament.objects.none()
+            public_qs = base_qs.filter(publicly_visible=True)
+
+        all_data[cls_key] = {
+            'my': my_qs,
+            'participating': participating_qs,
+            'community': community_qs,
+            'public': public_qs,
+        }
+
+    # Handle HTMX partial request
+    if load_type:
+        parts = load_type.rsplit('_', 1)
+        cls_key, section = parts[0], parts[1]
+
+        offset_param = f'{load_type}_offset'
+        offset = int(request.GET.get(offset_param, 0))
+        page_size = SERIES_PAGE_SIZES[section]
+
+        qs = all_data[cls_key][section]
+        # Fetch one extra to check if there are more without a separate COUNT query
+        results = list(qs[offset:offset + page_size + 1])
+        has_more = len(results) > page_size
+        selected = results[:page_size]
+        next_offset = offset + page_size
+
+        return render(request, 'the_warroom/partials/series_list_container.html', {
+            'series_list': selected,
+            'has_more': has_more,
+            'offset': next_offset,
+            'load_type': load_type,
+            'profile': profile,
+        })
+
+    # Full page load — slice all querysets
+    # Fetch page_size + 1 to determine has_more without separate COUNT queries
+    context_data = {}
+    for cls_key, cls_value in SERIES_CLASSIFICATIONS:
+        for section in SERIES_SECTIONS:
+            qs = all_data[cls_key][section]
+            page_size = SERIES_PAGE_SIZES[section]
+            results = list(qs[:page_size + 1])
+            has_more = len(results) > page_size
+
+            key_prefix = f'{cls_key}_{section}'
+            context_data[key_prefix] = results[:page_size]
+            context_data[f'has_more_{key_prefix}'] = has_more
+            context_data[f'{key_prefix}_offset'] = page_size
 
     # Theme
     theme = get_theme(request)
@@ -2616,11 +2704,8 @@ def tournaments_home(request):
     )
 
     context = {
-        'scheduled': scheduled_tournaments,
-        'concluded': concluded_tournaments,
-        'ongoing': ongoing_tournaments,
-        'user_tournaments': user_tournaments,
-        # 'all': all_tournaments,
+        **context_data,
+        'profile': profile,
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,

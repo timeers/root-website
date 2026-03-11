@@ -94,9 +94,6 @@ urlpatterns = [
     path('series/<slug:slug>/', tournament_overview_page, name='tournament-detail'),
     path('series/<slug:slug>/delete/', TournamentDeleteView.as_view(), name='tournament-delete'),
 
-    # path('hx/series/<int:id>/player-list/', tournament_players_pagination, name='tournament-players-pagination'),
-    # path('hx/round/<int:id>/player-list/', round_players_pagination, name='round-players-pagination'),
-    # path('hx/stage/<int:id>/player-list/', stage_players_pagination, name='stage-players-pagination'),
     path('hx/round/<int:id>/game-list/', round_games_pagination, name='round-games-pagination'),
     path('add-player-to-effort/', add_player_to_effort, name='add-player-to-effort'),
 
