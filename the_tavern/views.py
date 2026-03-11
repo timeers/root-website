@@ -853,15 +853,23 @@ def survey_take_view(request, slug):
             except (ValueError, TypeError):
                 timezone_offset_hours = None
 
-            # Calculate response position
-            response_position = survey.get_next_response_position()
+            # Atomic response creation to prevent race conditions on response limits
+            from django.db import transaction
+            with transaction.atomic():
+                survey.refresh_from_db()
+                if survey.is_full():
+                    messages.warning(request, _('This survey has reached its response limit and is no longer accepting responses.'))
+                    return redirect('survey-detail', slug=survey.slug)
 
-            survey_response = SurveyResponse.objects.create(
-                survey=survey,
-                profile=request.user.profile,
-                timezone_offset_hours=timezone_offset_hours,
-                response_position=response_position
-            )
+                # Calculate response position
+                response_position = survey.get_next_response_position()
+
+                survey_response = SurveyResponse.objects.create(
+                    survey=survey,
+                    profile=request.user.profile,
+                    timezone_offset_hours=timezone_offset_hours,
+                    response_position=response_position
+                )
 
             # Save answers for each question
             for question in visible_questions:
@@ -1356,6 +1364,9 @@ def survey_detail_view(request, slug):
     meta_description = f"A { 'public' if survey.is_public else 'private' } survey by {survey.created_by.name if survey.created_by else "Anonymous"}{survey_description}"
 
 
+    is_survey_full = survey.is_full()
+    available_response_count = survey.get_available_response_count()
+
     context = {
         'responses': user_responses,
         'survey': survey,
@@ -1364,6 +1375,8 @@ def survey_detail_view(request, slug):
         'can_take_survey': can_take_survey,
         'can_view_survey': can_view_survey,
         'can_see_results': can_see_results,
+        'is_survey_full': is_survey_full,
+        'available_response_count': available_response_count,
         'survey_question_count': survey_question_count,
         'survey_user_response_count': survey_user_response_count,
         'return_to': return_to,
@@ -1908,6 +1921,7 @@ def survey_responses_view(request, slug):
     responses = SurveyResponse.objects.filter(survey=survey).select_related('profile').annotate(
         is_waitlisted=Case(
             When(
+                Q(survey__limit_responses=True) &
                 Q(survey__has_waitlist=True) &
                 Q(survey__waitlist_threshold__isnull=False) &
                 Q(response_position__gt=F('survey__waitlist_threshold')),
@@ -1918,6 +1932,7 @@ def survey_responses_view(request, slug):
         ),
         waitlist_number=Case(
             When(
+                Q(survey__limit_responses=True) &
                 Q(survey__has_waitlist=True) &
                 Q(survey__waitlist_threshold__isnull=False) &
                 Q(response_position__gt=F('survey__waitlist_threshold')),
@@ -1971,7 +1986,7 @@ def survey_response_move_to_waitlist(request, slug, response_id):
     if not survey.can_edit_survey(profile):
         return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
 
-    if not survey.has_waitlist or not survey.waitlist_threshold:
+    if not survey.limit_responses or not survey.has_waitlist or not survey.waitlist_threshold:
         return JsonResponse({'success': False, 'error': 'Survey does not have waitlist enabled'}, status=400)
 
     response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
@@ -2013,7 +2028,7 @@ def survey_response_move_to_accepted(request, slug, response_id):
     if not survey.can_edit_survey(profile):
         return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
 
-    if not survey.has_waitlist or not survey.waitlist_threshold:
+    if not survey.limit_responses or not survey.has_waitlist or not survey.waitlist_threshold:
         return JsonResponse({'success': False, 'error': 'Survey does not have waitlist enabled'}, status=400)
 
     response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
@@ -2124,18 +2139,23 @@ def survey_edit_view(request, slug):
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
             show_results_on_close = request.POST.get('show_results_on_close') == 'on'
             is_quiz = request.POST.get('is_quiz') == 'on'
+            limit_responses = request.POST.get('limit_responses') == 'on'
             has_waitlist = request.POST.get('has_waitlist') == 'on'
             is_registration = request.POST.get('is_registration') == 'on'
 
-            # Get waitlist threshold (validated client-side)
+            # Get response limit threshold (validated client-side)
             waitlist_threshold = None
-            if has_waitlist:
+            if limit_responses:
                 threshold_str = request.POST.get('waitlist_threshold', '').strip()
                 if threshold_str:
                     try:
                         waitlist_threshold = int(threshold_str)
                     except ValueError:
                         waitlist_threshold = None
+
+            # has_waitlist only makes sense with limit_responses
+            if not limit_responses:
+                has_waitlist = False
 
             # Get associations
             guild_id = request.POST.get('guild') or None
@@ -2181,6 +2201,7 @@ def survey_edit_view(request, slug):
             survey.show_results_to_respondents = show_results_to_respondents
             survey.show_results_on_close = show_results_on_close
             survey.is_quiz = is_quiz
+            survey.limit_responses = limit_responses
             survey.has_waitlist = has_waitlist
             survey.is_registration = is_registration
             survey.waitlist_threshold = waitlist_threshold
@@ -2622,18 +2643,23 @@ def survey_create_view(request):
             show_results_to_respondents = request.POST.get('show_results_to_respondents') == 'on'
             show_results_on_close = request.POST.get('show_results_on_close') == 'on'
             is_quiz = request.POST.get('is_quiz') == 'on'
+            limit_responses = request.POST.get('limit_responses') == 'on'
             has_waitlist = request.POST.get('has_waitlist') == 'on'
             is_registration = request.POST.get('is_registration') == 'on'
 
-            # Get waitlist threshold (validated client-side)
+            # Get response limit threshold (validated client-side)
             waitlist_threshold = None
-            if has_waitlist:
+            if limit_responses:
                 threshold_str = request.POST.get('waitlist_threshold', '').strip()
                 if threshold_str:
                     try:
                         waitlist_threshold = int(threshold_str)
                     except ValueError:
                         waitlist_threshold = None
+
+            # has_waitlist only makes sense with limit_responses
+            if not limit_responses:
+                has_waitlist = False
 
             # Get date fields
             start_date = request.POST.get('start_date')
@@ -2682,6 +2708,7 @@ def survey_create_view(request):
                 show_results_to_respondents=show_results_to_respondents,
                 show_results_on_close=show_results_on_close,
                 is_quiz=is_quiz,
+                limit_responses=limit_responses,
                 has_waitlist=has_waitlist,
                 is_registration=is_registration,
                 waitlist_threshold=waitlist_threshold,

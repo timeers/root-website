@@ -117,6 +117,7 @@ class Survey(models.Model):
     show_score_summary = models.BooleanField(default=False, help_text="Show score summary (e.g., '7/10 correct') after submission")
     is_quiz = models.BooleanField(default=False, help_text="Enable quiz mode to set correct answers")
     
+    limit_responses = models.BooleanField(default=False, help_text="Set a cap on the number of accepted responses.")
     waitlist_threshold = models.IntegerField(null=True, blank=True)
     has_waitlist = models.BooleanField(default=False)
     is_registration = models.BooleanField(default=False, help_text='Display tournament rules with a required agreement checkbox.')
@@ -160,6 +161,14 @@ class Survey(models.Model):
         if self.end_date and now > self.end_date:
             return True
         return False
+
+    def is_full(self):
+        """Check if survey has reached its response limit (hard limit, no waitlist)"""
+        if not self.limit_responses or not self.waitlist_threshold:
+            return False
+        if self.has_waitlist:
+            return False
+        return self.responses.count() >= self.waitlist_threshold
 
     def get_sections_with_questions(self):
         """Return ordered sections with their visible questions.
@@ -272,6 +281,10 @@ class Survey(models.Model):
         if not self.is_available():
             return False
 
+        # Check if survey has hit its hard response limit (no waitlist)
+        if self.is_full():
+            return False
+
         # Respect multiple response rules
         if self.has_user_responded(user_profile) and not self.allow_multiple_responses:
             return False
@@ -324,26 +337,26 @@ class Survey(models.Model):
 
     def get_accepted_response_count(self):
         """Count responses within threshold (not on waitlist)"""
-        if not self.has_waitlist or not self.waitlist_threshold:
+        if not self.limit_responses or not self.waitlist_threshold:
             return self.responses.count()
         return self.responses.filter(response_position__lte=self.waitlist_threshold).count()
 
     def get_available_response_count(self):
-        """Count availability before waitlist"""
-        if not self.has_waitlist or not self.waitlist_threshold:
+        """Count remaining spots before response limit"""
+        if not self.limit_responses or not self.waitlist_threshold:
             return 0
         available_spots = self.waitlist_threshold - self.responses.filter(response_position__lte=self.waitlist_threshold).count()
-        return available_spots
+        return max(available_spots, 0)
 
     def get_waitlisted_response_count(self):
         """Count responses on waitlist"""
-        if not self.has_waitlist or not self.waitlist_threshold:
+        if not self.limit_responses or not self.has_waitlist or not self.waitlist_threshold:
             return 0
         return self.responses.filter(response_position__gt=self.waitlist_threshold).count()
 
     def is_response_waitlisted(self, response):
         """Check if a specific response is on waitlist"""
-        if not self.has_waitlist or not self.waitlist_threshold:
+        if not self.limit_responses or not self.has_waitlist or not self.waitlist_threshold:
             return False
         return response.response_position > self.waitlist_threshold
 

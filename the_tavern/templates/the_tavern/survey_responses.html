@@ -59,7 +59,7 @@
                                                 <a href="{{ response.profile.get_absolute_url }}" class="text-decoration-none">
                                                     {{ response.profile.name }}
                                                 </a>
-                                                {% if survey.has_waitlist %}
+                                                {% if survey.limit_responses and survey.has_waitlist %}
                                                     {% if response.is_waitlisted %}
                                                         <span class="badge bg-warning text-dark ms-1">{% trans 'Waitlist' %} #{{response.waitlist_number}}</span>
                                                     {% else %}
@@ -99,7 +99,7 @@
                                             <i class="bi bi-three-dots-vertical"></i>
                                         </button>
                                         <ul class="dropdown-menu dropdown-menu-end">
-                                            {% if survey.has_waitlist %}
+                                            {% if survey.limit_responses and survey.has_waitlist %}
                                                 {% if response.is_waitlisted %}
                                                     <li>
                                                         <button class="dropdown-item text-success"

@@ -1,4 +1,5 @@
 {% load i18n %}
+{% include 'the_warroom/partials/toggle_scripts.html' %}
 <script>
 // ============================================
 // Invited Players Management
@@ -130,51 +131,50 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Waitlist and Multiple Responses mutual exclusion
-    const hasWaitlistCheckbox = document.getElementById('has_waitlist');
-    const allowMultipleCheckbox = document.getElementById('allow_multiple_responses');
-    const waitlistThresholdContainer = document.getElementById('waitlist_threshold_container');
+    // Response mode toggle (replaces allow_multiple_responses / limit_responses checkboxes)
+    initToggle({
+        containerId: 'response-mode-toggle-container',
+        inputId: 'response_mode_value',
+        sliderId: 'response-mode-slider',
+        descriptionId: 'response-mode-description-text',
+        descriptions: {
+            'multiple': '{% trans "Respondents can submit multiple responses to this survey." %}',
+            'single': '{% trans "Each respondent can submit one response." %}',
+            'limited': '{% trans "Set a maximum number of accepted responses." %}'
+        },
+        onChange: function(value) {
+            const amrInput = document.getElementById('allow_multiple_responses_input');
+            const lrInput = document.getElementById('limit_responses_input');
+            const limitContainer = document.getElementById('limit_responses_container');
 
-    if (hasWaitlistCheckbox && allowMultipleCheckbox) {
-        // Show/hide waitlist threshold input
-        function updateWaitlistThresholdVisibility() {
-            if (waitlistThresholdContainer) {
-                waitlistThresholdContainer.style.display = hasWaitlistCheckbox.checked ? 'block' : 'none';
+            // Reset both hidden inputs
+            amrInput.value = '';
+            lrInput.value = '';
+
+            if (value === 'multiple') {
+                amrInput.value = 'on';
+            } else if (value === 'limited') {
+                lrInput.value = 'on';
+            }
+
+            // Show/hide limit responses container
+            if (limitContainer) {
+                limitContainer.style.display = (value === 'limited') ? 'block' : 'none';
+            }
+
+            // Clear waitlist fields when not in limited mode
+            if (value !== 'limited') {
+                const hasWaitlist = document.getElementById('has_waitlist');
+                if (hasWaitlist) hasWaitlist.checked = false;
             }
         }
+    });
 
-        // Initialize visibility on page load
-        updateWaitlistThresholdVisibility();
-
-        // When waitlist is enabled, disable multiple responses
-        hasWaitlistCheckbox.addEventListener('change', function() {
-            if (this.checked) {
-                allowMultipleCheckbox.checked = false;
-                allowMultipleCheckbox.disabled = true;
-            } else {
-                allowMultipleCheckbox.disabled = false;
-            }
-            updateWaitlistThresholdVisibility();
-        });
-
-        // When multiple responses is enabled, disable waitlist
-        allowMultipleCheckbox.addEventListener('change', function() {
-            if (this.checked) {
-                hasWaitlistCheckbox.checked = false;
-                hasWaitlistCheckbox.disabled = true;
-                updateWaitlistThresholdVisibility();
-            } else {
-                hasWaitlistCheckbox.disabled = false;
-            }
-        });
-
-        // Initialize disabled states on page load
-        if (hasWaitlistCheckbox.checked) {
-            allowMultipleCheckbox.disabled = true;
-        }
-        if (allowMultipleCheckbox.checked) {
-            hasWaitlistCheckbox.disabled = true;
-        }
+    // Initialize limit_responses_container visibility on page load
+    const limitResponsesContainer = document.getElementById('limit_responses_container');
+    if (limitResponsesContainer) {
+        const lrInput = document.getElementById('limit_responses_input');
+        limitResponsesContainer.style.display = (lrInput && lrInput.value === 'on') ? 'block' : 'none';
     }
 });
 
@@ -1989,18 +1989,18 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         questions.push(questionData);
     });
 
-    // Validate waitlist settings
-    const hasWaitlistCheckbox = document.getElementById('has_waitlist');
+    // Validate response limit settings
+    const limitResponsesCheck = document.getElementById('limit_responses_input');
     const waitlistThresholdInput = document.getElementById('waitlist_threshold');
 
-    if (hasWaitlistCheckbox && hasWaitlistCheckbox.checked) {
+    if (limitResponsesCheck && limitResponsesCheck.value === 'on') {
         const thresholdValue = waitlistThresholdInput ? waitlistThresholdInput.value.trim() : '';
 
         if (!thresholdValue) {
             validationErrors.push({
                 type: 'waitlist',
                 field: 'threshold',
-                message: '{% trans "Waitlist threshold is required when waitlist is enabled" %}'
+                message: '{% trans "Response limit is required when Limit Responses is enabled" %}'
             });
         } else {
             const threshold = parseInt(thresholdValue);
@@ -2008,7 +2008,7 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                 validationErrors.push({
                     type: 'waitlist',
                     field: 'threshold',
-                    message: '{% trans "Waitlist threshold must be a positive number" %}'
+                    message: '{% trans "Response limit must be a positive number" %}'
                 });
             }
         }
@@ -2120,20 +2120,32 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                     select.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             } else if (error.type === 'waitlist') {
-                // Show error for waitlist threshold
-                const waitlistThresholdInput = document.getElementById('waitlist_threshold');
-                if (waitlistThresholdInput) {
-                    waitlistThresholdInput.classList.add('is-invalid');
+                // Show error for waitlist threshold — open modal if needed
+                const advModal = document.getElementById('advancedSettingsModal');
+                const waitlistInput = document.getElementById('waitlist_threshold');
 
-                    const errorDiv = document.createElement('div');
-                    errorDiv.className = 'invalid-feedback validation-error';
-                    errorDiv.textContent = error.message;
-                    waitlistThresholdInput.parentNode.appendChild(errorDiv);
+                function showWaitlistError() {
+                    if (waitlistInput) {
+                        waitlistInput.classList.add('is-invalid');
 
-                    // Scroll to first error
-                    if (validationErrors.indexOf(error) === 0) {
-                        waitlistThresholdInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'invalid-feedback validation-error';
+                        errorDiv.textContent = error.message;
+                        waitlistInput.parentNode.appendChild(errorDiv);
+
+                        waitlistInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
+                }
+
+                if (advModal && !advModal.classList.contains('show')) {
+                    const modal = bootstrap.Modal.getOrCreateInstance(advModal);
+                    advModal.addEventListener('shown.bs.modal', function onShown() {
+                        advModal.removeEventListener('shown.bs.modal', onShown);
+                        showWaitlistError();
+                    }, {once: true});
+                    modal.show();
+                } else {
+                    showWaitlistError();
                 }
             }
         });
@@ -2661,7 +2673,14 @@ function updateAdvancedSettingsSummary() {
     // Settings — dynamically count checked checkboxes in the settings section
     const settingsSection = document.getElementById('settings-section');
     if (settingsSection) {
-        const checkedCount = settingsSection.querySelectorAll('.form-check-input:checked').length;
+        let checkedCount = settingsSection.querySelectorAll('.form-check-input:checked').length;
+
+        // Also count response mode toggle if not in default (single) position
+        const responseModeValue = document.getElementById('response_mode_value');
+        if (responseModeValue && responseModeValue.value !== 'single') {
+            checkedCount++;
+        }
+
         if (checkedCount > 0) {
             if (checkedCount > 1) {
                 badges.push({icon: 'bi-ui-checks-grid', text: checkedCount + ' {% trans "Options" %}', color: 'bg-primary'});

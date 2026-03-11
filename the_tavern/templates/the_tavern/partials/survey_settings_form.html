@@ -261,88 +261,123 @@
                 <div class="border rounded p-3 bg-light" id="settings-section">
                     <h6 class="text-muted mb-2"><i class="bi bi-gear me-2"></i>{% trans 'Settings' %}</h6>
 
-                    <div class="row">
-                        <div class="col-md-6 col-lg-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
-                                       {% if survey.allow_edit_responses %}checked{% endif %}>
-                                <label class="form-check-label" for="allow_edit_responses">
-                                    {% trans 'Allow Editing Responses' %}
-                                        <i class="bi bi-question-circle text-muted ms-1" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{% trans 'Respondents can update their answers after submitting' %}"></i>
-                                </label>
+                    {# --- Responses --- #}
+                    <small class="fw-semibold text-muted text-uppercase d-block mb-2">
+                        <i class="bi bi-clipboard2-plus me-1"></i>{% trans 'Responses' %}
+                    </small>
+                    <div class="mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
+                                   {% if survey.allow_edit_responses %}checked{% endif %}>
+                            <label class="form-check-label" for="allow_edit_responses">
+                                {% trans 'Allow Editing Responses' %}
+                                    <i class="bi bi-question-circle text-muted ms-1"
+                                        data-bs-toggle="tooltip"
+                                        title="{% trans 'Respondents can update their answers after submitting' %}"></i>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Response Mode Toggle -->
+                    <input type="hidden" id="response_mode_value"
+                           value="{% if survey.allow_multiple_responses %}multiple{% elif survey.limit_responses %}limited{% else %}single{% endif %}">
+                    <input type="hidden" name="allow_multiple_responses" id="allow_multiple_responses_input"
+                           value="{% if survey.allow_multiple_responses %}on{% endif %}">
+                    <input type="hidden" name="limit_responses" id="limit_responses_input"
+                           value="{% if survey.limit_responses %}on{% endif %}">
+
+                    <div id="response-mode-toggle-container" class="mb-2">
+                        <div class="option-toggle option-toggle-3">
+                            <div class="option-slider {% if survey.allow_multiple_responses %}position-1{% elif survey.limit_responses %}position-3{% else %}position-2{% endif %}" id="response-mode-slider"></div>
+                            <div class="option-item {% if survey.allow_multiple_responses %}active{% endif %}" data-value="multiple" data-position="1">
+                                <i class="bi bi-infinity me-1"></i>{% trans 'Multiple' %}
+                            </div>
+                            <div class="option-item {% if not survey.allow_multiple_responses and not survey.limit_responses %}active{% endif %}" data-value="single" data-position="2">
+                                <i class="bi bi-person me-1"></i>{% trans '1 Per Person' %}
+                            </div>
+                            <div class="option-item {% if survey.limit_responses %}active{% endif %}" data-value="limited" data-position="3">
+                                <i class="bi bi-lock me-1"></i>{% trans 'Limit' %}
                             </div>
                         </div>
-                        <div class="col-md-6 col-lg-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="allow_multiple_responses" name="allow_multiple_responses"
-                                       {% if survey.allow_multiple_responses %}checked{% endif %}>
-                                <label class="form-check-label" for="allow_multiple_responses">
-                                    {% trans 'Allow Multiple Responses' %}
-                                        <i class="bi bi-question-circle text-muted ms-1" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{% trans 'Respondents can submit multiple responses (not compatible with Waitlists)' %}"></i>
-                                </label>
-                            </div>
+                        <div class="toggle-description" id="response-mode-description">
+                            <i class="bi bi-info-circle me-1"></i>
+                            <span id="response-mode-description-text"></span>
                         </div>
-                        <div class="col-md-6 col-lg-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
-                                       {% if survey.show_results_to_respondents %}checked{% endif %}>
-                                <label class="form-check-label" for="show_results_to_respondents">
-                                    {% trans 'Show Results to Respondents' %}
-                                        <i class="bi bi-question-circle text-muted ms-1" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{% trans 'Respondents can view a summary of the results once they have submitted their response' %}"></i>
-                                </label>
-                            </div>
+                    </div>
+
+                    <!-- Response Limit Section -->
+                    <div class="row mb-2" id="limit_responses_container" style="display: none;">
+                        <div class="col-12">
+                            <label for="waitlist_threshold" class="form-label">{% trans 'Response Limit' %}</label>
+                            <input type="number" class="form-control" id="waitlist_threshold" name="waitlist_threshold"
+                                   min="1" placeholder="e.g., 20" value="{{ survey.waitlist_threshold|default:'' }}">
+                            <small class="text-muted">{% trans 'Maximum number of accepted responses' %}</small>
                         </div>
-                        <div class="col-md-6 col-lg-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="show_results_on_close" name="show_results_on_close"
-                                       {% if not survey or survey.show_results_on_close %}checked{% endif %}>
-                                <label class="form-check-label" for="show_results_on_close">
-                                    {% trans 'Show Results Once Closed' %}
-                                        <i class="bi bi-question-circle text-muted ms-1" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{% trans 'Results are made public once the survey is closed' %}"></i>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-12 col-lg-6">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="is_quiz" name="is_quiz"
-                                       {% if survey.is_quiz %}checked{% endif %}>
-                                <label class="form-check-label" for="is_quiz">
-                                    {% trans 'Provide correct answers' %}
-                                        <i class="bi bi-question-circle text-muted ms-1" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{% trans 'Adds the option to record correct answers for certain questions' %}"></i>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-6 col-lg-3">
+                        <div class="col-12 mt-2">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="has_waitlist" name="has_waitlist"
                                        {% if survey.has_waitlist %}checked{% endif %}>
                                 <label class="form-check-label" for="has_waitlist">
-                                    {% trans 'Enable Waitlist' %}
-                                        <i class="bi bi-question-circle text-muted ms-1" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{% trans 'Can be used for tournament rosters to set a response limit below (not compatible with Multiple Responses)' %}"></i>
+                                    {% trans 'Add additional responses to waitlist' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'When enabled, responses beyond the limit are placed on a waitlist instead of being rejected' %}"></i>
                                 </label>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Waitlist Threshold Input -->
-                    <div class="row mb-2" id="waitlist_threshold_container" style="display: none;">
+                    <hr class="my-2">
+
+                    {# --- Results --- #}
+                    <small class="fw-semibold text-muted text-uppercase d-block mb-2">
+                        <i class="bi bi-clipboard2-data me-1"></i>{% trans 'Results' %}
+                    </small>
+                    <div class="row mb-1">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
+                                       {% if survey.show_results_to_respondents %}checked{% endif %}>
+                                <label class="form-check-label" for="show_results_to_respondents">
+                                    {% trans 'Show Results to Respondents' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'Respondents can view a summary of the results once they have submitted their response' %}"></i>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="show_results_on_close" name="show_results_on_close"
+                                       {% if not survey or survey.show_results_on_close %}checked{% endif %}>
+                                <label class="form-check-label" for="show_results_on_close">
+                                    {% trans 'Show Results Once Closed' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'Results are made public once the survey is closed' %}"></i>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+
+                    {# --- Quiz --- #}
+                    <small class="fw-semibold text-muted text-uppercase d-block mb-2">
+                        <i class="bi bi-clipboard2-check me-1"></i>{% trans 'Quiz' %}
+                    </small>
+                    <div class="row">
                         <div class="col-12">
-                            <label for="waitlist_threshold" class="form-label">{% trans 'Response Limit' %}</label>
-                            <input type="number" class="form-control" id="waitlist_threshold" name="waitlist_threshold"
-                                   min="1" placeholder="e.g., 20" value="{{ survey.waitlist_threshold|default:'' }}">
-                            <small class="text-muted">{% trans 'Responses beyond this number will be waitlisted (Multiple responses are not allowed with waitlist enabled)' %}</small>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="is_quiz" name="is_quiz"
+                                       {% if survey.is_quiz %}checked{% endif %}>
+                                <label class="form-check-label" for="is_quiz">
+                                    {% trans 'Provide correct answers' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'Adds the option to record correct answers for certain questions' %}"></i>
+                                </label>
+                            </div>
                         </div>
                     </div>
 

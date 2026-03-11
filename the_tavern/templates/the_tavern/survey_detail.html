@@ -139,17 +139,30 @@
         {% endif %} {% endcomment %}
     </div>
 
-    <!-- Waitlist Status -->
-    {% if survey.has_waitlist and survey.waitlist_threshold %}
-        <div class="alert alert-info mb-4">
-            {% if survey.get_waitlisted_response_count > 0 %}
-                <i class="bi bi-stopwatch-fill"></i>
-                <strong>{{ survey.get_waitlisted_response_count }} {% trans 'on Waitlist' %}</strong>
-            {% else %}
-            <i class="bi bi-people"></i>
-            <strong>{{ survey.get_available_response_count }} spots left</strong>
-            {% endif %}
-        </div>
+    <!-- Response Limit Status -->
+    {% if survey.limit_responses and survey.waitlist_threshold %}
+        {% if survey.has_waitlist %}
+            <div class="alert alert-info mb-4">
+                {% if survey.get_waitlisted_response_count > 0 %}
+                    <i class="bi bi-stopwatch-fill"></i>
+                    <strong>{{ survey.get_waitlisted_response_count }} {% trans 'on Waitlist' %}</strong>
+                {% else %}
+                    <i class="bi bi-people"></i>
+                    <strong>{{ survey.get_available_response_count }} {% trans 'spots left' %}</strong>
+                {% endif %}
+            </div>
+        {% elif is_survey_full %}
+            <div class="alert alert-warning mb-4">
+                <i class="bi bi-x-circle-fill"></i>
+                <strong>{% trans 'Survey Full' %}</strong> -
+                {% trans 'This survey has reached its response limit.' %}
+            </div>
+        {% else %}
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-people"></i>
+                <strong>{{ available_response_count }} {% trans 'spots left' %}</strong>
+            </div>
+        {% endif %}
     {% endif %}
 
     <!-- Your Responses Section -->

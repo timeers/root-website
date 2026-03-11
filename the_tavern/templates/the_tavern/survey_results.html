@@ -12,7 +12,7 @@
     <p class="lead text-muted">{% trans 'Survey Results' %}</p>
 
     <div class="alert alert-info">
-        <strong>{% trans 'Total Responses' %}:</strong> {{ total_responses }}{% if survey.waitlist_threshold %}/{{survey.waitlist_threshold}}{% endif %}
+        <strong>{% trans 'Total Responses' %}:</strong> {{ total_responses }}{% if survey.limit_responses and survey.waitlist_threshold %}/{{survey.waitlist_threshold}}{% endif %}
 
         {% if required_summary %}
             <div class="d-flex align-items-center">

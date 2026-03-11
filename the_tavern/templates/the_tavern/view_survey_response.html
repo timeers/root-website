@@ -27,7 +27,7 @@
         </small>
     </div>
 
-    {% if survey.has_waitlist %}
+    {% if survey.limit_responses and survey.has_waitlist %}
         <div class="mb-3">
             <strong>{% trans 'Position' %}:</strong> #{{ response.response_position }}
             {% if is_response_waitlisted %}
