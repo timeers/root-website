@@ -2955,6 +2955,7 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
         'post_url': object.get_absolute_url(),
         'post_image': object.small_picture.url if object.small_picture else (object.picture.url if object.picture else None),
         'post_image_class': 'lg-faction-icon',
+        'object_type': post.component,
     }
 
     return render(request, 'the_warroom/scoped_leaderboard.html', context)
@@ -3076,6 +3077,7 @@ def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_
         'post_url': player.get_absolute_url(),
         'post_image': player.image.url,
         'post_image_class': 'lg-avatar-icon',
+        'object_type': 'Profile',
     }
 
     return render(request, 'the_warroom/scoped_leaderboard.html', context)

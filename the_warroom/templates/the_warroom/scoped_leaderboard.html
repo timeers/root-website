@@ -44,7 +44,7 @@
         </h1>
         {% if post_url %}
         <a href="{{ post_url }}" class="btn btn-outline-secondary btn-sm position-absolute top-50 end-0 translate-middle-y">
-            <i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Page' %}
+            <i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View ' %}{{object_type}}
         </a>
         {% endif %}
     </div>
@@ -74,17 +74,37 @@
                 {% endif %}
                 </div>
 
-                {% if form.vagabond %}
+                {% if form.vagabonds %}
+                <div class="mb-1">
+                    {{ form.vagabonds }}
+                </div>
+                {% elif form.vagabond %}
                 <div class="mb-1">
                     {{ form.vagabond }}
                 </div>
                 {% endif %}
 
-                {% if form.player %}
+                {% if form.players %}
+                <div class="mb-1">
+                    {{ form.players }}
+                </div>
+                {% elif form.player %}
                 <div class="mb-1">
                     {{ form.player }}
                 </div>
                 {% endif %}
+
+                <div class="row align-items-end">
+                    <div class="col mb-1">
+                        <label for="id_date_after">{% trans 'From' %}</label>
+                        {{ form.date_after }}
+                    </div>
+                    <div class="col-auto mb-1 pb-2">&ndash;</div>
+                    <div class="col mb-1">
+                        <label for="id_date_before">{% trans 'To' %}</label>
+                        {{ form.date_before }}
+                    </div>
+                </div>
 
                 <div class="row">
                     <div class="col-md-6 mb-1">
@@ -150,8 +170,11 @@
 <script>
     const selectPlaceholders = {
         '#id_faction': "{% trans 'Select Factions' %}",
+        '#id_factions': "{% trans 'Select Factions' %}",
         '#id_player': "{% trans 'Select Players' %}",
+        '#id_players': "{% trans 'Select Players' %}",
         '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+        '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
         '#id_map': "{% trans 'Select a Map' %}",
         '#id_deck': "{% trans 'Select a Deck' %}"
     };
