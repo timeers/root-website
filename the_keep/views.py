@@ -2885,6 +2885,63 @@ def post_settings_hub(request, slug):
     return render(request, 'the_keep/post_settings_hub.html', context)
 
 
+@login_required
+def post_pieces_view(request, slug):
+    """Standalone page for editing a post's component pieces."""
+    post = get_object_or_404(Post, slug=slug)
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
+
+    if not user_can_edit(request, obj):
+        raise PermissionDenied
+
+    language_code = request.GET.get('lang') or get_language()
+
+    warriors = []
+    for piece in obj.warriors():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        warriors.append(piece)
+
+    buildings = []
+    for piece in obj.buildings():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        buildings.append(piece)
+
+    tokens = []
+    for piece in obj.tokens():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        tokens.append(piece)
+
+    cards = []
+    for piece in obj.cards():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        cards.append(piece)
+
+    otherpieces = []
+    for piece in obj.otherpieces():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        otherpieces.append(piece)
+
+    context = {
+        'object': obj,
+        'post': post,
+        'component': obj.component,
+        'can_edit': True,
+        'warriors': warriors,
+        'buildings': buildings,
+        'tokens': tokens,
+        'cards': cards,
+        'otherpieces': otherpieces,
+        'language_code': language_code,
+    }
+    return render(request, 'the_keep/post_pieces.html', context)
+
+
 # This view is used to check the status of a Post and return playtest details. The page is intentionally 'game-ified' to encourage playtests with different components.
 
 def status_check(request, slug):

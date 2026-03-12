@@ -82,7 +82,6 @@
                     </div>
                 </div>
 
-                {% if tournament.id %}
                 <!-- Moderators Card -->
                 <div class="card mb-3">
                     <div class="card-header">
@@ -96,9 +95,10 @@
                             <input type="text"
                                    class="form-control"
                                    placeholder="Search players to add as moderator..."
-                                   hx-get="{% url 'tournament-search-moderators' slug=tournament.slug %}"
+                                   hx-get="{% url 'search-moderators' %}"
                                    hx-trigger="keyup changed delay:500ms"
                                    hx-target="#moderator-search-results"
+                                   hx-vals="js:{exclude: getModeratorExcludeIds(), designer: getDesignerId()}"
                                    name="q"
                                    id="moderator-search-input"
                                    autocomplete="off">
@@ -127,7 +127,6 @@
                         <div id="moderator-empty" class="text-muted{% if moderators %} d-none{% endif %}">No moderators assigned.</div>
                     </div>
                 </div>
-                {% endif %}
 
                 <!-- Dates & Visibility Card -->
                 <div class="card mb-3">
@@ -430,6 +429,18 @@
             },
             onChange: updateFormatField
         });
+    }
+
+    // Moderator helpers for HTMX search
+    function getModeratorExcludeIds() {
+        const inputs = document.querySelectorAll('input[name="moderators"]');
+        return Array.from(inputs).map(i => i.value).join(',');
+    }
+
+    function getDesignerId() {
+        const designerSelect = document.getElementById('id_designer');
+        if (designerSelect) return designerSelect.value || '';
+        return '{{ request.user.profile.id }}';
     }
 
     // Moderator management

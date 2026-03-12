@@ -11,7 +11,7 @@ from .views import (game_list_view, leaderboard_view,
                     tournament_overview_page, round_overview_page,
                     TournamentDeleteView, tournaments_home,
                     tournament_dynamic_create, tournament_dynamic_update,
-                    tournament_search_players, tournament_move_player, tournament_search_moderators,
+                    tournament_search_players, tournament_move_player, search_moderators,
                     tournament_search_assets, tournament_add_asset, tournament_remove_asset,
                     tournament_manage_players, tournament_manage_assets,
                     tournament_settings_hub, round_settings_hub,
@@ -73,7 +73,7 @@ urlpatterns = [
     # HTMX endpoints for player management
     path('series/<slug:slug>/players/search/', tournament_search_players, name='tournament-search-players'),
     path('series/<slug:slug>/players/move/', tournament_move_player, name='tournament-move-player'),
-    path('series/<slug:slug>/moderators/search/', tournament_search_moderators, name='tournament-search-moderators'),
+    path('moderators/search/', search_moderators, name='search-moderators'),
 
     # HTMX endpoints for asset management
     path('series/<slug:slug>/assets/<str:asset_type>/search/', tournament_search_assets, name='tournament-search-assets'),

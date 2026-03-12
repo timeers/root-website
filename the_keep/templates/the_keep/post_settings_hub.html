@@ -35,6 +35,28 @@
             </div>
         </div>
 
+        <!-- Components Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-puzzle me-2"></i>{% trans 'Components' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}Manage warriors, buildings, tokens, and other pieces for this {{ object_component }}{% endblocktrans %}
+                        {% if object.pieces.count %}
+                            <br><strong>{{ object.pieces.count }}</strong> {% trans 'piece' %}{{ object.pieces.count|pluralize }} {% trans 'added' %}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'post-pieces' object.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-puzzle me-1"></i>{% trans 'Edit Components' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
         <!-- Status Check Card -->
         <div class="col-md-6">
             <div class="card h-100">

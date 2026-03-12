@@ -2110,6 +2110,12 @@ def tournament_dynamic_create(request):
             tournament.save()
             form.save_m2m()  # Save ManyToMany relationships
 
+            # Save moderators
+            moderator_ids = request.POST.getlist('moderators')
+            if moderator_ids:
+                valid_moderators = Profile.objects.filter(pk__in=moderator_ids)
+                tournament.moderators.set(valid_moderators)
+
             # Set default assets based on asset_mode and platform
             set_default_tournament_assets(tournament)
 
@@ -2267,37 +2273,36 @@ def tournament_search_players(request, slug):
     })
 
 
-@player_required
-def tournament_search_moderators(request, slug):
-    """HTMX endpoint: Search for players to add as moderators"""
-    tournament = get_object_or_404(Tournament, slug=slug)
-
-    # Only designer and admin can manage moderators
-    if not (request.user.profile == tournament.designer or request.user.profile.admin):
-        return HttpResponse("Permission denied", status=403)
-
+@player_onboard_required
+def search_moderators(request):
+    """HTMX endpoint: Search for players to add as moderators (works for both create and update)"""
     query = request.GET.get('q', '')
+    exclude_ids = request.GET.get('exclude', '')
+    designer_id = request.GET.get('designer', '')
 
-    # Get profiles not already moderators and not the designer
-    candidates = Profile.objects.exclude(
-        pk__in=tournament.moderators.values_list('pk', flat=True)
-    )
-    if tournament.designer:
-        candidates = candidates.exclude(pk=tournament.designer.pk)
+    if not query:
+        return render(request, 'the_warroom/partials/moderator_search_results.html', {
+            'players': [],
+        })
 
-    if query:
-        candidates = candidates.filter(
-            Q(discord__icontains=query) |
-            Q(display_name__icontains=query)
-        )
-    else:
-        candidates = candidates.none()
+    candidates = Profile.objects.all()
 
-    candidates = candidates[:10]
+    # Exclude already-selected moderators
+    if exclude_ids:
+        exclude_list = [int(pk) for pk in exclude_ids.split(',') if pk.strip().isdigit()]
+        candidates = candidates.exclude(pk__in=exclude_list)
+
+    # Exclude the designer
+    if designer_id and designer_id.isdigit():
+        candidates = candidates.exclude(pk=int(designer_id))
+
+    candidates = candidates.filter(
+        Q(discord__icontains=query) |
+        Q(display_name__icontains=query)
+    )[:10]
 
     return render(request, 'the_warroom/partials/moderator_search_results.html', {
         'players': candidates,
-        'tournament': tournament,
     })
 
 
