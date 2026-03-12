@@ -61,6 +61,19 @@
             {{ form.player }}
         {% endif %}
         </div>
+        
+        {# Date filters #}
+        <div class="row align-items-end">
+            <div class="col mb-1">
+                <label for="id_date_after">{% trans 'From' %}</label>
+                {{ form.date_after }}
+            </div>
+            <div class="col-auto mb-1 pb-2">&ndash;</div>
+            <div class="col mb-1">
+                <label for="id_date_before">{% trans 'To' %}</label>
+                {{ form.date_before }}
+            </div>
+        </div>
 
         {# Official filter - conditional display based on user permissions #}
         {% if user.is_authenticated and not user.profile.weird %}

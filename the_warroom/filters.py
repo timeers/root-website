@@ -285,10 +285,22 @@ class TournamentGameFilter(django_filters.FilterSet):
         field_name='efforts__player',
         label='Players',
     )
+    date_after = django_filters.DateFilter(
+        field_name='date_posted',
+        lookup_expr='gte',
+        label='From',
+        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+    )
+    date_before = django_filters.DateFilter(
+        field_name='date_posted',
+        lookup_expr='lte',
+        label='To',
+        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+    )
 
     class Meta:
         model = Game
-        fields = ['faction', 'vagabond', 'map', 'deck', 'player']
+        fields = ['faction', 'vagabond', 'map', 'deck', 'player', 'date_after', 'date_before']
 
     def __init__(self, *args, tournament=None, stage=None, round=None, **kwargs):
         super().__init__(*args, **kwargs)
