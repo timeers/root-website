@@ -11,8 +11,8 @@
 <div class="content-section">
     {% if is_edit_mode %}
     <div class="mb-4 d-flex justify-content-between align-items-center">
-        <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Back to Survey' %}
+        <a href="{{ return_to }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {{ return_title }}
         </a>
     </div>
     {% else %}

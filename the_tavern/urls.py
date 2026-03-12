@@ -5,7 +5,8 @@ from .views import (
                     get_question_data, survey_responses_view, save_question_template, get_question_template, delete_question_template, survey_admin_view, survey_quiz_settings_view,
                     survey_response_move_to_waitlist, survey_response_move_to_accepted, survey_response_delete,
                     survey_send_availability,
-                    tournament_surveys_view,
+                    survey_settings_hub,
+                    tournament_surveys_view, post_surveys_view,
                     about_surveys_view,
                     )
 
@@ -14,6 +15,7 @@ urlpatterns = [
     # Tournament/Stage scoped survey list
     path('series/<slug:tournament_slug>/surveys/', tournament_surveys_view, name='tournament-surveys'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/surveys/', tournament_surveys_view, name='stage-surveys'),
+    path('post/<slug:slug>/surveys/', post_surveys_view, name='post-surveys'),
 
     # Survey URLs
     path('surveys/', survey_list_view, name='survey-list'),
@@ -32,6 +34,7 @@ urlpatterns = [
     path('surveys/api/question/<int:question_id>/', get_question_data, name='get-question-data'),
 
     path('surveys/<slug:slug>/', survey_detail_view, name='survey-detail'),
+    path('surveys/<slug:slug>/settings/', survey_settings_hub, name='survey-settings'),
     path('surveys/<slug:slug>/take/', survey_take_view, name='survey-take'),
     path('surveys/<slug:slug>/edit/', survey_edit_view, name='survey-edit'),
     path('surveys/<slug:slug>/delete/', survey_delete_view, name='survey-delete'),

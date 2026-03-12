@@ -1,5 +1,5 @@
 {% load i18n %}
-<!-- Navigation and Actions -->
+<!-- Navigation -->
 <div class="d-flex align-items-center mb-4">
     <div>
         {% if return_title and return_to %}
@@ -12,81 +12,11 @@
         </a>
         {% endif%}
     </div>
-    {% if survey %}
-        <div class="ms-auto d-none d-md-flex gap-2">
-            {% if view_detail_button %}
-                <a href="{% url 'survey-detail' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-success">
-                    <i class="bi bi-eye"></i> {% trans 'View Survey' %}
-                </a>
-            {% endif %}
-            {% if can_take_survey %}
-                <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-success">
-                    <i class="bi bi-list-check"></i> {% trans 'Take Survey' %}
-                </a>
-            {% endif %}
-            {% if can_see_results %}
-                <a href="{% url 'survey-results' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
-                </a>
-            {% endif %}
-            {% if can_edit_survey %}
-                <a href="{% url 'survey-edit' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
-                </a>
-            {% endif %}
-            {% if can_edit_survey and survey.is_quiz %}
-                <a href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-success">
-                    <i class="bi bi-clipboard-check"></i> {% trans 'Quiz Settings' %}
-                </a>
-            {% endif %}
-            {% if can_edit_survey and survey.series and survey.response_count > 0 %}
-                <a href="{% url 'survey-send-availability' survey.slug %}" class="btn btn-sm btn-outline-info">
-                    <i class="bi bi-send"></i> {% trans 'Send to Round' %}
-                </a>
-            {% endif %}
-        </div>
-
-        {% if can_take_survey or can_see_results or can_edit_survey %}
-            <div class="dropdown d-md-none ms-auto">
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                        type="button"
-                        data-bs-toggle="dropdown"
-                        aria-expanded="false">
-                    {% trans "Actions" %}
-                </button>
-
-                <ul class="dropdown-menu dropdown-menu-end">
-                    {% if can_take_survey %}
-                        <li>
-                            <a class="dropdown-item" href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
-                                <i class="bi bi-list-check"></i> {% trans 'Take Survey' %}
-                            </a>
-                        </li>
-                    {% endif %}
-                    {% if can_see_results %}
-                        <li>
-                            <a class="dropdown-item" href="{% url 'survey-results' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
-                                <i class="bi bi-bar-chart"></i> {% trans 'View Results' %}
-                            </a>
-                        </li>
-                    {% endif %}
-                    {% if can_edit_survey %}
-                        <li>
-                            <a class="dropdown-item" href="{% url 'survey-edit' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
-                                <i class="bi bi-gear"></i> {% trans 'Edit Survey' %}
-                            </a>
-                        </li>
-                    {% endif %}
-                    {% if can_edit_survey and survey.is_quiz %}
-                        <li>
-                            <a class="dropdown-item" href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
-                                <i class="bi bi-clipboard-check"></i> {% trans 'Quiz Settings' %}
-                            </a>
-                        </li>
-                    {% endif %}
-                </ul>
-            </div>
-        {% endif %}
+    {% if can_edit_survey and not is_settings_page %}
+    <div class="ms-auto">
+        <a href="{% url 'survey-settings' survey.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-gear"></i> {% trans 'Settings' %}
+        </a>
+    </div>
     {% endif %}
-
 </div>

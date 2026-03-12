@@ -2814,6 +2814,77 @@ def delete_piece(request, id):
         raise PermissionDenied() 
 
 
+@login_required
+def post_settings_hub(request, slug):
+    """Settings hub page consolidating all post management actions."""
+    post = get_object_or_404(Post, slug=slug)
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
+
+    can_edit = user_can_edit(request, obj)
+    if not can_edit:
+        raise PermissionDenied
+
+    profile = request.user.profile
+    is_designer = profile == obj.designer
+    language_code = request.GET.get('lang') or get_language()
+    language = Language.objects.filter(code=language_code).first()
+
+    # Stable/Testing readiness (designer only)
+    stable_ready = None
+    testing_ready = None
+    if is_designer:
+        games = obj.get_games_queryset()
+        stable_ready_result = obj.stable_check()
+        stable_ready = stable_ready_result.stable_ready
+        if obj.status == '3' and games.count() > 0:
+            testing_ready = True
+
+    # Law state
+    existing_law = Law.objects.filter(group__post=post).first()
+    editable_law = None
+    if existing_law:
+        editable_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
+
+    # FAQ state
+    existing_faq = FAQ.objects.filter(post=post).first()
+    available_faq = None
+    if existing_faq:
+        available_faq = FAQ.objects.filter(post=post, language=language).first()
+
+    # Translations count
+    available_translations = obj.translations.count()
+
+    # Decks/Cards
+    has_decks = obj.decks.exists()
+
+    # Surveys linked to this post
+    from the_tavern.models import Survey
+    survey_count = Survey.objects.filter(post=post).count()
+
+    # Only admin can delete
+    can_delete = profile.admin
+
+    context = {
+        'object': obj,
+        'post': post,
+        'object_component': obj.get_component_display(),
+        'can_edit': can_edit,
+        'is_designer': is_designer,
+        'stable_ready': stable_ready,
+        'testing_ready': testing_ready,
+        'existing_law': existing_law,
+        'editable_law': editable_law,
+        'available_faq': available_faq,
+        'available_translations': available_translations,
+        'has_decks': has_decks,
+        'survey_count': survey_count,
+        'can_delete': can_delete,
+        'language_code': language_code,
+    }
+    return render(request, 'the_keep/post_settings_hub.html', context)
+
+
 # This view is used to check the status of a Post and return playtest details. The page is intentionally 'game-ified' to encourage playtests with different components.
 
 def status_check(request, slug):

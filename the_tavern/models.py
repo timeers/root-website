@@ -137,6 +137,9 @@ class Survey(models.Model):
     def get_absolute_url(self):
         return reverse('survey-detail', kwargs={'slug': self.slug})
 
+    def get_settings_url(self):
+        return reverse('survey-settings', kwargs={'slug': self.slug})
+
     def is_available(self):
         """Check if survey is currently available to take"""
         now = timezone.now()

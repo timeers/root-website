@@ -34,6 +34,7 @@ from the_warroom.models import Tournament, Round, Game, TournamentPlayer, Player
 from the_warroom.services.grouping import GroupingService
 
 from the_keep.models import Post, PNPAsset
+from the_keep.utils import user_can_edit
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -1390,6 +1391,34 @@ def survey_detail_view(request, slug):
     return render(request, 'the_tavern/survey_detail.html', context)
 
 
+@login_required
+def survey_settings_hub(request, slug):
+    """Settings hub page with links to all survey management tools."""
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    if not survey.can_edit_survey(profile):
+        raise PermissionDenied()
+
+    response_count = survey.response_count()
+
+    return_to = survey.get_absolute_url()
+    return_title = 'Back to Survey'
+    current_url = request.path
+    current_title = 'Back to Settings'
+
+    context = {
+        'survey': survey,
+        'response_count': response_count,
+        'can_edit_survey': True,
+        'is_settings_page': True,
+        'return_to': return_to,
+        'return_title': return_title,
+        'current_url': current_url,
+        'current_title': current_title,
+    }
+    return render(request, 'the_tavern/survey_settings_hub.html', context)
+
 
 @player_onboard_required
 def survey_results_view(request, slug):
@@ -2584,6 +2613,9 @@ def survey_edit_view(request, slug):
             'order': section.order,
         })
 
+    return_to = request.GET.get('return_to') or survey.get_absolute_url()
+    return_title = request.GET.get('return_title') or 'Back to Survey'
+
     context = {
         'survey': survey,
         'likert_scales': likert_scales,
@@ -2596,6 +2628,8 @@ def survey_edit_view(request, slug):
         'user_guilds': user_guilds,
         'user_tournaments': user_tournaments,
         'user_posts': user_posts,
+        'return_to': return_to,
+        'return_title': return_title,
     }
     return render(request, 'the_tavern/survey_form.html', context)
 
@@ -2868,6 +2902,20 @@ def survey_create_view(request):
         except Tournament.DoesNotExist:
             pass
 
+    # Handle pre-fill for post (e.g. coming from post settings hub)
+    prefill_post_id = None
+    post_param = request.GET.get('post')
+    if post_param:
+        try:
+            prefill_post = Post.objects.get(id=post_param)
+            if user_can_edit(request, prefill_post):
+                prefill_post_id = prefill_post.id
+                # Ensure the pre-filled post appears in the dropdown (admin/co-designer case)
+                if not user_posts.filter(id=prefill_post_id).exists():
+                    user_posts = user_posts | Post.objects.filter(id=prefill_post_id)
+        except Post.DoesNotExist:
+            pass
+
     context = {
         'likert_scales': likert_scales,
         'question_templates': question_templates,
@@ -2877,6 +2925,7 @@ def survey_create_view(request):
         'is_edit_mode': False,
         'prefill_series_id': prefill_series_id,
         'prefill_stage_id': prefill_stage_id,
+        'prefill_post_id': prefill_post_id,
     }
     return render(request, 'the_tavern/survey_form.html', context)
 
@@ -2910,6 +2959,26 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
         'current_url': request.path,
     }
     return render(request, 'the_tavern/tournament_surveys.html', context)
+
+
+
+def post_surveys_view(request, slug):
+    """List surveys associated with a post."""
+    post = get_object_or_404(Post, slug=slug)
+
+    can_create = user_can_edit(request, post)
+    surveys = Survey.objects.filter(post=post)
+    create_url = reverse('survey-create') + f'?post={post.id}'
+
+    context = {
+        'post': post,
+        'surveys': surveys,
+        'create_url': create_url,
+        'can_create': can_create,
+        'current_title': post.title,
+        'current_url': request.path,
+    }
+    return render(request, 'the_tavern/post_surveys.html', context)
 
 
 @login_required

@@ -219,17 +219,26 @@
                         {% if user_posts %}
                         <div class="col-md-6 mb-2">
                             <label for="post" class="form-label">{% trans 'Subject' %}</label>
-                            <select class="form-select" id="post" name="post">
-                                <option value="">{% trans 'No post association' %}</option>
-                                {% for post in user_posts %}
-                                    {% if post.small_icon %}
-                                        <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
-                                    {% else %}
-                                        <option value="{{ post.id }}" data-icon="" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
-                                    {% endif %}
-                                {% endfor %}
-                            </select>
-                            <small class="form-text text-muted">{% trans 'Associate with a Root component you designed' %}</small>
+                            {% if prefill_post_id %}
+                                {# Locked: show a read-only badge and submit value via hidden input #}
+                                <input type="hidden" name="post" value="{{ prefill_post_id }}">
+                                <div class="form-control bg-light d-flex align-items-center gap-2">
+                                    {% for post in user_posts %}{% if post.id == prefill_post_id %}{{ post.title }}{% endif %}{% endfor %}
+                                    <i class="bi bi-lock text-muted ms-auto" title="{% trans 'Locked' %}"></i>
+                                </div>
+                            {% else %}
+                                <select class="form-select" id="post" name="post">
+                                    <option value="">{% trans 'No post association' %}</option>
+                                    {% for post in user_posts %}
+                                        {% if post.small_icon %}
+                                            <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
+                                        {% else %}
+                                            <option value="{{ post.id }}" data-icon="" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                                <small class="form-text text-muted">{% trans 'Associate with a Root component you designed' %}</small>
+                            {% endif %}
                         </div>
                         {% endif %}
                     </div>

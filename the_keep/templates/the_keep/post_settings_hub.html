@@ -1,0 +1,258 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans 'Settings' %} - {{ object.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{{object.title}}{% trans ' Settings' %}</h2>
+        <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% blocktrans %}Back to {{ object_component }}{% endblocktrans %}
+        </a>
+    </div>
+
+    <!-- Settings Cards Grid -->
+    <div class="row g-4">
+
+        <!-- Edit Post Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-pencil-square me-2"></i>{% blocktrans %}Edit {{ object_component }}{% endblocktrans %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}Update the details, images, and configuration for this {{ object_component }}{% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{{ object.get_edit_url }}" class="btn btn-primary w-100">
+                        <i class="bi bi-pencil me-1"></i>{% blocktrans %}Edit {{ object_component }}{% endblocktrans %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Check Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-speedometer2 me-2"></i>{% trans 'Status Check' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'View stability progress and playtest requirements' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'status-check' object.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-speedometer2 me-1"></i>{% trans 'View Status' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mark Stable Card -->
+        {% if stable_ready and object.status != "1" %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-check-circle me-2"></i>{% trans 'Mark Stable' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}
+                        This {{ object_component }} has met all stability requirements and can be marked as Stable' 
+                        {% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'confirm-stable' object.slug %}" class="btn btn-success w-100">
+                        <i class="bi bi-check me-1"></i>{% trans 'Mark Stable' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Mark Testing Card -->
+        {% if testing_ready and object.status != "2" and object.status != "1" %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-play-circle me-2"></i>{% trans 'Mark Testing' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}This {{ object_component }} has recorded games and can be moved to Testing status{% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'confirm-testing' object.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-play-fill me-1"></i>{% trans 'Mark Testing' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Law Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-book me-2"></i>{% trans 'Law' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% if not existing_law %}
+                            {% blocktrans %}Create rules and law entries for this {{ object_component }}{% endblocktrans %}
+                        {% elif editable_law %}
+                            {% blocktrans %}Edit the existing law entries for this {{ object_component }}{% endblocktrans %}
+                        {% else %}
+                            {% blocktrans %}Copy law entries from another language for this {{ object_component }}{% endblocktrans %}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    {% if not existing_law %}
+                        <a href="{% url 'post-law-group-create' slug=object.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-lg me-1"></i>{% trans 'Add Law' %}
+                        </a>
+                    {% elif not editable_law %}
+                        <a href="{% url 'copy-law-group' slug=existing_law.group.slug language_code=existing_law.language.code %}" class="btn btn-primary w-100">
+                            <i class="bi bi-copy me-1"></i>{% trans 'Copy Law' %}
+                        </a>
+                    {% else %}
+                        <a href="{{ editable_law.get_edit_url }}" class="btn btn-primary w-100">
+                            <i class="bi bi-pencil me-1"></i>{% trans 'Edit Law' %}
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- FAQ Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-info-circle me-2"></i>{% trans 'FAQ' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% if available_faq %}
+                            {% blocktrans %}Edit frequently asked questions for this {{ object_component }}{% endblocktrans %}
+                        {% else %}
+                            {% blocktrans %}Add frequently asked questions for this {{ object_component }}{% endblocktrans %}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'faq-view' slug=object.slug language_code=language_code %}" class="btn btn-primary w-100">
+                        {% if available_faq %}
+                            <i class="bi bi-pencil me-1"></i>{% trans 'Edit FAQ' %}
+                        {% else %}
+                            <i class="bi bi-plus-lg me-1"></i>{% trans 'Add FAQ' %}
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Translations Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-translate me-2"></i>{% trans 'Translations' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}Manage translations for this {{ object_component }}{% endblocktrans %}
+                        {% if available_translations %}
+                            <br><strong>{{ available_translations }}</strong> {% trans 'translation' %}{{ available_translations|pluralize }} {% trans 'available' %}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'post-translations' object.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-translate me-1"></i>{% trans 'Manage Translations' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Cards Card -->
+        {% if has_decks %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-collection me-2"></i>{% trans 'Cards' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}Manage card decks and individual cards for this {{ object_component }}{% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'post-cards-router' post_slug=object.slug language_code=language_code %}" class="btn btn-primary w-100">
+                        <i class="bi bi-collection me-1"></i>{% trans 'Manage Cards' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Create Survey Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-clipboard-check me-2"></i>{% trans 'Surveys' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}Create a survey associated with this {{ object_component }}{% endblocktrans %}
+                        {% if survey_count %}
+                            <br><strong>{{ survey_count }}</strong> {% trans 'survey' %}{{ survey_count|pluralize }} {% trans 'linked' %}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <div class="d-flex gap-2">
+                        <a href="{% url 'survey-create' %}?post={{ post.id }}" class="btn btn-primary flex-fill">
+                            <i class="bi bi-plus-lg me-1"></i>{% trans 'Create Survey' %}
+                        </a>
+                        {% if survey_count %}
+                        <a href="{% url 'post-surveys' post.slug %}" class="btn btn-outline-secondary flex-fill">
+                            <i class="bi bi-list-ul me-1"></i>{% trans 'View' %} ({{ survey_count }})
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Card (Danger Zone) -->
+        {% if can_delete %}
+        <div class="col-md-6">
+            <div class="card h-100 border-danger">
+                <div class="card-body">
+                    <h5 class="card-title text-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>{% trans 'Danger Zone' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}Permanently delete this {{ object_component }} and all associated data{% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'post-delete' pk=post.pk %}" class="btn btn-outline-danger w-100">
+                        <i class="bi bi-trash me-1"></i>{% blocktrans %}Delete {{ object_component }}{% endblocktrans %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+{% endblock %}
