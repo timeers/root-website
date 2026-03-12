@@ -10,10 +10,12 @@
             </a>
             {% if has_games %}
             <a href="{% url 'tournament-leaderboard-page' tournament.slug %}"
+               data-carry-filters="leaderboard"
                class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
                 {% trans 'Leaderboard' %}
             </a>
             <a href="{% url 'tournament-games-page' tournament.slug %}"
+               data-carry-filters="games"
                class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}
             </a>

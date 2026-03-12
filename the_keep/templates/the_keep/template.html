@@ -110,6 +110,33 @@
         document.activeElement.blur();
     });
 </script>
+<script>
+    // Carry filter query params between Games and Leaderboard tabs
+    document.addEventListener('click', function(e) {
+        var link = e.target.closest('a[data-carry-filters]');
+        if (!link) return;
+
+        var currentParams = new URLSearchParams(window.location.search);
+        if (!currentParams.toString()) return;
+
+        var targetType = link.getAttribute('data-carry-filters');
+        var newParams = new URLSearchParams();
+
+        var excludeAlways = ['page'];
+        var gamesExclude = ['limit', 'threshold'];
+
+        currentParams.forEach(function(value, key) {
+            if (excludeAlways.indexOf(key) !== -1) return;
+            if (targetType === 'games' && gamesExclude.indexOf(key) !== -1) return;
+            newParams.append(key, value);
+        });
+
+        if (newParams.toString()) {
+            e.preventDefault();
+            window.location.href = link.getAttribute('href') + '?' + newParams.toString();
+        }
+    });
+</script>
     {% block scripts %}{% endblock %}
 <script>
     // Wait until the DOM is fully loaded
