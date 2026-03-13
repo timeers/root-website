@@ -225,7 +225,7 @@
             style="max-height: 200px; display: none;">
           
           <input type="file" id="add-card-image" class="form-control" accept="image/*">
-          <div class="invalid-feedback">
+          <div class="invalid-feedback" style="display: none;" id="add-card-image-error">
             Please select an image file.
           </div>
         </div>
@@ -238,7 +238,9 @@
                 type="checkbox"
                 class="add-card-tag"
                 value="{{ value }}">
-              {{ label }}
+              <img class="lg-faction-icon"
+                src="{% static 'images/tags/' %}{{ label }}_Tag.png"
+                alt="{{ label }} Tag">
             </label>
           {% endfor %}
         </div>
@@ -446,18 +448,24 @@ document.addEventListener("click", function (e) {
 
 // Save Edit Card Changes
 document.getElementById("save-card-changes").addEventListener("click", function() {
+    const saveBtn = this;
     const cardId = document.getElementById("edit-card-id").value;
     const name = document.getElementById("edit-card-name").value;
     const imageFile = document.getElementById("edit-card-image").files[0];
-    
+
+    // Disable button to prevent double submit
+    saveBtn.disabled = true;
+    const originalText = saveBtn.textContent;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+
     const formData = new FormData();
     formData.append("name", name);
-    
+
     // Add image if selected
     if (imageFile) {
         formData.append("front_image", imageFile);
     }
-    
+
     // Collect selected tags
     const tags = Array.from(document.querySelectorAll(".edit-card-tag:checked"))
         .map(cb => cb.value);
@@ -484,6 +492,10 @@ document.getElementById("save-card-changes").addEventListener("click", function(
     .catch(err => {
         console.error("Error updating card:", err);
         alert("Failed to update card.");
+    })
+    .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
     });
 });
 
@@ -497,6 +509,7 @@ document.getElementById("add-card-btn").addEventListener("click", function() {
   
   // Clear validation state
   document.getElementById("add-card-image").classList.remove("is-invalid");
+  document.getElementById("add-card-image-error").style.display = "none";
   
   document.querySelectorAll(".add-card-tag").forEach(cb => {
     cb.checked = false;
@@ -507,27 +520,34 @@ document.getElementById("add-card-btn").addEventListener("click", function() {
 
 // Save New Card (validation before submit)
 document.getElementById("save-new-card").addEventListener("click", function() {
+  const saveBtn = this;
   const imageFile = document.getElementById("add-card-image").files[0];
   const imageInput = document.getElementById("add-card-image");
-  
+
   // Clear previous validation
   imageInput.classList.remove("is-invalid");
-  
+  document.getElementById("add-card-image-error").style.display = "none";
+
   // Validate image is selected
   if (!imageFile) {
     imageInput.classList.add("is-invalid");
-    // Focus the input to draw attention
+    document.getElementById("add-card-image-error").style.display = "block";
     imageInput.focus();
     return;
   }
-  
+
+  // Disable button to prevent double submit
+  saveBtn.disabled = true;
+  const originalText = saveBtn.textContent;
+  saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+
   const deckgroupId = document.getElementById("add-card-btn").dataset.deckgroupId;
   const name = document.getElementById("add-card-name").value;
-  
+
   const formData = new FormData();
   formData.append("name", name);
   formData.append("front_image", imageFile);
-  
+
   const tags = Array.from(document.querySelectorAll(".add-card-tag:checked"))
     .map(cb => cb.value);
   formData.append("tags", JSON.stringify(tags));
@@ -550,14 +570,14 @@ document.getElementById("save-new-card").addEventListener("click", function() {
     if (noCardsMsg) {
       noCardsMsg.remove();
     }
-    
+
     document.getElementById("card-list").insertAdjacentHTML('beforeend', html);
-    
+
     cardCount++;
-    
+
     const cardCountContainer = document.getElementById('card-count-container');
     const statedCardInput = cardCountContainer.querySelector('[id*="stated_card_count"]');
-    
+
     if (statedCardInput) {
       cardCountContainer.innerHTML = `
         <label>Card Count</label>
@@ -568,13 +588,17 @@ document.getElementById("save-new-card").addEventListener("click", function() {
     } else {
       updateCardCount();
     }
-    
+
     document.activeElement.blur();
     bootstrap.Modal.getInstance(document.getElementById("addCardModal")).hide();
   })
   .catch(err => {
     console.error("Error adding card:", err);
     alert("Failed to add card. Please try again.");
+  })
+  .finally(() => {
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalText;
   });
 });
 
@@ -585,6 +609,7 @@ document.getElementById("add-card-image").addEventListener("change", function(e)
   
   // Remove validation error when file is selected
   this.classList.remove("is-invalid");
+  document.getElementById("add-card-image-error").style.display = "none";
   
   if (file) {
     const reader = new FileReader();
