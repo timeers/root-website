@@ -33,6 +33,7 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Fixed bug with RDL player names importing incorrectly
 - Fixed modal bug on Guild invite approval form
 - RDL cleanup bug that could delete all RDL games fixed
+- Fixed bug where new card could be added multiple times by clicking save button repeatedly
 
 
 ## [1.10.2] - 2026-1-14 Battlefield Unification

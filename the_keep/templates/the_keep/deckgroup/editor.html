@@ -338,9 +338,11 @@ if (countDisplay) {
 
 {% if not is_create %}
 // Reorder cards
+{% if allow_reorganization %}
   document.addEventListener("DOMContentLoaded", () => {
     new Sortable(document.getElementById("card-list"), {
       animation: 150,
+      forceFallback: true,
       onEnd: function(evt) {
         let order = [...evt.to.children].map(el => el.id.replace("card-", ""));
         fetch("{% url 'reorder-cards' deckgroup.id %}", {
@@ -353,7 +355,8 @@ if (countDisplay) {
         });
       }
     });
-  }); 
+  });
+{% endif %}
 
 
 
