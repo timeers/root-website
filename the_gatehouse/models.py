@@ -231,9 +231,10 @@ class PageChoices(models.TextChoices):
     FEEDBACK = 'feedback', 'Feedback'
     ABOUT = 'about', 'About'
     SETTINGS = 'settings', 'Settings'
-
-
-
+    LAWS = 'laws', 'Laws'
+    FAQ = 'faq', 'FAQ'
+    SURVEYS = 'surveys', 'Surveys'
+    SERIES = 'series', 'Series'
 
 
 class BackgroundImage(models.Model):

@@ -82,7 +82,7 @@
             <p>
                 {% blocktrans %}
                 A Series is a way to organize and manage games on the Root Database. Whether you're organizing       
-                a competitive tournament or a recurring game group, the Series system provides a
+                a competitive tournament or a recurring game group, a Series provides a
                 structure to track games, manage players, and display leaderboards.
                 {% endblocktrans %}
             </p>
@@ -100,7 +100,7 @@
     <div class="card about-section">
         <div class="card-body">
             <h5 class="card-title root-title">{% trans 'Structure' %}</h5>
-            <p>{% blocktrans %}A series can be as simple or as complex (up to a point) as you want. Series are organized in a hierarchy:{% endblocktrans %}</p>
+            <p>{% blocktrans %}A Series can be as simple or as complex (up to a point) as you want. Series are organized in a hierarchy:{% endblocktrans %}</p>
             <dl class="row mb-0">
                 <dt class="col-sm-3">{% trans 'Series' %}</dt>
                 <dd class="col-sm-9">
@@ -113,15 +113,16 @@
                 <dd class="col-sm-9">
                     {% blocktrans %}
                     An intermediate layer within a Series. Use stages to divide your event into phases.
-                    For example, a "Group Stage" followed by a "Playoffs" stage. Players can advance
-                    between stages automatically through brackets.
+                    For example, a "Group Stage" followed by a "Playoffs" stage. 
+                    Each Stage can have a different subset players from the Series roster.
                     {% endblocktrans %}
                 </dd>
                 <dt class="col-sm-3">{% trans 'Round' %}</dt>
                 <dd class="col-sm-9">
                     {% blocktrans %}
-                    The level within a stage where games are actually played. Rounds can have brackets,
-                    player groupings, and their own game settings.
+                    The level within a stage where games are actually played. 
+                    Rounds can have brackets, player groupings, and their own game settings.
+                    If you need to randomize player matchups so that each player plays two games against random opponents this would take place in two different Rounds.
                     {% endblocktrans %}
                 </dd>
             </dl>
@@ -263,20 +264,12 @@
                             </td>
                         </tr>
                         <tr>
-                            <td>{% trans 'View Public Series' %}</td>
+                            <td>{% trans 'View Series' %}</td>
                             <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
                             <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
                             <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
                             <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
                             <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
-                        </tr>
-                        <tr>
-                            <td>{% trans 'View Private Series' %}</td>
-                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
-                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
-                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
-                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
-                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
                         </tr>
                         <tr>
                             <td>{% trans 'View Leaderboards' %}</td>
