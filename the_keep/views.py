@@ -77,6 +77,7 @@ from .services.slugify_titles import slugify_deck_group_title
 from .services.upload_paths import deck_back_upload_path
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
+from the_tavern.models import Survey
 
 from django.db import models
 from django.db.models import OuterRef, Subquery, F, Value, Exists
@@ -228,10 +229,11 @@ def expansion_detail_view(request, slug):
     else:  
         available_faq = None
 
-    if available_faq and available_law:
-        col_class = 'w-100'
-    else:
-        col_class = 'w-50'
+    # Count items for the law/faq section
+    items_count = sum([
+        1 if available_law else 0,
+        1 if available_faq else 0,
+    ])
 
     can_edit = user_can_edit(request, expansion)
 
@@ -264,7 +266,7 @@ def expansion_detail_view(request, slug):
         'wr_link_config': wr_link_config,
         'fr_link_config': fr_link_config,
 
-        'col_class': col_class,
+        'items_count': items_count,
         'available_law': available_law,
         'available_faq': available_faq,
         'language_code': language_code,
@@ -947,6 +949,11 @@ def ultimate_component_view(request, slug, component):
     # Get the translation if available, fallback to default
     object_translation = obj.translations.filter(language=language).first()
 
+    # If no translation exists for the selected language, display the post's native language
+    if not object_translation and language != post.language:
+        language = post.language
+        language_code = language.code if language else 'en'
+
     existing_law = Law.objects.filter(group__post=post).first()
     if existing_law:
         editable_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
@@ -961,13 +968,43 @@ def ultimate_component_view(request, slug, component):
     existing_faq = FAQ.objects.filter(post=post).first()
     if existing_faq:
         available_faq = FAQ.objects.filter(post=post, language=language).first()
-    else:  
+    else:
         available_faq = None
 
-    if available_faq and available_law:
-        col_class = 'w-100'
+    # Get available surveys for this post
+    available_surveys = []
+    if request.user.is_authenticated:
+        profile = request.user.profile
+
+        # Get surveys linked to this post
+        post_surveys = Survey.objects.filter(post=post)
+
+        for survey in post_surveys:
+            # Include if survey is available (active) OR user can see results
+            if survey.is_available() or survey.can_see_results(profile):
+                available_surveys.append(survey)
     else:
-        col_class = 'w-50'
+        # For anonymous users, show link if there are:
+        # 1. Active surveys they could take after logging in, OR
+        # 2. Closed surveys with public results they could view after logging in
+        # The post-surveys view will handle login redirect if needed
+        now = timezone.now()
+
+        available_surveys = Survey.objects.filter(post=post).filter(
+            Q(is_active=True) |  # Active surveys
+            Q(is_active=False, show_results_on_close=True)  # Closed surveys with public results
+        ).exclude(
+            # Exclude surveys that haven't started yet
+            start_date__gt=now
+        )
+
+    # Count items for the law/faq/surveys/cards section
+    items_count = sum([
+        1 if available_law else 0,
+        1 if available_faq else 0,
+        1 if available_surveys else 0,
+        1 if has_decks else 0
+    ])
 
 
     available_translations = obj.translations.all().count()
@@ -1197,8 +1234,6 @@ def ultimate_component_view(request, slug, component):
 
 
     links_count = obj.count_links(request.user)
-    if has_decks:
-        links_count += 1
 
     if obj.color_group:
         color_group = ColorChoices.get_color_group_by_hex(obj.color_group)
@@ -1283,9 +1318,11 @@ def ultimate_component_view(request, slug, component):
         'available_faq': available_faq,
         'existing_faq': existing_faq,
 
+        'available_surveys': available_surveys,
+
         'can_edit': can_edit,
 
-        'col_class': col_class,
+        'items_count': items_count,
 
         'tts_link': tts_link,
         'bgg_link': bgg_link,

@@ -65,8 +65,6 @@
         {% endif %}
     {% endif %}
 
-
-
     {% if object.fr_link %}
         {% if fr_link_config %}
             {% if fr_link_config.type == 'discord_join' %}
@@ -101,13 +99,6 @@
             {% trans 'RootJam Page' %}
         </a>
     {% endif %}
-    {% if has_decks %}
-        <a class="me-2 mt-1" href="{% url 'post-cards-router' language_code=language_code post_slug=object.slug %}" style="display: inline-flex; align-items: center;">
-            <img class="external-link-image me-2 mt-1" src="{% static 'images/tags/Dominance_Tag.png' %}" alt="Cards Link">
-            {% trans 'View Cards' %}
-        </a>
-    {% endif %}
     </div>
     </div>
 </article>
-

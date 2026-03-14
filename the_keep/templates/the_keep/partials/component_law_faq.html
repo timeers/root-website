@@ -1,28 +1,45 @@
 {% load static i18n %}
 
-{% if available_law or available_faq %}
+{% if items_count > 0 %}
 <article class="d-flex content-section">
     <div class="w-100">
 
-    <div class='d-flex justify-content-center align-items-center'>
+    <div class='row justify-content-center align-items-center'>
       {% if available_law %}
-        <div class="d-flex justify-content-center align-items-center {{ col_class }}">
+        <div class="col-6 col-md d-flex justify-content-center align-items-center">
             <a href="{{ available_law.get_absolute_url }}"
               class="d-flex flex-column align-items-center text-center soft-clickable-segment">
             <span><i class="bi bi-book"></i> {% trans 'View Law of Root' %}</span>
           </a>
         </div>
       {% endif %}
-  
+
       {% if available_faq %}
-        <div class="d-flex justify-content-center align-items-center {{ col_class }}">
+        <div class="col-6 col-md d-flex justify-content-center align-items-center">
           <a href="{% url 'faq-view' slug=object.slug language_code=language_code %}"
              class="d-flex flex-column align-items-center text-center soft-clickable-segment">
             <span><i class="bi bi-info-circle"></i> {% trans 'View FAQ' %}</span>
           </a>
         </div>
       {% endif %}
-  
+
+      {% if available_surveys %}
+        <div class="col-6 col-md d-flex justify-content-center align-items-center">
+          <a href="{% url 'post-surveys' slug=object.slug %}"
+             class="d-flex flex-column align-items-center text-center soft-clickable-segment">
+            <span><i class="bi bi-clipboard"></i> {% trans 'View Surveys' %}</span>
+          </a>
+        </div>
+      {% endif %}
+
+      {% if has_decks %}
+        <div class="col-6 col-md d-flex justify-content-center align-items-center">
+          <a href="{% url 'post-cards-router' language_code=language_code post_slug=object.slug %}"
+             class="d-flex flex-column align-items-center text-center soft-clickable-segment">
+            <span><i class="bi bi-layers"></i> {% trans 'View Cards' %}</span>
+          </a>
+        </div>
+      {% endif %}
 
     </div>
 </div>
