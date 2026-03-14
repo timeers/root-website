@@ -1037,18 +1037,21 @@ class GroupingService:
         Sync survey respondents into a tournament as TournamentPlayers.
         Creates or updates TournamentPlayer records with availability data from survey responses.
         Does not overwrite waitlist/eliminated status.
-        Removes TournamentPlayer records for profiles no longer in the survey.
+
+        ADDITIVE ONLY: Does not remove any existing TournamentPlayers.
 
         Args:
             tournament: Tournament instance
             survey: Survey instance to sync from
+
+        Returns:
+            dict: {'created': int, 'updated': int}
         """
         accepted_responses = survey.responses.filter(
             profile__isnull=False
         ).select_related('profile').order_by('response_position')
 
         threshold = survey.waitlist_threshold if survey.has_waitlist else None
-        accepted_profile_ids = set()
 
         # Base waitlist position offset: new waitlist players are appended after existing ones
         existing_max_waitlist = (
@@ -1057,9 +1060,11 @@ class GroupingService:
             .aggregate(Max('waitlist_position'))['waitlist_position__max']
         ) or 0
 
+        created_count = 0
+        updated_count = 0
+
         for response in accepted_responses:
             profile = response.profile
-            accepted_profile_ids.add(profile.id)
 
             is_waitlist = threshold and response.response_position > threshold
             availability = sorted(list(response.get_combined_availability_hours()))
@@ -1077,17 +1082,21 @@ class GroupingService:
                     'waitlist_position': waitlist_pos,
                 }
             )
-            if not created:
+
+            if created:
+                created_count += 1
+            else:
                 # Update availability hours and survey response reference
                 # But don't overwrite a manually-set waitlist or eliminated status
                 tp.availability_hours = availability
                 tp.survey_response = response
                 tp.save(update_fields=['availability_hours', 'survey_response'])
+                updated_count += 1
 
-        # Remove TournamentPlayer records for profiles no longer in the survey
-        tournament.tournament_players.exclude(
-            profile_id__in=accepted_profile_ids
-        ).delete()
+        return {
+            'created': created_count,
+            'updated': updated_count,
+        }
 
     @classmethod
     @transaction.atomic

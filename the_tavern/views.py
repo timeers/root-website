@@ -3168,12 +3168,16 @@ def survey_send_availability(request, slug):
         stage_id = request.POST.get('stage_id')
 
         # Sync survey responses to TournamentPlayer records
-        GroupingService.sync_survey_responses_to_tournament(tournament, survey)
+        sync_result = GroupingService.sync_survey_responses_to_tournament(tournament, survey)
 
         if stage_id == 'none' or not stage_id:
             # Just sync to tournament — no stage
             count = TournamentPlayer.objects.filter(tournament=tournament).count()
-            messages.success(request, f'Synced {count} player(s) to {tournament.name}.')
+            messages.success(
+                request,
+                f"Synced {count} player(s) to {tournament.name}. "
+                f"Created: {sync_result['created']}, Updated: {sync_result['updated']}."
+            )
             return redirect('tournament-manage-players', slug=tournament.slug)
 
         target_stage = get_object_or_404(Stage, id=stage_id, tournament=tournament)
@@ -3186,7 +3190,11 @@ def survey_send_availability(request, slug):
             target_stage.add_player(tp.profile)
 
         added_count = registered_players.count()
-        messages.success(request, f'Synced {added_count} player(s) to {target_stage.name}.')
+        messages.success(
+            request,
+            f"Synced {added_count} player(s) to {target_stage.name}. "
+            f"Created: {sync_result['created']}, Updated: {sync_result['updated']}."
+        )
         return redirect('stage-manage-players', tournament_slug=tournament.slug, stage_slug=target_stage.slug)
 
 
