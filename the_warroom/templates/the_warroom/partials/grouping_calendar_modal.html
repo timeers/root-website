@@ -31,7 +31,7 @@ function openCalendarModal(groupId) {
         datasets.push({hours: data.all_hours, label: 'All Hours', color: '#90CAF9'});
     }
 
-    document.getElementById('calendarModalLabel').textContent = data.name || 'Group Availability';
+    document.getElementById('calendarModalLabel').textContent = (data.name || 'Group') + ' — Availability';
     _renderCalendarInModal(datasets);
 }
 

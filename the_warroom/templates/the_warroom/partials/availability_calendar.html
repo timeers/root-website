@@ -3,8 +3,7 @@
      - calendar_id  : unique DOM id (required if multiple calendars on page)
      - datasets_json: JSON string — list of {"hours":[...], "label":"...", "color":"#hex"}
                       First dataset paints on top when hours overlap.
-   Example usage:
-     {% include 'the_warroom/partials/availability_calendar.html' with calendar_id="group-42" datasets_json=my_json %}
+    - not currently used. Would be used in a static single page view. Grouping Calendar Modal is currently used to dynamically build calendars.
 #}
 
 {% with cal_id=calendar_id|default:"avail-cal" %}

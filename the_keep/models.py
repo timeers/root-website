@@ -2674,7 +2674,8 @@ class RulesFile(models.Model):
 
 
 class FAQ(models.Model):
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)    
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)   
+    # card = models.ForeignKey(Card, on_delete=models.SET_NULL, null=True, blank=True)    
     question = models.TextField()
     answer = models.TextField()
     date_posted = models.DateTimeField(default=timezone.now)

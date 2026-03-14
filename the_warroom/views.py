@@ -5253,6 +5253,7 @@ def _build_series_edit_context(tournament, stage, round):
         series_map[s.id] = {
             'id': s.id,
             'name': group.name if group else (s.name or ''),
+            'player_group_id': group.id if group else None,
             'discord_thread': group.discord_thread if group else '',
             'video_link': group.video_link if group else '',
             'number_of_games': s.number_of_games,
@@ -5296,6 +5297,7 @@ def _build_series_response(series):
     return {
         'id': series.id,
         'name': group.name if group else (series.name or ''),
+        'player_group_id': group.id if group else None,
         'discord_thread': group.discord_thread if group else '',
         'video_link': group.video_link if group else '',
         'number_of_games': series.number_of_games,

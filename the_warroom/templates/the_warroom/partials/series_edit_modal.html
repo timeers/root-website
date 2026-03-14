@@ -5,7 +5,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title root-title" id="seriesEditModalLabel">{% trans 'Edit Match Series' %}</h5>
+                <h5 class="modal-title root-title" id="seriesEditModalLabel">{% trans 'Edit Match' %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -173,6 +173,22 @@ function _seriesAddMatchRow(match) {
     }
     li.appendChild(timeInput);
 
+    // Calendar button (if group has availability data)
+    const seriesData = _seriesDataMap[document.getElementById('editSeriesId').value];
+    if (seriesData && seriesData.player_group_id &&
+        typeof _groupCalendarData !== 'undefined' &&
+        _groupCalendarData[seriesData.player_group_id]) {
+        const calBtn = document.createElement('button');
+        calBtn.type = 'button';
+        calBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+        calBtn.title = 'View group availability';
+        calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+        calBtn.onclick = function() {
+            _openCalendarFromSeriesEdit(seriesData.player_group_id);
+        };
+        li.appendChild(calBtn);
+    }
+
     // Spacer
     const spacer = document.createElement('div');
     spacer.className = 'flex-grow-1';
@@ -220,6 +236,22 @@ function _seriesAddNewMatch() {
     timeInput.className = 'form-control form-control-sm';
     timeInput.style.maxWidth = '220px';
     li.appendChild(timeInput);
+
+    // Calendar button (if group has availability data)
+    const seriesData = _seriesDataMap[document.getElementById('editSeriesId').value];
+    if (seriesData && seriesData.player_group_id &&
+        typeof _groupCalendarData !== 'undefined' &&
+        _groupCalendarData[seriesData.player_group_id]) {
+        const calBtn = document.createElement('button');
+        calBtn.type = 'button';
+        calBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+        calBtn.title = 'View group availability';
+        calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+        calBtn.onclick = function() {
+            _openCalendarFromSeriesEdit(seriesData.player_group_id);
+        };
+        li.appendChild(calBtn);
+    }
 
     const spacer = document.createElement('div');
     spacer.className = 'flex-grow-1';
@@ -656,6 +688,34 @@ function _seriesConfirmDelete() {
         alert('An error occurred while deleting the series.');
         _seriesCancelDelete();
     });
+}
+
+// --- Calendar Modal Integration ---
+function _openCalendarFromSeriesEdit(groupId) {
+    // Hide the series edit modal (don't close it to preserve state)
+    const seriesModal = bootstrap.Modal.getInstance(document.getElementById('seriesEditModal'));
+    if (seriesModal) {
+        seriesModal.hide();
+    }
+
+    // Open calendar modal
+    openCalendarModal(groupId);
+
+    // Set up event listener to re-open series edit modal when calendar closes
+    const calendarModalEl = document.getElementById('calendarModal');
+    if (calendarModalEl) {
+        const reopenSeriesModal = function() {
+            // Re-open series edit modal
+            const newSeriesModal = new bootstrap.Modal(document.getElementById('seriesEditModal'));
+            newSeriesModal.show();
+
+            // Remove this event listener (one-time use)
+            calendarModalEl.removeEventListener('hidden.bs.modal', reopenSeriesModal);
+        };
+
+        // Use 'hidden.bs.modal' event which fires when modal is fully hidden
+        calendarModalEl.addEventListener('hidden.bs.modal', reopenSeriesModal, { once: true });
+    }
 }
 
 // Wire up search
