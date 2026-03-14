@@ -2675,7 +2675,6 @@ class RulesFile(models.Model):
 
 class FAQ(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)   
-    # card = models.ForeignKey(Card, on_delete=models.SET_NULL, null=True, blank=True)    
     question = models.TextField()
     answer = models.TextField()
     date_posted = models.DateTimeField(default=timezone.now)
@@ -2684,6 +2683,12 @@ class FAQ(models.Model):
     website = models.BooleanField(default=False)
     reference_laws = models.ManyToManyField(
         Law,
+        symmetrical=False,
+        blank=True,
+        related_name='faqs'
+    )
+    reference_cards = models.ManyToManyField(
+        'Card',
         symmetrical=False,
         blank=True,
         related_name='faqs'
@@ -2873,6 +2878,11 @@ class Card(models.Model):
     tags = models.JSONField(default=list, blank=True, null=True)
 
     order = models.PositiveIntegerField(editable=False, default=0)  # for deterministic ordering
+
+    def __str__(self):
+        if self.name:
+            return self.name
+        return f"Card {self.id}"
 
     def save(self, *args, **kwargs):
         if not self.pk:

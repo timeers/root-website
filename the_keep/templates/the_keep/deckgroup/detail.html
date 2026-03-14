@@ -102,7 +102,12 @@
         <div id="card-detail-text-container" style="display: none;">
           <p id="card-detail-text" class="text-center"></p>
         </div>
-        
+
+        <!-- Card FAQs -->
+        <div id="card-detail-faqs-container" style="display: none;" class="mt-3 text-start">
+          <h6 class="text-center">Related FAQs</h6>
+          <div id="card-detail-faqs"></div>
+        </div>
 
       </div>
     </div>
@@ -169,6 +174,29 @@
             }
         } catch (e) {
             console.error('Error parsing tags:', e);
+        }
+
+        // Show FAQs
+        const cardFaqs = cardElement.dataset.cardFaqs;
+        const faqsContainer = document.getElementById('card-detail-faqs');
+        const faqsWrapper = document.getElementById('card-detail-faqs-container');
+        faqsContainer.innerHTML = '';
+
+        try {
+            const faqs = JSON.parse(cardFaqs);
+            if (faqs && faqs.length > 0) {
+                faqs.forEach(faq => {
+                    const div = document.createElement('div');
+                    div.className = 'mb-2 p-2 border rounded';
+                    div.innerHTML = `<strong>Q:</strong> ${faq.q}<br><strong>A:</strong> ${faq.a}`;
+                    faqsContainer.appendChild(div);
+                });
+                faqsWrapper.style.display = 'block';
+            } else {
+                faqsWrapper.style.display = 'none';
+            }
+        } catch (e) {
+            faqsWrapper.style.display = 'none';
         }
 
         // Show modal

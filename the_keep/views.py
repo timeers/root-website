@@ -4792,7 +4792,15 @@ def faq_queryset(*, language, require_post=True):
                 'group',
                 'language',
             )
-        )
+        ),
+        Prefetch(
+            'reference_cards',
+            queryset=Card.objects.select_related(
+                'group',
+                'group__post',
+                'group__language',
+            )
+        ),
     ]
 
     if require_post:
@@ -5030,6 +5038,29 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
             ).distinct()        
 
         form.fields['reference_laws'].queryset = laws_qs.distinct()
+
+        if post:
+            cards_qs = Card.objects.filter(
+                group__post=post,
+                group__language=language,
+                name__isnull=False,
+            ).exclude(name='').select_related('group')
+            form.fields['reference_cards'].queryset = cards_qs
+
+            # Add custom widget attributes with card image URLs
+            choices = []
+            for card in cards_qs:
+                choices.append((card.id, card.name, card.front_image.url if card.front_image else ''))
+            form.fields['reference_cards'].widget.choices = [
+                (card_id, name) for card_id, name, _ in choices
+            ]
+            # Store image URLs as widget attribute for template access
+            form.fields['reference_cards'].widget.card_images = {
+                card_id: image_url for card_id, _, image_url in choices
+            }
+        else:
+            form.fields.pop('reference_cards', None)
+
         return form
 
 
@@ -5124,6 +5155,29 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             ).distinct()        
 
         form.fields['reference_laws'].queryset = laws_qs.distinct()
+
+        if post:
+            cards_qs = Card.objects.filter(
+                group__post=post,
+                group__language=language,
+                name__isnull=False,
+            ).exclude(name='').select_related('group')
+            form.fields['reference_cards'].queryset = cards_qs
+
+            # Add custom widget attributes with card image URLs
+            choices = []
+            for card in cards_qs:
+                choices.append((card.id, card.name, card.front_image.url if card.front_image else ''))
+            form.fields['reference_cards'].widget.choices = [
+                (card_id, name) for card_id, name, _ in choices
+            ]
+            # Store image URLs as widget attribute for template access
+            form.fields['reference_cards'].widget.card_images = {
+                card_id: image_url for card_id, _, image_url in choices
+            }
+        else:
+            form.fields.pop('reference_cards', None)
+
         return form
 
 
@@ -5341,7 +5395,9 @@ def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
     context = {
         "deckgroup": deckgroup,
         "post": post,
-        "cards": deckgroup.cards.all().order_by("order"),
+        "cards": deckgroup.cards.all().order_by("order").prefetch_related(
+            Prefetch('faqs', queryset=FAQ.objects.filter(language=language))
+        ),
         'can_edit': can_edit,
         'language_code': language_code,
         "title": title,

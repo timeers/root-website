@@ -24,6 +24,13 @@
                         {% include 'the_keep/partials/law_reference.html' %}
                       {% endfor %}
                   </div>
+                  {% if faq.reference_cards.all %}
+                  <div class="mt-1">
+                      {% for card in faq.reference_cards.all %}
+                        {% include 'the_keep/partials/card_reference.html' %}
+                      {% endfor %}
+                  </div>
+                  {% endif %}
                   <div>
                     <a class='btn btn-sm btn-primary' href="{{ faq.post.get_absolute_url }}?lang={{language_code}}">
                       {% blocktrans with post_title=faq.get_post_title %}
