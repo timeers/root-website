@@ -1,13 +1,13 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %}Send to Stage - {{ survey.title }} | {% endblock %}
+{% block title %}Send to Series - {{ survey.title }} | {% endblock %}
 
 {% block content %}
 <div class="content-section">
     {% include 'the_tavern/partials/survey_navigation.html' %}
 
     <div class="mb-4">
-        <h1 class="root-title mb-2">{% trans 'Send to Stage' %}</h1>
+        <h1 class="root-title mb-2">{% trans 'Send to Series' %}</h1>
         <p class="text-muted mb-0">{{ survey.title }}</p>
     </div>
 
@@ -43,7 +43,7 @@
                         {% else %}
                         <p class="text-muted mb-3">
                             Choose where to send the accepted survey respondents.
-                            Their availability data will be synced to the tournament's roster.
+                            Their availability data will be synced to the series' roster.
                         </p>
                         <div class="mb-3">
                             <label class="form-label fw-bold">{% trans 'Destination' %}</label>
@@ -52,8 +52,8 @@
                                 <input class="form-check-input" type="radio" name="stage_id"
                                        id="stage_none" value="none" checked>
                                 <label class="form-check-label" for="stage_none">
-                                    <strong>{% trans 'Tournament only' %}</strong>
-                                    <small class="text-muted ms-2">{% trans 'Sync players to tournament without adding to a stage' %}</small>
+                                    <strong>{{ tournament.name }}</strong>
+                                    <small class="text-muted ms-2">{% trans 'Sync players to series without adding to a stage' %}</small>
                                 </label>
                             </div>
 
@@ -99,9 +99,9 @@
                     </ul>
                     {% else %}
                     <ul class="small text-muted mb-0 ps-3">
-                        <li class="mb-1">Syncs each respondent's availability for the Tournament based on their responses</li>
-                        <li class="mb-1">If a Stage is selected, adds each respondent to that Stage's roster as well as the Tournament's roster</li>
-                        <li>"Tournament only" syncs players without adding them to any Stage</li>
+                        <li class="mb-1">Syncs each respondent's availability for the Series based on their responses</li>
+                        <li class="mb-1">If a Stage is selected, adds each respondent to that Stage's roster as well as the Series' roster</li>
+                        <li>The first option syncs players without adding them to any Stage</li>
                     </ul>
                     {% endif %}
                 </div>

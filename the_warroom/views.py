@@ -4662,6 +4662,8 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
                 'member_count': from_group.member_count,
                 'total_overlap_hours': from_group.total_overlap_hours,
                 'best_consecutive_block': from_group.best_consecutive_block,
+                'all_hours': from_group.all_hours or [],
+                'overlap_hours': from_group.overlap_hours or [],
             }
         to_group.refresh_from_db()
         response['to_group'] = {
@@ -4669,6 +4671,8 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
             'member_count': to_group.member_count,
             'total_overlap_hours': to_group.total_overlap_hours,
             'best_consecutive_block': to_group.best_consecutive_block,
+            'all_hours': to_group.all_hours or [],
+            'overlap_hours': to_group.overlap_hours or [],
         }
         return JsonResponse(response)
     except Exception as e:
@@ -4698,6 +4702,8 @@ def _get_group_data(group, history):
         'member_count': len(members),
         'total_overlap_hours': group.total_overlap_hours,
         'best_consecutive_block': group.best_consecutive_block,
+        'all_hours': group.all_hours or [],
+        'overlap_hours': group.overlap_hours or [],
         'conflict_count': conflict_count,
         'conflict_description': ', '.join(conflict_pairs),
     }
@@ -5025,6 +5031,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
                                 'id': tp.id,
                                 'display_name': tp.profile.display_name,
                                 'image_url': tp.profile.image.url if tp.profile.image else '',
+                                'availability_hours': tp.availability_hours or [],
                             }
                             for tp in ag.tournament_players.select_related('profile').all()
                         ]
@@ -5040,6 +5047,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
                 'id': tp.id,
                 'display_name': tp.profile.display_name,
                 'image_url': tp.profile.image.url if tp.profile.image else '',
+                'availability_hours': tp.availability_hours or [],
             }
             for tp in group.tournament_players.select_related('profile').all()
         ]
@@ -5060,6 +5068,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
                     'id': tp.id,
                     'display_name': tp.profile.display_name,
                     'image_url': tp.profile.image.url if tp.profile.image else '',
+                    'availability_hours': tp.availability_hours or [],
                 }
                 for tp in ungrouped_qs
             ]

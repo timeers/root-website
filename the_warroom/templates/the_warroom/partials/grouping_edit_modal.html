@@ -409,6 +409,14 @@ function _updateGroupCardFull(groupData) {
                 membersList.innerHTML = '<li class="list-group-item text-muted text-center empty-placeholder"><small>Drop players here</small></li>';
             } else {
                 groupData.members.forEach(member => {
+                    // Update player calendar data if available
+                    if (typeof _playerCalendarData !== 'undefined' && member.availability_hours && member.availability_hours.length) {
+                        _playerCalendarData[member.id] = {
+                            name: member.display_name,
+                            hours: member.availability_hours,
+                        };
+                    }
+
                     const li = document.createElement('li');
                     li.className = 'list-group-item d-flex align-items-center player-item';
                     li.dataset.playerId = member.id;
@@ -421,9 +429,43 @@ function _updateGroupCardFull(groupData) {
                         html += '<i class="bi bi-person-circle me-2"></i>';
                     }
                     html += `<span class="flex-grow-1">${member.display_name}</span>`;
+                    if (member.availability_hours && member.availability_hours.length) {
+                        html += `<small class="text-muted me-1">${member.availability_hours.length}h</small>`;
+                        html += `<button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal(${member.id})" title="View availability"><i class="bi bi-calendar-week"></i></button>`;
+                    }
                     li.innerHTML = html;
                     membersList.appendChild(li);
                 });
+            }
+        }
+    }
+
+    // Update calendar data
+    if (typeof _groupCalendarData !== 'undefined') {
+        const hasAvail = (groupData.all_hours && groupData.all_hours.length) ||
+                         (groupData.overlap_hours && groupData.overlap_hours.length);
+        if (hasAvail) {
+            _groupCalendarData[groupData.id] = {
+                name: groupData.name || 'Group ' + groupData.id,
+                all_hours: groupData.all_hours || [],
+                overlap_hours: groupData.overlap_hours || [],
+            };
+        } else {
+            delete _groupCalendarData[groupData.id];
+        }
+        // Show/hide calendar button
+        const nameDiv = col.querySelector('.card-header .d-flex.align-items-center');
+        if (nameDiv) {
+            let calBtn = nameDiv.querySelector('.cal-btn');
+            if (hasAvail && !calBtn) {
+                calBtn = document.createElement('button');
+                calBtn.className = 'btn btn-sm btn-link p-0 ms-1 text-muted cal-btn';
+                calBtn.setAttribute('onclick', `openCalendarModal(${groupData.id})`);
+                calBtn.setAttribute('title', 'View availability');
+                calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+                nameDiv.appendChild(calBtn);
+            } else if (!hasAvail && calBtn) {
+                calBtn.remove();
             }
         }
     }
@@ -439,6 +481,20 @@ function _rebuildUngroupedList(players, count) {
     const list = document.getElementById('ungrouped-players');
     if (!list) return;
     const isEditable = list.classList.contains('sortable-ungrouped');
+
+    // Rebuild player calendar data
+    if (typeof _playerCalendarData !== 'undefined') {
+        // Clear existing player data and rebuild from fresh list
+        _playerCalendarData = {};
+        players.forEach(player => {
+            if (player.availability_hours && player.availability_hours.length) {
+                _playerCalendarData[player.id] = {
+                    name: player.display_name,
+                    hours: player.availability_hours,
+                };
+            }
+        });
+    }
 
     list.innerHTML = '';
     if (players.length === 0) {
@@ -457,6 +513,10 @@ function _rebuildUngroupedList(players, count) {
                 html += '<i class="bi bi-person-circle me-2"></i>';
             }
             html += `<span class="flex-grow-1">${player.display_name}</span>`;
+            if (player.availability_hours && player.availability_hours.length) {
+                html += `<small class="text-muted me-1">${player.availability_hours.length}h</small>`;
+                html += `<button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal(${player.id})" title="View availability"><i class="bi bi-calendar-week"></i></button>`;
+            }
             li.innerHTML = html;
             list.appendChild(li);
         });

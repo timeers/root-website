@@ -84,5 +84,9 @@
         {% include 'the_warroom/partials/grouping_setup.html' %}
     {% endif %}
 
+    {% if has_availability %}
+        {% include 'the_warroom/partials/grouping_calendar_modal.html' %}
+    {% endif %}
+
 </div>
 {% endblock content %}

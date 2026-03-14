@@ -1,0 +1,184 @@
+{# Reusable weekly availability calendar partial.
+   Context variables:
+     - calendar_id  : unique DOM id (required if multiple calendars on page)
+     - datasets_json: JSON string — list of {"hours":[...], "label":"...", "color":"#hex"}
+                      First dataset paints on top when hours overlap.
+   Example usage:
+     {% include 'the_warroom/partials/availability_calendar.html' with calendar_id="group-42" datasets_json=my_json %}
+#}
+
+{% with cal_id=calendar_id|default:"avail-cal" %}
+<div class="availability-calendar" id="{{ cal_id }}" data-datasets='{{ datasets_json|default:"[]" }}'>
+
+  {# Toggle + timezone label #}
+  <div class="d-flex justify-content-between align-items-center mb-1">
+    <small class="cal-tz-label text-muted"></small>
+    <button type="button" class="btn btn-outline-secondary cal-toggle" data-cal="{{ cal_id }}">
+      Show UTC
+    </button>
+  </div>
+
+  {# Grid rendered by JS below #}
+  <div class="cal-grid" id="{{ cal_id }}-grid"></div>
+
+  {# Legend rendered by JS #}
+  <div class="cal-legend" id="{{ cal_id }}-legend"></div>
+</div>
+
+<script>
+(function() {
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  const container = document.getElementById('{{ cal_id }}');
+  if (!container) return;
+
+  const grid = document.getElementById('{{ cal_id }}-grid');
+  const legend = document.getElementById('{{ cal_id }}-legend');
+  const toggleBtn = container.querySelector('.cal-toggle');
+  const tzLabel = container.querySelector('.cal-tz-label');
+
+  // Parse datasets
+  let rawDatasets;
+  try {
+    rawDatasets = JSON.parse(container.dataset.datasets || '[]');
+  } catch(e) {
+    rawDatasets = [];
+  }
+
+  if (!rawDatasets.length || rawDatasets.every(d => !d.hours || !d.hours.length)) {
+    grid.innerHTML = '<div class="cal-empty">No availability data</div>';
+    return;
+  }
+
+  // Timezone offset (hours east of UTC, e.g. EST = -5)
+  const localOffsetHours = -(new Date().getTimezoneOffset() / 60);
+
+  // Detect timezone abbreviation
+  function getTimezoneAbbr() {
+    try {
+      const tz = Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+        .formatToParts(new Date())
+        .find(p => p.type === 'timeZoneName');
+      return tz ? tz.value : 'Local';
+    } catch(e) {
+      return 'Local';
+    }
+  }
+  const tzAbbr = getTimezoneAbbr();
+
+  // Convert UTC hour-of-week set to a shifted set
+  function shiftHours(hours, offset) {
+    return hours.map(h => ((h + offset) % 168 + 168) % 168);
+  }
+
+  // Pre-compute local versions of each dataset
+  const datasets = rawDatasets.map(d => ({
+    label: d.label || 'Hours',
+    color: d.color || '#4CAF50',
+    utcHours: new Set(d.hours || []),
+    localHours: new Set(shiftHours(d.hours || [], localOffsetHours))
+  }));
+
+  let showingUTC = false;
+
+  function render() {
+    grid.innerHTML = '';
+
+    // Corner cell
+    const corner = document.createElement('div');
+    corner.className = 'cal-corner cal-header';
+    grid.appendChild(corner);
+
+    // Day headers
+    DAYS.forEach(day => {
+      const hdr = document.createElement('div');
+      hdr.className = 'cal-header';
+      hdr.textContent = day;
+      grid.appendChild(hdr);
+    });
+
+    // Hour rows
+    for (let hour = 0; hour < 24; hour++) {
+      // Time label
+      const lbl = document.createElement('div');
+      lbl.className = 'cal-time-label';
+      if (hour % 6 === 0) {
+        lbl.textContent = hour + ':00';
+      }
+      grid.appendChild(lbl);
+
+      // Day cells
+      for (let day = 0; day < 7; day++) {
+        const hourOfWeek = day * 24 + hour;
+        const cell = document.createElement('div');
+        cell.className = 'cal-cell';
+
+        // Determine color: iterate datasets in reverse so first dataset wins
+        let cellColor = null;
+        let cellDataset = null;
+        for (let i = datasets.length - 1; i >= 0; i--) {
+          const hoursSet = showingUTC ? datasets[i].utcHours : datasets[i].localHours;
+          if (hoursSet.has(hourOfWeek)) {
+            cellColor = datasets[i].color;
+            cellDataset = datasets[i].label;
+          }
+        }
+
+        if (cellColor) {
+          cell.style.backgroundColor = cellColor;
+        }
+
+        // Tooltip with all matching datasets
+        const matchingLabels = [];
+        for (let i = 0; i < datasets.length; i++) {
+          const hoursSet = showingUTC ? datasets[i].utcHours : datasets[i].localHours;
+          if (hoursSet.has(hourOfWeek)) {
+            matchingLabels.push(datasets[i].label);
+          }
+        }
+        const timeStr = DAY_NAMES[day] + ' ' + hour.toString().padStart(2, '0') + ':00 - '
+                       + ((hour + 1) % 24).toString().padStart(2, '0') + ':00';
+        if (matchingLabels.length) {
+          cell.title = timeStr + '\n' + matchingLabels.join(', ');
+        } else {
+          cell.title = timeStr;
+        }
+
+        grid.appendChild(cell);
+      }
+    }
+
+    // Update timezone label
+    if (showingUTC) {
+      tzLabel.textContent = 'Showing: UTC';
+      toggleBtn.textContent = 'Show ' + tzAbbr;
+    } else {
+      tzLabel.textContent = 'Showing: ' + tzAbbr;
+      toggleBtn.textContent = 'Show UTC';
+    }
+  }
+
+  // Render legend
+  datasets.forEach(d => {
+    const item = document.createElement('span');
+    item.className = 'cal-legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = 'cal-legend-swatch';
+    swatch.style.backgroundColor = d.color;
+    item.appendChild(swatch);
+    item.appendChild(document.createTextNode(d.label));
+    legend.appendChild(item);
+  });
+
+  // Toggle handler
+  toggleBtn.addEventListener('click', function() {
+    showingUTC = !showingUTC;
+    render();
+  });
+
+  // Initial render (local time)
+  render();
+})();
+</script>
+{% endwith %}

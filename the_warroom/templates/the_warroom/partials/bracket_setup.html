@@ -24,7 +24,7 @@
         <!-- Match Cards Grid -->
         <div class="row g-3 mb-4">
             {% for series in bracket_series %}
-            <div class="col-md-4 col-lg-3" data-series-id="{{ series.id }}">
+            <div class="col-md-6 col-lg-4" data-series-id="{{ series.id }}">
                 <div class="card h-100 group-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
@@ -35,6 +35,11 @@
                             {% endif %}
                         </div>
                         <div class="d-flex align-items-center gap-1">
+                            {% if series.player_group %}{% if series.player_group.all_hours or series.player_group.overlap_hours %}
+                            <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openCalendarModal({{ series.player_group.id }})" title="{% trans 'Availability' %}">
+                                <i class="bi bi-calendar-week"></i>
+                            </button>
+                            {% endif %}{% endif %}
                             {% if is_bracket_finalized and not series.is_bye %}
                             <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal({{ series.id }})" title="{% trans 'Edit' %}">
                                 <i class="bi bi-pencil"></i>
@@ -70,7 +75,7 @@
             </div>
             {% endfor %}
             {% if is_bracket_finalized %}
-            <div class="col-md-4 col-lg-3" id="addSeriesCard">
+            <div class="col-md-6 col-lg-4" id="addSeriesCard">
                 <div class="card h-100 group-card d-flex align-items-center justify-content-center"
                      style="min-height: 120px; border-style: dashed !important; cursor: pointer;"
                      onclick="createNewSeries()">
@@ -185,6 +190,21 @@
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
 }
 </style>
+
+{% if bracket_series %}
+<script>
+var _groupCalendarData = _groupCalendarData || {};
+{% for series in bracket_series %}
+{% if series.player_group %}{% if series.player_group.all_hours or series.player_group.overlap_hours %}
+_groupCalendarData[{{ series.player_group.id }}] = {
+    name: "{{ series.player_group.name|escapejs }}",
+    all_hours: {{ series.player_group.all_hours|default:"[]"|safe }},
+    overlap_hours: {{ series.player_group.overlap_hours|default:"[]"|safe }}
+};
+{% endif %}{% endif %}
+{% endfor %}
+</script>
+{% endif %}
 
 {% if is_bracket_finalized and edit_series_url %}
 {% include 'the_warroom/partials/series_edit_modal.html' %}

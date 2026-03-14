@@ -19,7 +19,7 @@
         <div class="row g-3 mb-4" id="groups-container">
             {% if groups %}
             {% for group in groups %}
-            <div class="col-md-4 col-lg-3" data-group-id="{{ group.id }}" data-group-name="{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}" data-group-discord="{{ group.discord_thread|default:'' }}" data-group-video="{{ group.video_link|default:'' }}">
+            <div class="col-md-6 col-lg-4" data-group-id="{{ group.id }}" data-group-name="{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}" data-group-discord="{{ group.discord_thread|default:'' }}" data-group-video="{{ group.video_link|default:'' }}">
                 <div class="card h-100 group-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center">
@@ -27,6 +27,11 @@
                             <button class="btn btn-sm btn-link p-0 ms-2 text-muted" onclick="openGroupEditModal({{ group.id }})" title="{% trans 'Edit group' %}">
                                 <i class="bi bi-pencil-square"></i>
                             </button>
+                            {% if group.all_hours or group.overlap_hours %}
+                            <button class="btn btn-sm btn-link p-0 ms-1 text-muted cal-btn" onclick="openCalendarModal({{ group.id }})" title="{% trans 'View availability' %}">
+                                <i class="bi bi-calendar-week"></i>
+                            </button>
+                            {% endif %}
                         </div>
                         <div>
                             <span class="badge bg-secondary">{{ group.member_count }}</span>
@@ -74,6 +79,12 @@
                                 <i class="bi bi-person-circle me-2"></i>
                                 {% endif %}
                                 <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                                {% if sp.availability_hours %}
+                                <small class="text-muted me-1">{{ sp.availability_hours|length }}h</small>
+                                <button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal({{ sp.id }})" title="{% trans 'View availability' %}">
+                                    <i class="bi bi-calendar-week"></i>
+                                </button>
+                                {% endif %}
                             </li>
                             {% empty %}
                             <li class="list-group-item text-muted text-center empty-placeholder">
@@ -96,7 +107,7 @@
 
             <!-- New Group Dropzone -->
             {% if editable %}
-            <div class="col-md-4 col-lg-3">
+            <div class="col-md-6 col-lg-4">
                 <div class="card h-100 border-dashed" style="border-style: dashed !important;">
                     <div class="card-body d-flex flex-column justify-content-center align-items-center text-muted" id="new-group-zone">
                         <i class="bi bi-plus-circle fs-1 mb-2"></i>
@@ -108,5 +119,28 @@
         </div>
     </div>
 </div>
+{% if groups %}
+<script>
+var _groupCalendarData = _groupCalendarData || {};
+var _playerCalendarData = _playerCalendarData || {};
+{% for group in groups %}
+{% if group.all_hours or group.overlap_hours %}
+_groupCalendarData[{{ group.id }}] = {
+    name: "{% if group.name %}{{ group.name|escapejs }}{% else %}Group {{ group.group_number }}{% endif %}",
+    all_hours: {{ group.all_hours|default:"[]"|safe }},
+    overlap_hours: {{ group.overlap_hours|default:"[]"|safe }}
+};
+{% endif %}
+{% for sp in group.tournament_players.all %}
+{% if sp.availability_hours %}
+_playerCalendarData[{{ sp.id }}] = {
+    name: "{{ sp.profile.display_name|escapejs }}",
+    hours: {{ sp.availability_hours|safe }}
+};
+{% endif %}
+{% endfor %}
+{% endfor %}
+</script>
+{% endif %}
 {% include 'the_warroom/partials/grouping_edit_modal.html' %}
 {% endif %}

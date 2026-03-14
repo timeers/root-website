@@ -384,6 +384,36 @@ function updateGroupCard(groupData) {
     } else if (footer) {
         footer.remove();
     }
+
+    // Update calendar data
+    if (typeof _groupCalendarData !== 'undefined') {
+        const hasAvail = (groupData.all_hours && groupData.all_hours.length) ||
+                         (groupData.overlap_hours && groupData.overlap_hours.length);
+        if (hasAvail) {
+            _groupCalendarData[groupData.id] = {
+                name: groupData.name || 'Group ' + groupData.id,
+                all_hours: groupData.all_hours || [],
+                overlap_hours: groupData.overlap_hours || [],
+            };
+        } else {
+            delete _groupCalendarData[groupData.id];
+        }
+        // Show/hide calendar button
+        const nameDiv = col.querySelector('.card-header .d-flex.align-items-center');
+        if (nameDiv) {
+            let calBtn = nameDiv.querySelector('.cal-btn');
+            if (hasAvail && !calBtn) {
+                calBtn = document.createElement('button');
+                calBtn.className = 'btn btn-sm btn-link p-0 ms-1 text-muted cal-btn';
+                calBtn.setAttribute('onclick', `openCalendarModal(${groupData.id})`);
+                calBtn.setAttribute('title', 'View availability');
+                calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+                nameDiv.appendChild(calBtn);
+            } else if (!hasAvail && calBtn) {
+                calBtn.remove();
+            }
+        }
+    }
 }
 
 function updateUngroupedCount(count) {
@@ -460,10 +490,25 @@ function buildGroupCardHtml(groupData, playerItem) {
     if (groupData.conflict_count > 0) {
         conflictHtml = `<span class="badge bg-warning text-dark ms-1" role="button" data-bs-toggle="popover" data-bs-trigger="click hover" data-bs-placement="bottom" data-bs-title="Repeat matchup${groupData.conflict_count === 1 ? '' : 's'}" data-bs-content="${groupData.conflict_description}"><i class="bi bi-exclamation-triangle-fill"></i> ${groupData.conflict_count}</span>`;
     }
-    return `<div class="col-md-4 col-lg-3" data-group-id="${groupData.id}" data-group-name="${groupName}">
+    const hasCalData = (groupData.all_hours?.length || groupData.overlap_hours?.length);
+    const calBtnHtml = hasCalData
+        ? `<button class="btn btn-sm btn-link p-0 ms-1 text-muted cal-btn" onclick="openCalendarModal(${groupData.id})" title="View availability"><i class="bi bi-calendar-week"></i></button>`
+        : '';
+    // Update calendar data store
+    if (typeof _groupCalendarData !== 'undefined' && hasCalData) {
+        _groupCalendarData[groupData.id] = {
+            name: groupName,
+            all_hours: groupData.all_hours || [],
+            overlap_hours: groupData.overlap_hours || [],
+        };
+    }
+    return `<div class="col-md-6 col-lg-4" data-group-id="${groupData.id}" data-group-name="${groupName}">
         <div class="card h-100 group-card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <strong>${groupName}</strong>
+                <div class="d-flex align-items-center">
+                    <strong>${groupName}</strong>
+                    ${calBtnHtml}
+                </div>
                 <div>
                     <span class="badge bg-secondary">${groupData.member_count}</span>
                     ${conflictHtml}
@@ -587,7 +632,7 @@ function createNewGroup(playerId, playerItem) {
     .then(data => {
         if (data.success) {
             // Insert new group card before the "new group" dropzone
-            const dropzone = document.querySelector('#groups-container > .col-md-4:last-child');
+            const dropzone = document.getElementById('new-group-zone')?.closest('[class*="col-"]');
             const temp = document.createElement('div');
             temp.innerHTML = buildGroupCardHtml(data.group, playerItem);
             const newCol = temp.firstElementChild;

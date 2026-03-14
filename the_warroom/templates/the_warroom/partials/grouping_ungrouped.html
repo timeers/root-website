@@ -17,8 +17,11 @@
                 <i class="bi bi-person-circle me-2"></i>
                 {% endif %}
                 <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
-                {% if stage.grouping_type == 'availability' and sp.availability_hours %}
-                <small class="text-muted">{{ sp.availability_hours|length }}h</small>
+                {% if sp.availability_hours %}
+                <small class="text-muted me-1">{{ sp.availability_hours|length }}h</small>
+                <button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal({{ sp.id }})" title="{% trans 'View availability' %}">
+                    <i class="bi bi-calendar-week"></i>
+                </button>
                 {% endif %}
             </li>
             {% empty %}
@@ -33,3 +36,16 @@
         </ul>
     </div>
 </div>
+{% if ungrouped_players %}
+<script>
+var _playerCalendarData = _playerCalendarData || {};
+{% for sp in ungrouped_players %}
+{% if sp.availability_hours %}
+_playerCalendarData[{{ sp.id }}] = {
+    name: "{{ sp.profile.display_name|escapejs }}",
+    hours: {{ sp.availability_hours|safe }}
+};
+{% endif %}
+{% endfor %}
+</script>
+{% endif %}
