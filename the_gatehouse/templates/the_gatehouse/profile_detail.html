@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}{{ player.discord }} | {% endblock %}
 
@@ -56,18 +56,25 @@
                 </div>
                 {% if user.profile.player or player == user.profile %}
                 {% if player.discord %}
-                    <span class="text-secondary">Discord: {{ player.discord }}</span><br>
+                    <div class="text-secondary"  title="{{ player.display_name }}'s Discord Username"
+                       data-bs-toggle="tooltip">
+                        <i class="bi bi-discord"></i> 
+                        {{ player.discord }}
+                    </div>
                 {% endif %}
                 {% if player.dwd %}
-                        <span class="text-secondary">DWD: {{ player.dwd }}</span><br>
+                    <div class="text-secondary"  title="{{ player.display_name }}'s DWD Username"
+                       data-bs-toggle="tooltip">
+                        <img class="faction-icon" src="{% static 'images/link_icons/root_digital_icon.png' %}" alt="Root Digital Icon">
+                        {{ player.dwd }}
+                    </div>
                 {% endif %}
                 {% endif %}
                 {% if player.credit_link %}
-                <div>
-                    <a class='clickable-link' style="font-size: 1.2rem;" href='{{ player.credit_link }}'>
-                        {% blocktrans with artist_name=player.display_name %}
-                        Find {{ artist_name }}'s Artwork Here
-                        {% endblocktrans %}
+                <div class="mt-1">
+                    <a href="{{ player.credit_link }}" target="_blank" rel="noopener noreferrer"
+                       class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-palette me-1"></i> {% trans 'Portfolio' %}
                     </a>
                 </div>
                 {% endif %}

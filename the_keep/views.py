@@ -3608,7 +3608,7 @@ def universal_search(request):
         
         games = Game.objects.filter(nickname__icontains=query)     
         tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  
-        rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
+        rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now(), stage__isnull=False)   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
         pieces = Piece.objects.filter(Q(name__icontains=query), parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)

@@ -8,10 +8,11 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Surveys can be used as tournament registration forms
 - Public, Private, and Discord Guild locked Surveys
 - Survey History to view your responses and past surveys
-- Create groups of players from your survey's responses based on availability questions
+- Send survey responses to a tournament and create groups of players from the responses based on availability questions
 - Rearange player turn order in the record game form
 - Edit submitted and finalized games
 - Add Discord Guilds to Surveys or Tournaments to require guild membership for participation
+- Added the ability to link cards to FAQs as reference
 
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update

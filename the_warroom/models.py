@@ -655,6 +655,11 @@ class Round(models.Model):
         return self.stage.slug if self.stage else None
 
     def get_absolute_url(self):
+        if not self.stage:
+            tournament = self.get_tournament()
+            if tournament:
+                return tournament.get_absolute_url()
+            return '#'
         return reverse('round-overview', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
 
     def get_settings_url(self):
