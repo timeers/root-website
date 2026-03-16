@@ -125,13 +125,13 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/matches/', round_matches_page, name='round-matches-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/settings/', round_settings_hub, name='round-settings'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/', round_manage_players, name='round-manage-players'),
-    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/search/', round_search_players, name='round-search-players'),
-    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/move/', round_move_player, name='round-move-player'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/update/', round_manage_view, name='round-update'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/delete/<int:pk>/', RoundDeleteView.as_view(), name='round-delete'),
-
-    # Round grouping
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/grouping/', round_grouping_setup_view, name='round-grouping-setup'),
+
+    # Round HTMX & AJAX
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/search/', round_search_players, name='round-search-players'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/players/move/', round_move_player, name='round-move-player'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/grouping/<int:session_id>/status/', round_grouping_status, name='round-grouping-status'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/grouping/<int:session_id>/move-player/', round_grouping_move_player, name='round-grouping-move-player'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/grouping/<int:session_id>/add-to-group/', round_grouping_add_to_group, name='round-grouping-add-to-group'),

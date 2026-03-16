@@ -1975,10 +1975,32 @@ def tournament_details_page(request, slug):
 
 
 
-@admin_required_class_based_view  
+@player_required_class_based_view
 class TournamentDeleteView(DeleteView):
     model = Tournament
     success_url = reverse_lazy('tournaments-home')  # Redirect to the tournament list or a suitable page
+
+    def dispatch(self, request, *args, **kwargs):
+        """Check if user has permission to delete this tournament."""
+        tournament = self.get_object()
+        user_profile = request.user.profile
+
+        # Admin can always delete
+        if user_profile.admin:
+            return super().dispatch(request, *args, **kwargs)
+
+        # Owner can delete only if no games have been recorded
+        if tournament.designer == user_profile:
+            # Check if any games exist in any round of any stage of this tournament
+            has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
+            if has_games:
+                messages.error(request, f"You cannot delete '{tournament.name}' because games have already been recorded. Contact an admin if you need to delete this tournament.")
+                return redirect(tournament.get_absolute_url())
+            return super().dispatch(request, *args, **kwargs)
+
+        # Not admin or owner - no permission
+        messages.error(request, "You do not have permission to delete this tournament.")
+        raise PermissionDenied()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -2095,9 +2117,7 @@ def tournament_dynamic_create(request):
 
             # Force values for non-admins as security check
             if not request.user.profile.admin:
-                tournament.classification = Tournament.ClassificationTypes.GROUP
                 tournament.designer = request.user.profile
-                tournament.guild = None
 
             # Clear default_format if classification is not Tournament
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
@@ -2187,7 +2207,6 @@ def tournament_dynamic_update(request, slug):
             if not request.user.profile.admin:
                 tournament.classification = original.classification
                 tournament.designer = original.designer
-                tournament.guild = original.guild
 
             # Clear default_format if classification is not Tournament
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
@@ -3676,6 +3695,7 @@ def tournament_settings_hub(request, slug):
 
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
+    has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
 
     context = {
         'object_type': 'Series',
@@ -3684,6 +3704,7 @@ def tournament_settings_hub(request, slug):
         'survey_count': survey_count,
         'can_manage': is_owner,
         'is_owner': is_owner,
+        'has_games': has_games,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -4175,6 +4196,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
     survey_count = Survey.objects.filter(series=tournament, stage=stage).count()
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
+    has_games = Game.objects.filter(round__stage=stage).exists()
 
     context = {
         'tournament': tournament,
@@ -4184,6 +4206,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'survey_count': survey_count,
         'can_manage': True,  # Already permission-gated above
         'is_owner': is_owner,
+        'has_games': has_games,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -5154,6 +5177,11 @@ def round_generate_bracket(request, tournament_slug, stage_slug, round_slug):
             stage_format=round.get_format(),
             status='Pending',
         )
+        Round.objects.create(
+            stage=losers_stage,
+            name='Round 1',
+            round_number=1,
+        )
 
     winners_stage = None
     winners_stage_id = data.get('winners_stage_id')
@@ -5169,6 +5197,11 @@ def round_generate_bracket(request, tournament_slug, stage_slug, round_slug):
             order=max_order + 1,
             stage_format=round.get_format(),
             status='Pending',
+        )
+        Round.objects.create(
+            stage=winners_stage,
+            name='Round 1',
+            round_number=1,
         )
 
     try:

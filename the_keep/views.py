@@ -35,7 +35,7 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
-from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
+from the_warroom.models import Game, ScoreCard, Effort, Tournament, Stage, Round
 from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest
 from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
@@ -3580,6 +3580,7 @@ def universal_search(request):
         players = Profile.objects.none()
         games = Game.objects.none()
         tournaments = Tournament.objects.none()
+        stages = Stage.objects.none()
         rounds = Round.objects.none()
         resources = PNPAsset.objects.none()
         pieces = Piece.objects.none()
@@ -3608,9 +3609,10 @@ def universal_search(request):
         
         games = Game.objects.filter(nickname__icontains=query)     
         tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  
-        rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now(), stage__isnull=False)   
+        stages = Stage.objects.filter(name__icontains=query, start_date__lte=timezone.now(), tournament__use_stages=True, tournament__use_rounds=True)
+        rounds = Round.objects.filter(name__icontains=query, start_date__lte=timezone.now(), stage__isnull=False)   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
-        pieces = Piece.objects.filter(Q(name__icontains=query), parent__status__lte=view_status).order_by('parent__status')
+        pieces = Piece.objects.filter(name__icontains=query, parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
         if len(query) > 3:
             translations = PostTranslation.objects.filter(translated_title__icontains=query).exclude(language=language_object)
@@ -3678,7 +3680,7 @@ def universal_search(request):
     total_results = (factions.count() + maps.count() + decks.count() + vagabonds.count() +
                      landmarks.count() + hirelings.count() + expansions.count() + 
                      players.count() + games.count() + scorecards.count() + 
-                     tournaments.count() + rounds.count() + tweaks.count() + 
+                     tournaments.count() + stages.count() + rounds.count() + tweaks.count() + 
                      resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count() +
                      laws.count() + bot_laws.count() + fan_laws.count() +
                      cards.count()
@@ -3706,6 +3708,7 @@ def universal_search(request):
         'games': games[:result_count],
         'scorecards': scorecards[:result_count],
         'tournaments': tournaments[:result_count],
+        'stages': stages[:result_count],
         'rounds': rounds[:result_count],
         'resources': resources[:result_count],
         'pieces': pieces[:result_count],

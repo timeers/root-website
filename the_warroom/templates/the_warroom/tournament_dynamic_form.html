@@ -5,19 +5,22 @@
 {% block content %}
     <div class="content-section">
         <!-- Breadcrumb -->
-        <nav aria-label="breadcrumb" class="mb-3">
-            <ol class="breadcrumb">
+        <nav aria-label="breadcrumb" class="mb-3 d-flex justify-content-between align-items-center">
+            <ol class="breadcrumb mb-0">
                 <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
                 {% if tournament.id %}
                 <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
                 {% endif %}
-                <li class="breadcrumb-item active">{% if tournament.id %}Edit Series{% else %}New Series{% endif %}</li>
+                <li class="breadcrumb-item active">{% if tournament.id %}Edit {{tournament.classification}}{% else %}New Series{% endif %}</li>
             </ol>
+            <a href="{% url 'about-series' %}" target="_blank" class="btn btn-sm btn-outline-info">
+                <i class="bi bi-info-circle me-1"></i>About
+            </a>
         </nav>
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <fieldset class="mb-3">
-                <legend class="border-bottom mb-4">{{ action }} Series{% if tournament %}: {{ tournament.name }}{% endif %}</legend>
+                <legend class="border-bottom mb-4">{% if tournament %}{{ tournament.name }}{% else %}{{ action }} Series{% endif %}</legend>
 
                 {% if action == 'Create' %}
                 <p class="text-muted">
@@ -25,6 +28,17 @@
                     A League, Tournament or Playtest are examples of a Series and can have multiple Rounds.
                     Each Series has an overall Leaderboard as well as Season/Round Leaderboards.
                 </p>
+                {% endif %}
+
+                {% if is_admin %}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i>{% trans 'Administration' %}</h5>
+                        </div>
+                        <div class="card-body">
+                            {{ form.designer|as_crispy_field }}
+                        </div>
+                    </div>
                 {% endif %}
 
                 <!-- Basic Information Card -->
@@ -39,29 +53,21 @@
                             </div>
 
                         </div>
-
-                        {% if is_admin %}
-                        <div class="border rounded p-3 mb-2 bg-light">
-                            <h6 class="text-muted mb-2"><i class="bi bi-shield-lock me-2"></i>{% trans 'Administration' %}</h6>
-                            <div class="row">
-                                <div class="col-md-6 col-lg-4 mb-2">
-                                    {{ form.designer|as_crispy_field }}
-                                </div>
-                                <div class="col-md-6 col-lg-4 mb-2">
-                                    {{ form.guild|as_crispy_field }}
-                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-1" data-bs-toggle="modal" data-bs-target="#addGuildModal">
-                                        <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-12">
-                                    {% include 'the_warroom/partials/classification_toggle.html' with tournament_form=form %}
-                                </div>
+                        {% if is_admin or action == 'Create' %}
+                        <div class="row">
+                            <div class="col-12">
+                                {% include 'the_warroom/partials/classification_toggle.html' with tournament_form=form %}
                             </div>
                         </div>
                         {% endif %}
-
+                        <div class='row'>
+                            <div class="col-md-12">
+                                {{ form.guild|as_crispy_field }}
+                                <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-bs-toggle="modal" data-bs-target="#addGuildModal">
+                                    <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                                </button>
+                            </div>
+                        </div>
                         <div class="row">
                             <div class="col-md-12 mb-2">
                                 {{ form.description|as_crispy_field }}
@@ -230,7 +236,7 @@
 
                     </div>
                 </div>
-                                <!-- Leaderboard Settings Card -->
+                <!-- Game Submission Settings Card -->
                 <div class="card mb-3">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-pencil me-2"></i>{% trans 'Game Submission Settings' %}</h5>
@@ -261,7 +267,7 @@
                 </div>
                 <div class="card-body">
                     {% if action == 'Create' %}
-                    <p class="text-muted small">If you need a more complex structure for this Series you can enable Stages below.</p>
+                    <p class="text-muted small">If you need a more complex structure for this Series you can enable Stages and Rounds below.</p>
                     {% endif %}
 
                     <!-- Use Stages -->
@@ -299,25 +305,27 @@
                     {% endif %}
 
                     <!-- Use Rounds -->
-                    {% if use_rounds_locked %}
-                        <input type="hidden" name="use_rounds" value="on">
-                    {% else %}
-                        <div id="use-rounds-wrapper" style="display:none;">
-                            <div class="row">
-                                <div class="col-md-6 mb-2">
-                                    <div class="form-check mb-2">
-                                        {{ form.use_rounds }}
-                                        <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
-                                            {{ form.use_rounds.label }}
-                                        </label>
-                                        {% if form.use_rounds.help_text %}
-                                        <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
-                                        {% endif %}
-                                    </div>
-                                </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {% if use_rounds_locked %}
+                            <input type="hidden" name="use_rounds" value="on">
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold">Use Rounds</label>
+                                <div class="text-muted small">Rounds are enabled and cannot be disabled because multiple rounds exist.</div>
                             </div>
+                            {% else %}
+                            <div class="form-check mb-2">
+                                {{ form.use_rounds }}
+                                <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
+                                    {{ form.use_rounds.label }}
+                                </label>
+                                {% if form.use_rounds.help_text %}
+                                <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
                         </div>
-                    {% endif %}
+                    </div>
 
                     {% if action == 'Create' %}
                         <!-- Round name field (shown when both use_stages and use_rounds are checked) -->
@@ -387,17 +395,13 @@
     const useStagesCheckbox = document.getElementById('id_use_stages');
     const useRoundsCheckbox = document.getElementById('id_use_rounds');
     const stageNameField = document.getElementById('stage-name-field');
-    const useRoundsWrapper = document.getElementById('use-rounds-wrapper');
     const roundNameField = document.getElementById('round-name-field');
 
     function updateStructureFields() {
         const stagesOn = useStagesCheckbox && useStagesCheckbox.checked;
         const roundsOn = useRoundsCheckbox && useRoundsCheckbox.checked;
         if (stageNameField) stageNameField.style.display = stagesOn ? 'block' : 'none';
-        if (useRoundsWrapper) useRoundsWrapper.style.display = stagesOn ? 'block' : 'none';
-        if (roundNameField) roundNameField.style.display = (stagesOn && roundsOn) ? 'block' : 'none';
-        // Uncheck use_rounds if stages is unchecked
-        if (!stagesOn && useRoundsCheckbox) useRoundsCheckbox.checked = false;
+        if (roundNameField) roundNameField.style.display = roundsOn ? 'block' : 'none';
     }
 
     if (useStagesCheckbox) {
@@ -414,7 +418,9 @@
     if (classificationInput) {
         const formatField = document.getElementById('default-format-field');
         function updateFormatField(value) {
-            formatField.style.display = value === 'Tournament' ? 'block' : 'none';
+            if (formatField) {
+                formatField.style.display = value === 'Tournament' ? 'block' : 'none';
+            }
         }
         updateFormatField(classificationInput.value);
         initToggle({

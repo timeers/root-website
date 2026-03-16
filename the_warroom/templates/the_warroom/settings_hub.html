@@ -283,15 +283,27 @@
                             <i class="bi bi-trash me-1"></i>Delete Round
                         </a>
                         {% elif stage %}
-                        <a href="{% url 'tournament-detail' slug=tournament.slug %}"
-                        class="btn btn-outline-danger w-100">
-                            <i class="bi bi-trash me-1"></i>Delete Stage
-                        </a>
+                        {% if has_games %}
+                            <button class="btn btn-outline-danger w-100" disabled title="Cannot delete stage with recorded games">
+                                <i class="bi bi-trash me-1"></i>Delete Stage (has games)
+                            </button>
                         {% else %}
-                        <a href="{% url 'tournament-delete' slug=tournament.slug %}"
-                        class="btn btn-outline-danger w-100">
-                            <i class="bi bi-trash me-1"></i>Delete Series
-                        </a>
+                            <a href="{% url 'tournament-detail' slug=tournament.slug %}"
+                            class="btn btn-outline-danger w-100">
+                                <i class="bi bi-trash me-1"></i>Delete Stage
+                            </a>
+                        {% endif %}
+                        {% else %}
+                        {% if has_games %}
+                            <button class="btn btn-outline-danger w-100" disabled title="Cannot delete series with recorded games. Contact an admin.">
+                                <i class="bi bi-trash me-1"></i>Delete Series (has games)
+                            </button>
+                        {% else %}
+                            <a href="{% url 'tournament-delete' slug=tournament.slug %}"
+                            class="btn btn-outline-danger w-100">
+                                <i class="bi bi-trash me-1"></i>Delete Series
+                            </a>
+                        {% endif %}
                         {% endif %}
                     </div>
                 </div>

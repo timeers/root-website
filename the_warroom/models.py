@@ -733,7 +733,15 @@ class Round(models.Model):
     def __str__(self):
 
         if self.stage:
-            return f"{self.stage.tournament.name} - {self.stage.name} - {self.name}"
+            tournament = self.stage.tournament
+            if tournament.use_rounds and tournament.use_stages:
+                return f"{self.stage.tournament.name} - {self.stage.name} - {self.name}"
+            elif tournament.use_rounds:
+                return f'{tournament.name} - {self.name}'
+            elif tournament.use_stages:
+                return f'{tournament.name} - {self.stage.name}'
+            else:
+                return tournament.name
         else:
             return self.name
 

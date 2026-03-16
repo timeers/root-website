@@ -821,9 +821,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
 
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:
-            self.fields.pop('classification', None)
             self.fields.pop('designer', None)
-            self.fields.pop('guild', None)
 
     def clean(self):
         cleaned_data = super().clean()
@@ -961,11 +959,21 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'rows': '6'
         })
 
+        # Filter guild choices to user's guilds
+        if user:
+            import json
+            from the_gatehouse.models import DiscordGuild
+            with open('/etc/config.json') as config_file:
+                config = json.load(config_file)
+            if user.profile.admin:
+                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
+            else:
+                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:
             self.fields.pop('classification', None)
             self.fields.pop('designer', None)
-            self.fields.pop('guild', None)
 
 
 class RoundCreateForm(forms.ModelForm):
