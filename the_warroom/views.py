@@ -2781,10 +2781,22 @@ def user_can_access_round(tournament_round, user):
 
 
 
-def round_overview_page(request, tournament_slug, stage_slug, round_slug):
+def round_overview_page(request, tournament_slug, round_slug, stage_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        # Full 3-slug URL path
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        # Simplified 2-slug URL path
+        stage = get_single_stage(tournament)
+        if not stage:
+            # Tournament uses stages - simplified URL not allowed
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'overview'
@@ -2794,6 +2806,7 @@ def round_overview_page(request, tournament_slug, stage_slug, round_slug):
 
 
 def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_slug=None, round_slug=None):
+    from the_warroom.utils import get_single_stage
 
     threshold = get_int_param(request.GET.get('threshold', ''))
     limit = get_int_param(request.GET.get('limit', ''))
@@ -2805,7 +2818,13 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
     if stage_slug:
         stage = get_object_or_404(Stage, slug=stage_slug.lower(), tournament=tournament)
     else:
-        stage = None
+        # Try to get single stage if round_slug is provided (simplified URL)
+        if round_slug:
+            stage = get_single_stage(tournament)
+            if not stage:
+                return redirect(tournament.get_absolute_url())
+        else:
+            stage = None
 
     if round_slug:
         round = get_object_or_404(Round, slug=round_slug.lower(), stage=stage)
@@ -2981,6 +3000,7 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
 
 
 def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_slug=None, round_slug=None):
+    from the_warroom.utils import get_single_stage
 
     threshold = get_int_param(request.GET.get('threshold', ''))
     limit = get_int_param(request.GET.get('limit', ''))
@@ -2992,7 +3012,13 @@ def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_
     if stage_slug:
         stage = get_object_or_404(Stage, slug=stage_slug.lower(), tournament=tournament)
     else:
-        stage = None
+        # Try to get single stage if round_slug is provided (simplified URL)
+        if round_slug:
+            stage = get_single_stage(tournament)
+            if not stage:
+                return redirect(tournament.get_absolute_url())
+        else:
+            stage = None
 
     if round_slug:
         round = get_object_or_404(Round, slug=round_slug.lower(), stage=stage)
@@ -3171,17 +3197,37 @@ def round_games_pagination(request, id):
 
 
 @player_onboard_required
-def round_manage_view(request, tournament_slug, stage_slug, round_slug=None):
+def round_manage_view(request, tournament_slug, stage_slug=None, round_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, tournament=tournament, slug=stage_slug)
+
+    if stage_slug:
+        # Full 3-slug URL path
+        stage = get_object_or_404(Stage, tournament=tournament, slug=stage_slug)
+    else:
+        # Simplified URL path
+        if round_slug:
+            # UPDATE mode with simplified URL
+            stage = get_single_stage(tournament)
+            if not stage:
+                return redirect(tournament.get_absolute_url())
+            # Get round to verify it exists
+            round_instance_check = get_object_or_404(Round, slug=round_slug, stage=stage)
+            stage = round_instance_check.stage
+        else:
+            # CREATE mode with simplified URL
+            stage = get_single_stage(tournament)
+            if not stage:
+                return redirect(tournament.get_absolute_url())
 
     if not tournament.has_permission(request.user.profile):
         messages.error(request, "You do not have permission to view this page.")
-        raise PermissionDenied() 
-    
+        raise PermissionDenied()
+
     max_round_number = stage.rounds.aggregate(max_num=Max('round_number'))['max_num'] or 0
     current_round = max_round_number + 1
-    
+
     round_instance = None
     # If round_slug is provided, update the existing round
     if round_slug:
@@ -3219,21 +3265,51 @@ def round_manage_view(request, tournament_slug, stage_slug, round_slug=None):
 
 
 @player_onboard_required
-def round_manage_players(request, tournament_slug, stage_slug, round_slug):
+def round_manage_players(request, tournament_slug, round_slug, stage_slug=None):
     """Redirect to stage player management — player roster is managed at the stage level."""
-    return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage_slug)
+    from the_warroom.utils import get_single_stage
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if stage_slug:
+        return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage_slug)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage.slug)
 
 
 @player_required_class_based_view
 class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Round
 
+    def get_object(self, queryset=None):
+        from the_warroom.utils import get_single_stage
+
+        tournament_slug = self.kwargs.get('tournament_slug')
+        stage_slug = self.kwargs.get('stage_slug')
+        round_slug = self.kwargs.get('round_slug')
+
+        tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+        if stage_slug:
+            # Full 3-slug URL path
+            stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        else:
+            # Simplified 2-slug URL path
+            stage = get_single_stage(tournament)
+            if not stage:
+                raise Http404("This tournament uses stages. Please use the full URL.")
+
+        return get_object_or_404(Round, slug=round_slug, stage=stage)
+
     def test_func(self):
         obj = self.get_object()
         profile = self.request.user.profile
         # Only allow deletion for admins or the tournament designer (not moderators)
         return profile.admin or profile == obj.stage.tournament.designer
-    
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['round'] = self.object
@@ -3710,11 +3786,20 @@ def tournament_settings_hub(request, slug):
 
 
 @player_onboard_required
-def round_settings_hub(request, tournament_slug, stage_slug, round_slug):
+def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     """Settings hub page with links to all round management tools."""
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     # Permission check
     if not tournament.has_permission(request.user.profile):
@@ -3982,10 +4067,19 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
 
 # ── Round tab pages ──────────────────────────────────────────────────────────
 
-def round_leaderboard_page(request, tournament_slug, stage_slug, round_slug):
+def round_leaderboard_page(request, tournament_slug, round_slug, stage_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     opts = Game.with_efforts()
     games_qs = Game.objects.filter(
@@ -4039,10 +4133,19 @@ def round_leaderboard_page(request, tournament_slug, stage_slug, round_slug):
     return render(request, template_name, context)
 
 
-def round_games_page(request, tournament_slug, stage_slug, round_slug):
+def round_games_page(request, tournament_slug, round_slug, stage_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     opts = Game.with_efforts()
     games_qs = Game.objects.filter(
@@ -4079,10 +4182,19 @@ def round_games_page(request, tournament_slug, stage_slug, round_slug):
     return render(request, template_name, context)
 
 
-def round_roster_page(request, tournament_slug, stage_slug, round_slug):
+def round_roster_page(request, tournament_slug, round_slug, stage_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     players = _round_roster_queryset(round)
 
@@ -4110,10 +4222,19 @@ def round_roster_page(request, tournament_slug, stage_slug, round_slug):
     return render(request, template_name, context)
 
 
-def round_details_page(request, tournament_slug, stage_slug, round_slug):
+def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'details'
@@ -4137,10 +4258,19 @@ def round_details_page(request, tournament_slug, stage_slug, round_slug):
     return render(request, 'the_warroom/round_details.html', context)
 
 
-def round_matches_page(request, tournament_slug, stage_slug, round_slug):
+def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     match_series = MatchSeries.objects.filter(round=round).select_related(
         'player_group',
@@ -4410,14 +4540,23 @@ def tournament_bracket_view(request, slug):
 # Round Grouping Views
 
 @login_required
-def round_grouping_setup_view(request, tournament_slug, stage_slug, round_slug):
+def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=None):
     """
     Round grouping view - shows setup form and organize interface.
     Each round is linked to a Stage which holds the grouping configuration.
     """
+    from the_warroom.utils import get_single_stage
+
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
 
     # Only tournament creator or admin can access grouping

@@ -113,7 +113,23 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/bracket/', stage_bracket_page, name='stage-bracket-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/', stage_overview_page, name='stage-overview'),
 
-    # Rounds
+    # Rounds - Simplified URLs (no stage_slug) for tournaments with use_stages=False
+    path('series/<slug:tournament_slug>/new/round/', round_manage_view, name='round-create-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/', round_overview_page, name='round-overview-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/leaderboard/', round_leaderboard_page, name='round-leaderboard-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/component/<slug:post_slug>/', tournament_component_leaderboard, name='round-component-leaderboard-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/player/<slug:profile_slug>/', tournament_player_leaderboard, name='round-player-leaderboard-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/games/', round_games_page, name='round-games-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/roster/', round_roster_page, name='round-roster-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/details/', round_details_page, name='round-details-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/matches/', round_matches_page, name='round-matches-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/settings/', round_settings_hub, name='round-settings-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/players/', round_manage_players, name='round-manage-players-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/update/', round_manage_view, name='round-update-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/delete/<int:pk>/', RoundDeleteView.as_view(), name='round-delete-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/grouping/', round_grouping_setup_view, name='round-grouping-setup-simple'),
+
+    # Rounds - Full URLs (with stage_slug) for all tournaments
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/new/round/', round_manage_view, name='round-create'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/', round_overview_page, name='round-overview'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/leaderboard/', round_leaderboard_page, name='round-leaderboard-page'),

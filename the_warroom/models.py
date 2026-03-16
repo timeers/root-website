@@ -660,25 +660,157 @@ class Round(models.Model):
             if tournament:
                 return tournament.get_absolute_url()
             return '#'
-        return reverse('round-overview', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
+
+        tournament = self.stage.tournament
+
+        # Use simplified URL for tournaments without stages
+        if not tournament.use_stages:
+            return reverse('round-overview-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+
+        # Use full URL for hierarchical tournaments
+        return reverse('round-overview', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_settings_url(self):
-        return reverse('round-settings', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-settings-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-settings', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_edit_url(self):
-        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-update-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-update', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_players_url(self):
-        return reverse('round-manage-players', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-manage-players-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-manage-players', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_assets_url(self):
         return reverse('tournament-manage-assets', kwargs={'tournament_slug': self.stage.tournament.slug})
 
     def get_update_url(self):
-        return reverse('round-update', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug()})
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-update-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-update', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_delete_url(self):
-        return reverse('round-delete', kwargs={'round_slug': self.slug, 'tournament_slug': self.stage.tournament.slug, 'stage_slug': self._stage_slug(), 'pk': self.id})
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-delete-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug,
+                'pk': self.id
+            })
+        return reverse('round-delete', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug,
+            'pk': self.id
+        })
+
+    def get_leaderboard_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-leaderboard-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-leaderboard-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
+
+    def get_games_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-games-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-games-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
+
+    def get_roster_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-roster-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-roster-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
+
+    def get_details_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-details-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-details-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
+
+    def get_matches_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-matches-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-matches-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_format(self):
         """Get the effective format for this round"""
