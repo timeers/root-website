@@ -1,0 +1,124 @@
+<script>
+function updateActiveStatus() {
+    const container = document.getElementById('status-toggle-container');
+    const checkbox = document.getElementById('id_is_active');
+    const statusText = document.getElementById('status-toggle-text');
+    const icon = document.getElementById('status-toggle-icon');
+    if (!container || !checkbox) return;
+
+    const entityType = container.dataset.entityType;
+    const isActive = checkbox.checked;
+    const now = new Date();
+
+    // Read parent status from data attributes
+    const tournamentActive = container.dataset.tournamentActive !== 'false';
+    const stageActive = container.dataset.stageActive !== 'false';
+
+    // Read parent start/end dates
+    const tournamentStart = container.dataset.tournamentStart ? new Date(container.dataset.tournamentStart) : null;
+    const tournamentEnd = container.dataset.tournamentEnd ? new Date(container.dataset.tournamentEnd + 'T23:59:59') : null;
+    const stageStart = container.dataset.stageStart ? new Date(container.dataset.stageStart) : null;
+    const stageEnd = container.dataset.stageEnd ? new Date(container.dataset.stageEnd + 'T23:59:59') : null;
+
+    // Read entity's own dates from the form inputs
+    const startDateInput = document.querySelector('[name="start_date"]');
+    const endDateInput = document.querySelector('[name="end_date"]');
+    const entityStart = (startDateInput && startDateInput.value) ? new Date(startDateInput.value) : null;
+    const entityEnd = (endDateInput && endDateInput.value) ? new Date(endDateInput.value + 'T23:59:59') : null;
+
+    // Read status messages from data attributes
+    const msgActive = container.dataset.msgActive;
+    const msgInactive = container.dataset.msgInactive;
+    const msgNotStarted = container.dataset.msgNotStarted;
+    const msgParentInactive = container.dataset.msgParentInactive;
+    const msgEnded = container.dataset.msgEnded;
+    const msgParentEnded = container.dataset.msgParentEnded;
+
+    // Get all parent warning elements
+    const warnings = document.querySelectorAll('.status-parent-warning');
+
+    if (!isActive) {
+        // Inactive
+        statusText.textContent = msgInactive;
+        container.style.backgroundColor = '#f8d7da';
+        icon.className = 'bi bi-x-circle-fill text-danger';
+        warnings.forEach(w => w.style.display = 'none');
+
+    } else {
+        // Check parent inactive (only relevant for stage/round)
+        const parentInactive = (entityType === 'stage' && !tournamentActive)
+            || (entityType === 'round' && (!tournamentActive || !stageActive));
+
+        if (parentInactive) {
+            statusText.textContent = msgParentInactive;
+            container.style.backgroundColor = '#fff3cd';
+            icon.className = 'bi bi-exclamation-triangle-fill text-warning';
+            // Show the relevant warnings
+            const tournamentWarning = document.getElementById('tournament-inactive-warning');
+            const stageWarning = document.getElementById('stage-inactive-warning');
+            if (tournamentWarning) tournamentWarning.style.display = !tournamentActive ? 'block' : 'none';
+            if (stageWarning) stageWarning.style.display = !stageActive ? 'block' : 'none';
+
+        } else {
+            // Check if a parent has ended (only relevant for stage/round)
+            const parentEnded = (entityType === 'stage' && tournamentEnd && now > tournamentEnd)
+                || (entityType === 'round' && (
+                    (tournamentEnd && now > tournamentEnd)
+                    || (stageEnd && now > stageEnd)
+                ));
+
+            if (parentEnded) {
+                statusText.textContent = msgParentEnded;
+                container.style.backgroundColor = '#e2e3e5';
+                icon.className = 'bi bi-clock-history text-secondary';
+                // Show the relevant ended warnings
+                warnings.forEach(w => w.style.display = 'none');
+                const tournamentEndedWarning = document.getElementById('tournament-ended-warning');
+                const stageEndedWarning = document.getElementById('stage-ended-warning');
+                if (tournamentEndedWarning) tournamentEndedWarning.style.display = (tournamentEnd && now > tournamentEnd) ? 'block' : 'none';
+                if (stageEndedWarning) stageEndedWarning.style.display = (stageEnd && now > stageEnd) ? 'block' : 'none';
+
+            } else {
+                // Check if any start date is in the future
+                // Skip parent checks when editing the parent itself to avoid circular reference
+                const notStarted = (entityStart && now < entityStart)
+                    || (entityType !== 'tournament' && tournamentStart && now < tournamentStart)
+                    || (entityType !== 'stage' && stageStart && now < stageStart);
+
+                // Check if end date is in the past
+                const hasEnded = entityEnd && now > entityEnd;
+
+                if (hasEnded) {
+                    statusText.textContent = msgEnded;
+                    container.style.backgroundColor = '#e2e3e5';
+                    icon.className = 'bi bi-clock-history text-secondary';
+                } else if (notStarted) {
+                    statusText.textContent = msgNotStarted;
+                    container.style.backgroundColor = '#d1ecf1';
+                    icon.className = 'bi bi-info-circle-fill text-info';
+                } else {
+                    statusText.textContent = msgActive;
+                    container.style.backgroundColor = '#d1e7dd';
+                    icon.className = 'bi bi-check-circle-fill text-success';
+                }
+                warnings.forEach(w => w.style.display = 'none');
+            }
+        }
+    }
+}
+
+// Initialize on page load + listen for date changes
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('id_is_active')) {
+        updateActiveStatus();
+        const startDateInput = document.querySelector('[name="start_date"]');
+        const endDateInput = document.querySelector('[name="end_date"]');
+        if (startDateInput) {
+            startDateInput.addEventListener('change', updateActiveStatus);
+        }
+        if (endDateInput) {
+            endDateInput.addEventListener('change', updateActiveStatus);
+        }
+    }
+});
+</script>

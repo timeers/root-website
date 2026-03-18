@@ -398,12 +398,12 @@ class BracketService:
             series.status = CompetitionStatus.ACTIVE
             series.save(update_fields=['status'])
 
-        # Activate any pending parent objects
+        # Activate any pending parent objects (only if they're active)
         round_obj = match.round
         stage = round_obj.stage
         tournament = stage.tournament if stage else None
         for obj in (round_obj, stage, tournament):
-            if obj and obj.status == CompetitionStatus.PENDING:
+            if obj and obj.status == CompetitionStatus.PENDING and obj.is_active:
                 obj.status = CompetitionStatus.ACTIVE
                 obj.save(update_fields=['status'])
 

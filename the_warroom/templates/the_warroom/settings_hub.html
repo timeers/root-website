@@ -39,12 +39,17 @@
 
     <!-- Settings Cards Grid -->
     <div class="row g-4">
+        <!-- Status Card -->
+        {% if status_hierarchy %}
+        {% include 'the_warroom/partials/status_card.html' %}
+        {% endif %}
+
         <!-- General Settings Card -->
         {% if can_manage %}
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-sliders me-2"></i>General Settings
                     </h5>
                     <p class="card-text text-muted">
@@ -80,7 +85,7 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-people me-2"></i>Player Management
                     </h5>
                     <p class="card-text text-muted">
@@ -115,14 +120,14 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-clipboard-check me-2"></i>Surveys
                     </h5>
                     <p class="card-text text-muted">
                         {% if stage %}
-                        Manage registration and feedback surveys for this stage
+                        Manage registration and feedback surveys for {{stage.name}}
                         {% else %}
-                        Manage registration and feedback surveys for this series
+                        Manage registration and feedback surveys for {{tournament}}
                         {% endif %}
                     </p>
                 </div>
@@ -157,7 +162,7 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-box me-2"></i>Asset Management
                     </h5>
                     <p class="card-text text-muted">
@@ -178,7 +183,7 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-diagram-3 me-2"></i>Bracket
                     </h5>
                     <p class="card-text text-muted">
@@ -201,11 +206,11 @@
                 <div class="col-md-6">
                     <div class="card h-100">
                         <div class="card-body">
-                            <h5 class="card-title">
+                            <h5 class="card-title root-title">
                                 <i class="bi bi-plus-circle me-2"></i>Add Stage
                             </h5>
                             <p class="card-text text-muted">
-                                Create a new stage within this series
+                                Create a new stage within {{tournament}}
                             </p>
                         </div>
                         <div class="card-footer bg-transparent">
@@ -220,11 +225,11 @@
                 <div class="col-md-6">
                     <div class="card h-100">
                         <div class="card-body">
-                            <h5 class="card-title">
+                            <h5 class="card-title root-title">
                                 <i class="bi bi-plus-circle me-2"></i>Add Round
                             </h5>
                             <p class="card-text text-muted">
-                                Create a new round within this series
+                                Create a new round within {{tournament}}
                             </p>
                         </div>
                         <div class="card-footer bg-transparent">
@@ -242,11 +247,11 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-plus-circle me-2"></i>Add Round
                     </h5>
                     <p class="card-text text-muted">
-                        Create a new round within this stage
+                        Create a new round within {{stage.name}}
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
@@ -263,7 +268,7 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">
+                    <h5 class="card-title root-title">
                         <i class="bi bi-diagram-3 me-2"></i>Player Grouping
                     </h5>
                     <p class="card-text text-muted">
@@ -285,16 +290,16 @@
             <div class="col-md-6">
                 <div class="card h-100 border-danger">
                     <div class="card-body">
-                        <h5 class="card-title text-danger">
+                        <h5 class="card-title text-danger root-title">
                             <i class="bi bi-exclamation-triangle me-2"></i>Warning
                         </h5>
                         <p class="card-text text-muted">
                             {% if round %}
                             Permanently delete this round and all associated data
                             {% elif stage %}
-                            Permanently delete this stage and all associated data
+                            Permanently delete {{stage.name}} and all associated data
                             {% else %}
-                            Permanently delete this series and all associated data
+                            Permanently delete {{tournament}} and all associated data
                             {% endif %}
                         </p>
                     </div>

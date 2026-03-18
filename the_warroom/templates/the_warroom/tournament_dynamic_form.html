@@ -88,6 +88,33 @@
                     </div>
                 </div>
 
+
+                <!-- Dates & Visibility Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Status & Schedule' %}</h5>
+                    </div>
+                    <div class="card-body"> 
+                        
+                    {% include 'the_warroom/partials/status_toggle.html' with entity_type='tournament' entity=tournament %}
+
+
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.start_date|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.end_date|as_crispy_field }}
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.publicly_visible|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Moderators Card -->
                 <div class="card mb-3">
                     <div class="card-header">
@@ -134,27 +161,8 @@
                     </div>
                 </div>
 
-                <!-- Dates & Visibility Card -->
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Schedule & Visibility' %}</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                {{ form.start_date|as_crispy_field }}
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                {{ form.end_date|as_crispy_field }}
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                {{ form.publicly_visible|as_crispy_field }}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+
+
 
                 <!-- Player Settings Card -->
                 <div class="card mb-3">
@@ -364,6 +372,7 @@
 {% block scripts %}
 
 {% include 'the_warroom/partials/asset_mode_scripts.html' %}
+{% include 'the_warroom/partials/status_toggle_scripts.html' %}
 
 <script>
     // Initialize Select2 for designer and guild fields
@@ -376,12 +385,34 @@
 
     // Initialize datepickers
     $(document).ready(function(){
-        $(".datepicker").datepicker({
+        const dpOptions = {
             dateFormat: "yy-mm-dd",
             changeMonth: true,
             changeYear: true,
-            yearRange: "c-100:c+10"
+            yearRange: "c-100:c+10",
+            onSelect: function() {
+                this.dispatchEvent(new Event('change'));
+            }
+        };
+
+        $("#id_start_date").datepicker(dpOptions);
+        $("#id_end_date").datepicker(dpOptions);
+
+        // Cross-constrain: start_date limits end_date and vice versa
+        $("#id_start_date").on("change", function() {
+            const val = $(this).val();
+            $("#id_end_date").datepicker("option", "minDate", val || null);
         });
+        $("#id_end_date").on("change", function() {
+            const val = $(this).val();
+            $("#id_start_date").datepicker("option", "maxDate", val || null);
+        });
+
+        // Initialize cross-constraints from existing values
+        const initStart = $("#id_start_date").val();
+        const initEnd = $("#id_end_date").val();
+        if (initStart) $("#id_end_date").datepicker("option", "minDate", initStart);
+        if (initEnd) $("#id_start_date").datepicker("option", "maxDate", initEnd);
     });
 
     // Toggle player count fields visibility

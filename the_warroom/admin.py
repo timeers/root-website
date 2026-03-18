@@ -36,12 +36,37 @@ class StageInline(admin.TabularInline):
     fields = ('name', 'order', 'stage_format', 'grouping_type', 'naming_convention', 'include_waitlist')
 
 class TournamentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'classification', 'start_date', 'end_date', 'platform')
+    list_display = ('name', 'classification', 'is_active', 'start_date', 'end_date', 'status', 'platform')
+    list_filter = ('is_active', 'status', 'classification', 'platform')
     search_fields = ('name', 'description')
     inlines = [StageInline]
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'classification', 'designer', 'moderators', 'description', 'rules', 'picture', 'guild')
+        }),
+        ('Availability', {
+            'fields': ('is_active', 'start_date', 'end_date', 'status')
+        }),
+        ('Game Settings', {
+            'fields': ('default_format', 'platform', 'link_required', 'teams', 'coalition_type')
+        }),
+        ('Player Settings', {
+            'fields': ('open_roster', 'enforce_player_count', 'min_players', 'max_players')
+        }),
+        ('Asset Settings', {
+            'fields': ('asset_mode', 'include_clockwork', 'factions', 'maps', 'decks', 'hirelings', 'landmarks', 'tweaks', 'vagabonds')
+        }),
+        ('Leaderboard Settings', {
+            'fields': ('game_threshold', 'leaderboard_positions')
+        }),
+        ('Structure', {
+            'fields': ('use_stages', 'use_rounds', 'publicly_visible')
+        }),
+    )
 
 class RoundAdmin(admin.ModelAdmin):
-    list_display = ('name', 'stage', 'stage__tournament', 'round_number', 'start_date', 'end_date')
+    list_display = ('name', 'stage', 'stage__tournament', 'round_number', 'is_active', 'start_date', 'end_date', 'status')
+    list_filter = ('is_active', 'status', 'grouping_status', 'bracket_status')
     search_fields = ['name', 'stage__name', 'stage__tournament__name']
 
 class TurnInline(admin.StackedInline):
@@ -535,11 +560,31 @@ class StageParticipantInline(admin.TabularInline):
 
 
 class StageAdmin(admin.ModelAdmin):
-    list_display = ('name', 'tournament', 'order', 'stage_format', 'grouping_type', 'grouped_count', 'ungrouped_count')
-    list_filter = ('tournament', 'stage_format', 'grouping_type')
+    list_display = ('name', 'tournament', 'order', 'is_active', 'stage_format', 'grouping_type', 'status', 'grouped_count', 'ungrouped_count')
+    list_filter = ('is_active', 'status', 'tournament', 'stage_format', 'grouping_type')
     search_fields = ('name', 'tournament__name')
     raw_id_fields = ('tournament',)
     inlines = [RoundInline, StageParticipantInline]
+    fieldsets = (
+        (None, {
+            'fields': ('tournament', 'name', 'order', 'stage_format')
+        }),
+        ('Availability', {
+            'fields': ('is_active', 'start_date', 'end_date', 'status')
+        }),
+        ('Grouping Configuration', {
+            'fields': ('grouping_type', 'naming_convention', 'include_waitlist', 'grouped_count', 'ungrouped_count')
+        }),
+        ('Player Settings', {
+            'fields': ('min_players', 'max_players')
+        }),
+        ('Leaderboard Settings', {
+            'fields': ('game_threshold', 'leaderboard_positions')
+        }),
+        ('Advancement', {
+            'fields': ('advancement_type', 'config')
+        }),
+    )
 
 
 class PlayerGroupAdmin(admin.ModelAdmin):

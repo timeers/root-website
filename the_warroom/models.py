@@ -71,12 +71,48 @@ class TournamentQuerySet(models.QuerySet):
             Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
         )
 
+    def is_available(self):
+        """Filter for available tournaments."""
+        now = timezone.now()
+        return self.exclude(
+            Q(is_active=False) |
+            Q(start_date__gt=now) |
+            Q(end_date__lt=now)
+        )
+
+    def not_available(self):
+        """Filter for unavailable tournaments."""
+        now = timezone.now()
+        return self.filter(
+            Q(is_active=False) |
+            Q(start_date__gt=now) |
+            Q(end_date__lt=now)
+        )
+
 
 class RoundQuerySet(models.QuerySet):
     def open(self):
         """Return rounds that are still open (end_date is null or in the future)"""
         return self.filter(
             Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
+        )
+
+    def is_available(self):
+        """Filter for available rounds."""
+        now = timezone.now()
+        return self.exclude(
+            Q(is_active=False) |
+            Q(start_date__gt=now) |
+            Q(end_date__lt=now)
+        )
+
+    def not_available(self):
+        """Filter for unavailable rounds."""
+        now = timezone.now()
+        return self.filter(
+            Q(is_active=False) |
+            Q(start_date__gt=now) |
+            Q(end_date__lt=now)
         )
 
 class CompetitionStatus(models.TextChoices):
@@ -180,13 +216,24 @@ class Tournament(models.Model):
         default=CoalitionTypes.ONE
     )
 
-    start_date = models.DateTimeField(default=timezone.now)
-    end_date = models.DateTimeField(null=True, blank=True)
+    start_date = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    end_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        )
 
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     use_stages = models.BooleanField(default=False, help_text='Enable if you want multiple stages.')
     use_rounds = models.BooleanField(default=False, help_text='Enable if you want multiple rounds for each stage.')
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this tournament is currently active and visible to users"
+    )
 
     objects = TournamentQuerySet.as_manager()
 
@@ -202,6 +249,31 @@ class Tournament(models.Model):
         if self.end_date is None:
             return True
         return timezone.now() < self.end_date
+
+    def is_available(self):
+        """Check if tournament is currently available."""
+        now = timezone.now()
+        if not self.is_active:
+            return False
+        if self.start_date and now < self.start_date:
+            return False
+        if self.end_date and now > self.end_date:
+            return False
+        return True
+
+    def has_started(self):
+        """Check if tournament has started."""
+        now = timezone.now()
+        if self.start_date and now < self.start_date:
+            return False
+        return True
+
+    def has_ended(self):
+        """Check if tournament has ended."""
+        now = timezone.now()
+        if self.end_date and now > self.end_date:
+            return True
+        return False
 
     def has_permission(self, profile):
         """Check if profile is designer, moderator, or admin."""
@@ -357,7 +429,7 @@ class Tournament(models.Model):
         now = timezone.now()
         if self.end_date and self.end_date < now:
             self.status = CompetitionStatus.COMPLETED
-        elif self.start_date and self.start_date <= now:
+        elif self.start_date is None or self.start_date <= now:
             self.status = CompetitionStatus.ACTIVE
         else:
             self.status = CompetitionStatus.PENDING
@@ -461,14 +533,52 @@ class Stage(models.Model):
 
     slug = models.SlugField(null=True, blank=True)
 
-    start_date = models.DateTimeField(default=timezone.now)
+    start_date = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
     end_date = models.DateTimeField(null=True, blank=True)
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this stage is currently active and visible to users"
+    )
 
     def get_game_threshold(self):
         return self.game_threshold if self.game_threshold is not None else self.tournament.game_threshold
 
     def get_leaderboard_positions(self):
         return self.leaderboard_positions if self.leaderboard_positions is not None else self.tournament.leaderboard_positions
+
+    def is_available(self):
+        """Check if stage is available (cascades from tournament)."""
+        # Check parent tournament first
+        if self.tournament and not self.tournament.is_available():
+            return False
+
+        # Then check self
+        now = timezone.now()
+        if not self.is_active:
+            return False
+        if self.start_date and now < self.start_date:
+            return False
+        if self.end_date and now > self.end_date:
+            return False
+        return True
+
+    def has_started(self):
+        """Check if stage has started."""
+        now = timezone.now()
+        if self.start_date and now < self.start_date:
+            return False
+        return True
+
+    def has_ended(self):
+        """Check if stage has ended."""
+        now = timezone.now()
+        if self.end_date and now > self.end_date:
+            return True
+        return False
 
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
@@ -504,6 +614,26 @@ class Stage(models.Model):
     def get_format(self):
         """Get the effective format for this stage"""
         return self.stage_format or self.tournament.default_format
+
+    def clean(self):
+        """Validate stage dates against tournament dates."""
+        super().clean()
+
+        if not self.tournament:
+            return
+
+        # Only validate if parent has dates
+        if self.start_date and self.tournament.start_date:
+            if self.start_date < self.tournament.start_date:
+                raise ValidationError({
+                    'start_date': f'Stage cannot start before tournament ({self.tournament.start_date})'
+                })
+
+        if self.end_date and self.tournament.end_date:
+            if self.end_date > self.tournament.end_date:
+                raise ValidationError({
+                    'end_date': f'Stage cannot end after tournament ({self.tournament.end_date})'
+                })
 
 def promote_n_waitlist_players(tournament, n):
     """
@@ -576,7 +706,10 @@ class Round(models.Model):
     )
 
     round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
-    start_date = models.DateTimeField(default=timezone.now)
+    start_date = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
     end_date = models.DateTimeField(null=True, blank=True)
 
     game_threshold = models.IntegerField(
@@ -635,7 +768,12 @@ class Round(models.Model):
     )
 
     slug = models.SlugField(null=True, blank=True)
-    
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this round is currently active and visible to users"
+    )
+
     objects = RoundQuerySet.as_manager()
 
     @property
@@ -644,6 +782,36 @@ class Round(models.Model):
         if self.end_date is None:
             return True
         return timezone.now() < self.end_date
+
+    def is_available(self):
+        """Check if round is available (cascades from stage and tournament)."""
+        # Check parent stage first
+        if self.stage and not self.stage.is_available():
+            return False
+
+        # Then check self
+        now = timezone.now()
+        if not self.is_active:
+            return False
+        if self.start_date and now < self.start_date:
+            return False
+        if self.end_date and now > self.end_date:
+            return False
+        return True
+
+    def has_started(self):
+        """Check if round has started."""
+        now = timezone.now()
+        if self.start_date and now < self.start_date:
+            return False
+        return True
+
+    def has_ended(self):
+        """Check if round has ended."""
+        now = timezone.now()
+        if self.end_date and now > self.end_date:
+            return True
+        return False
 
     def get_tournament(self):
         """Return the tournament for this round, preferring stage.tournament over direct FK."""
@@ -835,6 +1003,26 @@ class Round(models.Model):
         if self.stage:
             return self.stage.get_leaderboard_positions()
         return self.tournament.leaderboard_positions
+
+    def clean(self):
+        """Validate round dates against stage dates."""
+        super().clean()
+
+        if not self.stage:
+            return
+
+        # Only validate if parent has dates
+        if self.start_date and self.stage.start_date:
+            if self.start_date < self.stage.start_date:
+                raise ValidationError({
+                    'start_date': f'Round cannot start before stage ({self.stage.start_date})'
+                })
+
+        if self.end_date and self.stage.end_date:
+            if self.end_date > self.stage.end_date:
+                raise ValidationError({
+                    'end_date': f'Round cannot end after stage ({self.stage.end_date})'
+                })
 
     def get_min_players(self):
         """Get the minimum players per game for this round"""

@@ -19,20 +19,25 @@ from .services.root_league_api import create_game_from_api, create_efforts_from_
 
 @shared_task
 def update_tournament_statuses():
-    """Update tournament statuses based on start/end dates."""
+    """Update tournament statuses based on start/end dates (only for active tournaments)."""
     now = timezone.now()
     updated = 0
 
     # Pending tournaments that should be Active (start_date has passed, not ended)
+    # Only update active tournaments
     updated += Tournament.objects.filter(
+        is_active=True,
         status=CompetitionStatus.PENDING,
-        start_date__lte=now,
+    ).filter(
+        Q(start_date__isnull=True) | Q(start_date__lte=now)
     ).filter(
         Q(end_date__isnull=True) | Q(end_date__gt=now)
     ).update(status=CompetitionStatus.ACTIVE)
 
     # Active/Pending tournaments that should be Completed (end_date has passed)
+    # Only update active tournaments
     updated += Tournament.objects.filter(
+        is_active=True,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
         end_date__lt=now,
     ).update(status=CompetitionStatus.COMPLETED)

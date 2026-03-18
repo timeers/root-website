@@ -2611,6 +2611,7 @@ def _get_series_base_queryset(classification, profile=None):
     """Build an annotated Tournament queryset for a classification type."""
     qs = Tournament.objects.filter(classification=classification)
 
+    now = timezone.now()
     qs = qs.annotate(
         annotated_game_count=Count(
             'rounds__games',
@@ -2628,6 +2629,17 @@ def _get_series_base_queryset(classification, profile=None):
             default=Value(2),
             output_field=IntegerField()
         ),
+        # Availability sort: available tournaments first
+        is_available_sort=Case(
+            When(
+                Q(is_active=True) &
+                (Q(start_date__isnull=True) | Q(start_date__lte=now)) &
+                (Q(end_date__isnull=True) | Q(end_date__gte=now)),
+                then=Value(True)
+            ),
+            default=Value(False),
+            output_field=BooleanField()
+        ),
     )
 
     if profile:
@@ -2639,7 +2651,7 @@ def _get_series_base_queryset(classification, profile=None):
         )
         qs = qs.annotate(user_in_guild=user_in_guild)
 
-    qs = qs.order_by('status_sort', '-start_date')
+    qs = qs.order_by('-is_available_sort', 'status_sort', '-start_date')
     qs = qs.select_related('guild', 'designer')
 
     return qs
@@ -2759,8 +2771,7 @@ def about_games_view(request):
 # ============================
 def user_can_access_round(tournament_round, user):
     from the_warroom.models import StageParticipant
-    now = timezone.now()
-    is_active = (tournament_round.start_date < now) and (tournament_round.end_date is None or tournament_round.end_date > now)
+    is_active = tournament_round.is_available()
     is_designer = tournament_round.stage.tournament.has_permission(user.profile)
 
     stage = tournament_round.stage
@@ -3757,6 +3768,67 @@ def tournament_manage_assets(request, slug):
     return render(request, 'the_warroom/tournament_manage_assets.html', context)
 
 
+def get_status_info(entity, entity_type, tournament=None, stage=None):
+    """Calculate status display information for Tournament/Stage/Round settings hub."""
+    now = timezone.now()
+
+    if entity_type == 'tournament':
+        t = entity.classification
+        if entity.is_active:
+            if entity.end_date and entity.end_date < now:
+                return {'alert_type': 'secondary', 'alert_message': f'{t} has ended', 'icon': 'bi-clock-history'}
+            if entity.start_date and entity.start_date > now:
+                return {'alert_type': 'info', 'alert_message': f'{t} is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'alert_message': f'{t} is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'alert_message': f'{t} is inactive and not available', 'icon': 'bi-x-circle-fill'}
+
+    elif entity_type == 'stage':
+        if entity.is_active:
+            if not tournament.is_active:
+                return {'alert_type': 'warning', 'alert_message': 'Stage is active but tournament is inactive', 'icon': 'bi-exclamation-triangle-fill'}
+            if (entity.end_date and entity.end_date < now) or (tournament.end_date and tournament.end_date < now):
+                return {'alert_type': 'secondary', 'alert_message': 'Stage has ended', 'icon': 'bi-clock-history'}
+            if (entity.start_date and entity.start_date > now) or (tournament.start_date and tournament.start_date > now):
+                return {'alert_type': 'info', 'alert_message': 'Stage is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'alert_message': 'Stage is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'alert_message': 'Stage is inactive', 'icon': 'bi-x-circle-fill'}
+
+    elif entity_type == 'round':
+        if entity.is_active:
+            if not tournament.is_active or not stage.is_active:
+                return {'alert_type': 'warning', 'alert_message': 'Round is active but parent is inactive', 'icon': 'bi-exclamation-triangle-fill'}
+            if (entity.end_date and entity.end_date < now) or (stage.end_date and stage.end_date < now) or (tournament.end_date and tournament.end_date < now):
+                return {'alert_type': 'secondary', 'alert_message': 'Round has ended', 'icon': 'bi-clock-history'}
+            if (entity.start_date and entity.start_date > now) or (stage.start_date and stage.start_date > now) or (tournament.start_date and tournament.start_date > now):
+                return {'alert_type': 'info', 'alert_message': 'Round is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'alert_message': 'Round is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'alert_message': 'Round is inactive', 'icon': 'bi-x-circle-fill'}
+
+
+def build_status_hierarchy(entity_type, tournament, stage=None, round_obj=None):
+    """Build ordered list of status info dicts for hierarchical display."""
+    hierarchy = []
+
+    t_info = get_status_info(tournament, 'tournament')
+    t_info['label'] = tournament.name
+    t_info['is_current'] = (entity_type == 'tournament')
+    hierarchy.append(t_info)
+
+    if entity_type in ('stage', 'round') and stage and tournament.use_stages:
+        s_info = get_status_info(stage, 'stage', tournament=tournament)
+        s_info['label'] = stage.name
+        s_info['is_current'] = (entity_type == 'stage')
+        hierarchy.append(s_info)
+
+    if entity_type == 'round' and round_obj:
+        r_info = get_status_info(round_obj, 'round', tournament=tournament, stage=stage)
+        r_info['label'] = round_obj.name or 'Round'
+        r_info['is_current'] = True
+        hierarchy.append(r_info)
+
+    return hierarchy
+
+
 @player_onboard_required
 def tournament_settings_hub(request, slug):
     """Settings hub page with links to all tournament management tools."""
@@ -3781,6 +3853,7 @@ def tournament_settings_hub(request, slug):
         'can_manage': is_owner,
         'is_owner': is_owner,
         'has_games': has_games,
+        'status_hierarchy': build_status_hierarchy('tournament', tournament),
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -3820,6 +3893,7 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
         'survey_count': survey_count,
         'can_manage': True,  # Already permission-gated above
         'is_owner': is_owner,
+        'status_hierarchy': build_status_hierarchy('round', tournament, stage=stage, round_obj=round),
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -4337,6 +4411,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'can_manage': True,  # Already permission-gated above
         'is_owner': is_owner,
         'has_games': has_games,
+        'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 

@@ -93,19 +93,34 @@ class GameCreateForm(forms.ModelForm):
         if user:
             user_guilds = user.profile.guilds.all()
             if user.profile.admin:
-                # Select all active tournament roundds (Admin can record games for any tournament)
+                # Select all active tournament rounds (Admin can record games for any tournament)
+                # Filter for available rounds (is_active=True + within date range)
+                now = timezone.now()
                 active_rounds = Round.objects.filter(
-                    Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True), start_date__lt=timezone.now()).distinct()
+                    is_active=True,
+                    stage__is_active=True,
+                    stage__tournament__is_active=True
+                ).filter(
+                    Q(start_date__isnull=True) | Q(start_date__lte=now)
+                ).exclude(
+                    end_date__lt=now
+                ).distinct()
             else:
-                
+
+                now = timezone.now()
                 active_rounds = Round.objects.filter(
                     Q(
                         Q(stage__participants__tournament_player__profile=user.profile) |  # player is a participant of the stage
                         Q(stage__tournament__designer=user.profile) |  # or the creator of the tournament
                         Q(stage__tournament__guild__in=user_guilds)  # or in the tournament's guild
                     ),
-                    Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-                    start_date__lt=timezone.now()
+                    is_active=True,
+                    stage__is_active=True,
+                    stage__tournament__is_active=True
+                ).filter(
+                    Q(start_date__isnull=True) | Q(start_date__lte=now)
+                ).exclude(
+                    end_date__lt=now
                 ).exclude(
                     # Hide bracket rounds from regular players (moderators/designers can still see them)
                     Q(series__isnull=False),
@@ -754,7 +769,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         model = Tournament
         fields = [
             'name', 'classification', 'designer', 'guild', 'description', 'rules',
-            'start_date', 'end_date', 'publicly_visible',
+            'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster',
             'platform', 'default_format', 'link_required',
             'asset_mode', 'include_clockwork',
@@ -767,8 +782,9 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'designer': 'Owner',
             'guild': 'Discord Guild',
             'start_date': 'Start Date',
-            'end_date': 'End Date (Optional)',
+            'end_date': 'End Date',
             'publicly_visible': 'Display on Series home page',
+            'is_active': 'Active Status',
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
             'link_required': 'Require Link with Game Submission',
@@ -787,7 +803,6 @@ class TournamentDynamicCreateForm(forms.ModelForm):
 
         # Set initial values for new tournaments
         if not self.instance.pk:
-            self.fields['start_date'].initial = timezone.now()
             if user:
                 self.fields['designer'].initial = user.profile.id
                 self.fields['classification'].initial = Tournament.ClassificationTypes.GROUP
@@ -902,7 +917,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
         model = Tournament
         fields = [
             'name', 'classification', 'designer', 'guild', 'description', 'rules',
-            'start_date', 'end_date', 'publicly_visible',
+            'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster',
             'platform', 'link_required',
             'asset_mode', 'include_clockwork',
@@ -919,8 +934,9 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
             'start_date': 'Start Date',
-            'end_date': 'End Date (Optional)',
+            'end_date': 'End Date',
             'publicly_visible': 'Display on Series home page',
+            'is_active': 'Active Status',
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
             'coalition_type': 'Allowed Coalitions',
@@ -979,11 +995,12 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
 class RoundCreateForm(forms.ModelForm):
     class Meta:
         model = Round
-        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'game_threshold', 'leaderboard_positions', 'round_specific_format', 'min_players', 'max_players']
+        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'is_active', 'game_threshold', 'leaderboard_positions', 'round_specific_format', 'min_players', 'max_players']
         labels = {
             'name': 'Round Name',
             'round_number': 'Round #',
             'end_date': 'End Date (Optional)',
+            'is_active': 'Active Status',
             'game_threshold': 'Leaderboard Threshold',
             'leaderboard_positions': 'Leaderboard Positions',
             'description': 'Description (Optional)',
@@ -1006,9 +1023,6 @@ class RoundCreateForm(forms.ModelForm):
             })
         self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
         self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
-        # Set the initial value for 'start_date' to the current time
-        if not self.instance.pk:  # Only set this if the instance is new
-            self.fields['start_date'].initial = timezone.now()
 
         # Ensure current_round is passed and not None
         if current_round is not None:
@@ -1044,14 +1058,15 @@ class StageCreateForm(forms.ModelForm):
         model = Stage
         fields = [
             'name', 'order', 'stage_format', 'advancement_type', 'status',
-            'start_date', 'end_date',
+            'start_date', 'end_date', 'is_active',
             'min_players', 'max_players',
             'game_threshold', 'leaderboard_positions',
         ]
         labels = {
             'stage_format': 'Format',
             'advancement_type': 'Advancement Type',
-            'end_date': 'End Date (Optional)',
+            'end_date': 'End Date',
+            'is_active': 'Active Status',
             'game_threshold': 'Leaderboard Threshold',
             'leaderboard_positions': 'Leaderboard Positions',
         }
@@ -1062,7 +1077,6 @@ class StageCreateForm(forms.ModelForm):
         self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
         self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
         if not self.instance.pk:
-            self.fields['start_date'].initial = timezone.now()
             # Auto-populate order to next available number
             if tournament:
                 max_order = tournament.stages.aggregate(Max('order'))['order__max'] or 0
