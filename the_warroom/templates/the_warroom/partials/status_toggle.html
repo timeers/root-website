@@ -5,7 +5,7 @@
 
         <div id="status-toggle-container"
              class="border rounded p-3 d-flex align-items-center justify-content-between"
-             style="background-color: {% if not entity or entity.is_active %}#d1e7dd{% else %}#f8d7da{% endif %};"
+             style="background-color: {% if entity and entity.status == 'Completed' and entity.is_active %}#e2e3e5{% elif not entity or entity.is_active %}#d1e7dd{% else %}#f8d7da{% endif %};"
              data-entity-type="{{ entity_type }}"
              data-tournament-active="{% if tournament %}{{ tournament.is_active|yesno:'true,false' }}{% else %}true{% endif %}"
              data-tournament-start="{% if tournament.start_date %}{{ tournament.start_date|date:'Y-m-d' }}{% endif %}"
@@ -18,10 +18,12 @@
              data-msg-not-started="{% if entity_type == 'tournament' %}{% trans 'Tournament is active but has not started yet' %}{% elif entity_type == 'stage' %}{% trans 'Stage is active but has not started yet' %}{% else %}{% trans 'Round is active but has not started yet' %}{% endif %}"
              data-msg-parent-inactive="{% if entity_type == 'stage' %}{% trans 'Stage is active but tournament is inactive' %}{% elif entity_type == 'round' %}{% trans 'Round is active but parent is inactive' %}{% endif %}"
              data-msg-ended="{% if entity_type == 'tournament' %}{% trans 'Tournament has ended' %}{% elif entity_type == 'stage' %}{% trans 'Stage has ended' %}{% else %}{% trans 'Round has ended' %}{% endif %}"
-             data-msg-parent-ended="{% if entity_type == 'stage' %}{% trans 'Stage is active but' %} {{ tournament.classification|lower }} {% trans 'has ended' %}{% elif entity_type == 'round' %}{% trans 'Round is active but parent has ended' %}{% endif %}">
+             data-msg-parent-ended="{% if entity_type == 'stage' %}{% trans 'Stage is active but' %} {{ tournament.classification|lower }} {% trans 'has ended' %}{% elif entity_type == 'round' %}{% trans 'Round is active but parent has ended' %}{% endif %}"
+             data-msg-completed="{% if entity_type == 'tournament' %}{% trans 'Tournament is completed' %}{% elif entity_type == 'stage' %}{% trans 'Stage is completed' %}{% else %}{% trans 'Round is completed' %}{% endif %}"
+             data-status="{% if entity %}{{ entity.status }}{% endif %}">
             <div class="d-flex align-items-center gap-3">
                 <i id="status-toggle-icon"
-                   class="bi {% if not entity or entity.is_active %}bi-check-circle-fill text-success{% else %}bi-x-circle-fill text-danger{% endif %}"
+                   class="bi {% if entity and entity.status == 'Completed' and entity.is_active %}bi-check-circle-fill text-secondary{% elif not entity or entity.is_active %}bi-check-circle-fill text-success{% else %}bi-x-circle-fill text-danger{% endif %}"
                    style="font-size: 1.5rem;"></i>
                 <div>
                     <label class="form-check-label fw-bold mb-0" for="id_is_active" style="font-size: 1.1rem; cursor: pointer;">

@@ -1,4 +1,9 @@
 <script>
+// Store original form values on load to detect changes
+let _originalStartDate = null;
+let _originalEndDate = null;
+let _originalIsActive = null;
+
 function updateActiveStatus() {
     const container = document.getElementById('status-toggle-container');
     const checkbox = document.getElementById('id_is_active');
@@ -33,6 +38,15 @@ function updateActiveStatus() {
     const msgParentInactive = container.dataset.msgParentInactive;
     const msgEnded = container.dataset.msgEnded;
     const msgParentEnded = container.dataset.msgParentEnded;
+    const msgCompleted = container.dataset.msgCompleted;
+    const currentStatus = container.dataset.status;
+
+    // Detect if the user has changed dates or is_active from original values
+    const startVal = startDateInput ? startDateInput.value : '';
+    const endVal = endDateInput ? endDateInput.value : '';
+    const formChanged = (startVal !== _originalStartDate)
+        || (endVal !== _originalEndDate)
+        || (isActive !== _originalIsActive);
 
     // Get all parent warning elements
     const warnings = document.querySelectorAll('.status-parent-warning');
@@ -96,6 +110,11 @@ function updateActiveStatus() {
                     statusText.textContent = msgNotStarted;
                     container.style.backgroundColor = '#d1ecf1';
                     icon.className = 'bi bi-info-circle-fill text-info';
+                } else if (currentStatus === 'Completed' && !formChanged) {
+                    // Bracket-completed with dates still valid and no form changes — show completed
+                    statusText.textContent = msgCompleted;
+                    container.style.backgroundColor = '#e2e3e5';
+                    icon.className = 'bi bi-check-circle-fill text-secondary';
                 } else {
                     statusText.textContent = msgActive;
                     container.style.backgroundColor = '#d1e7dd';
@@ -110,9 +129,15 @@ function updateActiveStatus() {
 // Initialize on page load + listen for date changes
 document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('id_is_active')) {
-        updateActiveStatus();
+        // Capture original form values to detect changes
         const startDateInput = document.querySelector('[name="start_date"]');
         const endDateInput = document.querySelector('[name="end_date"]');
+        const checkbox = document.getElementById('id_is_active');
+        _originalStartDate = startDateInput ? startDateInput.value : '';
+        _originalEndDate = endDateInput ? endDateInput.value : '';
+        _originalIsActive = checkbox ? checkbox.checked : true;
+
+        updateActiveStatus();
         if (startDateInput) {
             startDateInput.addEventListener('change', updateActiveStatus);
         }

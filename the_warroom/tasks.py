@@ -13,18 +13,18 @@ from django.utils import timezone
 from the_gatehouse.utils import format_bulleted_list
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 
-from .models import Game, Tournament, Round, CompetitionStatus
+from .models import Game, Tournament, Stage, Round, CompetitionStatus
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
 
 
 @shared_task
-def update_tournament_statuses():
-    """Update tournament statuses based on start/end dates (only for active tournaments)."""
+def update_competition_statuses():
+    """Update statuses for tournaments, stages, and rounds based on dates. Cascades completion to children."""
     now = timezone.now()
     updated = 0
 
-    # Pending tournaments that should be Active (start_date has passed, not ended)
-    # Only update active tournaments
+    # --- Tournaments ---
+    # Pending → Active
     updated += Tournament.objects.filter(
         is_active=True,
         status=CompetitionStatus.PENDING,
@@ -34,15 +34,63 @@ def update_tournament_statuses():
         Q(end_date__isnull=True) | Q(end_date__gt=now)
     ).update(status=CompetitionStatus.ACTIVE)
 
-    # Active/Pending tournaments that should be Completed (end_date has passed)
-    # Only update active tournaments
-    updated += Tournament.objects.filter(
+    # Completed by end_date (cascade to children)
+    completed_tournaments = Tournament.objects.filter(
+        is_active=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
+        end_date__lt=now,
+    )
+    for t in completed_tournaments:
+        t.status = CompetitionStatus.COMPLETED
+        t.save(update_fields=['status'])
+        t.stages.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
+        Round.objects.filter(stage__tournament=t).exclude(
+            status=CompetitionStatus.COMPLETED
+        ).update(status=CompetitionStatus.COMPLETED)
+        updated += 1
+
+    # --- Stages ---
+    # Pending → Active
+    updated += Stage.objects.filter(
+        is_active=True,
+        status=CompetitionStatus.PENDING,
+    ).filter(
+        Q(start_date__isnull=True) | Q(start_date__lte=now)
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gt=now)
+    ).update(status=CompetitionStatus.ACTIVE)
+
+    # Completed by end_date (cascade to child rounds)
+    completed_stages = Stage.objects.filter(
+        is_active=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
+        end_date__lt=now,
+    )
+    for s in completed_stages:
+        s.status = CompetitionStatus.COMPLETED
+        s.save(update_fields=['status'])
+        s.rounds.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
+        updated += 1
+
+    # --- Rounds ---
+    # Pending → Active
+    updated += Round.objects.filter(
+        is_active=True,
+        status=CompetitionStatus.PENDING,
+    ).filter(
+        Q(start_date__isnull=True) | Q(start_date__lte=now)
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gt=now)
+    ).update(status=CompetitionStatus.ACTIVE)
+
+    # Completed by end_date
+    updated += Round.objects.filter(
         is_active=True,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
         end_date__lt=now,
     ).update(status=CompetitionStatus.COMPLETED)
 
-    return f"Updated {updated} tournament(s)"
+    return f"Updated {updated} competition(s)"
 
 
 # Import League Games from Pliskin.dev REST API

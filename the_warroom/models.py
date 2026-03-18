@@ -76,6 +76,7 @@ class TournamentQuerySet(models.QuerySet):
         now = timezone.now()
         return self.exclude(
             Q(is_active=False) |
+            Q(status=CompetitionStatus.COMPLETED) |
             Q(start_date__gt=now) |
             Q(end_date__lt=now)
         )
@@ -85,6 +86,7 @@ class TournamentQuerySet(models.QuerySet):
         now = timezone.now()
         return self.filter(
             Q(is_active=False) |
+            Q(status=CompetitionStatus.COMPLETED) |
             Q(start_date__gt=now) |
             Q(end_date__lt=now)
         )
@@ -102,6 +104,7 @@ class RoundQuerySet(models.QuerySet):
         now = timezone.now()
         return self.exclude(
             Q(is_active=False) |
+            Q(status=CompetitionStatus.COMPLETED) |
             Q(start_date__gt=now) |
             Q(end_date__lt=now)
         )
@@ -111,6 +114,7 @@ class RoundQuerySet(models.QuerySet):
         now = timezone.now()
         return self.filter(
             Q(is_active=False) |
+            Q(status=CompetitionStatus.COMPLETED) |
             Q(start_date__gt=now) |
             Q(end_date__lt=now)
         )
@@ -252,9 +256,11 @@ class Tournament(models.Model):
 
     def is_available(self):
         """Check if tournament is currently available."""
-        now = timezone.now()
         if not self.is_active:
             return False
+        if self.status == CompetitionStatus.COMPLETED:
+            return False
+        now = timezone.now()
         if self.start_date and now < self.start_date:
             return False
         if self.end_date and now > self.end_date:
@@ -423,20 +429,52 @@ class Tournament(models.Model):
                 defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
             )
 
-    def save(self, *args, **kwargs):
-
-        # Auto-set status based on dates
+    def _recalculate_status(self):
+        """Recalculate status from is_active and dates."""
         now = timezone.now()
+        if not self.is_active:
+            has_games = Game.objects.filter(round__stage__tournament=self).exists()
+            self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
+            return
         if self.end_date and self.end_date < now:
             self.status = CompetitionStatus.COMPLETED
-        elif self.start_date is None or self.start_date <= now:
-            self.status = CompetitionStatus.ACTIVE
-        else:
+        elif self.start_date and self.start_date > now:
             self.status = CompetitionStatus.PENDING
+        else:
+            self.status = CompetitionStatus.ACTIVE
+
+    def _cascade_dates_to_children(self):
+        """Clamp child stage dates and propagate to rounds."""
+        for stage in self.stages.all():
+            changed = False
+            if self.end_date and stage.end_date and stage.end_date > self.end_date:
+                stage.end_date = self.end_date
+                changed = True
+            if self.start_date and stage.start_date and stage.start_date < self.start_date:
+                stage.start_date = self.start_date
+                changed = True
+            if changed:
+                # Stage dates changed — save will recalculate status and cascade to rounds
+                stage.save()
+            else:
+                # Stage dates unchanged but tournament dates changed —
+                # still need to check rounds against tournament's range
+                stage._cascade_dates_to_children()
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
+            self._recalculate_status()
+
+        # Track date changes for cascading to children
+        old_start = None
+        old_end = None
 
         # Check if the image field has changed (only works if the instance is already saved)
         if self.pk:  # If the object already exists in the database
             old_instance = Tournament.objects.get(pk=self.pk)
+            old_start = old_instance.start_date
+            old_end = old_instance.end_date
             # List of fields to check and delete old images if necessary
             field_name = 'picture'
 
@@ -446,6 +484,10 @@ class Tournament(models.Model):
                 delete_old_image(old_image)
 
         super().save(*args, **kwargs)
+
+        # Cascade date changes to child stages
+        if self.pk and (old_start != self.start_date or old_end != self.end_date):
+            self._cascade_dates_to_children()
 
 
 
@@ -557,9 +599,11 @@ class Stage(models.Model):
             return False
 
         # Then check self
-        now = timezone.now()
         if not self.is_active:
             return False
+        if self.status == CompetitionStatus.COMPLETED:
+            return False
+        now = timezone.now()
         if self.start_date and now < self.start_date:
             return False
         if self.end_date and now > self.end_date:
@@ -579,6 +623,63 @@ class Stage(models.Model):
         if self.end_date and now > self.end_date:
             return True
         return False
+
+    def _recalculate_status(self):
+        """Recalculate status from is_active and dates."""
+        now = timezone.now()
+        if not self.is_active:
+            has_games = Game.objects.filter(round__stage=self).exists()
+            self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
+            return
+        if self.end_date and self.end_date < now:
+            self.status = CompetitionStatus.COMPLETED
+        elif self.start_date and self.start_date > now:
+            self.status = CompetitionStatus.PENDING
+        else:
+            self.status = CompetitionStatus.ACTIVE
+
+    def _cascade_dates_to_children(self):
+        """Clamp child round dates to fit within stage and tournament date range."""
+        # Effective boundaries: tighter of stage and tournament dates
+        effective_end = self.end_date
+        if self.tournament and self.tournament.end_date:
+            if effective_end is None or self.tournament.end_date < effective_end:
+                effective_end = self.tournament.end_date
+        effective_start = self.start_date
+        if self.tournament and self.tournament.start_date:
+            if effective_start is None or self.tournament.start_date > effective_start:
+                effective_start = self.tournament.start_date
+
+        for round_obj in self.rounds.all():
+            changed = False
+            if effective_end and round_obj.end_date and round_obj.end_date > effective_end:
+                round_obj.end_date = effective_end
+                changed = True
+            if effective_start and round_obj.start_date and round_obj.start_date < effective_start:
+                round_obj.start_date = effective_start
+                changed = True
+            if changed:
+                round_obj.save()
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
+            self._recalculate_status()
+
+        # Track date changes for cascading to children
+        old_start = None
+        old_end = None
+        if self.pk:
+            old = Stage.objects.filter(pk=self.pk).values('start_date', 'end_date').first()
+            if old:
+                old_start = old['start_date']
+                old_end = old['end_date']
+
+        super().save(*args, **kwargs)
+
+        # Cascade date changes to child rounds
+        if self.pk and (old_start != self.start_date or old_end != self.end_date):
+            self._cascade_dates_to_children()
 
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
@@ -790,9 +891,11 @@ class Round(models.Model):
             return False
 
         # Then check self
-        now = timezone.now()
         if not self.is_active:
             return False
+        if self.status == CompetitionStatus.COMPLETED:
+            return False
+        now = timezone.now()
         if self.start_date and now < self.start_date:
             return False
         if self.end_date and now > self.end_date:
@@ -812,6 +915,26 @@ class Round(models.Model):
         if self.end_date and now > self.end_date:
             return True
         return False
+
+    def _recalculate_status(self):
+        """Recalculate status from is_active and dates."""
+        now = timezone.now()
+        if not self.is_active:
+            has_games = Game.objects.filter(round=self).exists()
+            self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
+            return
+        if self.end_date and self.end_date < now:
+            self.status = CompetitionStatus.COMPLETED
+        elif self.start_date and self.start_date > now:
+            self.status = CompetitionStatus.PENDING
+        else:
+            self.status = CompetitionStatus.ACTIVE
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
+            self._recalculate_status()
+        super().save(*args, **kwargs)
 
     def get_tournament(self):
         """Return the tournament for this round, preferring stage.tournament over direct FK."""

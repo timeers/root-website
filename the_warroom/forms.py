@@ -999,7 +999,7 @@ class RoundCreateForm(forms.ModelForm):
         labels = {
             'name': 'Round Name',
             'round_number': 'Round #',
-            'end_date': 'End Date (Optional)',
+            'end_date': 'End Date',
             'is_active': 'Active Status',
             'game_threshold': 'Leaderboard Threshold',
             'leaderboard_positions': 'Leaderboard Positions',
@@ -1057,7 +1057,7 @@ class StageCreateForm(forms.ModelForm):
     class Meta:
         model = Stage
         fields = [
-            'name', 'order', 'stage_format', 'advancement_type', 'status',
+            'name', 'order', 'stage_format', 'advancement_type',
             'start_date', 'end_date', 'is_active',
             'min_players', 'max_players',
             'game_threshold', 'leaderboard_positions',

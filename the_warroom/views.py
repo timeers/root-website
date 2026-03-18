@@ -3775,6 +3775,8 @@ def get_status_info(entity, entity_type, tournament=None, stage=None):
     if entity_type == 'tournament':
         t = entity.classification
         if entity.is_active:
+            if entity.status == CompetitionStatus.COMPLETED:
+                return {'alert_type': 'secondary', 'alert_message': f'{t} is completed', 'icon': 'bi-check-circle-fill'}
             if entity.end_date and entity.end_date < now:
                 return {'alert_type': 'secondary', 'alert_message': f'{t} has ended', 'icon': 'bi-clock-history'}
             if entity.start_date and entity.start_date > now:
@@ -3784,6 +3786,8 @@ def get_status_info(entity, entity_type, tournament=None, stage=None):
 
     elif entity_type == 'stage':
         if entity.is_active:
+            if entity.status == CompetitionStatus.COMPLETED:
+                return {'alert_type': 'secondary', 'alert_message': 'Stage is completed', 'icon': 'bi-check-circle-fill'}
             if not tournament.is_active:
                 return {'alert_type': 'warning', 'alert_message': 'Stage is active but tournament is inactive', 'icon': 'bi-exclamation-triangle-fill'}
             if (entity.end_date and entity.end_date < now) or (tournament.end_date and tournament.end_date < now):
@@ -3795,6 +3799,8 @@ def get_status_info(entity, entity_type, tournament=None, stage=None):
 
     elif entity_type == 'round':
         if entity.is_active:
+            if entity.status == CompetitionStatus.COMPLETED:
+                return {'alert_type': 'secondary', 'alert_message': 'Round is completed', 'icon': 'bi-check-circle-fill'}
             if not tournament.is_active or not stage.is_active:
                 return {'alert_type': 'warning', 'alert_message': 'Round is active but parent is inactive', 'icon': 'bi-exclamation-triangle-fill'}
             if (entity.end_date and entity.end_date < now) or (stage.end_date and stage.end_date < now) or (tournament.end_date and tournament.end_date < now):

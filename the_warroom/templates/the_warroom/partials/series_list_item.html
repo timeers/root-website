@@ -26,31 +26,31 @@
         <div class="ms-3 d-flex align-items-center">
             {% if tournament.status == 'Active' %}
                     <div class='hidden-status'>
-                        <div class='text-primary me-2'>
+                        <div class='text-success me-2'>
                             <small>
                                 {% trans 'Active' %}
                             </small>
                         </div>
                     </div>
-                    <i class="bi bi-play-circle-fill text-primary"></i>
+                    <i class="bi bi-play-circle-fill text-success"></i>
             {% elif tournament.status == 'Pending' %}
                     <div class='hidden-status'>
-                        <div class='text-warning me-2'>
+                        <div class='text-info me-2'>
                             <small>
                                 {% trans 'Scheduled' %}
                             </small>
                         </div>
                     </div>
-                    <i class="bi bi-clock-fill text-warning"></i>
+                    <i class="bi bi-clock-fill text-info"></i>
             {% else %}
                     <div class='hidden-status'>
-                        <div class='text-success me-2'>
+                        <div class='text-secondary me-2'>
                             <small>
                                 {% trans 'Concluded' %}
                             </small>
                         </div>
                     </div>
-                    <i class="bi bi-check-circle-fill text-success"></i>
+                    <i class="bi bi-check-circle-fill text-secondary"></i>
             {% endif %}
         </div>
     </div>
