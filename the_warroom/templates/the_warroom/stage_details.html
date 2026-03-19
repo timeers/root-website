@@ -28,13 +28,26 @@
             <dl class="row mb-0">
                 <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
                 <dd class="col-sm-8">
-                    {% if stage.status == 'active' %}
-                    <span class="badge bg-success">{{ stage.get_status_display }}</span>
-                    {% elif stage.status == 'completed' %}
-                    <span class="badge bg-secondary">{{ stage.get_status_display }}</span>
-                    {% else %}
-                    <span class="badge bg-warning text-dark">{{ stage.get_status_display }}</span>
-                    {% endif %}
+                    {% with item=stage %}
+                        <div class="d-flex align-items-center">
+                            {% if item.status == 'Active' %}
+                                <div class='text-success me-2'>
+                                    <small>{% trans 'Active' %}</small>
+                                </div>
+                                <i class="bi bi-play-circle-fill text-success"></i>
+                            {% elif item.status == 'Pending' %}
+                                <div class='text-info me-2'>
+                                    <small>{% trans 'Scheduled' %}</small>
+                                </div>
+                                <i class="bi bi-clock-fill text-info"></i>
+                            {% else %}
+                                <div class='text-secondary me-2'>
+                                    <small>{% trans 'Concluded' %}</small>
+                                </div>
+                                <i class="bi bi-check-circle-fill text-secondary"></i>
+                            {% endif %}
+                        </div>
+                    {% endwith %}
                 </dd>
 
                 <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>

@@ -1714,18 +1714,45 @@ def _round_base_context(request, tournament, stage, round):
 def tournament_overview_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
-    single_stage = get_single_stage(tournament)
-    single_round = get_single_round(tournament, stage=single_stage)
-
-    print(f'Stage: {single_stage}, Round: {single_round}')
-
-    stages = Stage.objects.filter(tournament=tournament).prefetch_related(
-        Prefetch('rounds', queryset=Round.objects.order_by('round_number'))
-    ).order_by('order')
-
     context = _tournament_base_context(request, tournament)
-    context['stages'] = stages
     context['active_page'] = 'overview'
+
+    if tournament.use_stages:
+        children = Stage.objects.filter(tournament=tournament).annotate(
+            annotated_game_count=Count(
+                'rounds__games',
+                filter=Q(rounds__games__final=True),
+                distinct=True
+            ),
+            unique_players_count=Count(
+                'rounds__games__efforts__player',
+                distinct=True
+            ),
+        ).order_by('order')
+        context['children'] = children
+        context['children_type'] = 'stages'
+    else:
+        single_stage = get_single_stage(tournament)
+        if single_stage:
+            if tournament.use_rounds:
+                children = Round.objects.filter(stage=single_stage).annotate(
+                    annotated_game_count=Count(
+                        'games',
+                        filter=Q(games__final=True),
+                        distinct=True
+                    ),
+                    unique_players_count=Count(
+                        'games__efforts__player',
+                        distinct=True
+                    ),
+                ).order_by('round_number')
+                context['children'] = children
+                context['children_type'] = 'rounds'
+                context['single_stage'] = single_stage
+            else:
+                single_round = get_single_round(tournament, stage=single_stage)
+                context['single_round'] = single_round
+                context['single_stage'] = single_stage
 
     return render(request, 'the_warroom/tournament_overview.html', context)
 
@@ -3959,15 +3986,27 @@ def stage_overview_page(request, tournament_slug, stage_slug):
     """Stage overview — lists rounds belonging to this stage."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-    # If the stage does not use Rounds then this will be it's only round
-    single_round = get_single_round(tournament, stage=stage)
-    rounds = stage.rounds.all().order_by('round_number')
 
     context = _stage_base_context(request, tournament, stage)
-    context.update({
-        'rounds': rounds,
-        'active_page': 'overview',
-    })
+    context['active_page'] = 'overview'
+
+    if tournament.use_rounds:
+        children = Round.objects.filter(stage=stage).annotate(
+            annotated_game_count=Count(
+                'games',
+                filter=Q(games__final=True),
+                distinct=True
+            ),
+            unique_players_count=Count(
+                'games__efforts__player',
+                distinct=True
+            ),
+        ).order_by('round_number')
+        context['children'] = children
+        context['children_type'] = 'rounds'
+    else:
+        single_round = get_single_round(tournament, stage=stage)
+        context['single_round'] = single_round
 
     return render(request, 'the_warroom/stage_overview.html', context)
 

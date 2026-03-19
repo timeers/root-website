@@ -1,6 +1,6 @@
 {% load i18n %}
 {% for tournament in series_list %}
-    {% include 'the_warroom/partials/series_list_item.html' %}
+    {% include 'the_warroom/partials/series_list_item.html' with item=tournament %}
 {% endfor %}
 {% if has_more %}
     <button type="button"

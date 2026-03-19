@@ -24,34 +24,7 @@
     {% include 'the_warroom/partials/round_nav_header.html' with active_page='overview' %}
 
     <!-- Round info -->
-    <div class="row mb-4 g-3">
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <dl class="mb-0">
-                        <dt class="text-muted small">{% trans 'Status' %}</dt>
-                        <dd>
-                            {% if round.status == 'active' %}
-                            <span class="badge bg-success">{{ round.get_status_display }}</span>
-                            {% elif round.status == 'completed' %}
-                            <span class="badge bg-secondary">{{ round.get_status_display }}</span>
-                            {% else %}
-                            <span class="badge bg-warning text-dark">{{ round.get_status_display }}</span>
-                            {% endif %}
-                        </dd>
-                        {% if round.start_date %}
-                        <dt class="text-muted small">{% trans 'Dates' %}</dt>
-                        <dd>
-                            {{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
-                        </dd>
-                        {% endif %}
-                        <dt class="text-muted small">{% trans 'Format' %}</dt>
-                        <dd>{{ round.get_format }}</dd>
-                    </dl>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% include 'the_warroom/partials/overview_summary_card.html' with item=round %}
 
 </div>
 {% endblock %}

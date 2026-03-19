@@ -35,87 +35,38 @@
     {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='overview' %}
 
 
-    <!-- Stages list -->
+    <!-- Overview summary -->
+    {% include 'the_warroom/partials/overview_summary_card.html' with item=tournament %}
+
+    <!-- Children list -->
+    {% if children_type == 'stages' %}
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-layers me-2"></i>{% trans 'Stages' %}</h4>
     </div>
+    {% elif children_type == 'rounds' %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-collection me-2"></i>{% trans 'Rounds' %}</h4>
+    </div>
+    {% endif %}
 
-    {% if stages %}
+    {% if children %}
     <div class="list-group mb-4">
-        {% for stage in stages %}
-        <div class="list-group-item p-0">
-            <a href="{{ stage.get_absolute_url }}" class="d-flex justify-content-between align-items-center p-3 text-decoration-none list-group-item-action">
-                <div class="d-flex align-items-center gap-2">
-                    <span class="root-title fw-semibold">{{ stage.name }}</span>
-
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    {% if stage.status == 'Active' %}
-                    <span class="badge bg-success">{% trans 'Active' %}</span>
-                    {% elif stage.status == 'Completed' %}
-                    <span class="badge bg-secondary">{% trans 'Completed' %}</span>
-                    {% else %}
-                    <span class="badge bg-warning text-dark">{% trans 'Pending' %}</span>
-                    {% endif %}
-                    {% if can_manage %}
-                    <span onclick="event.preventDefault(); event.stopPropagation(); window.location.href='{{ stage.get_settings_url }}';"
-                          class="btn btn-outline-secondary btn-sm" title="{% trans 'Stage Settings' %}">
-                        <i class="bi bi-gear"></i>
-                    </span>
-                    {% endif %}
-                </div>
-            </a>
-
-            {% if tournament.use_rounds and stage.rounds.all %}
-            <div class="list-group list-group-flush ms-4 border-start border-2" style="border-color: var(--bs-border-color);">
-                {% for round in stage.rounds.all %}
-                <a href="{{ round.get_absolute_url }}"
-                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center border-0 py-2 ps-3">
-                    <div class="d-flex align-items-center gap-2">
-                        {% comment %} <i class="bi bi-chevron-right text-muted small"></i> {% endcomment %}
-                        <span class='root-title'>{{ round.name|default:round.round_number }}</span>
-                        {% if round.start_date %}
-                        <small class="text-muted">
-                            <i class="bi bi-calendar me-1"></i>{{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
-                        </small>
-                        {% endif %}
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        {% if round.status == 'Active' %}
-                        <span class="badge bg-success">{% trans 'Active' %}</span>
-                        {% elif round.status == 'Completed' %}
-                        <span class="badge bg-secondary">{% trans 'Completed' %}</span>
-                        {% else %}
-                        <span class="badge bg-warning text-dark">{% trans 'Pending' %}</span>
-                        {% endif %}
-                        {% if can_manage %}
-                        <span onclick="event.preventDefault(); event.stopPropagation(); window.location.href='{{ round.get_settings_url }}';"
-                              class="btn btn-outline-secondary btn-sm" title="{% trans 'Round Settings' %}">
-                            <i class="bi bi-gear"></i>
-                        </span>
-                        {% endif %}
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-            {% elif tournament.use_rounds %}
-            <div class="ms-4 border-start border-2 ps-3 py-2" style="border-color: var(--bs-border-color);">
-                <small class="text-muted">
-                    <i class="bi bi-info-circle me-1"></i>{% trans 'No rounds yet.' %}
-                    {% if can_manage %}
-                    <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}">{% trans 'Add the first round.' %}</a>
-                    {% endif %}
-                </small>
-            </div>
-            {% endif %}
-        </div>
+        {% for child in children %}
+            {% include 'the_warroom/partials/series_list_item.html' with item=child %}
         {% endfor %}
     </div>
-    {% else %}
+    {% elif children_type == 'stages' %}
     <div class="alert alert-info">
         <i class="bi bi-info-circle me-2"></i>{% trans 'No stages yet.' %}
         {% if can_manage %}
         <a href="{% url 'stage-create' tournament_slug=tournament.slug %}" class="alert-link">{% trans 'Add the first stage.' %}</a>
+        {% endif %}
+    </div>
+    {% elif children_type == 'rounds' %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No rounds yet.' %}
+        {% if can_manage and single_stage %}
+        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=single_stage.slug %}" class="alert-link">{% trans 'Add the first round.' %}</a>
         {% endif %}
     </div>
     {% endif %}

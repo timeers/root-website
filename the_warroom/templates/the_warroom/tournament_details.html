@@ -42,22 +42,26 @@
                 <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
                 <dd class="col-sm-8">
 
-                {% if tournament.status == 'Active' %}
-                        <span class='text-primary'>
-                                {% trans 'Active' %}
-                        </span>
-                        <i class="bi bi-play-circle-fill text-primary"></i>
-                {% elif tournament.status == 'Pending' %}
-                        <span class='text-warning'>
-                                {% trans 'Scheduled' %}
-                        </span>
-                        <i class="bi bi-clock-fill text-warning"></i>
-                {% else %}
-                        <span class='text-success'>
-                                {% trans 'Concluded' %}
-                        </span>
-                        <i class="bi bi-check-circle-fill text-success"></i>
-                {% endif %}
+                    {% with item=tournament %}
+                        <div class="d-flex align-items-center">
+                            {% if item.status == 'Active' %}
+                                <div class='text-success me-2'>
+                                    <small>{% trans 'Active' %}</small>
+                                </div>
+                                <i class="bi bi-play-circle-fill text-success"></i>
+                            {% elif item.status == 'Pending' %}
+                                <div class='text-info me-2'>
+                                    <small>{% trans 'Scheduled' %}</small>
+                                </div>
+                                <i class="bi bi-clock-fill text-info"></i>
+                            {% else %}
+                                <div class='text-secondary me-2'>
+                                    <small>{% trans 'Concluded' %}</small>
+                                </div>
+                                <i class="bi bi-check-circle-fill text-secondary"></i>
+                            {% endif %}
+                        </div>
+                    {% endwith %}
 
 
                 </dd>

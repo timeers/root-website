@@ -716,6 +716,13 @@ class Stage(models.Model):
         """Get the effective format for this stage"""
         return self.stage_format or self.tournament.default_format
 
+    def game_count(self):
+        return Game.objects.filter(round__stage=self, final=True).count()
+
+    @property
+    def all_player_count(self):
+        return Effort.objects.filter(game__round__stage=self).values('player').distinct().count()
+
     def clean(self):
         """Validate stage dates against tournament dates."""
         super().clean()

@@ -1,30 +1,30 @@
 {% load i18n %}
-<a href="{{ tournament.get_absolute_url }}" class="list-group-item list-group-item-action" style="text-decoration: none;">
+<a href="{{ item.get_absolute_url }}" class="list-group-item list-group-item-action" style="text-decoration: none;">
     <div class="d-flex w-100 justify-content-between align-items-start">
         <div class="flex-fill">
-            <h5 class="mb-1">{{ tournament.name }}</h5>
-            {% if tournament.guild and tournament.user_in_guild %}
+            <h5 class="mb-1">{{ item.name }}</h5>
+            {% if item.guild and item.user_in_guild %}
                 <div class="d-flex align-items-center mb-1">
-                    {% if tournament.guild.get_icon_url %}
-                        <img src="{{ tournament.guild.get_icon_url }}" alt="{{ tournament.guild.guild_name }}"
+                    {% if item.guild.get_icon_url %}
+                        <img src="{{ item.guild.get_icon_url }}" alt="{{ item.guild.guild_name }}"
                              class="faction-icon me-1">
                     {% else %}
                         <i class="bi bi-people me-1"></i>
                     {% endif %}
-                    <small class="text-secondary">{{ tournament.guild.guild_name }}</small>
+                    <small class="text-secondary">{{ item.guild.guild_name }}</small>
                 </div>
             {% endif %}
             <small class="text-secondary d-block">
-                {{ tournament.annotated_game_count }} {% trans 'game' %}{{ tournament.annotated_game_count|pluralize }}
+                {{ item.annotated_game_count }} {% trans 'game' %}{{ item.annotated_game_count|pluralize }}
                 &middot;
-                {{ tournament.unique_players_count }} {% trans 'player' %}{{ tournament.unique_players_count|pluralize }}
-                {% if tournament.start_date %}
-                    &middot; {{ tournament.start_date|date:"M d, Y" }}
+                {{ item.unique_players_count }} {% trans 'player' %}{{ item.unique_players_count|pluralize }}
+                {% if item.start_date %}
+                    &middot; {{ item.start_date|date:"M d, Y" }}
                 {% endif %}
             </small>
         </div>
         <div class="ms-3 d-flex align-items-center">
-            {% if tournament.status == 'Active' %}
+            {% if item.status == 'Active' %}
                     <div class='hidden-status'>
                         <div class='text-success me-2'>
                             <small>
@@ -33,7 +33,7 @@
                         </div>
                     </div>
                     <i class="bi bi-play-circle-fill text-success"></i>
-            {% elif tournament.status == 'Pending' %}
+            {% elif item.status == 'Pending' %}
                     <div class='hidden-status'>
                         <div class='text-info me-2'>
                             <small>
