@@ -16,37 +16,39 @@
 <div class="container-fluid py-3">
 
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            {% if selected_stage %}
-            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=selected_stage.slug %}">{{ selected_stage.name }}</a></li>
-            {% endif %}
-            {% if tournament_round %}
-            <li class="breadcrumb-item"><a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=selected_stage.slug round_slug=tournament_round.slug %}">{{ tournament_round.name }}</a></li>
-            {% endif %}
-            {% if tournament_round %}
-            <li class="breadcrumb-item"><a href="{% url 'round-leaderboard-page' tournament.slug selected_stage.slug tournament_round.slug %}">{% trans 'Leaderboard' %}</a></li>
-            {% elif selected_stage %}
-            <li class="breadcrumb-item"><a href="{% url 'stage-leaderboard-page' tournament.slug selected_stage.slug %}">{% trans 'Leaderboard' %}</a></li>
-            {% else %}
-            <li class="breadcrumb-item"><a href="{% url 'tournament-leaderboard-page' tournament.slug %}">{% trans 'Leaderboard' %}</a></li>
-            {% endif %}
-            <li class="breadcrumb-item active">{{ post_name }}</li>
-        </ol>
-    </nav>
-
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+                {% if selected_stage %}
+                <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=selected_stage.slug %}">{{ selected_stage.name }}</a></li>
+                {% endif %}
+                {% if tournament_round %}
+                <li class="breadcrumb-item"><a href="{% url 'round-overview' tournament_slug=tournament.slug stage_slug=selected_stage.slug round_slug=tournament_round.slug %}">{{ tournament_round.name }}</a></li>
+                {% endif %}
+                {% if tournament_round %}
+                <li class="breadcrumb-item"><a href="{% url 'round-leaderboard-page' tournament.slug selected_stage.slug tournament_round.slug %}">{% trans 'Leaderboard' %}</a></li>
+                {% elif selected_stage %}
+                <li class="breadcrumb-item"><a href="{% url 'stage-leaderboard-page' tournament.slug selected_stage.slug %}">{% trans 'Leaderboard' %}</a></li>
+                {% else %}
+                <li class="breadcrumb-item"><a href="{% url 'tournament-leaderboard-page' tournament.slug %}">{% trans 'Leaderboard' %}</a></li>
+                {% endif %}
+                <li class="breadcrumb-item active">{{ post_name }}</li>
+            </ol>
+        </nav>
+        {% if post_url %}
+        <a href="{{ post_url }}" class="btn btn-outline-secondary btn-sm ms-2 text-nowrap">
+            <i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View ' %}{{object_type}}
+        </a>
+        {% endif %}
+    </div>
     <!-- Header -->
     <div class="position-relative text-center mb-3">
         <h1 class="root-title mb-0">
             {% if post_image %}<img src="{{ post_image }}" class="{{ post_image_class }} me-2" alt="">{% endif %}{{ post_name }}
         </h1>
-        {% if post_url %}
-        <a href="{{ post_url }}" class="btn btn-outline-secondary btn-sm position-absolute top-50 end-0 translate-middle-y">
-            <i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View ' %}{{object_type}}
-        </a>
-        {% endif %}
+
     </div>
 
     {% include 'the_warroom/partials/leaderboard_list_home.html' %}

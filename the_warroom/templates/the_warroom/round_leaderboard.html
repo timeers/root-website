@@ -6,15 +6,8 @@
 <div class="container-fluid py-3">
 
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{{ round.get_absolute_url }}">{{ round.name }}</a></li>
-            <li class="breadcrumb-item active">{% trans 'Leaderboard' %}</li>
-        </ol>
-    </nav>
+    {% trans "Leaderboard" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
 
     <!-- Header -->
     {% include 'the_warroom/partials/tournament_title_header.html' with page_name=round.name %}

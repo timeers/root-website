@@ -16,12 +16,7 @@
 <div class="container-fluid py-3">
 
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
-            <li class="breadcrumb-item active">{{ tournament.name }}</li>
-        </ol>
-    </nav>
+    {% include 'the_warroom/partials/breadcrumb.html' %}
 
     <!-- Header -->
     {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}

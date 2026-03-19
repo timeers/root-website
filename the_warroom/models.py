@@ -314,7 +314,7 @@ class Tournament(models.Model):
             assets = {key: model.objects.filter(official=True) for key, model in ASSET_TYPES.items()}
         else:
             # SELECTED mode
-            assets = {key: getattr(self, key) for key in ASSET_TYPES}
+            assets = {key: getattr(self, key).all() for key in ASSET_TYPES}
 
         if self.platform == PlatformChoices.DWD:
             assets = {key: qs.filter(in_root_digital=True) for key, qs in assets.items()}

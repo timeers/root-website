@@ -1,0 +1,32 @@
+{% load i18n %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+
+        {% if stage or round or breadcrumb_page %}
+            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+        {% else %}
+            <li class="breadcrumb-item active">{{ tournament.name }}</li>
+        {% endif %}
+
+        {% if stage and tournament.use_stages and not breadcrumb_hide_stage %}
+            {% if round or breadcrumb_page %}
+                <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+            {% else %}
+                <li class="breadcrumb-item active">{{ stage.name }}</li>
+            {% endif %}
+        {% endif %}
+
+        {% if round and not breadcrumb_hide_round %}
+            {% if breadcrumb_page %}
+                <li class="breadcrumb-item"><a href="{{ round.get_absolute_url }}">{{ round.name }}</a></li>
+            {% else %}
+                <li class="breadcrumb-item active">{{ round.name }}</li>
+            {% endif %}
+        {% endif %}
+
+        {% if breadcrumb_page %}
+            <li class="breadcrumb-item active">{{ breadcrumb_page }}</li>
+        {% endif %}
+    </ol>
+</nav>

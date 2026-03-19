@@ -5,14 +5,7 @@
 {% block content %}
 <div class="container py-4">
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
-            <li class="breadcrumb-item active">Manage Players</li>
-        </ol>
-    </nav>
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Manage Players" %}
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="mb-0"><i class="bi bi-people me-2"></i>Manage Stage Players</h2>

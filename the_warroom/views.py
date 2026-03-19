@@ -1635,6 +1635,12 @@ def _tournament_base_context(request, tournament):
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
+    user_in_guild = (
+        request.user.is_authenticated
+        and tournament.guild
+        and request.user.profile.guilds.filter(pk=tournament.guild_id).exists()
+    )
+
     return {
         'tournament': tournament,
         'object': tournament,
@@ -1642,6 +1648,7 @@ def _tournament_base_context(request, tournament):
         'can_manage': can_manage,
         'has_games': has_games,
         'has_players': has_players,
+        'user_in_guild': user_in_guild,
         'meta_title': tournament.name,
         'meta_description': tournament.description,
     }
@@ -1667,6 +1674,12 @@ def _stage_base_context(request, tournament, stage):
     has_games = Game.objects.filter(round__stage=stage).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
 
+    user_in_guild = (
+        request.user.is_authenticated
+        and tournament.guild
+        and request.user.profile.guilds.filter(pk=tournament.guild_id).exists()
+    )
+
     return {
         'tournament': tournament,
         'stage': stage,
@@ -1676,6 +1689,7 @@ def _stage_base_context(request, tournament, stage):
         'has_bracket': has_bracket,
         'has_games': has_games,
         'has_players': has_players,
+        'user_in_guild': user_in_guild,
         'meta_title': f"{stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }
@@ -1695,6 +1709,12 @@ def _round_base_context(request, tournament, stage, round):
 
     is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
 
+    user_in_guild = (
+        request.user.is_authenticated
+        and tournament.guild
+        and request.user.profile.guilds.filter(pk=tournament.guild_id).exists()
+    )
+
     return {
         'tournament': tournament,
         'stage': stage,
@@ -1706,6 +1726,7 @@ def _round_base_context(request, tournament, stage, round):
         'has_games': has_games,
         'has_players': has_players,
         'is_bracket_finalized': is_bracket_finalized,
+        'user_in_guild': user_in_guild,
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }
@@ -3351,6 +3372,7 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['round'] = self.object
+        context['stage'] = self.object.stage
         context['tournament'] = self.object.stage.tournament
         return context
 

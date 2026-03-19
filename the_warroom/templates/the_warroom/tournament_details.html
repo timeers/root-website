@@ -16,12 +16,8 @@
 <div class="container-fluid py-3">
 
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' tournament.slug %}">{{ tournament.name }}</a></li>
-        </ol>
-    </nav>
+    {% trans "Details" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
 
     <!-- Header -->
     {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
@@ -83,7 +79,7 @@
                 <dd class="col-sm-8">{{ tournament.get_default_format_display }}</dd>
                 {% endif %}
 
-                {% if tournament.guild %}
+                {% if tournament.guild and user_in_guild %}
                 <dt class="col-sm-4 text-muted">{% trans 'Guild' %}</dt>
                 <dd class="col-sm-8">{{ tournament.guild.name }}</dd>
                 {% endif %}
@@ -111,6 +107,14 @@
                 <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
                 <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
             </dl>
+
+            {% if tournament.description %}
+            <hr class="my-3">
+            <h5 class="mb-3"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5>
+            <div style="max-height: 500px; overflow-y: auto;">
+                {{ tournament.description|linebreaks }}
+            </div>
+            {% endif %}
 
             {% if tournament.rules %}
             <hr class="my-3">

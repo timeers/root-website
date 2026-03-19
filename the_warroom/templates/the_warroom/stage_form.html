@@ -5,16 +5,11 @@
 {% block content %}
 <div class="container py-4">
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            {% if stage.id %}
-            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
-            {% endif %}
-            <li class="breadcrumb-item active">{% if stage.id %}Edit Stage{% else %}New Stage{% endif %}</li>
-        </ol>
-    </nav>
+    {% if stage.id %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Edit Stage" %}
+    {% else %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="New Stage" breadcrumb_hide_stage=True %}
+    {% endif %}
 
     <form method="POST" enctype="multipart/form-data">
         {% csrf_token %}

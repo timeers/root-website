@@ -3,7 +3,7 @@
             <h1 class="mb-0 root-title">{{ page_name }}</h1>
             <small class="text-muted">
             {% if tournament.guild %}
-            {{ tournament.guild }}
+            {% if user_in_guild %}{{ tournament.guild }}{% else %}Discord Guild{% endif %}
             {% endif %}
             {{tournament.classification}}
             {% if tournament.designer %}
