@@ -434,6 +434,7 @@ class LikertScale(models.Model):
     min_label = models.CharField(max_length=50, default="Strongly Disagree", blank=False, help_text="Label for minimum value")
     max_label = models.CharField(max_length=50, default="Strongly Agree", blank=False, help_text="Label for maximum value")
     labels = models.JSONField(default=dict, null=True, blank=True, help_text='Optional labels for each value (e.g., {"1": "Poor", "5": "Excellent"})')
+    created_by = models.ForeignKey(Profile, null=True, blank=True, on_delete=models.CASCADE, related_name='custom_scales', help_text="User who created this scale. Null = default/system scale.")
 
     class Meta:
         ordering = ['name']
@@ -546,6 +547,7 @@ class Question(models.Model):
     required = models.BooleanField(default=True, help_text="Is this question required?")
     help_text = models.CharField(max_length=300, blank=True, help_text="Optional help text shown to users")
     is_hidden = models.BooleanField(default=False, help_text="Hidden questions preserve data but are not shown to respondents")
+    allow_other = models.BooleanField(default=False, help_text="Allow respondents to select 'Other' and type a custom response (MC/MS only)")
 
     # Post-based choices configuration
     class PostSelectionMode(models.TextChoices):
@@ -1034,6 +1036,9 @@ class Answer(models.Model):
         help_text="For Post-based multiple selection questions"
     )
 
+    # For "Other" free-text option on MC/MS questions
+    other_text = models.TextField(blank=True, null=True, help_text="Free-text response when 'Other' is selected")
+
     class Meta:
         ordering = ['response', 'question__order']
         verbose_name = 'Answer'
@@ -1329,6 +1334,7 @@ class QuestionTemplate(models.Model):
     likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL)
     help_text = models.CharField(max_length=300, blank=True)
     required = models.BooleanField(default=True)
+    allow_other = models.BooleanField(default=False, help_text="Allow 'Other' free-text option (MC/MS only)")
     choices_data = models.JSONField(default=list, blank=True, help_text="List of choice texts for choice-based questions")
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='question_templates')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1404,6 +1410,7 @@ class QuestionTemplate(models.Model):
             'type': self.question_type,
             'required': self.required,
             'help_text': self.help_text,
+            'allow_other': self.allow_other,
         }
 
         if self.question_type == 'LK' and self.likert_scale:

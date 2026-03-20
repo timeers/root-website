@@ -64,6 +64,8 @@ class SurveyResponseForm(forms.Form):
                     choices = [(f'post_{post.id}', post.title) for post in posts]
                 else:
                     choices = [(choice.id, choice.get_display_text()) for choice in question.get_visible_choices()]
+                    if question.allow_other:
+                        choices.append(('other', 'Other'))
                 self.fields[field_name] = forms.ChoiceField(
                     label=question.text,
                     choices=choices,
@@ -71,6 +73,15 @@ class SurveyResponseForm(forms.Form):
                     help_text=question.help_text,
                     widget=forms.RadioSelect
                 )
+                if question.allow_other and not question.post_component:
+                    self.fields[f'{field_name}_other_text'] = forms.CharField(
+                        required=False,
+                        max_length=500,
+                        widget=forms.TextInput(attrs={
+                            'class': 'form-control',
+                            'placeholder': 'Please specify...',
+                        })
+                    )
 
             # Multiple Selection
             elif question.question_type == 'MS':
@@ -80,6 +91,8 @@ class SurveyResponseForm(forms.Form):
                     choices = [(f'post_{post.id}', post.title) for post in posts]
                 else:
                     choices = [(choice.id, choice.get_display_text()) for choice in question.get_visible_choices()]
+                    if question.allow_other:
+                        choices.append(('other', 'Other'))
                 self.fields[field_name] = forms.MultipleChoiceField(
                     label=question.text,
                     choices=choices,
@@ -87,6 +100,15 @@ class SurveyResponseForm(forms.Form):
                     help_text=question.help_text,
                     widget=forms.CheckboxSelectMultiple
                 )
+                if question.allow_other and not question.post_component:
+                    self.fields[f'{field_name}_other_text'] = forms.CharField(
+                        required=False,
+                        max_length=500,
+                        widget=forms.TextInput(attrs={
+                            'class': 'form-control',
+                            'placeholder': 'Please specify...',
+                        })
+                    )
 
             # Time Availability (handled in template with JavaScript)
             elif question.question_type == 'TA':
@@ -217,6 +239,9 @@ class SurveyResponseForm(forms.Form):
                         # Single choice - handle Post-based questions
                         if question.uses_all_official_posts() and answer.selected_post:
                             self.initial[field_name] = f'post_{answer.selected_post.id}'
+                        elif answer.other_text and question.allow_other:
+                            self.initial[field_name] = 'other'
+                            self.initial[f'{field_name}_other_text'] = answer.other_text
                         elif answer.selected_choice:
                             self.initial[field_name] = answer.selected_choice.id
 
@@ -231,7 +256,11 @@ class SurveyResponseForm(forms.Form):
                             post_ids = answer.selected_posts.values_list('id', flat=True)
                             self.initial[field_name] = [f'post_{pid}' for pid in post_ids]
                         else:
-                            self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
+                            initial_choices = list(answer.selected_choices.values_list('id', flat=True))
+                            if answer.other_text and question.allow_other:
+                                initial_choices.append('other')
+                                self.initial[f'{field_name}_other_text'] = answer.other_text
+                            self.initial[field_name] = initial_choices
 
                     elif question.question_type == 'TA' or question.question_type == 'DY':
                         # Time/Day availability - multiple choices

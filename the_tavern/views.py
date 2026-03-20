@@ -810,6 +810,16 @@ def survey_take_view(request, slug):
                     if not answer_data or len(answer_data) == 0:
                         validation_errors.append(f'{question.text}: Please select at least one option.')
 
+                # Validate "Other" text is provided when "Other" is selected
+                if question.allow_other and question.question_type in ['MC', 'MS']:
+                    field_name = f'question_{question.id}'
+                    answer_data = form.cleaned_data.get(field_name)
+                    other_text = request.POST.get(f'question_{question.id}_other_text', '').strip()
+                    if question.question_type == 'MC' and str(answer_data) == 'other' and not other_text:
+                        validation_errors.append(f'{question.text}: Please specify your "Other" response.')
+                    elif question.question_type == 'MS' and answer_data and 'other' in answer_data and not other_text:
+                        validation_errors.append(f'{question.text}: Please specify your "Other" response.')
+
             if validation_errors:
                 for error in validation_errors:
                     messages.error(request, error)
@@ -886,8 +896,14 @@ def survey_take_view(request, slug):
 
                     # Save based on question type
                     if question.question_type == 'MC':
-                        # Single choice - handle Post-based questions
-                        if question.uses_all_official_posts() and str(answer_data).startswith('post_'):
+                        # Single choice - handle "Other" option
+                        if str(answer_data) == 'other' and question.allow_other:
+                            other_text = request.POST.get(f'question_{question.id}_other_text', '').strip()
+                            if other_text:
+                                answer.other_text = other_text
+                            answer.save()
+                        # Handle Post-based questions
+                        elif question.uses_all_official_posts() and str(answer_data).startswith('post_'):
                             post_id = int(answer_data.replace('post_', ''))
                             answer.selected_post = Post.objects.get(id=post_id)
                             answer.save()
@@ -906,7 +922,14 @@ def survey_take_view(request, slug):
                         answer.save()
 
                     elif question.question_type == 'MS':
-                        # Multiple choices - handle Post-based questions
+                        # Multiple choices - handle "Other" option
+                        has_other = 'other' in answer_data and question.allow_other
+                        if has_other:
+                            other_text = request.POST.get(f'question_{question.id}_other_text', '').strip()
+                            if other_text:
+                                answer.other_text = other_text
+                            answer_data = [x for x in answer_data if x != 'other']
+
                         answer.save()  # Save first to enable M2M
                         if question.uses_all_official_posts():
                             for item in answer_data:
@@ -1115,6 +1138,16 @@ def survey_user_response_edit_view(request, slug, response_id):
                     if not answer_data or len(answer_data) == 0:
                         validation_errors.append(f'{question.text}: Please select at least one option.')
 
+                # Validate "Other" text is provided when "Other" is selected
+                if question.allow_other and question.question_type in ['MC', 'MS']:
+                    field_name = f'question_{question.id}'
+                    answer_data = form.cleaned_data.get(field_name)
+                    other_text = request.POST.get(f'question_{question.id}_other_text', '').strip()
+                    if question.question_type == 'MC' and str(answer_data) == 'other' and not other_text:
+                        validation_errors.append(f'{question.text}: Please specify your "Other" response.')
+                    elif question.question_type == 'MS' and answer_data and 'other' in answer_data and not other_text:
+                        validation_errors.append(f'{question.text}: Please specify your "Other" response.')
+
             if validation_errors:
                 for error in validation_errors:
                     messages.error(request, error)
@@ -1182,6 +1215,7 @@ def survey_user_response_edit_view(request, slug, response_id):
                     answer.numeric_answer = None
                     answer.date_answer = None
                     answer.time_answer = None
+                    answer.other_text = None
                     answer.selected_choices.clear()
                     answer.selected_posts.clear()
                     # Delete previous ranked answers
@@ -1191,8 +1225,14 @@ def survey_user_response_edit_view(request, slug, response_id):
 
                     # Save based on question type
                     if question.question_type == 'MC':
-                        # Single choice - handle Post-based questions
-                        if question.uses_all_official_posts() and str(answer_data).startswith('post_'):
+                        # Single choice - handle "Other" option
+                        if str(answer_data) == 'other' and question.allow_other:
+                            other_text = request.POST.get(f'question_{question.id}_other_text', '').strip()
+                            if other_text:
+                                answer.other_text = other_text
+                            answer.save()
+                        # Handle Post-based questions
+                        elif question.uses_all_official_posts() and str(answer_data).startswith('post_'):
                             post_id = int(answer_data.replace('post_', ''))
                             answer.selected_post = Post.objects.get(id=post_id)
                             answer.save()
@@ -1211,7 +1251,14 @@ def survey_user_response_edit_view(request, slug, response_id):
                         answer.save()
 
                     elif question.question_type == 'MS':
-                        # Multiple choices - handle Post-based questions
+                        # Multiple choices - handle "Other" option
+                        has_other = 'other' in answer_data and question.allow_other
+                        if has_other:
+                            other_text = request.POST.get(f'question_{question.id}_other_text', '').strip()
+                            if other_text:
+                                answer.other_text = other_text
+                            answer_data = [x for x in answer_data if x != 'other']
+
                         answer.save()  # Save first to enable M2M
                         if question.uses_all_official_posts():
                             for item in answer_data:
@@ -1500,6 +1547,23 @@ def survey_results_view(request, slug):
                         'percentage': round(percentage, 1)
                     })
 
+            # Add "Other" responses if allow_other is enabled
+            if question.allow_other:
+                other_answers = question.answer_set.filter(
+                    response__survey=survey,
+                    other_text__isnull=False
+                ).exclude(other_text='')
+                other_count = other_answers.count()
+                if other_count > 0:
+                    percentage = (other_count / question_data['total_responses'] * 100) if question_data['total_responses'] > 0 else 0
+                    results_list.append({
+                        'choice': 'Other',
+                        'count': other_count,
+                        'percentage': round(percentage, 1),
+                        'is_other': True,
+                    })
+                    question_data['other_responses'] = list(other_answers.values_list('other_text', flat=True))
+
             # Sort by count (descending) for better visualization
             question_data['results'] = sorted(results_list, key=lambda x: x['count'], reverse=True)
 
@@ -1671,6 +1735,7 @@ def save_question_template(request):
             'post_component': data.get('post_component'),
             'post_selection_mode': data.get('post_selection_mode'),
             'likert_scale_id': data.get('likert_scale_id'),
+            'allow_other': data.get('allow_other', False),
         }
 
         # Only include ta_enabled_days if provided (to allow model default to work)
@@ -1693,6 +1758,54 @@ def save_question_template(request):
             'is_public': template.is_public,
         })
         
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+@require_http_methods(["POST"])
+def create_custom_scale(request):
+    """AJAX endpoint to create a custom Likert scale"""
+    try:
+        data = json.loads(request.body)
+        profile = request.user.profile
+
+        name = data.get('name', '').strip()
+        min_value = int(data.get('min_value', 1))
+        max_value = int(data.get('max_value', 5))
+        min_label = data.get('min_label', '').strip()
+        max_label = data.get('max_label', '').strip()
+
+        if not name or not min_label or not max_label:
+            return JsonResponse({'success': False, 'error': 'Name, min label, and max label are required.'})
+
+        if min_value >= max_value:
+            return JsonResponse({'success': False, 'error': 'Max value must be greater than min value.'})
+
+        scale = LikertScale.objects.create(
+            name=name,
+            min_value=min_value,
+            max_value=max_value,
+            min_label=min_label,
+            max_label=max_label,
+            created_by=profile,
+        )
+
+        return JsonResponse({
+            'success': True,
+            'scale': {
+                'id': scale.id,
+                'name': scale.name,
+                'min_value': scale.min_value,
+                'max_value': scale.max_value,
+                'min_label': scale.min_label,
+                'max_label': scale.max_label,
+                'labels': None,
+            }
+        })
+
+    except (ValueError, TypeError):
+        return JsonResponse({'success': False, 'error': 'Invalid min/max values.'})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
 
@@ -2312,6 +2425,7 @@ def survey_edit_view(request, slug):
                         question.help_text = q_data.get('help_text', '')
                         question.is_hidden = False  # Unhide if restoring
                         question.section = question_section
+                        question.allow_other = q_data.get('allow_other', False)
 
                         # Update likert scale if needed
                         if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
@@ -2402,6 +2516,7 @@ def survey_edit_view(request, slug):
                             required=q_data.get('required', True),
                             help_text=q_data.get('help_text', ''),
                             section=question_section,
+                            allow_other=q_data.get('allow_other', False),
                         )
 
                         # Add likert scale if needed
@@ -2488,7 +2603,9 @@ def survey_edit_view(request, slug):
             return redirect('survey-edit', slug=survey.slug)
 
     # GET request - show form with existing data
-    likert_scales = LikertScale.objects.all()
+    likert_scales = LikertScale.objects.filter(
+        Q(created_by__isnull=True) | Q(created_by=profile)
+    )
 
     # Get available question templates (public ones or user's own)
     question_templates = QuestionTemplate.objects.filter(
@@ -2546,6 +2663,7 @@ def survey_edit_view(request, slug):
             'response_count': question_response_count,
             'ta_enabled_days': question.ta_enabled_days if question.ta_enabled_days else TA_DAY_CODES,
             'section_id': question.section_id,
+            'allow_other': question.allow_other,
         }
 
         # Add choices if applicable (only non-hidden)
@@ -2792,6 +2910,7 @@ def survey_create_view(request):
                         required=q_data.get('required', True),
                         help_text=q_data.get('help_text', ''),
                         section=section,
+                        allow_other=q_data.get('allow_other', False),
                     )
 
                     # Add likert scale if needed
@@ -2844,7 +2963,9 @@ def survey_create_view(request):
             return redirect('survey-create')
 
     # GET request - show form
-    likert_scales = LikertScale.objects.all()
+    likert_scales = LikertScale.objects.filter(
+        Q(created_by__isnull=True) | Q(created_by=profile)
+    )
 
     # Get available question templates (public ones or user's own)
     question_templates = QuestionTemplate.objects.filter(

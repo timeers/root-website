@@ -70,7 +70,11 @@
 
                         {# Multiple Choice or Boolean #}
                         {% if answer.question.question_type == 'MC' or answer.question.question_type == 'YN' %}
-                            {% if answer.selected_choice %}
+                            {% if answer.other_text %}
+                                <div class="d-flex align-items-center">
+                                    <span class="badge bg-secondary me-2">{% trans 'Other' %}</span> {{ answer.other_text }}
+                                </div>
+                            {% elif answer.selected_choice %}
                                 <div class="d-flex align-items-center">
                                     {% if answer.selected_choice.post and answer.selected_choice.post.small_icon %}
                                         <img src="{{ answer.selected_choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
@@ -105,6 +109,11 @@
                                         {{ post.title }}
                                     </li>
                                 {% endfor %}
+                                {% if answer.other_text %}
+                                    <li class="d-flex align-items-center mb-1">
+                                        <span class="badge bg-secondary me-2">{% trans 'Other' %}</span> {{ answer.other_text }}
+                                    </li>
+                                {% endif %}
                             </ul>
 
                         {# Time Availability #}

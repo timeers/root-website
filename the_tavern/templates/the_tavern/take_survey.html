@@ -210,7 +210,8 @@
                                             <input class="form-check-input" type="radio" name="question_{{ question.id }}"
                                                    value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
                                                    {% if question.required %}required{% endif %}
-                                                   {% if field.value == choice.id|stringformat:"s" or field.value == choice.id %}checked{% endif %}>
+                                                   {% if field.value == choice.id|stringformat:"s" or field.value == choice.id %}checked{% endif %}
+                                                   onchange="hideOtherText('{{ question.id }}')">
                                             <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
                                                 {% if choice.post and choice.post.small_icon %}
                                                     <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
@@ -219,6 +220,25 @@
                                             </label>
                                         </div>
                                     {% endfor %}
+                                    {% if question.allow_other %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                                   value="other" id="q{{ question.id }}_other"
+                                                   {% if question.required %}required{% endif %}
+                                                   {% if field.value == 'other' %}checked{% endif %}
+                                                   onchange="showOtherText('{{ question.id }}')">
+                                            <label class="form-check-label" for="q{{ question.id }}_other">
+                                                {% trans 'Other' %}
+                                            </label>
+                                        </div>
+                                        {% with other_field=form|get_question_field_other:question.id %}
+                                        <div id="other_text_{{ question.id }}" class="ms-4 mt-1 mb-2" style="{% if field.value != 'other' %}display: none;{% endif %}">
+                                            <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
+                                                   placeholder="{% trans 'Please specify...' %}" maxlength="500"
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}>
+                                        </div>
+                                        {% endwith %}
+                                    {% endif %}
                                 {% endif %}
                             {% endwith %}
                         </div>
@@ -258,6 +278,24 @@
                                             </label>
                                         </div>
                                     {% endfor %}
+                                    {% if question.allow_other %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                                   value="other" id="q{{ question.id }}_other"
+                                                   {% if field.value and 'other' in field.value %}checked{% endif %}
+                                                   onchange="toggleMsOtherText('{{ question.id }}', this.checked)">
+                                            <label class="form-check-label" for="q{{ question.id }}_other">
+                                                {% trans 'Other' %}
+                                            </label>
+                                        </div>
+                                        {% with other_field=form|get_question_field_other:question.id %}
+                                        <div id="other_text_{{ question.id }}" class="ms-4 mt-1 mb-2" style="{% if not field.value or 'other' not in field.value %}display: none;{% endif %}">
+                                            <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
+                                                   placeholder="{% trans 'Please specify...' %}" maxlength="500"
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}>
+                                        </div>
+                                        {% endwith %}
+                                    {% endif %}
                                 {% endif %}
                             {% endwith %}
                             </div>
@@ -422,6 +460,41 @@
 
 {% block scripts %}
 <script>
+// ============================================
+// "Other" option toggle functions (MC/MS)
+// ============================================
+function showOtherText(questionId) {
+    const otherDiv = document.getElementById('other_text_' + questionId);
+    if (otherDiv) {
+        otherDiv.style.display = '';
+        const input = otherDiv.querySelector('input');
+        if (input) input.focus();
+    }
+}
+
+function hideOtherText(questionId) {
+    const otherDiv = document.getElementById('other_text_' + questionId);
+    if (otherDiv) {
+        otherDiv.style.display = 'none';
+        const input = otherDiv.querySelector('input');
+        if (input) input.value = '';
+    }
+}
+
+function toggleMsOtherText(questionId, checked) {
+    const otherDiv = document.getElementById('other_text_' + questionId);
+    if (otherDiv) {
+        otherDiv.style.display = checked ? '' : 'none';
+        if (checked) {
+            const input = otherDiv.querySelector('input');
+            if (input) input.focus();
+        } else {
+            const input = otherDiv.querySelector('input');
+            if (input) input.value = '';
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // ============================================
     // Section Navigation
@@ -472,6 +545,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Add visual feedback
                 const container = currentSectionEl.querySelector(`input[name="${name}"]`).closest('.card');
                 if (container) container.classList.add('border-danger');
+            }
+            // If "Other" radio is selected, validate the text input is not empty
+            if (checked && checked.value === 'other') {
+                const questionId = name.replace('question_', '');
+                const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    otherInput.classList.add('is-invalid');
+                    valid = false;
+                } else if (otherInput) {
+                    otherInput.classList.remove('is-invalid');
+                }
+            }
+        });
+
+        // Validate "Other" checkbox text for MS questions
+        currentSectionEl.querySelectorAll('input[type="checkbox"][value="other"]:checked').forEach(cb => {
+            const name = cb.name;
+            const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+            if (otherInput && !otherInput.value.trim()) {
+                otherInput.classList.add('is-invalid');
+                valid = false;
+            } else if (otherInput) {
+                otherInput.classList.remove('is-invalid');
             }
         });
 

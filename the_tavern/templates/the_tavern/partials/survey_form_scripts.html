@@ -468,7 +468,7 @@ const likertScales = [
         max_value: {{ scale.max_value }},
         min_label: '{{ scale.min_label|escapejs }}',
         max_label: '{{ scale.max_label|escapejs }}',
-        labels: {{ scale.labels|safe }}
+        labels: {{ scale.labels|default:"null"|safe }}
     },
     {% endfor %}
 ];
@@ -1146,6 +1146,15 @@ function handleTypeChange(questionId, existingData = null) {
                         </div>
                     </div>
                 </div>
+                ${['MC', 'MS'].includes(type) ? `
+                <div class="form-check mt-3">
+                    <input class="form-check-input allow-other-checkbox" type="checkbox" id="allow_other_${questionId}"
+                           ${existingData && existingData.allow_other ? 'checked' : ''}>
+                    <label class="form-check-label" for="allow_other_${questionId}">
+                        <i class="bi bi-pen"></i> Allow "Other"
+                    </label>
+                </div>
+                ` : ''}
             </div>
         `;
 
@@ -1195,9 +1204,46 @@ function handleTypeChange(questionId, existingData = null) {
                     <option value="">Select scale...</option>
                     ${scaleOptions}
                 </select>
-                <small class="form-text text-muted">
-                    Request additional Scales from an Admin if needed.
-                </small>
+                <div class="mt-2">
+                    <a href="#" class="small" onclick="toggleCustomScaleForm('${questionId}'); return false;">
+                        <i class="bi bi-plus-circle"></i> Create custom scale
+                    </a>
+                </div>
+                <div class="custom-scale-form d-none mt-2">
+                    <div class="card">
+                        <div class="card-body p-3">
+                            <div class="mb-2">
+                                <label class="form-label small mb-1">Scale Name</label>
+                                <input type="text" class="form-control form-control-sm custom-scale-name" placeholder="e.g. 5-point Satisfaction">
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Min Value</label>
+                                    <input type="number" class="form-control form-control-sm custom-scale-min-value" value="1" min="0" max="9">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Max Value</label>
+                                    <input type="number" class="form-control form-control-sm custom-scale-max-value" value="5" min="1" max="10">
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Min Label</label>
+                                    <input type="text" class="form-control form-control-sm custom-scale-min-label" placeholder="e.g. Very unsatisfied">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Max Label</label>
+                                    <input type="text" class="form-control form-control-sm custom-scale-max-label" placeholder="e.g. Very satisfied">
+                                </div>
+                            </div>
+                            <div class="custom-scale-error text-danger small d-none mb-2"></div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-primary" onclick="saveCustomScale('${questionId}')">Create</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleCustomScaleForm('${questionId}')">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="likert-preview-container"></div>
         `;
@@ -1573,6 +1619,79 @@ function updateLikertPreview(questionId) {
     previewContainer.innerHTML = previewHTML;
 }
 
+function toggleCustomScaleForm(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const form = card.querySelector('.custom-scale-form');
+    form.classList.toggle('d-none');
+    if (!form.classList.contains('d-none')) {
+        card.querySelector('.custom-scale-name').focus();
+    }
+}
+
+function saveCustomScale(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    const errorEl = card.querySelector('.custom-scale-error');
+    errorEl.classList.add('d-none');
+
+    const name = card.querySelector('.custom-scale-name').value.trim();
+    const minValue = parseInt(card.querySelector('.custom-scale-min-value').value);
+    const maxValue = parseInt(card.querySelector('.custom-scale-max-value').value);
+    const minLabel = card.querySelector('.custom-scale-min-label').value.trim();
+    const maxLabel = card.querySelector('.custom-scale-max-label').value.trim();
+
+    if (!name || !minLabel || !maxLabel) {
+        errorEl.textContent = 'All fields are required.';
+        errorEl.classList.remove('d-none');
+        return;
+    }
+    if (isNaN(minValue) || isNaN(maxValue) || minValue >= maxValue) {
+        errorEl.textContent = 'Max value must be greater than min value.';
+        errorEl.classList.remove('d-none');
+        return;
+    }
+
+    fetch('{% url "create-custom-scale" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ name, min_value: minValue, max_value: maxValue, min_label: minLabel, max_label: maxLabel })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const scale = data.scale;
+            // Add to global likertScales array
+            likertScales.push(scale);
+
+            // Add option to ALL scale selects on the page and select it on this one
+            document.querySelectorAll('.likert-scale-select').forEach(select => {
+                const option = document.createElement('option');
+                option.value = scale.id;
+                option.textContent = scale.name;
+                select.appendChild(option);
+            });
+
+            // Select the new scale on this question's dropdown
+            const scaleSelect = card.querySelector('.likert-scale-select');
+            scaleSelect.value = scale.id;
+
+            // Hide the form and update preview
+            card.querySelector('.custom-scale-form').classList.add('d-none');
+            updateLikertPreview(questionId);
+        } else {
+            errorEl.textContent = data.error || 'Failed to create scale.';
+            errorEl.classList.remove('d-none');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating scale:', error);
+        errorEl.textContent = 'An error occurred. Please try again.';
+        errorEl.classList.remove('d-none');
+    });
+}
+
 // Post selection functions
 function togglePostChoices(questionId) {
     const card = document.querySelector(`[data-question-id="${questionId}"]`);
@@ -1942,6 +2061,11 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                         message: 'Please add at least 2 choices.'
                     });
                 }
+            }
+            // Collect allow_other for MC/MS questions
+            const allowOtherCheckbox = card.querySelector('.allow-other-checkbox');
+            if (allowOtherCheckbox) {
+                questionData.allow_other = allowOtherCheckbox.checked;
             }
         } else if (questionData.type === 'YN') {
             const choices = [];
@@ -2431,6 +2555,11 @@ function saveQuestionTemplate() {
                 }
             });
             questionData.choices_data = choices;
+        }
+        // Collect allow_other for MC/MS template saving
+        const allowOtherCb = card.querySelector('.allow-other-checkbox');
+        if (allowOtherCb) {
+            questionData.allow_other = allowOtherCb.checked;
         }
     } else if (questionData.question_type === 'YN') {
         questionData.choices_data = ['Yes', 'No'];

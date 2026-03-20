@@ -46,7 +46,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'survey-preview' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary w-100">
+                    <a href="{% url 'survey-preview' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-warning w-100">
                         <i class="bi bi-eye me-1"></i>{% trans 'Preview' %}
                     </a>
                 </div>
@@ -68,7 +68,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'survey-responses' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary w-100">
+                    <a href="{% url 'survey-responses' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-info w-100">
                         <i class="bi bi-chat-left-text me-1"></i>{% trans 'View Responses' %} {% if response_count %}({{ response_count }}){% endif %}
                     </a>
                 </div>
@@ -87,7 +87,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'survey-results' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary w-100">
+                    <a href="{% url 'survey-results' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-info w-100">
                         <i class="bi bi-bar-chart me-1"></i>{% trans 'View Results' %}
                     </a>
                 </div>
@@ -107,7 +107,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary w-100">
+                    <a href="{% url 'survey-quiz-settings' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-success w-100">
                         <i class="bi bi-clipboard-check me-1"></i>{% trans 'Quiz Settings' %}
                     </a>
                 </div>
@@ -128,7 +128,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'survey-send-availability' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary w-100">
+                    <a href="{% url 'survey-send-availability' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-info w-100">
                         <i class="bi bi-send me-1"></i>{% trans 'Send to Series' %}
                     </a>
                 </div>
@@ -148,7 +148,7 @@
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <button type="button" class="btn btn-outline-warning w-100" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
+                    <button type="button" class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
                         <i class="bi bi-copy me-1"></i>{% trans 'Duplicate Survey' %}
                     </button>
                 </div>

@@ -8,6 +8,7 @@ from .views import (
                     survey_settings_hub,
                     tournament_surveys_view, post_surveys_view,
                     about_surveys_view,
+                    create_custom_scale,
                     )
 
 urlpatterns = [
@@ -32,6 +33,7 @@ urlpatterns = [
     path('surveys/api/tournament-rounds/', get_tournament_rounds, name='get-tournament-rounds'),
     path('surveys/api/tournament-stages/', get_tournament_stages, name='get-tournament-stages'),
     path('surveys/api/question/<int:question_id>/', get_question_data, name='get-question-data'),
+    path('surveys/api/create-scale/', create_custom_scale, name='create-custom-scale'),
 
     path('surveys/<slug:slug>/', survey_detail_view, name='survey-detail'),
     path('surveys/<slug:slug>/settings/', survey_settings_hub, name='survey-settings'),

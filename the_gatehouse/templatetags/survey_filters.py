@@ -37,3 +37,12 @@ def get_question_field(form, question_id):
         return form[field_name]
     except (KeyError, AttributeError):
         return None
+
+@register.filter
+def get_question_field_other(form, question_id):
+    """Get the 'other_text' form field for a specific question ID"""
+    field_name = f'question_{question_id}_other_text'
+    try:
+        return form[field_name]
+    except (KeyError, AttributeError):
+        return None
