@@ -2128,7 +2128,7 @@ def survey_response_move_to_waitlist(request, slug, response_id):
     if not survey.can_edit_survey(profile):
         return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
 
-    if not survey.limit_responses or not survey.has_waitlist or not survey.waitlist_threshold:
+    if not survey.limit_responses or not survey.has_waitlist or survey.waitlist_threshold is None:
         return JsonResponse({'success': False, 'error': 'Survey does not have waitlist enabled'}, status=400)
 
     response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)
@@ -2170,7 +2170,7 @@ def survey_response_move_to_accepted(request, slug, response_id):
     if not survey.can_edit_survey(profile):
         return JsonResponse({'success': False, 'error': 'Permission denied'}, status=403)
 
-    if not survey.limit_responses or not survey.has_waitlist or not survey.waitlist_threshold:
+    if not survey.limit_responses or not survey.has_waitlist or survey.waitlist_threshold is None:
         return JsonResponse({'success': False, 'error': 'Survey does not have waitlist enabled'}, status=400)
 
     response = get_object_or_404(SurveyResponse, id=response_id, survey=survey)

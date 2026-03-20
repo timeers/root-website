@@ -91,8 +91,8 @@
             <div class="card border-success h-100">
                 <div class="card-body text-center">
                     <i class="bi bi-chat-left-text fs-2 text-success"></i>
-                    <h3 class="mb-0 mt-2">{{ survey_user_response_count }}</h3>
-                    <small class="text-muted">{% trans 'Response' %}{{ survey_user_response_count|pluralize }}</small>
+                    <h3 class="mb-0 mt-2">{{ survey_user_response_count }}{% if survey.limit_responses %}/{{survey.waitlist_threshold}}{% endif %}</h3>
+                    <small class="text-muted">{% trans 'Response' %}{% if survey.limit_responses %}{{ survey.waitlist_threshold|pluralize }}{% else %}{{ survey_user_response_count|pluralize }}{% endif %}</small>
                 </div>
             </div>
             {% if can_edit_survey %}
@@ -168,39 +168,33 @@
                 <i class="bi bi-bar-chart-line"></i> {% trans 'Results Visible' %}
             </span>
         {% endif %} {% endcomment %}
+        {% if survey.limit_responses %}
+            {% if survey.has_waitlist and survey.get_waitlisted_response_count > 0 %}
+                <span class="badge bg-info">
+                    <i class="bi bi-stopwatch-fill"></i> {{ survey.get_waitlisted_response_count }} {% trans 'on Waitlist' %}
+                </span>
+            {% elif is_survey_full %}
+                <span class="badge bg-danger">
+                    <i class="bi bi-x-circle-fill"></i> {% trans 'Survey Full' %}
+                </span>
+            {% endif %}
+        {% endif %}
     </div>
 
-    
-
-    <!-- Response Limit Status -->
-    {% if survey.limit_responses and survey.waitlist_threshold %}
-        {% if survey.has_waitlist %}
-            <div class="alert alert-info mb-4">
-                {% if survey.get_waitlisted_response_count > 0 %}
-                    <i class="bi bi-stopwatch-fill"></i>
-                    <strong>{{ survey.get_waitlisted_response_count }} {% trans 'on Waitlist' %}</strong>
-                {% else %}
-                    <i class="bi bi-people"></i>
-                    <strong>{{ survey.get_available_response_count }} {% trans 'spots left' %}</strong>
-                {% endif %}
-            </div>
-        {% elif is_survey_full %}
-            <div class="alert alert-warning mb-4">
-                <i class="bi bi-x-circle-fill"></i>
-                <strong>{% trans 'Survey Full' %}</strong> -
-                {% trans 'This survey has reached its response limit.' %}
-            </div>
-        {% else %}
-            <div class="alert alert-info mb-4">
-                <i class="bi bi-people"></i>
-                <strong>{{ available_response_count }} {% trans 'spots left' %}</strong>
-            </div>
-        {% endif %}
+    <!-- Take / Retake Survey Button -->
+    <hr class="my-4">
+    {% if can_take_survey %}
+        <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary mb-3">
+            {% if responses %}
+                <i class="bi bi-arrow-repeat"></i> {% trans 'Retake Survey' %}
+            {% else %}
+                <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
+            {% endif %}
+        </a>
     {% endif %}
 
     <!-- Your Responses Section -->
     {% if responses %}
-        <hr class="my-4">
         <h3 class="mb-3 root-title">
             {% if survey.allow_multiple_responses %}
             <i class="bi bi-file-earmark-text"></i> {% trans 'Your Responses' %}
@@ -243,20 +237,8 @@
                 </div>
             {% endfor %}
         </div>
-    {% else %}
-        <hr class="my-4">
-        {% if can_take_survey %}
-        <div class="alert alert-info d-flex align-items-center">
-            <i class="bi bi-info-circle fs-4 me-3"></i>
-            <div>
-                <h5 class="alert-heading mb-1">No Response{% if allow_multiple_responses %}s{% endif %} Yet</h5>
-                <p class="mb-0">You haven't submitted {% if allow_multiple_responses %}any responses{% else %}a response{% endif %} to this survey.</p>
-                <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-primary mt-2">
-                    <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
-                </a>
-            </div>
-        </div>
-        {% elif can_view_survey %}
+    {% elif not can_take_survey %}
+        {% if can_view_survey %}
             {% if survey.has_ended %}
                 <div class="alert alert-info d-flex align-items-center">
                     <i class="bi bi-info-circle fs-4 me-3"></i>
@@ -278,7 +260,7 @@
                     <i class="bi bi-info-circle fs-4 me-3"></i>
                     <div>
                         <h5 class="alert-heading mb-1">No Response</h5>
-                        <p class="mb-0">This survey is not available.</p>
+                        <p class="mb-0">This survey is not currently available.</p>
                     </div>
                 </div>
             {% endif %}
@@ -300,7 +282,7 @@
                 <i class="bi bi-shield-exclamation fs-4 me-3"></i>
                 <div>
                     <h5 class="alert-heading mb-1">Private Survey</h5>
-                    <p class="mb-0">You do not have access to take this survey.</p>
+                    <p class="mb-0">You must have an invite to take this survey.</p>
                 </div>
             </div>
         {% endif %}

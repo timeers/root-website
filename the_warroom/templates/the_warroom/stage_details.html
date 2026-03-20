@@ -59,24 +59,23 @@
                 </dd>
                 {% endif %}
 
-                <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
-                <dd class="col-sm-8">
-                    {{ stage.get_stage_format_display|default:tournament.get_default_format_display }}
-                    {% if not stage.stage_format %}
-                    <small class="text-muted">({% trans 'inherited from series' %})</small>
-                    {% endif %}
-                </dd>
+                {% if stage.stage_format %}
+                    <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
+                    <dd class="col-sm-8">
+                        {{ stage.get_stage_format_display|default:tournament.get_default_format_display }}
+                    </dd>
+                {% endif %}
 
-                <dt class="col-sm-4 text-muted">{% trans 'Advancement Type' %}</dt>
-                <dd class="col-sm-8">{{ stage.get_advancement_type_display }}</dd>
+                {% comment %} <dt class="col-sm-4 text-muted">{% trans 'Advancement Type' %}</dt>
+                <dd class="col-sm-8">{{ stage.get_advancement_type_display }}</dd> {% endcomment %}
 
-                {% if stage.min_players or stage.max_players %}
+                {% if min_players or max_players %}
                 <dt class="col-sm-4 text-muted">{% trans 'Players per Group' %}</dt>
                 <dd class="col-sm-8">
-                    {% if stage.min_players != stage.max_players %}
-                    {{ stage.min_players }} – {{ stage.max_players }}
+                    {% if min_players != max_players %}
+                    {{ min_players }} – {{ max_players }}
                     {% else %}
-                    {{ stage.max_players }}
+                    {{ max_players }}
                     {% endif %}
                 </dd>
                 {% endif %}

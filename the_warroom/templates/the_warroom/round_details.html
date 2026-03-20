@@ -68,13 +68,13 @@
                     {% endif %}
                 </dd>
 
-                {% if round.min_players or round.max_players %}
-                <dt class="col-sm-4 text-muted">{% trans 'Players per Game' %}</dt>
+                {% if min_players or max_players %}
+                <dt class="col-sm-4 text-muted">{% trans 'Players per Group' %}</dt>
                 <dd class="col-sm-8">
-                    {% if round.min_players != round.max_players %}
-                    {{ round.min_players }} – {{ round.max_players }}
+                    {% if min_players != max_players %}
+                    {{ min_players }} – {{ max_players }}
                     {% else %}
-                    {{ round.max_players }}
+                    {{ max_players }}
                     {% endif %}
                 </dd>
                 {% endif %}

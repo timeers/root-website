@@ -661,6 +661,19 @@ class Stage(models.Model):
             if changed:
                 round_obj.save()
 
+    def get_min_players_display(self):
+        """Get the minimum players per game for this stage"""
+        if not self.tournament.enforce_player_count:
+            return None
+        return self.min_players or self.tournament.min_players or None
+
+    def get_max_players_display(self):
+        """Get the maximum players per game for this stage"""
+        if not self.tournament.enforce_player_count:
+            return None
+        return self.max_players or self.tournament.max_players or None
+
+
     def save(self, *args, **kwargs):
         update_fields = kwargs.get('update_fields')
         if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
@@ -1162,6 +1175,18 @@ class Round(models.Model):
         """Get the maximum players per game for this round"""
         return self.max_players or self.stage.max_players or self.stage.tournament.max_players or 4
 
+    def get_min_players_display(self):
+        """Get the minimum players per game for this stage"""
+        if not self.stage.tournament.enforce_player_count:
+            return None
+        return self.min_players or self.stage.min_players or self.stage.tournament.min_players or None
+
+    def get_max_players_display(self):
+        """Get the maximum players per game for this stage"""
+        if not self.stage.tournament.enforce_player_count:
+            return None
+        return self.max_players or self.stage.max_players or self.stage.tournament.max_players or None
+    
     def current_player_queryset(self):
         """Return Profiles eligible to play in this round.
         If open_roster: all profiles. Otherwise: stage participants (ACTIVE),

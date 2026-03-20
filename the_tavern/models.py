@@ -167,7 +167,7 @@ class Survey(models.Model):
 
     def is_full(self):
         """Check if survey has reached its response limit (hard limit, no waitlist)"""
-        if not self.limit_responses or not self.waitlist_threshold:
+        if not self.limit_responses or self.waitlist_threshold is None:
             return False
         if self.has_waitlist:
             return False
@@ -340,26 +340,26 @@ class Survey(models.Model):
 
     def get_accepted_response_count(self):
         """Count responses within threshold (not on waitlist)"""
-        if not self.limit_responses or not self.waitlist_threshold:
+        if not self.limit_responses or self.waitlist_threshold is None:
             return self.responses.count()
         return self.responses.filter(response_position__lte=self.waitlist_threshold).count()
 
     def get_available_response_count(self):
         """Count remaining spots before response limit"""
-        if not self.limit_responses or not self.waitlist_threshold:
+        if not self.limit_responses or self.waitlist_threshold is None:
             return 0
         available_spots = self.waitlist_threshold - self.responses.filter(response_position__lte=self.waitlist_threshold).count()
         return max(available_spots, 0)
 
     def get_waitlisted_response_count(self):
         """Count responses on waitlist"""
-        if not self.limit_responses or not self.has_waitlist or not self.waitlist_threshold:
+        if not self.limit_responses or not self.has_waitlist or self.waitlist_threshold is None:
             return 0
         return self.responses.filter(response_position__gt=self.waitlist_threshold).count()
 
     def is_response_waitlisted(self, response):
         """Check if a specific response is on waitlist"""
-        if not self.limit_responses or not self.has_waitlist or not self.waitlist_threshold:
+        if not self.limit_responses or not self.has_waitlist or self.waitlist_threshold is None:
             return False
         return response.response_position > self.waitlist_threshold
 

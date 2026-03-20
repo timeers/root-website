@@ -235,7 +235,9 @@
                                         <div id="other_text_{{ question.id }}" class="ms-4 mt-1 mb-2" style="{% if field.value != 'other' %}display: none;{% endif %}">
                                             <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
                                                    placeholder="{% trans 'Please specify...' %}" maxlength="500"
-                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}>
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}
+                                                   oninput="clearOtherValidation(this)">
+                                            <div class="other-validation-error text-danger small mt-1" style="display: none;">{% trans 'Please specify your "Other" response.' %}</div>
                                         </div>
                                         {% endwith %}
                                     {% endif %}
@@ -292,7 +294,9 @@
                                         <div id="other_text_{{ question.id }}" class="ms-4 mt-1 mb-2" style="{% if not field.value or 'other' not in field.value %}display: none;{% endif %}">
                                             <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
                                                    placeholder="{% trans 'Please specify...' %}" maxlength="500"
-                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}>
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}
+                                                   oninput="clearOtherValidation(this)">
+                                            <div class="other-validation-error text-danger small mt-1" style="display: none;">{% trans 'Please specify your "Other" response.' %}</div>
                                         </div>
                                         {% endwith %}
                                     {% endif %}
@@ -477,7 +481,10 @@ function hideOtherText(questionId) {
     if (otherDiv) {
         otherDiv.style.display = 'none';
         const input = otherDiv.querySelector('input');
-        if (input) input.value = '';
+        if (input) {
+            input.value = '';
+            clearOtherValidation(input, true);
+        }
     }
 }
 
@@ -485,13 +492,29 @@ function toggleMsOtherText(questionId, checked) {
     const otherDiv = document.getElementById('other_text_' + questionId);
     if (otherDiv) {
         otherDiv.style.display = checked ? '' : 'none';
+        const input = otherDiv.querySelector('input');
         if (checked) {
-            const input = otherDiv.querySelector('input');
             if (input) input.focus();
         } else {
-            const input = otherDiv.querySelector('input');
-            if (input) input.value = '';
+            if (input) {
+                input.value = '';
+                clearOtherValidation(input, true);
+            }
         }
+    }
+}
+
+function setOtherValidationError(input) {
+    input.classList.add('is-invalid');
+    const errorDiv = input.parentElement.querySelector('.other-validation-error');
+    if (errorDiv) errorDiv.style.display = '';
+}
+
+function clearOtherValidation(input, force) {
+    if (force || input.value.trim()) {
+        input.classList.remove('is-invalid');
+        const errorDiv = input.parentElement.querySelector('.other-validation-error');
+        if (errorDiv) errorDiv.style.display = 'none';
     }
 }
 
@@ -548,13 +571,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             // If "Other" radio is selected, validate the text input is not empty
             if (checked && checked.value === 'other') {
-                const questionId = name.replace('question_', '');
                 const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
                 if (otherInput && !otherInput.value.trim()) {
-                    otherInput.classList.add('is-invalid');
+                    setOtherValidationError(otherInput);
                     valid = false;
                 } else if (otherInput) {
-                    otherInput.classList.remove('is-invalid');
+                    clearOtherValidation(otherInput, true);
                 }
             }
         });
@@ -564,10 +586,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const name = cb.name;
             const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
             if (otherInput && !otherInput.value.trim()) {
-                otherInput.classList.add('is-invalid');
+                setOtherValidationError(otherInput);
                 valid = false;
             } else if (otherInput) {
-                otherInput.classList.remove('is-invalid');
+                clearOtherValidation(otherInput, true);
             }
         });
 
@@ -758,6 +780,44 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    // "Other" text validation on form submit
+    const surveyForm = document.querySelector('form');
+    if (surveyForm) {
+        surveyForm.addEventListener('submit', function(e) {
+            let valid = true;
+            let firstInvalid = null;
+
+            // MC: check if "Other" radio is selected but text is empty
+            document.querySelectorAll('input[type="radio"][value="other"]:checked').forEach(radio => {
+                const name = radio.name;
+                const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    setOtherValidationError(otherInput);
+                    valid = false;
+                    if (!firstInvalid) firstInvalid = otherInput;
+                }
+            });
+
+            // MS: check if "Other" checkbox is checked but text is empty
+            document.querySelectorAll('input[type="checkbox"][value="other"]:checked').forEach(cb => {
+                const name = cb.name;
+                const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    setOtherValidationError(otherInput);
+                    valid = false;
+                    if (!firstInvalid) firstInvalid = otherInput;
+                }
+            });
+
+            if (!valid) {
+                e.preventDefault();
+                if (firstInvalid) {
+                    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
+    }
 
     // Initialize Sortable for all ranking questions
     const rankingLists = document.querySelectorAll('.ranking-list');

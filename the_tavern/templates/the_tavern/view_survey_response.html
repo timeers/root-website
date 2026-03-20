@@ -28,14 +28,18 @@
     </div>
 
     {% if survey.limit_responses and survey.has_waitlist %}
+        {% if can_see_results or can_edit_survey %}
         <div class="mb-3">
+            {% if can_edit_survey %}
             <strong>{% trans 'Position' %}:</strong> #{{ response.response_position }}
+            {% endif %}
             {% if is_response_waitlisted %}
                 <span class="badge bg-warning text-dark ms-2">{% trans 'On Waitlist' %}</span>
             {% else %}
                 <span class="badge bg-success ms-2">{% trans 'Accepted' %}</span>
             {% endif %}
         </div>
+        {% endif %}
     {% endif %}
 
     <hr>

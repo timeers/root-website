@@ -4164,6 +4164,9 @@ def stage_details_page(request, tournament_slug, stage_slug):
     context = _stage_base_context(request, tournament, stage)
     context['active_page'] = 'details'
 
+    context['min_players'] = stage.get_min_players_display()
+    context['max_players'] = stage.get_max_players_display()
+
     if tournament.asset_mode != AssetModeChoices.OPEN:
         assets = tournament.get_asset_querysets()
         context['asset_types'] = [
@@ -4378,6 +4381,9 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'details'
+
+    context['min_players'] = round.get_min_players_display()
+    context['max_players'] = round.get_max_players_display()
 
     if tournament.asset_mode != AssetModeChoices.OPEN:
         assets = tournament.get_asset_querysets()
