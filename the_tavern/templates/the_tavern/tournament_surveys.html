@@ -1,36 +1,41 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
 
-{% block title %}Surveys - {{ stage.name|default:tournament.name }}{% endblock %}
+{% block title %}{% trans 'Surveys' %} - {{ stage.name|default:tournament.name }}{% endblock %}
 
 {% block content %}
-<div class="container py-4">
+<div class="container-fluid py-3">
+
     <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
-            <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
-            {% if stage %}
-            <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
-            {% endif %}
-            <li class="breadcrumb-item active">Surveys</li>
-        </ol>
-    </nav>
+    {% trans "Surveys" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
 
     <!-- Header -->
+    {% if stage %}
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=stage.name %}
+    {% else %}
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
+    {% endif %}
+
+    <!-- Nav Header -->
+    {% if stage %}
+        {% include 'the_warroom/partials/stage_nav_header.html' with active_page='surveys' %}
+    {% else %}
+        {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='surveys' %}
+    {% endif %}
+
+    <!-- Survey Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0 root-title"><i class="bi bi-clipboard-check me-2"></i>{% trans 'Surveys' %}</h2>
+        <h4 class="mb-0 root-title"><i class="bi bi-clipboard-check me-2"></i>{% trans 'Surveys' %}</h4>
         <div class="d-flex gap-2">
-            <a href="{{ create_url }}" class="btn btn-primary">
-                <i class="bi bi-plus-lg me-1"></i>{% trans 'Create Survey' %}
-            </a>
             {% if stage %}
-            <a href="{% url 'stage-settings' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Settings' %}
+            <a href="{% url 'tournament-surveys' tournament_slug=tournament.slug %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-collection me-1"></i>{% trans 'All Series Surveys' %}
             </a>
-            {% else %}
-            <a href="{% url 'tournament-settings' slug=tournament.slug %}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Settings' %}
+            {% endif %}
+            {% if can_create %}
+            <a href="{{ create_url }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-plus-lg me-1"></i>{% trans 'Create Survey' %}
             </a>
             {% endif %}
         </div>
@@ -40,7 +45,7 @@
     <div class="card">
         <div class="list-group list-group-flush">
             {% for survey in surveys %}
-                {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True current_title=current_title current_url=current_url %}
+                {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True show_status=show_status current_title=current_title current_url=current_url %}
             {% empty %}
             <div class="list-group-item text-center text-muted py-5">
                 <i class="bi bi-clipboard-x fs-2 mb-2 d-block"></i>
@@ -49,11 +54,13 @@
                 {% else %}
                 {% trans 'No surveys linked to this series yet.' %}
                 {% endif %}
+                {% if can_create %}
                 <div class="mt-3">
                     <a href="{{ create_url }}" class="btn btn-primary btn-sm">
                         <i class="bi bi-plus-lg me-1"></i>{% trans 'Create Survey' %}
                     </a>
                 </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>

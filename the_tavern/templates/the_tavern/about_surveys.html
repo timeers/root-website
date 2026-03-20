@@ -49,6 +49,16 @@
     .about-section h5 {
         margin-bottom: 1rem;
     }
+    .about-section dl.row dt,
+    .about-section dl.row dd {
+        border-bottom: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    .about-section dl.row dt:last-of-type,
+    .about-section dl.row dd:last-of-type {
+        border-bottom: none;
+    }
 
     @media (max-width: 576px) {
         .permissions-table {
@@ -78,12 +88,12 @@
     <!-- What is a Survey -->
     <div class="card about-section">
         <div class="card-body">
-            <h5 class="card-title root-title">{% trans 'What is a Survey?' %}</h5>
+            <h5 class="card-title root-title">{% trans 'What are Surveys?' %}</h5>
             <p>
                 {% blocktrans %}
                 Surveys let you create questionnaires to gather feedback from the community, register players
                 for tournaments, or coordinate scheduling availability. 
-                They can be public for everyone or
+                They can be public for everyone to respond to or
                 private for specific players, Discord Guild members, or Series participants.
                 {% endblocktrans %}
             </p>
@@ -178,7 +188,7 @@
                 <dd class="col-sm-9">{% trans 'Choose whether users can submit multiple responses or edit their existing response while the survey is open.' %}</dd>
 
                 <dt class="col-sm-3">{% trans 'Results' %}</dt>
-                <dd class="col-sm-9">{% trans 'Control whether respondents can see results immediately after submitting, or only after the survey closes.' %}</dd>
+                <dd class="col-sm-9">{% trans 'Control whether respondents can see results immediately after submitting, after the survey closes, or never.' %}</dd>
 
                 <dt class="col-sm-3">{% trans 'Quiz Mode' %}</dt>
                 <dd class="col-sm-9">{% trans 'Enable quiz mode to set correct answers for questions. You can show scores and correct answers to respondents after they submit.' %}</dd>

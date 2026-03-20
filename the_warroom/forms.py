@@ -175,13 +175,41 @@ class GameCreateForm(forms.ModelForm):
                     for hireling in hirelings:
                         if hireling not in tournament_hirelings:
                             validation_errors_to_display.append(f'{hireling} Hireling is not playable in {tournament}')
-                if map not in tournament_maps:
+                if map and map not in tournament_maps:
                     validation_errors_to_display.append(f'{map} Map is not playable in {tournament}')
-                if deck not in tournament_decks:
+                if deck and deck not in tournament_decks:
                     validation_errors_to_display.append(f'{deck} Deck is not playable in {tournament}')
    
+        # Check that map and deck are selected
+        official_only = True
+        if map and deck:
+            if not map.official or not deck.official:
+                official_only = False
+            elif tweaks:
+                for tweak in tweaks:
+                    if not tweak.official:
+                        official_only = False
+                        break
+            elif landmarks:
+                for landmark in landmarks:
+                    if not landmark.official:
+                        official_only = False
+                        break
+            elif hirelings:
+                for hireling in hirelings:
+                    if not hireling.official:
+                        official_only = False
+                        break
+        else:
+            if map:
+                validation_errors_to_display.append('Select a Deck')
+            elif deck:
+                validation_errors_to_display.append('Select a Map')
+            else:
+                validation_errors_to_display.append('Select a Map and a Deck')
+
         if self.effort_formset.is_valid():
-           
+
             faction_roster = set()
             vagabond_roster = set()
             player_roster = set()
@@ -194,35 +222,6 @@ class GameCreateForm(forms.ModelForm):
             human_count = 0
             coalition_count = 0
             reach_value = 0
-
-            # Check that all game components are official
-            official_only = True
-            if map and deck:
-                if not map.official or not deck.official:
-                    official_only = False
-                elif tweaks:
-                    for tweak in tweaks:
-                        if not tweak.official:
-                            official_only = False
-                            break
-                elif landmarks:
-                    for landmark in landmarks:
-                        if not landmark.official:
-                            official_only = False
-                            break
-                elif hirelings:
-                    for hireling in hirelings:
-                        if not hireling.official:
-                            official_only = False
-                            break
-            else:
-                if map:
-                    validation_errors_to_display.append('Select a Deck')
-                elif deck:
-                    validation_errors_to_display.append('Select a Map')
-                else:
-                    validation_errors_to_display.append('Select a Map and a Deck')
-
 
             for effort_form in self.effort_formset.forms:
                 faction = effort_form.cleaned_data.get('faction')
@@ -417,6 +416,25 @@ class GameCreateFormV2(GameCreateForm):
         # For match mode, ensure round is set even though field is disabled
         if self.match and 'round' not in cleaned_data:
             cleaned_data['round'] = self.match.round
+
+        # Validate all match seat players have an effort
+        if self.match and self.effort_formset.is_valid():
+            seat_profiles = set(
+                MatchSeat.objects.filter(series=self.match.series)
+                .values_list('stage_participant__tournament_player__profile', flat=True)
+            )
+            submitted_players = set()
+            for effort_form in self.effort_formset.forms:
+                player = effort_form.cleaned_data.get('player')
+                if player and not effort_form.cleaned_data.get('delete', False):
+                    submitted_players.add(player.pk)
+            missing = seat_profiles - submitted_players
+            if missing:
+                missing_names = list(Profile.objects.filter(pk__in=missing).values_list('discord', flat=True))
+                raise ValidationError(
+                    [f'{name} is required in this match' for name in missing_names]
+                )
+
         return cleaned_data
 
 

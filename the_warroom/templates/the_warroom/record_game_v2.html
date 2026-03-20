@@ -47,16 +47,7 @@
 
 {% block content %}
 
-{% if match_mode %}
-<div class="alert alert-info d-flex align-items-center gap-2">
-    <i class="bi bi-trophy"></i>
-    <div>
-        <strong>Match #{{ match.match_number }}</strong>
-        — {{ match.round.stage.tournament.name }} / {{ match.round.stage.name }} / {{ match.round.name }}
-        <br><small>{% trans 'Drag players to set seat order, then fill in game details.' %}</small>
-    </div>
-</div>
-{% endif %}
+
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <legend>
@@ -71,12 +62,24 @@
     </button>
 </div>
 
+{% if match_mode %}
+<div class="alert alert-info d-flex align-items-center gap-2">
+    <i class="bi bi-trophy"></i>
+    <div>
+        <strong>Match #{{ match.match_number }}</strong>
+         {{match.round}}
+        <br><small>{% trans 'Add each player in seat order and fill in game details.' %}</small>
+    </div>
+</div>
+{% endif %}
+
 <div class="collapse" id="collapseInfo">
     <div class="card card-body">
         <div id="game-info"><small>
             {% trans 'Each game must have a Deck and Map selected.' %}<br>
-            {% if not match_mode %}{% trans 'You can register new players with the Register Player button above.' %}<br>{% endif %}
-            {% trans 'If the game is in progress you can save instead of submitting. Once a game is submitted it cannot be edited.' %}<br>
+            {% if not match_mode %}{% trans 'You can register new players by typing their name and clicking the Register Player button.' %}<br>{% endif %}
+            {% trans 'If the game is in progress you can save instead of submitting. Only submitted games are counted towards stats.' %}<br>
+            {% trans 'Players can be rearranged by dragging on the blue bar on the left.' %}<br>
             <br>
             {% trans 'Special Games:' %}<br>
             {% trans 'If you are running a multihanded playtest you should select yourself as the Player for each Faction (Playtests will not affect player Leaderboards).' %}<br>
@@ -92,21 +95,6 @@
     <ul>
         {% for error in form.non_field_errors %}
             <li>{{ error }}</li>
-        {% endfor %}
-        {% for field, errors in form.errors.items %}
-            {% for error in errors %}
-                <li><strong>{{ field }}:</strong> {{ error }}</li>
-            {% endfor %}
-        {% endfor %}
-        {% for error in formset.non_form_errors %}
-            <li>{{ error }}</li>
-        {% endfor %}
-        {% for effort_form in formset %}
-            {% for field, errors in effort_form.errors.items %}
-                {% for error in errors %}
-                    <li><strong>Player {{ forloop.parentloop.parentloop.counter }} - {{ field }}:</strong> {{ error }}</li>
-                {% endfor %}
-            {% endfor %}
         {% endfor %}
     </ul>
 </div>
@@ -152,7 +140,6 @@
                     <option value="{{ locked_platform }}" selected>{{ locked_platform }}</option>
                 </select>
                 <input type="hidden" name="platform" value="{{ locked_platform }}">
-                <small class="text-muted">{% trans 'Set by tournament' %}</small>
             {% else %}
                 {{ form.platform }}
             {% endif %}
@@ -256,9 +243,7 @@
 
         <div class="mt-2" id="game-link-field">
             {{ form.link }}
-            {% if link_required %}
-                <small class="text-warning"><i class="bi bi-exclamation-triangle"></i> {% trans 'Link is required for this tournament' %}</small>
-            {% endif %}
+            <small class="text-warning" id="link-required-note" style="display:none;"><i class="bi bi-exclamation-triangle"></i> {% trans 'Link is required for this tournament' %}</small>
             {% if form.link.errors %}
             <div class="alert alert-warning" role="alert">
                 <ul>
@@ -690,6 +675,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 updateFactionSpecificLists();
 
+                // Show/hide link required note
+                const linkNote = document.getElementById('link-required-note');
+                if (linkNote) {
+                    linkNote.style.display = data.link_required ? '' : 'none';
+                }
+
                 setTimeout(() => {
                     const platformValue = platformSelect.value;
                     const timingBlock = document.getElementById("timing-field");
@@ -808,6 +799,9 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 updateOptions(platformSelect.value);
                 updatePlatformField();
+                // Hide link required note when round is cleared
+                const linkNote = document.getElementById('link-required-note');
+                if (linkNote) linkNote.style.display = 'none';
             }
         });
     }

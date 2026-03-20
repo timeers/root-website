@@ -2930,14 +2930,14 @@ def survey_create_view(request):
     return render(request, 'the_tavern/survey_form.html', context)
 
 
-@login_required
 def tournament_surveys_view(request, tournament_slug, stage_slug=None):
     """List surveys associated with a tournament or a specific stage."""
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    profile = request.user.profile
+    from the_warroom.views import _tournament_base_context, _stage_base_context
 
-    if not tournament.has_permission(profile):
-        raise PermissionDenied
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    profile = request.user.profile if request.user.is_authenticated else None
+
+    can_create = profile and tournament.has_permission(profile)
 
     stage = None
     surveys = Survey.objects.filter(series=tournament)
@@ -2945,19 +2945,83 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
         stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
         surveys = surveys.filter(stage=stage)
 
-    if stage:
-        create_url = reverse('survey-create') + f'?series={tournament.id}&stage={stage.id}'
-    else:
-        create_url = reverse('survey-create') + f'?series={tournament.id}'
+    if profile:
+        is_banned = profile.group == Profile.GroupChoices.BANNED
 
-    context = {
-        'tournament': tournament,
-        'stage': stage,
+        user_response_exists = Exists(
+            SurveyResponse.objects.filter(
+                survey=OuterRef('pk'),
+                profile=profile
+            )
+        )
+        user_invited = Exists(
+            Survey.invited_players.through.objects.filter(
+                survey_id=OuterRef('pk'),
+                profile_id=profile.pk
+            )
+        )
+        user_in_guild = Exists(
+            Profile.guilds.through.objects.filter(
+                profile_id=profile.pk,
+                discordguild_id=OuterRef('guild_id')
+            )
+        )
+        user_in_series = Exists(
+            Survey.objects.filter(
+                pk=OuterRef('pk'),
+                series__tournament_players__profile=profile
+            )
+        )
+        user_in_stage = Exists(
+            Survey.objects.filter(
+                pk=OuterRef('pk'),
+                stage__participants__tournament_player__profile=profile
+            )
+        )
+
+        surveys = surveys.annotate(
+            user_has_responded=user_response_exists,
+            user_is_invited=user_invited,
+            user_in_guild=user_in_guild,
+            user_in_series=user_in_series,
+            user_in_stage=user_in_stage,
+            can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
+            can_take_survey=Case(
+                When(Q(can_respond=False), then=Value(False)),
+                When(Q(is_public=True), then=Value(True)),
+                When(Q(user_is_invited=True), then=Value(True)),
+                When(Q(user_in_guild=True), then=Value(True)),
+                When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
+                When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
+                When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
+                When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
+                default=Value(False),
+                output_field=models.BooleanField()
+            ) if not is_banned else Value(False, output_field=models.BooleanField())
+        )
+
+    create_url = None
+    if can_create:
+        if stage:
+            create_url = reverse('survey-create') + f'?series={tournament.id}&stage={stage.id}'
+        else:
+            create_url = reverse('survey-create') + f'?series={tournament.id}'
+
+    # Build base context from the appropriate helper for nav header support
+    if stage:
+        context = _stage_base_context(request, tournament, stage)
+    else:
+        context = _tournament_base_context(request, tournament)
+
+    context.update({
         'surveys': surveys,
+        'can_create': can_create,
         'create_url': create_url,
+        'show_status': True,
         'current_title': stage.name if stage else tournament.name,
         'current_url': request.path,
-    }
+        'active_page': 'surveys',
+    })
     return render(request, 'the_tavern/tournament_surveys.html', context)
 
 

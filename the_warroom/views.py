@@ -845,11 +845,11 @@ def manage_game_v2(request, id=None):
         match_profiles = _get_match_profiles(match)
         for form in formset.forms:
             form.fields['player'].queryset = match_profiles
-        if not id and not request.POST:
-            for i, seat in enumerate(match_seats):
-                if i < len(formset.forms):
-                    profile_obj = seat.stage_participant.tournament_player.profile
-                    formset.forms[i].initial['player'] = profile_obj.pk
+        # if not id and not request.POST:
+        #     for i, seat in enumerate(match_seats):
+        #         if i < len(formset.forms):
+        #             profile_obj = seat.stage_participant.tournament_player.profile
+        #             formset.forms[i].initial['player'] = profile_obj.pk
 
     # Build game form
     form = GameCreateFormV2(
@@ -868,19 +868,11 @@ def manage_game_v2(request, id=None):
     # Determine platform lock status for template rendering
     platform_locked = False
     locked_platform = None
-    link_required = False
     if match:
         tournament = match.round.get_tournament()
         if tournament.platform:
             platform_locked = True
             locked_platform = tournament.platform
-        link_required = tournament.link_required
-    elif obj and obj.pk and obj.round:
-        tournament = obj.round.get_tournament()
-        if tournament.platform:
-            platform_locked = True
-            locked_platform = tournament.platform
-        link_required = tournament.link_required
 
     context = {
         'form': form,
@@ -893,7 +885,6 @@ def manage_game_v2(request, id=None):
         'player_form': player_form,
         'platform_locked': platform_locked,
         'locked_platform': locked_platform,
-        'link_required': link_required,
     }
 
     if request.method == 'POST':
@@ -1635,6 +1626,9 @@ def _tournament_base_context(request, tournament):
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
+    from the_tavern.models import Survey
+    has_surveys = Survey.objects.filter(series=tournament).exists()
+
     user_in_guild = (
         request.user.is_authenticated
         and tournament.guild
@@ -1648,6 +1642,7 @@ def _tournament_base_context(request, tournament):
         'can_manage': can_manage,
         'has_games': has_games,
         'has_players': has_players,
+        'has_surveys': has_surveys,
         'user_in_guild': user_in_guild,
         'meta_title': tournament.name,
         'meta_description': tournament.description,
@@ -1674,6 +1669,9 @@ def _stage_base_context(request, tournament, stage):
     has_games = Game.objects.filter(round__stage=stage).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
 
+    from the_tavern.models import Survey
+    has_surveys = Survey.objects.filter(series=tournament, stage=stage).exists()
+
     user_in_guild = (
         request.user.is_authenticated
         and tournament.guild
@@ -1689,6 +1687,7 @@ def _stage_base_context(request, tournament, stage):
         'has_bracket': has_bracket,
         'has_games': has_games,
         'has_players': has_players,
+        'has_surveys': has_surveys,
         'user_in_guild': user_in_guild,
         'meta_title': f"{stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',

@@ -1,6 +1,6 @@
 from django.db.models.signals import pre_delete, pre_save, post_save
 from django.dispatch import receiver
-from .models import Effort, Game, ScoreCard, Tournament, Round, Stage
+from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus
 from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name
 
 @receiver(pre_delete, sender=Effort)
@@ -43,6 +43,34 @@ def stage_pre_save(sender, instance, *args, **kwargs):
 def stage_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_stage_name(instance, save=True)
+
+@receiver(pre_delete, sender=Game)
+def game_pre_delete_reevaluate_match(sender, instance, **kwargs):
+    """When a game linked to a match is deleted, reset match/series status."""
+    try:
+        match = Match.objects.get(game=instance)
+    except Match.DoesNotExist:
+        return
+
+    series = match.series
+
+    # Reset this match
+    match.status = CompetitionStatus.PENDING
+    match.save(update_fields=['status'])
+
+    # Clear series winners and re-evaluate status
+    series.winners.clear()
+
+    other_completed = series.matches.filter(
+        status=CompetitionStatus.COMPLETED
+    ).exclude(pk=match.pk).exists()
+
+    if other_completed:
+        series.status = CompetitionStatus.ACTIVE
+    else:
+        series.status = CompetitionStatus.PENDING
+    series.save(update_fields=['status'])
+
 
 @receiver(post_save, sender=Game)
 def game_post_save_check_match(sender, instance, **kwargs):

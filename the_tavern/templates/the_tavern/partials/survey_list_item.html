@@ -10,11 +10,11 @@
                     <i class="bi bi-shield-lock text-muted small"></i>
                 {% endif %}
             </h5>
-            {% if show_owner %}
+            {% if show_owner and survey.created_by %}
                 <div class="d-flex align-items-center mb-1">
                         {% if survey.created_by.image %}
                             <img src="{{ survey.created_by.image.url }}" alt="{{ survey.created_by.name }}"
-                                    class="faction-icon me-1">
+                                    class="avatar-icon me-1">
                         {% else %}
                             <i class="bi bi-people"></i>
                         {% endif %}
@@ -36,7 +36,7 @@
                             <img src="{{ survey.guild.get_icon_url }}" alt="{{ survey.guild.guild_name }}"
                                  class="faction-icon">
                         {% else %}
-                            <i class="bi bi-people"></i>
+                            <i class="bi bi-discord"></i>
                         {% endif %}
                         {{ survey.guild.guild_name }}
                     {% elif survey.stage %}

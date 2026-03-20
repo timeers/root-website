@@ -20,15 +20,46 @@
     <div class="mb-4">
         <h1 class="root-title mb-2">{{ survey.title }}</h1>
         {% if survey.created_by %}
+        <a href={{ survey.created_by.get_absolute_url }}>
             <p class="text-muted mb-1">
                 {% if survey.created_by.image %}
-                <img src="{{ survey.created_by.image.url }}" alt="{{ survey.created_by.name }}" class="md-faction-icon">
+                <img src="{{ survey.created_by.image.url }}" alt="{{ survey.created_by.name }}" class="avatar-icon">
                 {% else %}
                 <i class="bi bi-person-circle"></i>
                 {% endif %} 
-                {% trans 'Created by' %} <strong>{{ survey.created_by.name }}</strong>
+                <strong>{{ survey.created_by.name }}</strong>
             </p>
+        </a>
         {% endif %}
+
+        <!-- Linked Context -->
+        {% if survey.stage or survey.series or survey.post %}
+            <div class="mb-4">
+                <small class="text-muted">
+                    {% if survey.series %}
+                        {% if survey.stage %}
+                            <a href="{{ survey.stage.get_absolute_url }}" class="text-decoration-none">
+                                <i class="bi {% if survey.series.classification == 'League' %}bi-discord{% elif survey.series.classification == 'Game Group' %}bi-people{% else %}bi-trophy{% endif %}"></i> {{ survey.stage }}
+                            </a>
+                        {% elif survey.series %}
+                            <a href="{{ survey.series.get_absolute_url }}" class="text-decoration-none">
+                                <i class="bi {% if survey.series.classification == 'League' %}bi-discord{% elif survey.series.classification == 'Game Group' %}bi-people{% else %}bi-trophy{% endif %}"></i> {{ survey.series.name }}
+                            </a>
+                        {% endif %}
+                    {% endif %}
+                    {% if survey.post %}
+                        {% if survey.stage or survey.series %}
+                            <span class="text-muted mx-1">&middot;</span>
+                        {% endif %}
+                        <a href="{{ survey.post.get_absolute_url }}" class="text-decoration-none">
+                            {% if survey.post.small_icon %}<img src="{{ survey.post.small_icon.url }}" alt="" class="faction-icon">{% endif %} {{ survey.post.title }}
+                        </a>
+                    {% endif %}
+                </small>
+            </div>
+        {% endif %}
+
+
         {% if survey.description %}
             <p class="lead mt-3">{{ survey.description|linebreaks }}</p>
         {% endif %}
@@ -138,6 +169,8 @@
             </span>
         {% endif %} {% endcomment %}
     </div>
+
+    
 
     <!-- Response Limit Status -->
     {% if survey.limit_responses and survey.waitlist_threshold %}

@@ -64,4 +64,5 @@ def get_options_for_tournament(request, pk):
         'hirelings': hirelings_data,
         'players': players_data,
         'platform': platform,
+        'link_required': tournament.link_required,
     })

@@ -37,7 +37,7 @@
 {% if public_series %}
     <div class="mb-4 {% if not user.is_authenticated or not my_series and not participating_series %}mt-3{% endif %}">
         <h4 class="mb-3 root-title">
-            <i class="bi bi-globe-americas"></i> {{ cls_label }}s
+            {% if user.is_authenticated %}<i class="bi bi-globe-americas"></i> {% endif %}{{ cls_label }}s
         </h4>
         <div class="list-group">
             {% include 'the_warroom/partials/series_list_container.html' with series_list=public_series load_type=cls_key|add:'_public' offset=public_offset has_more=has_more_public %}

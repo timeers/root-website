@@ -45,6 +45,12 @@
                 {% trans 'Roster' %}
             </a>
             {% endif %}
+            {% if has_surveys %}
+            <a href="{% url 'stage-surveys' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'surveys' %}active{% endif %}">
+                {% trans 'Surveys' %}
+            </a>
+            {% endif %}
             <a href="{% url 'stage-details-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
                 {% trans 'Details' %}

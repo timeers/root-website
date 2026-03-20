@@ -89,20 +89,19 @@
 
                     {% if series.number_of_games > 1 %}
                     <hr class="my-2">
-                    <small class="text-muted">{% trans 'Games:' %}</small>
                     {% for match in series.matches.all %}
-                    <div class="d-flex align-items-center gap-2 small">
+                    <div class="d-flex align-items-center gap-2 mb-1">
                         <span>{% trans 'Game' %} {{ forloop.counter }}</span>
                         {% if match.game %}
                             {% if match.game.final %}
-                            <a href="{{ match.game.get_absolute_url }}" class="ms-auto" title="{% trans 'View Game' %}"><i class="bi bi-box-arrow-up-right"></i></a>
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
                             {% elif match.id in recordable_match_ids %}
-                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm py-0 ms-auto" title="{% trans 'Edit Game' %}"><i class="bi bi-pencil"></i></a>
+                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm ms-auto"><i class="bi bi-pencil me-1"></i>{% trans 'Edit Game' %}</a>
                             {% else %}
-                            <a href="{{ match.game.get_absolute_url }}" class="ms-auto" title="{% trans 'View Game' %}"><i class="bi bi-box-arrow-up-right"></i></a>
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
                             {% endif %}
                         {% elif match.id in recordable_match_ids %}
-                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm py-0 ms-auto" title="{% trans 'Record Game' %}"><i class="bi bi-plus-lg"></i></a>
+                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm ms-auto"><i class="bi bi-plus-lg me-1"></i>{% trans 'Record Game' %}</a>
                         {% elif match.status == 'Completed' %}
                         <span class="badge bg-success ms-auto">{% trans 'Done' %}</span>
                         {% else %}
