@@ -44,6 +44,21 @@
                     {% endwith %}
                 </dd>
 
+                {% if stage.start_date or stage.end_date %}
+                <dt class="col-sm-4 text-muted">
+                    {% if not stage.end_date %}
+                        {% trans 'Start Date' %}
+                    {% elif not stage.start_date %}
+                        {% trans 'End Date' %}
+                    {% else %}
+                        {% trans 'Dates' %}
+                    {% endif %}
+                </dt>
+                <dd class="col-sm-8">
+                    {{ stage.start_date|date:"M j, Y" }}{% if stage.end_date and stage.start_date %} – {% endif %}{{ stage.end_date|date:"M j, Y" }}
+                </dd>
+                {% endif %}
+
                 <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
                 <dd class="col-sm-8">
                     {{ stage.get_stage_format_display|default:tournament.get_default_format_display }}
@@ -66,39 +81,10 @@
                 </dd>
                 {% endif %}
 
-                <dt class="col-sm-4 text-muted">{% trans 'Grouping Type' %}</dt>
-                <dd class="col-sm-8">{{ stage.get_grouping_type_display }}</dd>
-
-                <dt class="col-sm-4 text-muted">{% trans 'Naming Convention' %}</dt>
-                <dd class="col-sm-8">{{ stage.get_naming_convention_display }}</dd>
-
-                <dt class="col-sm-4 text-muted">{% trans 'Include Waitlist' %}</dt>
-                <dd class="col-sm-8">{% if stage.include_waitlist %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
-
-                <dt class="col-sm-4 text-muted">{% trans 'Game Threshold' %}</dt>
-                <dd class="col-sm-8">
-                    {{ stage.get_game_threshold }}
-                    {% if stage.game_threshold is None %}
-                    <small class="text-muted">({% trans 'inherited from series' %})</small>
-                    {% endif %}
-                </dd>
-
-                <dt class="col-sm-4 text-muted">{% trans 'Leaderboard Positions' %}</dt>
-                <dd class="col-sm-8">
-                    {{ stage.get_leaderboard_positions }}
-                    {% if stage.leaderboard_positions is None %}
-                    <small class="text-muted">({% trans 'inherited from series' %})</small>
-                    {% endif %}
-                </dd>
-
-                {% if stage.start_date %}
-                <dt class="col-sm-4 text-muted">{% trans 'Dates' %}</dt>
-                <dd class="col-sm-8">
-                    {{ stage.start_date|date:"M j, Y" }}{% if stage.end_date %} – {{ stage.end_date|date:"M j, Y" }}{% endif %}
-                </dd>
-                {% endif %}
             </dl>
-            
+
+            {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=stage.get_game_threshold leaderboard_positions=stage.get_leaderboard_positions %}
+
             {% if asset_types %}
             <hr class="my-3">
             <h5 class="mb-3">{% trans 'Allowed Assets' %}</h5>

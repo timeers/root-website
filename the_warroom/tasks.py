@@ -20,7 +20,7 @@ from .services.root_league_api import create_game_from_api, create_efforts_from_
 @shared_task
 def update_competition_statuses():
     """Update statuses for tournaments, stages, and rounds based on dates. Cascades completion to children."""
-    now = timezone.now()
+    now = timezone.now().date()
     updated = 0
 
     # --- Tournaments ---

@@ -37,7 +37,6 @@
             <dl class="row mb-0">
                 <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
                 <dd class="col-sm-8">
-
                     {% with item=tournament %}
                         <div class="d-flex align-items-center">
                             {% if item.status == 'Active' %}
@@ -58,12 +57,30 @@
                             {% endif %}
                         </div>
                     {% endwith %}
-
-
                 </dd>
 
-                <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>
-                <dd class="col-sm-8">{{ tournament.get_coalition_type_display }}</dd>
+                {% if tournament.start_date or tournament.end_date %}
+                <dt class="col-sm-4 text-muted">
+                    {% if not tournament.end_date %}
+                        {% trans 'Start Date' %}
+                    {% elif not tournament.start_date %}
+                        {% trans 'End Date' %}
+                    {% else %}
+                        {% trans 'Dates' %}
+                    {% endif %}
+                </dt>
+                <dd class="col-sm-8">
+                    {{ tournament.start_date|date:"M j, Y" }}{% if tournament.end_date and tournament.start_date %} – {% endif %}{{ tournament.end_date|date:"M j, Y" }}
+                </dd>
+                {% endif %}
+
+                {% if tournament.designer %}
+                <dt class="col-sm-4 text-muted">{% trans 'Host' %}</dt>
+                <dd class="col-sm-8">
+                    <a href="{{ tournament.designer.get_absolute_url }}">{{ tournament.designer.display_name }}</a>
+
+                </dd>
+                {% endif %}
 
                 {% if tournament.moderators.all %}
                 <dt class="col-sm-4 text-muted">{% trans 'Moderators' %}</dt>
@@ -74,39 +91,43 @@
                 </dd>
                 {% endif %}
 
-                {% if tournament.default_format %}
-                <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
-                <dd class="col-sm-8">{{ tournament.get_default_format_display }}</dd>
-                {% endif %}
-
                 {% if tournament.guild and user_in_guild %}
                 <dt class="col-sm-4 text-muted">{% trans 'Guild' %}</dt>
                 <dd class="col-sm-8">{{ tournament.guild.name }}</dd>
                 {% endif %}
 
-                <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
-                <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
 
-                {% if tournament.enforce_player_count %}
-                <dt class="col-sm-4 text-muted">{% trans 'Player Count' %}</dt>
-                <dd class="col-sm-8">{{ tournament.min_players }} – {{ tournament.max_players }}</dd>
-                {% endif %}
 
                 {% if tournament.platform %}
                 <dt class="col-sm-4 text-muted">{% trans 'Platform' %}</dt>
                 <dd class="col-sm-8">{{ tournament.platform }}</dd>
                 {% endif %}
 
-                {% if tournament.start_date %}
-                <dt class="col-sm-4 text-muted">{% trans 'Dates' %}</dt>
-                <dd class="col-sm-8">
-                    {{ tournament.start_date|date:"M j, Y" }}{% if tournament.end_date %} – {{ tournament.end_date|date:"M j, Y" }}{% endif %}
-                </dd>
+                {% if tournament.enforce_player_count %}
+                <dt class="col-sm-4 text-muted">{% trans 'Player Count' %}</dt>
+                <dd class="col-sm-8">{{ tournament.min_players }} – {{ tournament.max_players }}</dd>
                 {% endif %}
+
+                {% if tournament.default_format %}
+                <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_default_format_display }}</dd>
+                {% endif %}
+
+                <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
+                <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+
+
+
+
+
+                <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_coalition_type_display }}</dd>
 
                 <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
                 <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
             </dl>
+
+            {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=tournament.game_threshold leaderboard_positions=tournament.leaderboard_positions %}
 
             {% if tournament.description %}
             <hr class="my-3">

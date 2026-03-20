@@ -1,0 +1,13 @@
+{% load i18n %}
+<hr class="my-3">
+<h5 class="mb-3 text-center">{% trans 'Leaderboards' %}</h5>
+<div class="row text-center">
+    <div class="col-sm-6">
+        <small class="text-muted">{% trans 'Game Threshold' %}</small>
+        <div>{{ game_threshold }}</div>
+    </div>
+    <div class="col-sm-6">
+        <small class="text-muted">{% trans 'Positions' %}</small>
+        <div>{{ leaderboard_positions }}</div>
+    </div>
+</div>

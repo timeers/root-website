@@ -233,7 +233,7 @@ class BracketService:
                 stage=losers_stage,
                 name=f"{losers_stage.name} Round 1",
                 round_number=1,
-                start_date=timezone.now(),
+                start_date=timezone.now().date(),
                 min_players=round.get_min_players(),
                 max_players=round.get_max_players(),
             )

@@ -45,6 +45,21 @@
 
                 </dd>
 
+                {% if round.start_date or round.end_date %}
+                <dt class="col-sm-4 text-muted">
+                    {% if not round.end_date %}
+                        {% trans 'Start Date' %}
+                    {% elif not round.start_date %}
+                        {% trans 'End Date' %}
+                    {% else %}
+                        {% trans 'Dates' %}
+                    {% endif %}
+                </dt>
+                <dd class="col-sm-8">
+                    {{ round.start_date|date:"M j, Y" }}{% if round.end_date and round.start_date %} – {% endif %}{{ round.end_date|date:"M j, Y" }}
+                </dd>
+                {% endif %}
+
                 <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
                 <dd class="col-sm-8">
                     {{ round.get_format }}
@@ -64,35 +79,11 @@
                 </dd>
                 {% endif %}
 
-                <dt class="col-sm-4 text-muted">{% trans 'Game Threshold' %}</dt>
-                <dd class="col-sm-8">
-                    {{ round.get_game_threshold }}
-                    {% if round.game_threshold is None or round.game_threshold == 0 %}
-                    <small class="text-muted">({% trans 'inherited' %})</small>
-                    {% endif %}
-                </dd>
 
-                <dt class="col-sm-4 text-muted">{% trans 'Leaderboard Positions' %}</dt>
-                <dd class="col-sm-8">
-                    {{ round.get_leaderboard_positions }}
-                    {% if round.leaderboard_positions is None %}
-                    <small class="text-muted">({% trans 'inherited' %})</small>
-                    {% endif %}
-                </dd>
 
-                {% if round.start_date %}
-                <dt class="col-sm-4 text-muted">{% trans 'Dates' %}</dt>
-                <dd class="col-sm-8">
-                    {{ round.start_date|date:"M j, Y" }}{% if round.end_date %} – {{ round.end_date|date:"M j, Y" }}{% endif %}
-                </dd>
-                {% endif %}
-
-                <dt class="col-sm-4 text-muted">{% trans 'Grouping Status' %}</dt>
-                <dd class="col-sm-8">{{ round.get_grouping_status_display }}</dd>
-
-                <dt class="col-sm-4 text-muted">{% trans 'Bracket Status' %}</dt>
-                <dd class="col-sm-8">{{ round.get_bracket_status_display }}</dd>
             </dl>
+
+            {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=round.get_game_threshold leaderboard_positions=round.get_leaderboard_positions %}
 
             {% if asset_types %}
             <hr class="my-3">

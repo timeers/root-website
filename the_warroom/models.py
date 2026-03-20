@@ -68,12 +68,12 @@ class TournamentQuerySet(models.QuerySet):
     def open(self):
         """Return tournaments that are still open (end_date is null or in the future)"""
         return self.filter(
-            Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
+            Q(end_date__isnull=True) | Q(end_date__gt=timezone.now().date())
         )
 
     def is_available(self):
         """Filter for available tournaments."""
-        now = timezone.now()
+        now = timezone.now().date()
         return self.exclude(
             Q(is_active=False) |
             Q(status=CompetitionStatus.COMPLETED) |
@@ -83,7 +83,7 @@ class TournamentQuerySet(models.QuerySet):
 
     def not_available(self):
         """Filter for unavailable tournaments."""
-        now = timezone.now()
+        now = timezone.now().date()
         return self.filter(
             Q(is_active=False) |
             Q(status=CompetitionStatus.COMPLETED) |
@@ -96,12 +96,12 @@ class RoundQuerySet(models.QuerySet):
     def open(self):
         """Return rounds that are still open (end_date is null or in the future)"""
         return self.filter(
-            Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
+            Q(end_date__isnull=True) | Q(end_date__gt=timezone.now().date())
         )
 
     def is_available(self):
         """Filter for available rounds."""
-        now = timezone.now()
+        now = timezone.now().date()
         return self.exclude(
             Q(is_active=False) |
             Q(status=CompetitionStatus.COMPLETED) |
@@ -111,7 +111,7 @@ class RoundQuerySet(models.QuerySet):
 
     def not_available(self):
         """Filter for unavailable rounds."""
-        now = timezone.now()
+        now = timezone.now().date()
         return self.filter(
             Q(is_active=False) |
             Q(status=CompetitionStatus.COMPLETED) |
@@ -220,12 +220,12 @@ class Tournament(models.Model):
         default=CoalitionTypes.ONE
     )
 
-    start_date = models.DateTimeField(
+    start_date = models.DateField(
         null=True,
         blank=True,
     )
-    end_date = models.DateTimeField(
-        null=True, 
+    end_date = models.DateField(
+        null=True,
         blank=True,
         )
 
@@ -252,7 +252,7 @@ class Tournament(models.Model):
         """Check if tournament is currently open (end_date is null or in the future)"""
         if self.end_date is None:
             return True
-        return timezone.now() < self.end_date
+        return timezone.now().date() < self.end_date
 
     def is_available(self):
         """Check if tournament is currently available."""
@@ -260,7 +260,7 @@ class Tournament(models.Model):
             return False
         if self.status == CompetitionStatus.COMPLETED:
             return False
-        now = timezone.now()
+        now = timezone.now().date()
         if self.start_date and now < self.start_date:
             return False
         if self.end_date and now > self.end_date:
@@ -269,14 +269,14 @@ class Tournament(models.Model):
 
     def has_started(self):
         """Check if tournament has started."""
-        now = timezone.now()
+        now = timezone.now().date()
         if self.start_date and now < self.start_date:
             return False
         return True
 
     def has_ended(self):
         """Check if tournament has ended."""
-        now = timezone.now()
+        now = timezone.now().date()
         if self.end_date and now > self.end_date:
             return True
         return False
@@ -431,7 +431,7 @@ class Tournament(models.Model):
 
     def _recalculate_status(self):
         """Recalculate status from is_active and dates."""
-        now = timezone.now()
+        now = timezone.now().date()
         if not self.is_active:
             has_games = Game.objects.filter(round__stage__tournament=self).exists()
             self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
@@ -560,11 +560,11 @@ class Stage(models.Model):
     # Leaderboard settings (inherit from Tournament if blank)
     game_threshold = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)],
-        help_text="Leave blank to inherit from series"
+
     )
     leaderboard_positions = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(3), MaxValueValidator(30)],
-        help_text="Leave blank to inherit from series"
+
     )
 
     # Grouping stats
@@ -575,11 +575,11 @@ class Stage(models.Model):
 
     slug = models.SlugField(null=True, blank=True)
 
-    start_date = models.DateTimeField(
+    start_date = models.DateField(
         null=True,
         blank=True,
     )
-    end_date = models.DateTimeField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
 
     is_active = models.BooleanField(
         default=True,
@@ -603,7 +603,7 @@ class Stage(models.Model):
             return False
         if self.status == CompetitionStatus.COMPLETED:
             return False
-        now = timezone.now()
+        now = timezone.now().date()
         if self.start_date and now < self.start_date:
             return False
         if self.end_date and now > self.end_date:
@@ -612,21 +612,21 @@ class Stage(models.Model):
 
     def has_started(self):
         """Check if stage has started."""
-        now = timezone.now()
+        now = timezone.now().date()
         if self.start_date and now < self.start_date:
             return False
         return True
 
     def has_ended(self):
         """Check if stage has ended."""
-        now = timezone.now()
+        now = timezone.now().date()
         if self.end_date and now > self.end_date:
             return True
         return False
 
     def _recalculate_status(self):
         """Recalculate status from is_active and dates."""
-        now = timezone.now()
+        now = timezone.now().date()
         if not self.is_active:
             has_games = Game.objects.filter(round__stage=self).exists()
             self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
@@ -814,20 +814,20 @@ class Round(models.Model):
     )
 
     round_number = models.PositiveIntegerField()  # Round number (e.g., 1, 2, 3, etc.)
-    start_date = models.DateTimeField(
+    start_date = models.DateField(
         null=True,
         blank=True,
     )
-    end_date = models.DateTimeField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
 
     game_threshold = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)],
         default=0,
-        help_text="Leave blank to inherit from series"
+
         )
     leaderboard_positions = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(3), MaxValueValidator(30)],
-        help_text="Leave blank to inherit from series"
+
         )
 
     max_players = models.PositiveSmallIntegerField(
@@ -889,7 +889,7 @@ class Round(models.Model):
         """Check if round is currently open (end_date is null or in the future)"""
         if self.end_date is None:
             return True
-        return timezone.now() < self.end_date
+        return timezone.now().date() < self.end_date
 
     def is_available(self):
         """Check if round is available (cascades from stage and tournament)."""
@@ -902,7 +902,7 @@ class Round(models.Model):
             return False
         if self.status == CompetitionStatus.COMPLETED:
             return False
-        now = timezone.now()
+        now = timezone.now().date()
         if self.start_date and now < self.start_date:
             return False
         if self.end_date and now > self.end_date:
@@ -911,21 +911,21 @@ class Round(models.Model):
 
     def has_started(self):
         """Check if round has started."""
-        now = timezone.now()
+        now = timezone.now().date()
         if self.start_date and now < self.start_date:
             return False
         return True
 
     def has_ended(self):
         """Check if round has ended."""
-        now = timezone.now()
+        now = timezone.now().date()
         if self.end_date and now > self.end_date:
             return True
         return False
 
     def _recalculate_status(self):
         """Recalculate status from is_active and dates."""
-        now = timezone.now()
+        now = timezone.now().date()
         if not self.is_active:
             has_games = Game.objects.filter(round=self).exists()
             self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING

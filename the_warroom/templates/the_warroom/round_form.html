@@ -6,7 +6,7 @@
 <div class="container py-4">
     <!-- Breadcrumb -->
     {% if round.id %}
-        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Edit Round" breadcrumb_hide_round=True %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Edit" %}
     {% else %}
         {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="New Round" breadcrumb_hide_round=True %}
     {% endif %}
@@ -75,7 +75,7 @@
             <!-- Game Settings -->
             <div class="card mb-3 bg-light">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-question-octagon me-2"></i>{% trans 'Game Settings' %}</h5>
+                    <h5 class="mb-0"><i class="bi bi-question-octagon me-2"></i>{% trans 'Override Settings' %}</h5>
                     <small class="form-text text-muted d-block">
                         Override Series Defaults
                     </small>

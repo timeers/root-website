@@ -95,7 +95,7 @@ class GameCreateForm(forms.ModelForm):
             if user.profile.admin:
                 # Select all active tournament rounds (Admin can record games for any tournament)
                 # Filter for available rounds (is_active=True + within date range)
-                now = timezone.now()
+                now = timezone.now().date()
                 active_rounds = Round.objects.filter(
                     is_active=True,
                     stage__is_active=True,
@@ -107,7 +107,7 @@ class GameCreateForm(forms.ModelForm):
                 ).distinct()
             else:
 
-                now = timezone.now()
+                now = timezone.now().date()
                 active_rounds = Round.objects.filter(
                     Q(
                         Q(stage__participants__tournament_player__profile=user.profile) |  # player is a participant of the stage

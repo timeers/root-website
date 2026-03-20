@@ -65,11 +65,7 @@
         {% else %}{% trans 'Record New Game' %}
         {% endif %}
     </legend>
-    {% if not match_mode %}
-    <button class="btn btn-success btn-sm ms-2" type="button" id="open-register-modal">
-        <i class="bi bi-person-plus-fill"></i> {% trans "Register Player" %}
-    </button>
-    {% endif %}
+
     <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
         <i class="bi bi-info-circle"></i>
     </button>
@@ -346,13 +342,6 @@ function addRegisterButtonListener(selectElement) {
     });
 }
 
-// Open register player modal when clicking the register button
-document.getElementById("open-register-modal").addEventListener("click", function() {
-    document.getElementById("modal-discord").value = "";
-    document.getElementById("modal-display-name").value = "";
-    document.getElementById("player-modal-errors").innerHTML = "";
-    new bootstrap.Modal(document.getElementById("registerPlayerModal")).show();
-});
 
 // Clear stored data when register modal closes
 document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {

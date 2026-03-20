@@ -386,7 +386,7 @@ em, i {
     grid-template-rows: 0fr;
     opacity: 0;  /* Keep content hidden even on hover */
   }
-  
+
     .list-group-item-action:hover .hidden-status,
     .post-card:hover .hidden-snippet,
     .post-card:hover .hidden-status {
@@ -2206,7 +2206,8 @@ tr.clickable-row:hover {
 /* Navigation tabs container */
 .section-nav-tabs {
   display: flex;
-  gap: 2rem;
+  row-gap: 0.25rem;
+  column-gap: 2rem;
   align-items: baseline;
   flex-wrap: wrap;
   flex: 1;
@@ -2267,6 +2268,7 @@ tr.clickable-row:hover {
 /* Mobile dropdown hidden by default */
 .section-nav-actions-mobile {
   display: none;
+  gap: 0.25rem;
 }
 
 /* Mobile responsive styles */
@@ -2278,7 +2280,8 @@ tr.clickable-row:hover {
 
   /* Reduce tab spacing on mobile */
   .section-nav-tabs {
-    gap: 1rem;
+    row-gap: 0.25rem;
+    column-gap: 1rem;
   }
 
   /* Scale down tab font size */
@@ -2300,7 +2303,8 @@ tr.clickable-row:hover {
 /* Extra small screens - further condensing */
 @media (max-width: 480px) {
   .section-nav-tabs {
-    gap: 0.75rem;
+    row-gap: 0.25rem;
+    column-gap: 0.75rem;
   }
 
   .section-nav-tab {

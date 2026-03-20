@@ -22,11 +22,7 @@
     <!-- Rounds -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-collection me-2"></i>{% trans 'Rounds' %}</h4>
-        {% if can_manage %}
-        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-success btn-sm">
-            <i class="bi bi-plus-lg me-1"></i>{% trans 'Add Round' %}
-        </a>
-        {% endif %}
+
     </div>
 
     {% if children %}

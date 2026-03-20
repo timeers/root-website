@@ -1619,8 +1619,8 @@ def _tournament_base_context(request, tournament):
             stage__tournament=tournament,
             series__isnull=True,
         ).filter(
-            Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-            start_date__lt=timezone.now()
+            Q(end_date__gt=timezone.now().date()) | Q(end_date__isnull=True),
+            start_date__lt=timezone.now().date()
         )
         playable_rounds = active_rounds.filter(
             Q(stage__participants__tournament_player__profile=request.user.profile) |
@@ -1659,8 +1659,8 @@ def _stage_base_context(request, tournament, stage):
     playable_round = None
     if request.user.is_authenticated:
         active_rounds = stage.rounds.filter(
-            Q(end_date__gt=timezone.now()) | Q(end_date__isnull=True),
-            start_date__lt=timezone.now()
+            Q(end_date__gt=timezone.now().date()) | Q(end_date__isnull=True),
+            start_date__lt=timezone.now().date()
         ).exclude(
             series__isnull=False
         )
@@ -2659,7 +2659,7 @@ def _get_series_base_queryset(classification, profile=None):
     """Build an annotated Tournament queryset for a classification type."""
     qs = Tournament.objects.filter(classification=classification)
 
-    now = timezone.now()
+    now = timezone.now().date()
     qs = qs.annotate(
         annotated_game_count=Count(
             'rounds__games',
@@ -3819,7 +3819,7 @@ def tournament_manage_assets(request, slug):
 
 def get_status_info(entity, entity_type, tournament=None, stage=None):
     """Calculate status display information for Tournament/Stage/Round settings hub."""
-    now = timezone.now()
+    now = timezone.now().date()
 
     if entity_type == 'tournament':
         t = entity.classification
