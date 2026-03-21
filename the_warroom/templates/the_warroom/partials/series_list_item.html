@@ -24,7 +24,8 @@
             </small>
         </div>
         <div class="ms-3 d-flex align-items-center">
-            {% if item.status == 'Active' %}
+            {% with effective_status=item.get_effective_status %}
+            {% if effective_status == 'Active' %}
                     <div class='hidden-status'>
                         <div class='text-success me-2'>
                             <small>
@@ -33,7 +34,7 @@
                         </div>
                     </div>
                     <i class="bi bi-play-circle-fill text-success"></i>
-            {% elif item.status == 'Pending' %}
+            {% elif effective_status == 'Pending' %}
                     <div class='hidden-status'>
                         <div class='text-info me-2'>
                             <small>
@@ -52,6 +53,7 @@
                     </div>
                     <i class="bi bi-check-circle-fill text-secondary"></i>
             {% endif %}
+            {% endwith %}
         </div>
     </div>
 </a>

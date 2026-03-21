@@ -64,6 +64,10 @@
                             <i class="bi bi-check-square"></i>
                         </span>
                     {% endif %}
+                {% elif survey.is_survey_full %}
+                    <span class="text-danger" title="{% trans 'Survey Full' %}">
+                        <i class="bi bi-dash-square"></i>
+                    </span>
                 {% elif survey.can_take_survey %}
                     <span class="text-primary" title="{% trans 'Not started' %}">
                         <i class="bi bi-square"></i>

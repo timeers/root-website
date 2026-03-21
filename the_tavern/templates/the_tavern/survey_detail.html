@@ -255,6 +255,14 @@
                         <p class="mb-0">This survey has not started yet.</p>
                     </div>
                 </div>
+            {% elif is_survey_full %}
+                <div class="alert alert-warning d-flex align-items-center">
+                    <i class="bi bi-x-circle-fill fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">{% trans 'Survey Full' %}</h5>
+                        <p class="mb-0">{% trans 'This survey has reached its maximum number of responses.' %}</p>
+                    </div>
+                </div>
             {% else %}
                 <div class="alert alert-info d-flex align-items-center">
                     <i class="bi bi-info-circle fs-4 me-3"></i>

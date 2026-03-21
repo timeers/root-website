@@ -29,7 +29,7 @@ from .views import (game_list_view, leaderboard_view,
                     round_grouping_finalize,
                     round_generate_bracket, round_finalize_bracket, round_edit_series, round_create_series, round_delete_series,
                     tournament_bracket_view,
-                    stage_manage_view, stage_overview_page, stage_settings_hub,
+                    stage_manage_view, stage_overview_page, stage_settings_hub, StageDeleteView,
                     stage_manage_players, stage_search_players, stage_move_player,
                     stage_leaderboard_page, stage_games_page, stage_roster_page,
                     stage_details_page, stage_bracket_page,
@@ -111,6 +111,7 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/roster/', stage_roster_page, name='stage-roster-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/details/', stage_details_page, name='stage-details-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/bracket/', stage_bracket_page, name='stage-bracket-page'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/delete/', StageDeleteView.as_view(), name='stage-delete'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/', stage_overview_page, name='stage-overview'),
 
     # Rounds - Simplified URLs (no stage_slug) for tournaments with use_stages=False

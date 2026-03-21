@@ -1738,7 +1738,7 @@ def tournament_overview_page(request, slug):
     context['active_page'] = 'overview'
 
     if tournament.use_stages:
-        children = Stage.objects.filter(tournament=tournament).annotate(
+        children = Stage.objects.filter(tournament=tournament).select_related('tournament').annotate(
             annotated_game_count=Count(
                 'rounds__games',
                 filter=Q(rounds__games__final=True),
@@ -1755,7 +1755,7 @@ def tournament_overview_page(request, slug):
         single_stage = get_single_stage(tournament)
         if single_stage:
             if tournament.use_rounds:
-                children = Round.objects.filter(stage=single_stage).annotate(
+                children = Round.objects.filter(stage=single_stage).select_related('stage__tournament').annotate(
                     annotated_game_count=Count(
                         'games',
                         filter=Q(games__final=True),
@@ -2074,6 +2074,45 @@ class TournamentDeleteView(DeleteView):
             # Handle other integrity errors (if any)
             messages.error(request, "An error occurred while trying to delete this tournament.")
             return redirect(tournament.get_absolute_url())
+
+
+class StageDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = Stage
+
+    def get_object(self, queryset=None):
+        tournament_slug = self.kwargs.get('tournament_slug')
+        stage_slug = self.kwargs.get('stage_slug')
+        tournament = get_object_or_404(Tournament, slug=tournament_slug)
+        return get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    def test_func(self):
+        obj = self.get_object()
+        profile = self.request.user.profile
+        return profile.admin or profile == obj.tournament.designer
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['stage'] = self.object
+        context['tournament'] = self.object.tournament
+        return context
+
+    def get_success_url(self):
+        tournament = self.object.tournament
+        return reverse_lazy('tournament-detail', kwargs={'slug': tournament.slug})
+
+    def post(self, request, *args, **kwargs):
+        stage = self.get_object()
+        name = stage.name
+        try:
+            response = self.delete(request, *args, **kwargs)
+            messages.success(request, f"'{name}' was successfully deleted.")
+            return response
+        except ProtectedError:
+            messages.error(request, f"The Stage '{name}' cannot be deleted because games have already been recorded.")
+            return redirect(stage.get_absolute_url())
+        except IntegrityError:
+            messages.error(request, "An error occurred while trying to delete this Stage.")
+            return redirect(stage.get_absolute_url())
 
 
 # ===== New Dynamic Tournament Views with HTMX Support =====
@@ -3377,9 +3416,14 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
     # Dynamically set the success URL based on the round's tournament
     def get_success_url(self):
-        # Redirect to the tournament detail page using the tournament slug
-        tournament_slug = self.object.stage.slug
-        return reverse_lazy('tournament-detail', kwargs={'slug': tournament_slug})
+        stage = self.object.stage
+        tournament = stage.tournament
+        if tournament.use_stages:
+            return reverse_lazy('stage-details-page', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+            })
+        return reverse_lazy('tournament-detail', kwargs={'slug': tournament.slug})
     
     def post(self, request, *args, **kwargs):
         # print('Trying to delete')
@@ -3969,11 +4013,27 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
     else:
         form = StageCreateForm(request.POST or None, tournament=tournament)
 
+    is_creating = stage_slug is None
+
     if form.is_valid():
         stage_instance = form.save(commit=False)
         if not stage_instance.pk:
             stage_instance.tournament = tournament
         stage_instance.save()
+
+        # Auto-create first Round when creating a new stage
+        if is_creating:
+            use_rounds = form.cleaned_data.get('use_rounds', tournament.use_rounds)
+            if use_rounds:
+                round_name = form.cleaned_data.get('round_name') or 'Round 1'
+            else:
+                round_name = 'Round 1'
+            Round.objects.create(
+                stage=stage_instance,
+                name=round_name,
+                round_number=1,
+                start_date=stage_instance.start_date,
+            )
 
         # Save use_rounds to the tournament (locked if any stage has 2+ rounds)
         max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
@@ -3996,6 +4056,7 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
         'form': form,
         'tournament': tournament,
         'stage': stage_instance,
+        'is_creating': is_creating,
         'use_rounds_locked': max_round_count >= 2,
         'existing_names_json': json.dumps(existing_stage_names),
     }
@@ -4012,7 +4073,7 @@ def stage_overview_page(request, tournament_slug, stage_slug):
     context['active_page'] = 'overview'
 
     if tournament.use_rounds:
-        children = Round.objects.filter(stage=stage).annotate(
+        children = Round.objects.filter(stage=stage).select_related('stage__tournament').annotate(
             annotated_game_count=Count(
                 'games',
                 filter=Q(games__final=True),

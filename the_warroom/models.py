@@ -254,6 +254,10 @@ class Tournament(models.Model):
             return True
         return timezone.now().date() < self.end_date
 
+    def get_effective_status(self):
+        """Return own status (tournament has no parent)."""
+        return self.status
+
     def is_available(self):
         """Check if tournament is currently available."""
         if not self.is_active:
@@ -592,6 +596,15 @@ class Stage(models.Model):
     def get_leaderboard_positions(self):
         return self.leaderboard_positions if self.leaderboard_positions is not None else self.tournament.leaderboard_positions
 
+    def get_effective_status(self):
+        """Return status considering parent tournament's status."""
+        parent_status = self.tournament.status if self.tournament else None
+        if parent_status == CompetitionStatus.COMPLETED:
+            return CompetitionStatus.COMPLETED
+        if parent_status == CompetitionStatus.PENDING:
+            return CompetitionStatus.PENDING
+        return self.status
+
     def is_available(self):
         """Check if stage is available (cascades from tournament)."""
         # Check parent tournament first
@@ -740,7 +753,7 @@ class Stage(models.Model):
         """Validate stage dates against tournament dates."""
         super().clean()
 
-        if not self.tournament:
+        if not self.tournament_id:
             return
 
         # Only validate if parent has dates
@@ -903,6 +916,16 @@ class Round(models.Model):
         if self.end_date is None:
             return True
         return timezone.now().date() < self.end_date
+
+    def get_effective_status(self):
+        """Return status considering parent stage and tournament statuses."""
+        if self.stage:
+            parent_status = self.stage.get_effective_status()
+            if parent_status == CompetitionStatus.COMPLETED:
+                return CompetitionStatus.COMPLETED
+            if parent_status == CompetitionStatus.PENDING:
+                return CompetitionStatus.PENDING
+        return self.status
 
     def is_available(self):
         """Check if round is available (cascades from stage and tournament)."""

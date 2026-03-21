@@ -186,6 +186,31 @@
                         {% if form.use_rounds.help_text %}
                         <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
                         {% endif %}
+
+                        {% if is_creating %}
+                        <!-- Round name field (shown when use_rounds is checked) -->
+                        <div id="round-name-field" class="mt-3" style="display:none;">
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    {{ form.round_name|as_crispy_field }}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% elif is_creating and tournament.use_rounds %}
+                <!-- Round name only (use_rounds is locked on, just show the name field) -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>{% trans 'Round Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.round_name|as_crispy_field }}
+                            </div>
+                        </div>
                     </div>
                 </div>
             {% endif %}
@@ -276,6 +301,22 @@
                 nameInput.focus();
             }
         });
+
+        // Toggle round_name field visibility based on use_rounds checkbox
+        const useRoundsCheckbox = document.getElementById('id_use_rounds');
+        const roundNameField = document.getElementById('round-name-field');
+
+        function updateRoundNameVisibility() {
+            if (roundNameField) {
+                roundNameField.style.display = useRoundsCheckbox && useRoundsCheckbox.checked ? 'block' : 'none';
+            }
+        }
+
+        if (useRoundsCheckbox) {
+            useRoundsCheckbox.addEventListener('change', updateRoundNameVisibility);
+        }
+        // Run on load to reflect pre-filled values (e.g. on validation failure)
+        updateRoundNameVisibility();
     });
 </script>
 {% endblock %}

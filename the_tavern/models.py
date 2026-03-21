@@ -2,7 +2,7 @@ import calendar
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.urls import reverse
-from django.db.models import Q, Avg, Count, Max, Min
+from django.db.models import Q, Avg, Count, Max, Min, Exists, OuterRef, Case, When, Value, F
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import models
@@ -78,6 +78,67 @@ class SurveyQuerySet(models.QuerySet):
             created_by=profile
         ).distinct()
     
+    def annotate_for_user(self, profile):
+        """Annotate surveys with user-specific status fields for list display."""
+        SurveyResponse = apps.get_model('the_tavern', 'SurveyResponse')
+        is_banned = profile.group == Profile.GroupChoices.BANNED
+
+        user_response_exists = Exists(
+            SurveyResponse.objects.filter(survey=OuterRef('pk'), profile=profile)
+        )
+        user_invited = Exists(
+            self.model.invited_players.through.objects.filter(
+                survey_id=OuterRef('pk'), profile_id=profile.pk
+            )
+        )
+        user_in_guild = Exists(
+            Profile.guilds.through.objects.filter(
+                profile_id=profile.pk, discordguild_id=OuterRef('guild_id')
+            )
+        )
+        user_in_series = Exists(
+            self.model.objects.filter(
+                pk=OuterRef('pk'), series__tournament_players__profile=profile
+            )
+        )
+        user_in_stage = Exists(
+            self.model.objects.filter(
+                pk=OuterRef('pk'), stage__participants__tournament_player__profile=profile
+            )
+        )
+
+        return self.annotate(
+            response_count=Count('responses'),
+            user_has_responded=user_response_exists,
+            user_is_invited=user_invited,
+            user_in_guild=user_in_guild,
+            user_in_series=user_in_series,
+            user_in_stage=user_in_stage,
+            can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
+            can_take_survey=Case(
+                When(Q(can_respond=False), then=Value(False)),
+                When(Q(is_public=True), then=Value(True)),
+                When(Q(user_is_invited=True), then=Value(True)),
+                When(Q(user_in_guild=True), then=Value(True)),
+                When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
+                When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
+                When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
+                When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
+                default=Value(False),
+                output_field=models.BooleanField()
+            ) if not is_banned else Value(False, output_field=models.BooleanField()),
+            is_survey_full=Case(
+                When(
+                    limit_responses=True, has_waitlist=False,
+                    waitlist_threshold__isnull=False,
+                    response_count__gte=F('waitlist_threshold'),
+                    then=Value(True)
+                ),
+                default=Value(False),
+                output_field=models.BooleanField()
+            )
+        )
+
     def can_see_results(self, profile):
         now = timezone.now()
         return self.filter(

@@ -303,7 +303,7 @@
                                 <i class="bi bi-trash me-1"></i>Delete Stage (has games)
                             </button>
                         {% else %}
-                            <a href="{% url 'tournament-detail' slug=tournament.slug %}"
+                            <a href="{% url 'stage-delete' tournament_slug=tournament.slug stage_slug=stage.slug %}"
                             class="btn btn-outline-danger w-100">
                                 <i class="bi bi-trash me-1"></i>Delete Stage
                             </a>

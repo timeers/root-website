@@ -1071,6 +1071,12 @@ class StageCreateForm(forms.ModelForm):
         label='Use Rounds',
         help_text='Enable if stages in this tournament have multiple rounds.',
     )
+    round_name = forms.CharField(
+        max_length=255,
+        initial='Round 1',
+        required=False,
+        label='First Round Name',
+    )
 
     class Meta:
         model = Stage
@@ -1092,6 +1098,8 @@ class StageCreateForm(forms.ModelForm):
     def __init__(self, *args, tournament=None, **kwargs):
         self.tournament = tournament
         super().__init__(*args, **kwargs)
+        if tournament and not self.instance.pk:
+            self.instance.tournament = tournament
         self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
         self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
         if not self.instance.pk:
@@ -1106,6 +1114,9 @@ class StageCreateForm(forms.ModelForm):
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
                 del self.fields['stage_format']
                 del self.fields['advancement_type']
+        # Only show round_name on create, not update
+        if self.instance.pk:
+            del self.fields['round_name']
 
     def clean(self):
         cleaned_data = super().clean()
@@ -1116,6 +1127,12 @@ class StageCreateForm(forms.ModelForm):
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise ValidationError(f"A stage with this name already exists in {self.tournament.name}")
+        # Validate round_name on create when use_rounds is enabled
+        if not self.instance.pk:
+            use_rounds = cleaned_data.get('use_rounds')
+            round_name = cleaned_data.get('round_name')
+            if use_rounds and not round_name:
+                self.add_error('round_name', 'Round name is required when Use Rounds is enabled.')
         return cleaned_data
 
 

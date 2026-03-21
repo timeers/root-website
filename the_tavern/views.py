@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection, models
-from django.db.models import Count, F, Q, Count, Avg, Exists, OuterRef, Case, When, Value, BooleanField, IntegerField
+from django.db.models import Count, F, Q, Avg, Case, When, Value, BooleanField, IntegerField
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -312,153 +312,28 @@ def survey_list_view(request):
     load_type = request.GET.get('load_type', None)
 
     if profile:
-
-        # Check if banned
-        is_banned = profile.group == Profile.GroupChoices.BANNED
-        
-        user_response_exists = Exists(
-            SurveyResponse.objects.filter(
-                survey=OuterRef('pk'),
-                profile=profile
-            )
-        )
-        
-        # Check if user is invited
-        user_invited = Exists(
-            Survey.invited_players.through.objects.filter(
-                survey_id=OuterRef('pk'),
-                profile_id=profile.pk
-            )
-        )
-        
-        # Check if user is in guild
-        user_in_guild = Exists(
-            Profile.guilds.through.objects.filter(
-                profile_id=profile.pk,
-                discordguild_id=OuterRef('guild_id')
-            )
-        )
-        
-        # Check if user is in series (via TournamentPlayer)
-        user_in_series = Exists(
-            Survey.objects.filter(
-                pk=OuterRef('pk'),
-                series__tournament_players__profile=profile
-            )
-        )
-
-        # Check if user is a participant in the linked stage
-        user_in_stage = Exists(
-            Survey.objects.filter(
-                pk=OuterRef('pk'),
-                stage__participants__tournament_player__profile=profile
-            )
-        )
-        
         my_surveys = (
             Survey.objects.is_available()
             .filter(created_by=profile)
-            .annotate(
-                user_has_responded=user_response_exists,
-                user_is_invited=user_invited,
-                user_in_guild=user_in_guild,
-                user_in_series=user_in_series,
-                user_in_stage=user_in_stage,
-                # Can respond if: multiple responses allowed OR hasn't responded yet
-                can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
-                # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
-                can_take_survey=Case(
-                    # Banned users can't take survey
-                    When(Q(can_respond=False), then=Value(False)),
-                    # Public surveys
-                    When(Q(is_public=True), then=Value(True)),
-                    # Invited players
-                    When(Q(user_is_invited=True), then=Value(True)),
-                    # Guild members
-                    When(Q(user_in_guild=True), then=Value(True)),
-                    # Stage (blocks if has stage but user not in it)
-                    When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
-                    When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
-                    # Series (blocks if has series but user not in it)
-                    When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
-                    When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
-                    default=Value(False),
-                    output_field=models.BooleanField()
-                ) if not is_banned else Value(False, output_field=models.BooleanField())
-            )
-            .prefetch_related('responses')
+            .annotate_for_user(profile)
         )
         private_surveys = (
             Survey.objects.is_available()
             .user_has_invite(profile)
-            .annotate(
-                user_has_responded=user_response_exists,
-                user_is_invited=user_invited,
-                user_in_guild=user_in_guild,
-                user_in_series=user_in_series,
-                user_in_stage=user_in_stage,
-                # Can respond if: multiple responses allowed OR hasn't responded yet
-                can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
-                # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
-                can_take_survey=Case(
-                    # Banned users can't take survey
-                    When(Q(can_respond=False), then=Value(False)),
-                    # Public surveys
-                    When(Q(is_public=True), then=Value(True)),
-                    # Invited players
-                    When(Q(user_is_invited=True), then=Value(True)),
-                    # Guild members
-                    When(Q(user_in_guild=True), then=Value(True)),
-                    # Stage (blocks if has stage but user not in it)
-                    When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
-                    When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
-                    # Series (blocks if has series but user not in it)
-                    When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
-                    When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
-                    default=Value(False),
-                    output_field=models.BooleanField()
-                ) if not is_banned else Value(False, output_field=models.BooleanField())
-            )
-            .prefetch_related('responses', 'guild', 'created_by')
+            .annotate_for_user(profile)
+            .prefetch_related('guild', 'created_by')
         )
         public_surveys = (
             Survey.objects.is_available()
             .filter(is_public=True)
             .exclude(created_by=profile)
-            .annotate(
-                user_has_responded=user_response_exists,
-                user_is_invited=user_invited,
-                user_in_guild=user_in_guild,
-                user_in_series=user_in_series,
-                user_in_stage=user_in_stage,
-                # Can respond if: multiple responses allowed OR hasn't responded yet
-                can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
-                # Can take survey if: not banned AND can_respond AND (is_public OR has permission)
-                can_take_survey=Case(
-                    # Banned users can't take survey
-                    When(Q(can_respond=False), then=Value(False)),
-                    # Public surveys
-                    When(Q(is_public=True), then=Value(True)),
-                    # Invited players
-                    When(Q(user_is_invited=True), then=Value(True)),
-                    # Guild members
-                    When(Q(user_in_guild=True), then=Value(True)),
-                    # Stage (blocks if has stage but user not in it)
-                    When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
-                    When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
-                    # Series (blocks if has series but user not in it)
-                    When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
-                    When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
-                    default=Value(False),
-                    output_field=models.BooleanField()
-                ) if not is_banned else Value(False, output_field=models.BooleanField())
-            )
-            .prefetch_related('responses', 'created_by')
+            .annotate_for_user(profile)
+            .prefetch_related('created_by')
         )
     else:
         my_surveys = Survey.objects.none()
         private_surveys = Survey.objects.none()
-        public_surveys = Survey.objects.is_available().prefetch_related('responses', 'created_by')
+        public_surveys = Survey.objects.is_available().filter(is_public=True).prefetch_related('responses', 'created_by')
 
     total_my_surveys = my_surveys.count()
     total_private = private_surveys.count()
@@ -3067,59 +2942,7 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
         surveys = surveys.filter(stage=stage)
 
     if profile:
-        is_banned = profile.group == Profile.GroupChoices.BANNED
-
-        user_response_exists = Exists(
-            SurveyResponse.objects.filter(
-                survey=OuterRef('pk'),
-                profile=profile
-            )
-        )
-        user_invited = Exists(
-            Survey.invited_players.through.objects.filter(
-                survey_id=OuterRef('pk'),
-                profile_id=profile.pk
-            )
-        )
-        user_in_guild = Exists(
-            Profile.guilds.through.objects.filter(
-                profile_id=profile.pk,
-                discordguild_id=OuterRef('guild_id')
-            )
-        )
-        user_in_series = Exists(
-            Survey.objects.filter(
-                pk=OuterRef('pk'),
-                series__tournament_players__profile=profile
-            )
-        )
-        user_in_stage = Exists(
-            Survey.objects.filter(
-                pk=OuterRef('pk'),
-                stage__participants__tournament_player__profile=profile
-            )
-        )
-
-        surveys = surveys.annotate(
-            user_has_responded=user_response_exists,
-            user_is_invited=user_invited,
-            user_in_guild=user_in_guild,
-            user_in_series=user_in_series,
-            user_in_stage=user_in_stage,
-            can_respond=Q(allow_multiple_responses=True) | Q(user_has_responded=False),
-            can_take_survey=Case(
-                When(Q(can_respond=False), then=Value(False)),
-                When(Q(is_public=True), then=Value(True)),
-                When(Q(user_is_invited=True), then=Value(True)),
-                When(Q(user_in_guild=True), then=Value(True)),
-                When(Q(stage__isnull=False, user_in_stage=True), then=Value(True)),
-                When(Q(stage__isnull=False, user_in_stage=False), then=Value(False)),
-                When(Q(series__isnull=False, user_in_series=True), then=Value(True)),
-                When(Q(series__isnull=False, user_in_series=False), then=Value(False)),
-                default=Value(False),
-                output_field=models.BooleanField()
-            ) if not is_banned else Value(False, output_field=models.BooleanField())
-        )
+        surveys = surveys.annotate_for_user(profile)
 
     create_url = None
     if can_create:
@@ -3150,9 +2973,12 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
 def post_surveys_view(request, slug):
     """List surveys associated with a post."""
     post = get_object_or_404(Post, slug=slug)
+    profile = request.user.profile if request.user.is_authenticated else None
 
     can_create = user_can_edit(request, post)
     surveys = Survey.objects.filter(post=post)
+    if profile:
+        surveys = surveys.annotate_for_user(profile)
     create_url = reverse('survey-create') + f'?post={post.id}'
 
     context = {
@@ -3160,6 +2986,7 @@ def post_surveys_view(request, slug):
         'surveys': surveys,
         'create_url': create_url,
         'can_create': can_create,
+        'show_status': True,
         'current_title': post.title,
         'current_url': request.path,
     }
