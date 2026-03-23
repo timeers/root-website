@@ -490,8 +490,8 @@ class Survey(models.Model):
 
 class LikertScale(models.Model):
     name = models.CharField(max_length=100, help_text="Name for this scale (e.g., '5-point Agreement')")
-    min_value = models.IntegerField(default=1, validators=[MinValueValidator(0)], help_text="Minimum value (up to -10)")
-    max_value = models.IntegerField(default=5, validators=[MaxValueValidator(10)], help_text="Maximum value (up to 10)")
+    min_value = models.IntegerField(default=1, validators=[MinValueValidator(0), MaxValueValidator(10)], help_text="Minimum value (0-10)")
+    max_value = models.IntegerField(default=5, validators=[MinValueValidator(0), MaxValueValidator(10)], help_text="Maximum value (0-10)")
     min_label = models.CharField(max_length=50, default="Strongly Disagree", blank=False, help_text="Label for minimum value")
     max_label = models.CharField(max_length=50, default="Strongly Agree", blank=False, help_text="Label for maximum value")
     labels = models.JSONField(default=dict, null=True, blank=True, help_text='Optional labels for each value (e.g., {"1": "Poor", "5": "Excellent"})')
@@ -518,6 +518,9 @@ class LikertScale(models.Model):
         # Validate min/max values
         if self.min_value >= self.max_value:
             raise ValidationError({'max_value': 'Maximum value must be greater than minimum value.'})
+
+        if (self.max_value - self.min_value + 1) > 12:
+            raise ValidationError({'max_value': 'Scale cannot exceed 12 points.'})
 
         # Validate labels JSON field if provided
         if self.labels:

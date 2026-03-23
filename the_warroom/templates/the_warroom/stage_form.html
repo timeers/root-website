@@ -183,9 +183,8 @@
                                 {{ form.use_rounds.label }}
                             </label>
                         </div>
-                        {% if form.use_rounds.help_text %}
-                        <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
-                        {% endif %}
+                        <div class="form-text text-muted">Rounds allow you to set multiple matchups with the same players and group players by availability. If you want each player to play a set number of games against different opponents you'll want to use Rounds.</div>
+
 
                         {% if is_creating %}
                         <!-- Round name field (shown when use_rounds is checked) -->
@@ -234,39 +233,27 @@
 <script>
     $(document).ready(function(){
         // Parent date constraints from tournament
-        const parentMinDate = {% if tournament.start_date %}"{{ tournament.start_date|date:'Y-m-d' }}"{% else %}null{% endif %};
-        const parentMaxDate = {% if tournament.end_date %}"{{ tournament.end_date|date:'Y-m-d' }}"{% else %}null{% endif %};
+        const parentMin = {% if tournament.start_date %}"{{ tournament.start_date|date:'Y-m-d' }}"{% else %}null{% endif %};
+        const parentMax = {% if tournament.end_date %}"{{ tournament.end_date|date:'Y-m-d' }}"{% else %}null{% endif %};
 
-        const dpOptions = {
-            dateFormat: "yy-mm-dd",
-            changeMonth: true,
-            changeYear: true,
-            yearRange: "c-100:c+10",
-            minDate: parentMinDate,
-            maxDate: parentMaxDate,
-            onSelect: function() {
-                this.dispatchEvent(new Event('change'));
-            }
-        };
+        const startDate = document.getElementById('id_start_date');
+        const endDate = document.getElementById('id_end_date');
 
-        $("#id_start_date").datepicker(dpOptions);
-        $("#id_end_date").datepicker(dpOptions);
+        // Set parent bounds
+        if (parentMin) { startDate.min = parentMin; endDate.min = parentMin; }
+        if (parentMax) { startDate.max = parentMax; endDate.max = parentMax; }
 
-        // Cross-constrain: start_date limits end_date and vice versa
-        $("#id_start_date").on("change", function() {
-            const val = $(this).val();
-            $("#id_end_date").datepicker("option", "minDate", val || parentMinDate);
+        // Cross-constrain native date inputs
+        startDate.addEventListener('change', function() {
+            endDate.min = this.value || parentMin || '';
         });
-        $("#id_end_date").on("change", function() {
-            const val = $(this).val();
-            $("#id_start_date").datepicker("option", "maxDate", val || parentMaxDate);
+        endDate.addEventListener('change', function() {
+            startDate.max = this.value || parentMax || '';
         });
 
         // Initialize cross-constraints from existing values
-        const initStart = $("#id_start_date").val();
-        const initEnd = $("#id_end_date").val();
-        if (initStart) $("#id_end_date").datepicker("option", "minDate", initStart);
-        if (initEnd) $("#id_start_date").datepicker("option", "maxDate", initEnd);
+        if (startDate.value) endDate.min = startDate.value;
+        if (endDate.value) startDate.max = endDate.value;
 
         // Duplicate stage name validation
         const existingNames = JSON.parse('{{ existing_names_json|escapejs }}');

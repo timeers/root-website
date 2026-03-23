@@ -825,9 +825,9 @@ class TournamentDynamicCreateForm(forms.ModelForm):
                 self.fields['designer'].initial = user.profile.id
                 self.fields['classification'].initial = Tournament.ClassificationTypes.GROUP
 
-        # Add CSS classes for date fields
-        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
-        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
+        # Use native HTML5 date picker
+        self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
+        self.fields['end_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
 
         # Add placeholder for description
         self.fields['description'].widget.attrs.update({
@@ -864,7 +864,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         round_name = cleaned_data.get('round_name')
         if use_stages and not stage_name:
             self.add_error('stage_name', 'Stage name is required when Use Stages is enabled.')
-        if use_stages and use_rounds and not round_name:
+        if use_rounds and not round_name:
             self.add_error('round_name', 'Round name is required when Use Rounds is enabled.')
         return cleaned_data
 
@@ -969,17 +969,17 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'use_rounds': 'Use Rounds',
             'picture': 'Series Image',
         }
-        help_texts = {
-            'use_stages': 'Enable if there are multiple stages (e.g. Swiss then Top 8 or 2026 then 2027).',
-            'use_rounds': 'Enable if stages in this tournament have multiple rounds.',
-        }
+        # help_texts = {
+        #     'use_stages': 'Enable if there are multiple stages (e.g. Swiss then Top 8 or 2026 then 2027).',
+        #     'use_rounds': 'Enable if stages in this tournament have multiple rounds.',
+        # }
 
     def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
 
-        # Add CSS classes for date fields
-        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
-        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
+        # Use native HTML5 date picker
+        self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
+        self.fields['end_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
 
         # Add placeholder for description
         self.fields['description'].widget.attrs.update({
@@ -1039,8 +1039,8 @@ class RoundCreateForm(forms.ModelForm):
             'placeholder': 'Give a brief description of the round.',
             'rows': '2'
             })
-        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'}) 
-        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'}) 
+        self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
+        self.fields['end_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
 
         # Ensure current_round is passed and not None
         if current_round is not None:
@@ -1069,7 +1069,7 @@ class StageCreateForm(forms.ModelForm):
     use_rounds = forms.BooleanField(
         required=False,
         label='Use Rounds',
-        help_text='Enable if stages in this tournament have multiple rounds.',
+        # help_text='Enable if stages in this tournament have multiple rounds.',
     )
     round_name = forms.CharField(
         max_length=255,
@@ -1100,8 +1100,8 @@ class StageCreateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if tournament and not self.instance.pk:
             self.instance.tournament = tournament
-        self.fields['start_date'].widget.attrs.update({'class': 'datepicker'})
-        self.fields['end_date'].widget.attrs.update({'class': 'datepicker'})
+        self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
+        self.fields['end_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
         if not self.instance.pk:
             # Auto-populate order to next available number
             if tournament:
@@ -1422,10 +1422,23 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
     """Form for player-related tournament settings only."""
     class Meta:
         model = Tournament
-        fields = ['open_roster', 'enforce_player_count', 'min_players', 'max_players']
+        fields = ['guild', 'open_roster', 'enforce_player_count', 'min_players', 'max_players']
         labels = {
+            'guild': 'Discord Guild',
             'enforce_player_count': 'Restrict Player Count',
         }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user:
+            import json
+            from the_gatehouse.models import DiscordGuild
+            with open('/etc/config.json') as config_file:
+                config = json.load(config_file)
+            if user.profile.admin:
+                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
+            else:
+                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
 
 
 class TournamentAssetSettingsForm(forms.ModelForm):

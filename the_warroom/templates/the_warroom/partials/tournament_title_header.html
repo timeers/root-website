@@ -7,7 +7,7 @@
             {% endif %}
             {{tournament.classification}}
             {% if tournament.designer %}
-            Hosted by {{ tournament.designer.name }}
+            hosted by <strong><a href={{tournament.designer.get_absolute_url}}>{{ tournament.designer.name }}</a></strong>
             {% endif %}
             </small>
         </div>

@@ -2227,7 +2227,7 @@ def tournament_dynamic_create(request):
 
             # Determine names for auto-created Stage and Round
             stage_name = form.cleaned_data.get('stage_name') or 'Stage 1' if use_stages else 'Stage 1'
-            round_name = (form.cleaned_data.get('round_name') or 'Round 1') if (use_stages and use_rounds) else 'Round 1'
+            round_name = (form.cleaned_data.get('round_name') or 'Round 1') if use_rounds else 'Round 1'
 
             # Create the initial Stage and Round 1
             stage_kwargs = dict(
@@ -3797,13 +3797,13 @@ def tournament_manage_players(request, slug):
     form = None
     if is_owner:
         if request.method == 'POST':
-            form = TournamentPlayerSettingsForm(request.POST, instance=tournament)
+            form = TournamentPlayerSettingsForm(request.POST, instance=tournament, user=request.user)
             if form.is_valid():
                 form.save()
                 messages.success(request, "Player settings updated.")
                 return redirect('tournament-manage-players', slug=slug)
         else:
-            form = TournamentPlayerSettingsForm(instance=tournament)
+            form = TournamentPlayerSettingsForm(instance=tournament, user=request.user)
 
     context = {
         'tournament': tournament,

@@ -39,6 +39,17 @@ from the_keep.utils import user_can_edit
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 
+def _get_survey_status_note(survey):
+    if not survey.is_active:
+        return " The survey is currently closed."
+    if survey.start_date and timezone.now() < survey.start_date:
+        formatted = survey.start_date.strftime('%b %d, %Y')
+        return f" The survey will open on {formatted}."
+    if survey.end_date and timezone.now() > survey.end_date:
+        formatted = survey.end_date.strftime('%b %d, %Y')
+        return f" The survey closed on {formatted}."
+    return " The survey is now active."
+
 @login_required
 def game_comment_sent(request, pk):
     game = get_object_or_404(Game, id=pk)
@@ -1657,6 +1668,12 @@ def create_custom_scale(request):
         if min_value >= max_value:
             return JsonResponse({'success': False, 'error': 'Max value must be greater than min value.'})
 
+        if min_value < 0 or max_value > 10:
+            return JsonResponse({'success': False, 'error': 'Values must be between 0 and 10.'})
+
+        if (max_value - min_value + 1) > 12:
+            return JsonResponse({'success': False, 'error': 'Scale cannot exceed 12 points.'})
+
         scale = LikertScale.objects.create(
             name=name,
             min_value=min_value,
@@ -2465,7 +2482,8 @@ def survey_edit_view(request, slug):
                     if hidden_count > 0:
                         messages.info(request, f'{hidden_count} question(s) with existing responses were hidden instead of deleted to preserve data.')
 
-            messages.success(request, f'Survey "{title}" updated successfully!')
+            status_note = _get_survey_status_note(survey)
+            messages.success(request, f'Survey "{title}" updated successfully!{status_note}')
             send_new_survey_notification(survey=survey, profile=profile, type="Edited")
             # Check if we should redirect to preview
             if request.POST.get('redirect_to_preview') == 'true':
@@ -2829,7 +2847,8 @@ def survey_create_view(request):
                                 )
                                 created_choices.append(choice)
 
-            messages.success(request, f'Survey "{title}" created successfully!')
+            status_note = _get_survey_status_note(survey)
+            messages.success(request, f'Survey "{title}" created successfully!{status_note}')
             send_new_survey_notification(survey=survey, profile=profile, type="New")
             return redirect('survey-preview', slug=survey.slug)
 

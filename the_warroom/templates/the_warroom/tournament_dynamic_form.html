@@ -227,6 +227,8 @@
                         <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>{% trans 'Leaderboard Settings' %}</h5>
                     </div>
                     <div class="card-body">
+                        <p class="text-muted small mb-3">Set the defaults for the Leaderboard. <strong>Positions</strong> controls how many players and factions are displayed. <strong>Threshold</strong> sets the minimum number of games required before a player or faction becomes eligible.</p>
+
                         <div class="row">
                             <div class="col-md-6 mb-2">
                                 {{ form.leaderboard_positions|as_crispy_field }}
@@ -273,26 +275,20 @@
                     {% endif %}
 
                     <!-- Use Stages -->
-                    <div class="row">
-                        <div class="col-md-6 mb-2">
+                    <div>
+              
                             {% if use_stages_locked %}
                             <input type="hidden" name="use_stages" value="on">
-                            <div class="mb-2">
-                                <label class="form-label fw-semibold">Use Stages</label>
-                                <div class="text-muted small">Stages are enabled and cannot be disabled because multiple stages exist.</div>
-                            </div>
                             {% else %}
                             <div class="form-check mb-2">
                                 {{ form.use_stages }}
                                 <label class="form-check-label" for="{{ form.use_stages.id_for_label }}">
                                     {{ form.use_stages.label }}
                                 </label>
-                                {% if form.use_stages.help_text %}
-                                <div class="form-text text-muted">{{ form.use_stages.help_text }}</div>
-                                {% endif %}
+                                <div class="form-text text-muted">Stages allow you to specify which players are participating. If you want to have a Loser's bracket or something similar with certain players you'll want to use Stages.</div>
                             </div>
                             {% endif %}
-                        </div>
+            
                     </div>
 
                     {% if action == 'Create' %}
@@ -307,26 +303,20 @@
                     {% endif %}
 
                     <!-- Use Rounds -->
-                    <div class="row">
-                        <div class="col-md-6 mb-2">
+                    <div>
+                   
                             {% if use_rounds_locked %}
                             <input type="hidden" name="use_rounds" value="on">
-                            <div class="mb-2">
-                                <label class="form-label fw-semibold">Use Rounds</label>
-                                <div class="text-muted small">Rounds are enabled and cannot be disabled because multiple rounds exist.</div>
-                            </div>
                             {% else %}
                             <div class="form-check mb-2">
                                 {{ form.use_rounds }}
                                 <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
                                     {{ form.use_rounds.label }}
                                 </label>
-                                {% if form.use_rounds.help_text %}
-                                <div class="form-text text-muted">{{ form.use_rounds.help_text }}</div>
-                                {% endif %}
+                                <div class="form-text text-muted">Rounds allow you to set multiple matchups with the same players and group players by availability. If you want each player to play a set number of games against different opponents you'll want to use Rounds.</div>
                             </div>
                             {% endif %}
-                        </div>
+              
                     </div>
 
                     {% if action == 'Create' %}
@@ -377,37 +367,20 @@
         $('#id_guild').select2();
     }
 
-    // Initialize datepickers
-    $(document).ready(function(){
-        const dpOptions = {
-            dateFormat: "yy-mm-dd",
-            changeMonth: true,
-            changeYear: true,
-            yearRange: "c-100:c+10",
-            onSelect: function() {
-                this.dispatchEvent(new Event('change'));
-            }
-        };
+    // Cross-constrain native date inputs
+    const startDate = document.getElementById('id_start_date');
+    const endDate = document.getElementById('id_end_date');
 
-        $("#id_start_date").datepicker(dpOptions);
-        $("#id_end_date").datepicker(dpOptions);
-
-        // Cross-constrain: start_date limits end_date and vice versa
-        $("#id_start_date").on("change", function() {
-            const val = $(this).val();
-            $("#id_end_date").datepicker("option", "minDate", val || null);
-        });
-        $("#id_end_date").on("change", function() {
-            const val = $(this).val();
-            $("#id_start_date").datepicker("option", "maxDate", val || null);
-        });
-
-        // Initialize cross-constraints from existing values
-        const initStart = $("#id_start_date").val();
-        const initEnd = $("#id_end_date").val();
-        if (initStart) $("#id_end_date").datepicker("option", "minDate", initStart);
-        if (initEnd) $("#id_start_date").datepicker("option", "maxDate", initEnd);
+    startDate.addEventListener('change', function() {
+        endDate.min = this.value || '';
     });
+    endDate.addEventListener('change', function() {
+        startDate.max = this.value || '';
+    });
+
+    // Initialize cross-constraints from existing values
+    if (startDate.value) endDate.min = startDate.value;
+    if (endDate.value) startDate.max = endDate.value;
 
     // Toggle player count fields visibility
     function togglePlayerCountFields() {

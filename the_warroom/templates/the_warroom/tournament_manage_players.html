@@ -1,5 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load crispy_forms_tags %}
+{% load i18n %}
 
 {% block title %}Manage Players - {{ object.name }}{% endblock %}
 
@@ -29,6 +30,12 @@
         <div class="card-body">
             <form method="post">
                 {% csrf_token %}
+                <div class="mb-3">
+                    {{ form.guild|as_crispy_field }}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addGuildModal">
+                        <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                    </button>
+                </div>
                 <div class="align-items-end">
                     <div>
                         {{ form.open_roster|as_crispy_field }}
@@ -50,9 +57,9 @@
                         {{ form.max_players|as_crispy_field }}
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-check-lg me-1"></i>Save Settings
+                <div class="text-end">
+                    <button type="submit" id="player-settings-save" class="btn btn-secondary" disabled>
+                        <i class="bi bi-check-square me-1"></i>Settings Saved
                     </button>
                 </div>
             </form>
@@ -137,6 +144,9 @@
 </div>
 
 {% include 'the_keep/partials/register_player_modal.html' %}
+{% if not round and is_owner %}
+{% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='id_guild' %}
+{% endif %}
 
 <script>
 // Toggle player count fields
@@ -147,6 +157,58 @@ function togglePlayerCountFields() {
 }
 const enforceCheckbox = document.getElementById('id_enforce_player_count');
 if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCountFields);
+
+// Dirty state tracking for Player Settings form
+(function() {
+    const saveBtn = document.getElementById('player-settings-save');
+    if (!saveBtn) return;
+
+    const guildSelect = document.getElementById('id_guild');
+    const openRoster = document.getElementById('id_open_roster');
+    const enforceCount = document.getElementById('id_enforce_player_count');
+    const minPlayers = document.getElementById('id_min_players');
+    const maxPlayers = document.getElementById('id_max_players');
+
+    const initial = {
+        guild: guildSelect ? guildSelect.value : null,
+        openRoster: openRoster ? openRoster.checked : null,
+        enforceCount: enforceCount ? enforceCount.checked : null,
+        minPlayers: minPlayers ? minPlayers.value : null,
+        maxPlayers: maxPlayers ? maxPlayers.value : null,
+    };
+
+    function checkDirty() {
+        const dirty =
+            (guildSelect && guildSelect.value !== initial.guild) ||
+            (openRoster && openRoster.checked !== initial.openRoster) ||
+            (enforceCount && enforceCount.checked !== initial.enforceCount) ||
+            (minPlayers && minPlayers.value !== initial.minPlayers) ||
+            (maxPlayers && maxPlayers.value !== initial.maxPlayers);
+
+        if (dirty) {
+            saveBtn.disabled = false;
+            saveBtn.classList.replace('btn-secondary', 'btn-primary');
+            saveBtn.innerHTML = 'Save Settings';
+        } else {
+            saveBtn.disabled = true;
+            saveBtn.classList.replace('btn-primary', 'btn-secondary');
+            saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>Settings Saved';
+        }
+    }
+
+    [guildSelect, openRoster, enforceCount, minPlayers, maxPlayers].forEach(function(el) {
+        if (el) {
+            el.addEventListener('change', checkDirty);
+            el.addEventListener('input', checkDirty);
+        }
+    });
+
+    // Also listen for guild changes via the Add Guild modal (Select2 or direct)
+    if (guildSelect) {
+        const observer = new MutationObserver(checkDirty);
+        observer.observe(guildSelect, { childList: true, attributes: true });
+    }
+})();
 
 // Move player between groups via JavaScript/fetch
 function movePlayer(playerId, fromGroup, toGroup) {

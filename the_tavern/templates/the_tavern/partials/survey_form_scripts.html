@@ -554,10 +554,7 @@ function createQuestionHtml(options) {
                 ${actionButtons}
             </div>
             <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
-                    <textarea class="form-control question-text" rows="2" required>${text}</textarea>
-                </div>
+
 
                 <div class="row mb-3">
                     <div class="col-md-6">
@@ -577,6 +574,11 @@ function createQuestionHtml(options) {
                 </div>
 
                 <div class="type-specific-options"></div>
+
+                <div class="mb-3">
+                    <label class="form-label">Question Text <span class="text-danger">*</span></label>
+                    <textarea class="form-control question-text" rows="2" required>${text}</textarea>
+                </div>
 
                 <div class="mb-3">
                     <label class="form-label">Help Text (optional)</label>
@@ -1219,11 +1221,11 @@ function handleTypeChange(questionId, existingData = null) {
                             <div class="row g-2 mb-2">
                                 <div class="col-6">
                                     <label class="form-label small mb-1">Min Value</label>
-                                    <input type="number" class="form-control form-control-sm custom-scale-min-value" value="1" min="0" max="9">
+                                    <input type="number" class="form-control form-control-sm custom-scale-min-value" value="1" min="0" max="10">
                                 </div>
                                 <div class="col-6">
                                     <label class="form-label small mb-1">Max Value</label>
-                                    <input type="number" class="form-control form-control-sm custom-scale-max-value" value="5" min="1" max="10">
+                                    <input type="number" class="form-control form-control-sm custom-scale-max-value" value="5" min="0" max="10">
                                 </div>
                             </div>
                             <div class="row g-2 mb-2">
@@ -1646,6 +1648,16 @@ function saveCustomScale(questionId) {
     }
     if (isNaN(minValue) || isNaN(maxValue) || minValue >= maxValue) {
         errorEl.textContent = 'Max value must be greater than min value.';
+        errorEl.classList.remove('d-none');
+        return;
+    }
+    if (minValue < 0 || maxValue > 10) {
+        errorEl.textContent = 'Values must be between 0 and 10.';
+        errorEl.classList.remove('d-none');
+        return;
+    }
+    if ((maxValue - minValue + 1) > 12) {
+        errorEl.textContent = 'Scale cannot exceed 12 points.';
         errorEl.classList.remove('d-none');
         return;
     }

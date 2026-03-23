@@ -45,33 +45,28 @@
 
 
     {% if user.is_authenticated %}
-        {# MY SURVEYS SECTION #}
-        <div class="mb-4">
-            <h4 class="mb-3 root-title">
-                <i class="bi bi-person-circle"></i> {% trans 'My Active Surveys' %}
-            </h4>
-            {% if my_surveys %}
+        {% if my_surveys %}
+            {# MY SURVEYS SECTION #}
+            <div class="mb-4">
+                <h4 class="mb-3 root-title">
+                    <i class="bi bi-person-circle"></i> {% trans 'My Active Surveys' %}
+                </h4>
                 <div class="list-group">
                     {% include 'the_tavern/partials/survey_list_container.html' with selected_surveys=my_surveys load_type='my_surveys' offset=my_surveys_offset has_more=has_more_my_surveys show_privacy_badge=True %}
-                </div>
-            {% else %}
-                <p class="text-muted">{% trans 'You have not created any surveys.' %}</p>
-            {% endif %}
-        </div>
-
-        {# PRIVATE SURVEYS SECTION #}
-        <div class="mb-4">
-            <h4 class="mb-3 root-title">
-                <i class="bi bi-shield-lock"></i> {% trans 'Private Surveys' %}
-            </h4>
-            {% if private_surveys %}
+                </div>            
+            </div>
+        {% endif %}
+        {% if private_surveys %}
+            {# PRIVATE SURVEYS SECTION #}
+            <div class="mb-4">
+                <h4 class="mb-3 root-title">
+                    <i class="bi bi-shield-lock"></i> {% trans 'Private Surveys' %}
+                </h4>
                 <div class="list-group">
                     {% include 'the_tavern/partials/survey_list_container.html' with selected_surveys=private_surveys load_type='private' offset=private_offset has_more=has_more_private show_access_type=True show_owner=True %}
-                </div>
-            {% else %}
-                <p class="text-muted">{% trans 'No private surveys available.' %}</p>
-            {% endif %}
-        </div>
+                </div>            
+            </div>
+        {% endif %}
     {% endif %}
 
     {# PUBLIC SURVEYS SECTION #}

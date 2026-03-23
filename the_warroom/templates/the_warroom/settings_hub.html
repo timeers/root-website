@@ -69,81 +69,85 @@
         </div>
         {% endif %}
 
-        <!-- Player Management Card -->
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title root-title">
-                        <i class="bi bi-people me-2"></i>Player Management
-                    </h5>
-                    <p class="card-text text-muted">
+        
+        {% if not round or tournament.use_stages %}
+            <!-- Player Management Card -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title root-title">
+                            <i class="bi bi-people me-2"></i>Player Management
+                        </h5>
+                        <p class="card-text text-muted">
+                            {% if round %}
+                            Manage stage roster, withdrawn, and eliminated players
+                            {% elif stage %}
+                            Manage stage roster, withdrawn, and eliminated players
+                            {% else %}
+                            Manage roster, waitlist, and eliminated players
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="card-footer bg-transparent">
                         {% if round %}
-                        Manage stage roster, withdrawn, and eliminated players
+                        <a href="{% url 'stage-manage-players' tournament_slug=tournament.slug stage_slug=round.stage.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-person-plus me-1"></i>Manage Players
+                        </a>
                         {% elif stage %}
-                        Manage stage roster, withdrawn, and eliminated players
+                        <a href="{% url 'stage-manage-players' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-person-plus me-1"></i>Manage Players
+                        </a>
                         {% else %}
-                        Manage roster, waitlist, and eliminated players
-                        {% endif %}
-                    </p>
-                </div>
-                <div class="card-footer bg-transparent">
-                    {% if round %}
-                    <a href="{% url 'stage-manage-players' tournament_slug=tournament.slug stage_slug=round.stage.slug %}" class="btn btn-primary w-100">
-                        <i class="bi bi-person-plus me-1"></i>Manage Players
-                    </a>
-                    {% elif stage %}
-                    <a href="{% url 'stage-manage-players' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
-                        <i class="bi bi-person-plus me-1"></i>Manage Players
-                    </a>
-                    {% else %}
-                    <a href="{% url 'tournament-manage-players' slug=tournament.slug %}" class="btn btn-primary w-100">
-                        <i class="bi bi-person-plus me-1"></i>Manage Players
-                    </a>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-
-        <!-- Surveys Card -->
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title root-title">
-                        <i class="bi bi-clipboard-check me-2"></i>Surveys
-                    </h5>
-                    <p class="card-text text-muted">
-                        {% if stage %}
-                        Manage registration and feedback surveys for {{stage.name}}
-                        {% else %}
-                        Manage registration and feedback surveys for {{tournament}}
-                        {% endif %}
-                    </p>
-                </div>
-                <div class="card-footer bg-transparent">
-                    <div class="d-flex gap-2">
-                        {% if stage %}
-                        <a href="{% url 'survey-create' %}?series={{ tournament.id }}&stage={{ stage.id }}" class="btn btn-primary flex-fill">
-                            <i class="bi bi-plus-lg me-1"></i>Create Survey
+                        <a href="{% url 'tournament-manage-players' slug=tournament.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-person-plus me-1"></i>Manage Players
                         </a>
-                        {% if survey_count %}
-                        <a href="{% url 'stage-surveys' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary flex-fill">
-                            <i class="bi bi-list-ul me-1"></i>View ({{ survey_count }})
-                        </a>
-                        {% endif %}
-                        {% else %}
-                        <a href="{% url 'survey-create' %}?series={{ tournament.id }}" class="btn btn-primary flex-fill">
-                            <i class="bi bi-plus-lg me-1"></i>Create Survey
-                        </a>
-                        {% if survey_count %}
-                        <a href="{% url 'tournament-surveys' tournament_slug=tournament.slug %}" class="btn btn-outline-secondary flex-fill">
-                            <i class="bi bi-list-ul me-1"></i>View ({{ survey_count }})
-                        </a>
-                        {% endif %}
                         {% endif %}
                     </div>
                 </div>
             </div>
-        </div>
+            
+
+            <!-- Surveys Card -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title root-title">
+                            <i class="bi bi-clipboard-check me-2"></i>Surveys
+                        </h5>
+                        <p class="card-text text-muted">
+                            {% if stage %}
+                            Manage registration and feedback surveys for {{stage.name}}
+                            {% else %}
+                            Manage registration and feedback surveys for {{tournament}}
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <div class="d-flex gap-2">
+                            {% if stage %}
+                            <a href="{% url 'survey-create' %}?series={{ tournament.id }}&stage={{ stage.id }}" class="btn btn-primary flex-fill">
+                                <i class="bi bi-plus-lg me-1"></i>Create Survey
+                            </a>
+                            {% if survey_count %}
+                            <a href="{% url 'stage-surveys' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-secondary flex-fill">
+                                <i class="bi bi-list-ul me-1"></i>View ({{ survey_count }})
+                            </a>
+                            {% endif %}
+                            {% else %}
+                            <a href="{% url 'survey-create' %}?series={{ tournament.id }}" class="btn btn-primary flex-fill">
+                                <i class="bi bi-plus-lg me-1"></i>Create Survey
+                            </a>
+                            {% if survey_count %}
+                            <a href="{% url 'tournament-surveys' tournament_slug=tournament.slug %}" class="btn btn-outline-secondary flex-fill">
+                                <i class="bi bi-list-ul me-1"></i>View ({{ survey_count }})
+                            </a>
+                            {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
 
         <!-- Asset Management Card (Tournament only) -->
         {% if not round and not stage %}
@@ -166,7 +170,7 @@
         </div>
         {% endif %}
 
-        <!-- Bracket Card (Tournament only) -->
+        {% comment %} <!-- Bracket Card (Tournament only) -->
         {% if not round and not stage %}
         <div class="col-md-6">
             <div class="card h-100">
@@ -185,7 +189,7 @@
                 </div>
             </div>
         </div>
-        {% endif %}
+        {% endif %} {% endcomment %}
 
 
         {% if not stage and not round %}
