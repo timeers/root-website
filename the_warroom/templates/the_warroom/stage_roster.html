@@ -2,6 +2,11 @@
 {% load static i18n %}
 {% block title %}{{ stage.name }} - {% trans 'Roster' %} | {% endblock %}
 
+{% block meta %}
+{% trans "Roster" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="container-fluid py-3">
 

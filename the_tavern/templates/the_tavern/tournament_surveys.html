@@ -45,7 +45,7 @@
     <div class="card">
         <div class="list-group list-group-flush">
             {% for survey in surveys %}
-                {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True show_status=show_status current_title=current_title current_url=current_url %}
+                {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True show_status=show_status %}
             {% empty %}
             <div class="list-group-item text-center text-muted py-5">
                 <i class="bi bi-clipboard-x fs-2 mb-2 d-block"></i>

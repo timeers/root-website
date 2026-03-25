@@ -180,7 +180,7 @@ class Tournament(models.Model):
 
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this Series with a Guild to allow members to record games')
-    open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to games in this Series')
+    open_roster = models.BooleanField(default=True, help_text='Registered players will be able to add unregistered players to games')
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)

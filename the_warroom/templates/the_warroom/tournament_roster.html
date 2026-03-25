@@ -3,13 +3,8 @@
 {% block title %}{{ tournament.name }} - {% trans 'Roster' %} | {% endblock %}
 
 {% block meta %}
-<meta property="og:type" content="website">
-<meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
-<meta property="og:site_name" content="Root Database">
-<meta property="og:title" content="{{ meta_title }} - {% trans 'Roster' %}">
-<meta property="og:description" content="{{ meta_description }}">
-<meta name="description" content="{{ meta_description }}">
+{% trans "Roster" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
 {% endblock meta %}
 
 {% block content %}

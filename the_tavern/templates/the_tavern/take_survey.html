@@ -2,6 +2,10 @@
 {% load crispy_forms_tags i18n survey_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
+
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 {% endblock %}

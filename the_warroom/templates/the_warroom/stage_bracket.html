@@ -3,6 +3,11 @@
 
 {% block title %}{{ stage.name }} - {% trans 'Bracket' %} | {% endblock %}
 
+{% block meta %}
+{% trans "Bracket" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="container-fluid py-3">
 

@@ -2,6 +2,11 @@
 {% load i18n static %}
 {% block title %}{% if is_finalized %}Match Generation{% else %}Grouping{% endif %} - {{ round.name|default:round.round_number }} | {% endblock %}
 
+{% block meta %}
+{% trans "Grouping" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="content-section">
     <!-- Breadcrumb -->

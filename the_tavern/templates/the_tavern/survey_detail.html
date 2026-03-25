@@ -2,15 +2,9 @@
 {% load i18n socialaccount static %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
-{% block meta %}    {# Open Graph tags #}
-<meta property="og:type" content="website">
-<meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
-<meta property="og:site_name" content="Root Database">
-<meta property="og:title" content="{{meta_title}}">
-<meta property="og:description" content="{{ meta_description }}">
-<meta name="description" content="{{ meta_description }}">
-{% endblock meta%}
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
 
 {% block content %}
 <div class="content-section">
@@ -69,9 +63,9 @@
     <div class="row g-3 mb-4">
         <div class="col-md-3 col-sm-6">
             {% if can_view_survey %}
-                <a href="{% url 'survey-preview' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
+                <a href="{% url 'survey-preview' survey.slug %}">
             {% elif not user.is_authenticated %}
-                <a href="{% provider_login_url 'discord' %}?return_to={{ current_url }}&return_title={{ current_title }}&next={{ request.path }}">
+                <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
             {% endif %}
             <div class="card border-primary h-100">
                 <div class="card-body text-center">
@@ -86,7 +80,7 @@
         </div>
         <div class="col-md-3 col-sm-6">
             {% if can_edit_survey %}
-                <a href="{% url 'survey-responses' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}">
+                <a href="{% url 'survey-responses' survey.slug %}">
             {% endif %}
             <div class="card border-success h-100">
                 <div class="card-body text-center">
@@ -184,7 +178,7 @@
     <!-- Take / Retake Survey Button -->
     <hr class="my-4">
     {% if can_take_survey %}
-        <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-primary mb-3">
+        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-primary mb-3">
             {% if responses %}
                 <i class="bi bi-arrow-repeat"></i> {% trans 'Retake Survey' %}
             {% else %}
@@ -222,11 +216,11 @@
                                     </p>
                                 </div>
                                 <div class="ms-3 d-flex gap-2">
-                                    <a href="{% url 'survey-user-response' survey.slug response.id %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-primary">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-eye"></i> {% trans 'View' %}
                                     </a>
                                     {% if can_edit_response %}
-                                        <a href="{% url 'survey-edit-response' survey.slug response.id %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-outline-secondary">
+                                        <a href="{% url 'survey-edit-response' survey.slug response.id %}" class="btn btn-sm btn-outline-secondary">
                                             <i class="bi bi-pencil"></i> {% trans 'Edit' %}
                                         </a>
                                     {% endif %}
@@ -273,13 +267,13 @@
                 </div>
             {% endif %}
         {% elif survey.is_public and not user.is_authenticated %}
-            <a href="{% provider_login_url 'discord' %}?return_to={{ current_url }}&return_title={{ current_title }}&next={{ request.path }}">
+            <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
                 <div class="alert alert-info d-flex align-items-center">
                     <i class="bi bi-door-open fs-4 me-3"></i>
                     <div>
                         <h5 class="alert-heading mb-1">Public Survey</h5>
                         <p class="mb-0">Log in to take this survey.</p>
-                        <a href="{% url 'survey-take' survey.slug %}?return_to={{ current_url }}&return_title={{ current_title }}" class="btn btn-sm btn-primary mt-2">
+                        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
                             {% trans 'Take Survey Now' %}
                         </a>
                     </div>

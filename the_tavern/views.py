@@ -350,9 +350,6 @@ def survey_list_view(request):
     total_private = private_surveys.count()
     total_public = private_surveys.count()
 
-    current_url = request.path
-    current_title = "Back to Surveys"
-
     # Handle HTMX partial requests for loading more surveys
     if load_type == 'my_surveys':
         selected_surveys = my_surveys[my_surveys_offset:my_surveys_offset + SURVEY_LIST_PAGE_SIZE]
@@ -363,8 +360,6 @@ def survey_list_view(request):
             'has_more': has_more,
             'offset': next_offset,
             'load_type': load_type,
-            'current_url': current_url,
-            'current_title': current_title,
             'show_status': True,
         })
 
@@ -377,8 +372,6 @@ def survey_list_view(request):
             'has_more': has_more,
             'offset': next_offset,
             'load_type': load_type,
-            'current_url': current_url,
-            'current_title': current_title,
             'show_status': True,
         })
 
@@ -391,8 +384,6 @@ def survey_list_view(request):
             'has_more': has_more,
             'offset': next_offset,
             'load_type': load_type,
-            'current_url': current_url,
-            'current_title': current_title,
             'show_status': True,
         })
 
@@ -424,8 +415,6 @@ def survey_list_view(request):
         'can_create_survey': profile.player if profile else False,
         'meta_title': meta_title,
         'meta_description': meta_description,
-        'current_url': current_url,
-        'current_title': current_title,
 
         'active_page': 'surveys',
         'shared_assets': shared_assets,
@@ -455,10 +444,8 @@ def survey_history_view(request):
     public_offset = int(request.GET.get('public_offset', 0))
     load_type = request.GET.get('load_type', None)
 
-    return_to = request.GET.get('return_to') or reverse('survey-list')
-    return_title = request.GET.get('return_title') or 'Back to Surveys'
-    current_url = request.path
-    current_title = 'Back to History'
+    return_to = reverse('survey-list')
+    return_title = 'Back to Surveys'
 
     # Get all surveys the user has responded to (excluding active ones they can still interact with)
     now = timezone.now()
@@ -499,10 +486,6 @@ def survey_history_view(request):
             'past_responses': items,
             'has_more_responses': has_more,
             'responses_offset': next_offset,
-            'return_to': return_to,
-            'return_title': return_title,
-            'current_url': current_url,
-            'current_title': current_title,
         })
 
     if load_type == 'archived':
@@ -513,10 +496,6 @@ def survey_history_view(request):
             'archived_surveys': items,
             'has_more_archived': has_more,
             'archived_offset': next_offset,
-            'return_to': return_to,
-            'return_title': return_title,
-            'current_url': current_url,
-            'current_title': current_title,
         })
 
     if load_type == 'public':
@@ -528,10 +507,6 @@ def survey_history_view(request):
             'public_surveys': items,
             'has_more_public': has_more,
             'public_offset': next_offset,
-            'return_to': return_to,
-            'return_title': return_title,
-            'current_url': current_url,
-            'current_title': current_title,
         })
 
     # Full page load - slice to initial page size
@@ -553,8 +528,8 @@ def survey_history_view(request):
 
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
+        'meta_title': 'Survey History',
+        'meta_description': 'Your past survey responses and archived surveys.',
     }
     return render(request, 'the_tavern/survey_history.html', context)
 
@@ -592,10 +567,8 @@ def survey_admin_view(request):
     
     total = surveys.count()
 
-    return_to = request.GET.get('return_to') or reverse('survey-list')
-    return_title = request.GET.get('return_title') or 'Back to Surveys'
-    current_url = request.path
-    current_title = 'Back to Survey Admin'
+    return_to = reverse('survey-list')
+    return_title = 'Back to Surveys'
 
     # Handle "Load more" request
     if load_type:
@@ -609,10 +582,6 @@ def survey_admin_view(request):
             'load_type': load_type,
             'url': request.path,
             'search_query': search_query,
-            'return_title': return_title,
-            'return_to': return_to,
-            'current_title': current_title,
-            'current_url': current_url,
             'show_privacy_badge': True,
             'show_owner': True,
         })
@@ -632,8 +601,6 @@ def survey_admin_view(request):
         'total': total,
         'return_title': return_title,
         'return_to': return_to,
-        'current_title': current_title,
-        'current_url': current_url,
         'show_privacy_badge': True,
         'show_owner': True,
     }
@@ -925,10 +892,8 @@ def survey_take_view(request, slug):
             question_numbers[q.id] = counter
             counter += 1
 
-    return_to = request.GET.get('return_to') or reverse('survey-list')
-    return_title = request.GET.get('return_title') or 'Back to Surveys'
-    current_url = request.path
-    current_title = 'Back to Take Survey'
+    return_to = survey.get_absolute_url()
+    return_title = 'Back to Survey'
 
     context = {
         'survey': survey,
@@ -938,6 +903,8 @@ def survey_take_view(request, slug):
         'question_numbers': question_numbers,
         'return_title': return_title,
         'return_to': return_to,
+        'meta_title': survey.title,
+        'meta_description': f"Take the survey: {survey.title}",
     }
     return render(request, 'the_tavern/take_survey.html', context)
 
@@ -961,14 +928,8 @@ def survey_user_response_view(request, slug, response_id):
 
     is_response_waitlisted = survey.is_response_waitlisted(user_response)
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Response'
-    view_detail_button = False
-
-    if return_title == 'Back to History':
-        view_detail_button = True
+    return_to = survey.get_absolute_url()
+    return_title = 'Back to Survey'
 
     # Show their previous response in read-only mode
     return render(request, 'the_tavern/view_survey_response.html', {
@@ -981,9 +942,6 @@ def survey_user_response_view(request, slug, response_id):
         'is_response_waitlisted': is_response_waitlisted,
         'return_title': return_title,
         'return_to': return_to,
-        'current_title': current_title,
-        'current_url': current_url,
-        'view_detail_button': view_detail_button,
         'show_correct_answers': survey.show_correct_answers,
         'show_score_summary': survey.show_score_summary,
         'score_correct': user_response.score_correct,
@@ -1288,10 +1246,8 @@ def survey_detail_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_view_survey = survey.can_view_survey(profile)
 
-    return_to = request.GET.get('return_to') or reverse('survey-list')
-    return_title = request.GET.get('return_title') or 'Back to Surveys'
-    current_url = request.path
-    current_title = 'Back to Survey'
+    return_to = reverse('survey-list')
+    return_title = 'Back to Surveys'
 
     meta_title = survey.title
     survey_description = f' | {survey.description}' if survey.description else ''
@@ -1315,8 +1271,6 @@ def survey_detail_view(request, slug):
         'survey_user_response_count': survey_user_response_count,
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
         'meta_title': meta_title,
         'meta_description': meta_description,
     }
@@ -1337,8 +1291,6 @@ def survey_settings_hub(request, slug):
 
     return_to = survey.get_absolute_url()
     return_title = 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Settings'
 
     context = {
         'survey': survey,
@@ -1347,14 +1299,12 @@ def survey_settings_hub(request, slug):
         'is_settings_page': True,
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
     }
     return render(request, 'the_tavern/survey_settings_hub.html', context)
 
 
 @player_onboard_required
-def survey_results_view(request, slug):
+def survey_results_view(request, slug, from_settings=False):
     """Display aggregated survey results (admin only, or respondents if allowed)."""
 
     survey = get_object_or_404(Survey, slug=slug)
@@ -1572,10 +1522,12 @@ def survey_results_view(request, slug):
             optional_percent = f"({survey_stats['avg_score_optional']}%)"
 
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Results'
+    if from_settings:
+        return_to = reverse('survey-settings', kwargs={'slug': slug})
+        return_title = 'Back to Settings'
+    else:
+        return_to = survey.get_absolute_url()
+        return_title = 'Back to Survey'
 
     sections_data = survey.get_sections_with_questions()
 
@@ -1586,13 +1538,13 @@ def survey_results_view(request, slug):
         'sections_data': sections_data,
         'return_title': return_title,
         'return_to': return_to,
-        'current_url': current_url,
-        'current_title': current_title,
 
         'required_summary': required_summary,
         'required_percent': required_percent,
         'optional_summary': optional_summary,
         'optional_percent': optional_percent,
+        'meta_title': survey.title,
+        'meta_description': f"Results for {survey.title}",
     }
     return render(request, 'the_tavern/survey_results.html', context)
 
@@ -1874,7 +1826,7 @@ def survey_duplicate_view(request, slug):
             new_question.save()
 
         messages.success(request, f'"{new_survey.title}" created. Mark as active to publish.')
-        return redirect('survey-edit', slug=new_survey.slug)
+        return redirect('survey-settings-edit', slug=new_survey.slug)
 
     except Exception as e:
         messages.error(request, f'Error duplicating survey: {str(e)}')
@@ -1882,7 +1834,7 @@ def survey_duplicate_view(request, slug):
 
 
 @player_required
-def survey_preview_view(request, slug):
+def survey_preview_view(request, slug, from_settings=False):
     """Preview a survey without submitting responses."""
 
     survey = get_object_or_404(Survey, slug=slug)
@@ -1898,10 +1850,12 @@ def survey_preview_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_see_results = survey.can_see_results(profile)
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Preview'
+    if from_settings:
+        return_to = reverse('survey-settings', kwargs={'slug': slug})
+        return_title = 'Back to Settings'
+    else:
+        return_to = survey.get_absolute_url()
+        return_title = 'Back to Survey'
 
     # Create a read-only form for preview
     form = SurveyResponseForm(survey=survey)
@@ -1927,8 +1881,6 @@ def survey_preview_view(request, slug):
         'can_see_results': can_see_results,
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
         'visible_questions': visible_questions,
         'sections_data': sections_data,
         'question_numbers': question_numbers,
@@ -1937,7 +1889,7 @@ def survey_preview_view(request, slug):
 
 
 @player_onboard_required
-def survey_responses_view(request, slug):
+def survey_responses_view(request, slug, from_settings=False):
     """View all responses for a survey (admin and survey creator only)."""
 
     survey = get_object_or_404(Survey, slug=slug)
@@ -1988,10 +1940,12 @@ def survey_responses_view(request, slug):
         )
 
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Responses'
+    if from_settings:
+        return_to = reverse('survey-settings', kwargs={'slug': slug})
+        return_title = 'Back to Settings'
+    else:
+        return_to = survey.get_absolute_url()
+        return_title = 'Back to Survey'
 
     context = {
         'survey': survey,
@@ -2001,8 +1955,6 @@ def survey_responses_view(request, slug):
         'can_see_results': can_see_results,
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
         'unresponded_players': unresponded_players,
     }
     return render(request, 'the_tavern/survey_responses.html', context)
@@ -2162,7 +2114,7 @@ def survey_edit_view(request, slug):
             # Validate that title is not empty
             if not title:
                 messages.error(request, 'Survey title is required.')
-                return redirect('survey-edit', slug=slug)
+                return redirect('survey-settings-edit', slug=slug)
 
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
@@ -2493,7 +2445,7 @@ def survey_edit_view(request, slug):
 
         except Exception as e:
             messages.error(request, f'Error updating survey: {str(e)}')
-            return redirect('survey-edit', slug=survey.slug)
+            return redirect('survey-settings-edit', slug=survey.slug)
 
     # GET request - show form with existing data
     likert_scales = LikertScale.objects.filter(
@@ -2624,8 +2576,8 @@ def survey_edit_view(request, slug):
             'order': section.order,
         })
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
+    return_to = reverse('survey-settings', kwargs={'slug': slug})
+    return_title = 'Back to Settings'
 
     context = {
         'survey': survey,
@@ -2662,7 +2614,7 @@ def survey_delete_view(request, slug):
         return redirect('survey-list')
 
     # GET request - show confirmation (handled via modal in edit page)
-    return redirect('survey-edit', slug=slug)
+    return redirect('survey-settings-edit', slug=slug)
 
 
 @player_onboard_required
@@ -2981,8 +2933,6 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
         'can_create': can_create,
         'create_url': create_url,
         'show_status': True,
-        'current_title': stage.name if stage else tournament.name,
-        'current_url': request.path,
         'active_page': 'surveys',
     })
     return render(request, 'the_tavern/tournament_surveys.html', context)
@@ -3006,8 +2956,8 @@ def post_surveys_view(request, slug):
         'create_url': create_url,
         'can_create': can_create,
         'show_status': True,
-        'current_title': post.title,
-        'current_url': request.path,
+        'meta_title': f"{post.title} - Surveys",
+        'meta_description': f"Surveys for {post.title}",
     }
     return render(request, 'the_tavern/post_surveys.html', context)
 
@@ -3149,10 +3099,8 @@ def survey_quiz_settings_view(request, slug):
 
         questions_data.append(q_data)
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Quiz Settings'
+    return_to = reverse('survey-settings', kwargs={'slug': slug})
+    return_title = 'Back to Settings'
 
     context = {
         'survey': survey,
@@ -3162,8 +3110,6 @@ def survey_quiz_settings_view(request, slug):
         'can_see_results': survey.can_see_results(profile),
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
     }
     return render(request, 'the_tavern/survey_quiz_settings.html', context)
 
@@ -3229,10 +3175,8 @@ def survey_send_availability(request, slug):
         return redirect('stage-manage-players', tournament_slug=tournament.slug, stage_slug=target_stage.slug)
 
 
-    return_to = request.GET.get('return_to') or survey.get_absolute_url()
-    return_title = request.GET.get('return_title') or 'Back to Survey'
-    current_url = request.path
-    current_title = 'Back to Quiz Settings'
+    return_to = reverse('survey-settings', kwargs={'slug': slug})
+    return_title = 'Back to Settings'
 
     context = {
         'survey': survey,
@@ -3241,11 +3185,12 @@ def survey_send_availability(request, slug):
         'designated_stage': survey.stage,
         'return_to': return_to,
         'return_title': return_title,
-        'current_url': current_url,
-        'current_title': current_title,
     }
     return render(request, 'the_tavern/survey_send_availability.html', context)
 
 
 def about_surveys_view(request):
-    return render(request, 'the_tavern/about_surveys.html')
+    return render(request, 'the_tavern/about_surveys.html', {
+        'meta_title': 'About Surveys',
+        'meta_description': 'Learn about creating and taking surveys on Root Database.',
+    })

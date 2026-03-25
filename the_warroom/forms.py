@@ -809,7 +809,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
-            'open_roster': 'Allow Unregistered Players to join games hosted by a Registered Player',
+            'open_roster': 'Allow Unregistered Players',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
@@ -961,7 +961,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'platform': 'Required Platform',
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
-            'open_roster': 'Allow Unregistered Players to join games',
+            'open_roster': 'Allow Unregistered Players',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
@@ -1426,6 +1426,7 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
         labels = {
             'guild': 'Discord Guild',
             'enforce_player_count': 'Restrict Player Count',
+            'open_roster': 'Allow Unregistered Players',
         }
 
     def __init__(self, *args, user=None, **kwargs):

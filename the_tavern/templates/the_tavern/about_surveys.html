@@ -2,6 +2,10 @@
 {% load static i18n %}
 {% block title %}{% trans 'About Surveys' %} | {% endblock %}
 
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
+
 {% block styles %}
 <style>
     .permissions-table {

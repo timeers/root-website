@@ -3,6 +3,11 @@
 
 {% block title %}Surveys - {{ post.title }}{% endblock %}
 
+{% block meta %}
+{% trans "Surveys" as meta_page_suffix %}
+{% include 'the_tavern/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="container py-4">
     <!-- Header -->
@@ -24,7 +29,7 @@
     <div class="card">
         <div class="list-group list-group-flush">
             {% for survey in surveys %}
-                {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True current_title=current_title current_url=current_url %}
+                {% include 'the_tavern/partials/survey_list_item.html' with survey=survey show_privacy_badge=True %}
             {% empty %}
             <div class="list-group-item text-center text-muted py-5">
                 <i class="bi bi-clipboard-x fs-2 mb-2 d-block"></i>

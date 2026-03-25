@@ -2,15 +2,9 @@
 {% load i18n static %}
 {% block title %}{% trans 'Surveys' %} | {% endblock %}
 {% block main_width_class %}col-md-9{% endblock %}
-{% block meta %}    {# Open Graph tags #}
-<meta property="og:type" content="website">
-<meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
-<meta property="og:site_name" content="Root Database">
-<meta property="og:title" content="{{meta_title}}">
-<meta property="og:description" content="{{ meta_description }}">
-<meta name="description" content="{{ meta_description }}">
-{% endblock meta%}
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
 
 {% block content %}
 {% include 'the_keep/partials/workshop_nav_header.html' %}

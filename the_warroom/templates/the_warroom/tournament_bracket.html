@@ -2,6 +2,11 @@
 {% load i18n warroom_tags %}
 {% block title %}Bracket — {{ tournament.name }} | {% endblock %}
 
+{% block meta %}
+{% trans "Bracket" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="content-section">
 

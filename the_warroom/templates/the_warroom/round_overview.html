@@ -3,6 +3,10 @@
 
 {% block title %}{{ round.name }} - {{ stage.name }} | {% endblock %}
 
+{% block meta %}
+{% include 'the_warroom/partials/meta_tags.html' %}
+{% endblock meta %}
+
 {% block content %}
 <div class="container-fluid py-3">
 

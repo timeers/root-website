@@ -12,7 +12,7 @@
         </a>
         {% endif%}
     </div>
-    {% if can_edit_survey and not is_settings_page %}
+    {% if can_edit_survey and not is_settings_page and return_title != 'Back to Settings' %}
     <div class="ms-auto">
         <a href="{% url 'survey-settings' survey.slug %}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-gear"></i> {% trans 'Settings' %}

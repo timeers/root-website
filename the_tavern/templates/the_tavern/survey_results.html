@@ -2,6 +2,11 @@
 {% load i18n %}
 {% block title %}{% trans 'Results' %}: {{ survey.title }} | {% endblock %}
 
+{% block meta %}
+{% trans "Results" as meta_page_suffix %}
+{% include 'the_tavern/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="content-section">
     

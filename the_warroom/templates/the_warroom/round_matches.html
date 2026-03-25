@@ -3,6 +3,11 @@
 
 {% block title %}{{ round.name }} - {% trans 'Matches' %} | {% endblock %}
 
+{% block meta %}
+{% trans "Matches" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
 {% block content %}
 <div class="container-fluid py-3">
 
