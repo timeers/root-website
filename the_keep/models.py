@@ -1313,6 +1313,7 @@ class Vagabond(Post):
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
+    cached_winrate = models.FloatField(null=True, blank=True)
     starting_coins = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_boots = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_bag = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -1496,6 +1497,7 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    cached_winrate = models.FloatField(null=True, blank=True)
 
 
     def __add__(self, other):

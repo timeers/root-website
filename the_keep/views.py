@@ -2134,39 +2134,10 @@ def apply_filters(qs, filters, component):
             winrate_max = float(filters.get('winrate_max', 100))
 
             if winrate_min != 0 or winrate_max != 100:
-                qs = qs.annotate(
-                    total_wins=Count(
-                        'efforts__game',
-                        filter=Q(
-                            efforts__win=True,
-                            # efforts__game__test_match=False,
-                            efforts__game__final=True
-                        )
-                    ),
-                    total_games=Count(
-                        'efforts__game',
-                        filter=Q(
-                            # efforts__game__test_match=False,
-                            efforts__game__final=True
-                        )
-                    ),
-                    coalition_count=Count(
-                        'efforts__game', 
-                        filter=Q(
-                            efforts__win=True, 
-                            efforts__game__coalition_win=True
-                        )
-                    )
-                ).filter(
-                    total_games__gt=0
-                ).annotate(
-                    calculated_winrate=ExpressionWrapper(
-                        100.0 * F('total_wins') / F('total_games'),
-                        output_field=FloatField()
-                    )
-                ).filter(
-                    calculated_winrate__gte=winrate_min,
-                    calculated_winrate__lte=winrate_max
+                qs = qs.filter(
+                    cached_winrate__isnull=False,
+                    cached_winrate__gte=winrate_min,
+                    cached_winrate__lte=winrate_max,
                 )
         except (TypeError, ValueError):
             pass
