@@ -324,16 +324,24 @@ function createSectionCardHtml(options) {
         dataAttrs += ` data-existing-id="${existingId}"`;
     }
 
+    const titleDisplay = title || `Section ${order}`;
+    const descPreview = description.length > 50 ? description.slice(0, 50) + '...' : description;
+    const previewText = title && descPreview
+        ? `${titleDisplay} · ${descPreview}`
+        : titleDisplay;
+
     return `
-        <div class="section-card" ${dataAttrs}>
+        <div class="section-card" ${dataAttrs} onclick="focusItem('${sectionId}', 'section')">
             <div class="section-card-header">
-                <span class="drag-handle me-2" style="cursor: move;"><i class="bi bi-grip-vertical"></i></span>
+                <span class="drag-handle me-2" style="cursor: move;" onclick="event.stopPropagation()"><i class="bi bi-grip-vertical"></i></span>
                 <i class="bi bi-arrows-expand me-2 text-success"></i>
-                <strong class="section-label text-success">{% trans 'Section Header' %}</strong>
-                <div class="flex-fill"></div>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeSectionCard('${sectionId}')">
-                    <i class="bi bi-trash"></i>
-                </button>
+                <strong class="section-label text-success me-2">{% trans 'Section Header' %}</strong>
+                <span class="section-collapsed-preview flex-fill">${previewText}</span>
+                <span onclick="event.stopPropagation()" class="ms-auto">
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeSectionCard('${sectionId}')">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </span>
             </div>
             <div class="section-card-body">
                 <div class="row g-2">
@@ -391,6 +399,10 @@ function addPageBreak() {
 
     renumberSectionCards();
     initializeSortable();
+
+    // Focus the last inserted section
+    const lastSectionId = `section-${sectionCounter}`;
+    focusItem(lastSectionId, 'section');
 }
 
 function removeSectionCard(sectionId) {
@@ -543,18 +555,23 @@ function createQuestionHtml(options) {
         `<option value="${key}" ${type === key ? 'selected' : ''}>${value}</option>`
     ).join('');
 
+    const typeLabel = type ? (questionTypes[type] || type) : '';
+    const textPreview = text ? (text.length > 60 ? text.slice(0, 60) + '...' : text) : '';
+    const previewText = typeLabel && textPreview
+        ? `${typeLabel} · ${textPreview}`
+        : (typeLabel || textPreview || '<em>No type or text set</em>');
+
     return `
-        <div class="card question-card ${hasResponses ? 'border-warning' : ''}" ${dataAttrs}>
+        <div class="card question-card ${hasResponses ? 'border-warning' : ''}" ${dataAttrs} onclick="focusItem('${questionId}', 'question')">
             <div class="question-header ${hasResponses ? 'bg-warning-subtle' : ''}">
-                <span class="drag-handle me-2">
+                <span class="drag-handle me-2" onclick="event.stopPropagation()">
                     <i class="bi bi-grip-vertical"></i>
                 </span>
-                <span class="flex-fill"><strong>Question ${order}</strong>${responseBadge}</span>
-                ${saveTemplateButton}
-                ${actionButtons}
+                <span class="me-2"><strong>Question ${order}</strong>${responseBadge}</span>
+                <span class="question-collapsed-preview flex-fill">${previewText}</span>
+                <span onclick="event.stopPropagation()" class="ms-auto d-flex align-items-center">${saveTemplateButton}${actionButtons}</span>
             </div>
-            <div class="card-body">
-
+            <div class="question-card-body card-body">
 
                 <div class="row mb-3">
                     <div class="col-md-6">
@@ -587,6 +604,73 @@ function createQuestionHtml(options) {
             </div>
         </div>
     `;
+}
+
+/**
+ * Focuses (expands) a question or section card, collapsing all other active items.
+ * type: 'question' | 'section'
+ */
+function focusItem(id, type) {
+    document.querySelectorAll('.question-card.is-active').forEach(card => {
+        updateCollapsedPreview(card.dataset.questionId);
+        card.classList.remove('is-active');
+    });
+    document.querySelectorAll('.section-card.is-active').forEach(card => {
+        updateSectionCollapsedPreview(card.dataset.sectionId);
+        card.classList.remove('is-active');
+    });
+    const selector = type === 'section'
+        ? `[data-section-id="${id}"]`
+        : `[data-question-id="${id}"]`;
+    const card = document.querySelector(selector);
+    if (card) card.classList.add('is-active');
+}
+
+/**
+ * Updates the collapsed preview text for a question based on its current type and text values.
+ */
+function updateCollapsedPreview(questionId) {
+    const card = document.querySelector(`[data-question-id="${questionId}"]`);
+    if (!card) return;
+    const preview = card.querySelector('.question-collapsed-preview');
+    if (!preview) return;
+
+    const typeSelect = card.querySelector('.question-type');
+    const textArea = card.querySelector('.question-text');
+    const typeVal = typeSelect ? typeSelect.value : '';
+    const textVal = textArea ? textArea.value.trim() : '';
+
+    const typeLabel = typeVal ? (questionTypes[typeVal] || typeVal) : '';
+    const textPreview = textVal.length > 60 ? textVal.slice(0, 60) + '...' : textVal;
+    const combined = typeLabel && textPreview
+        ? `${typeLabel} · ${textPreview}`
+        : (typeLabel || textPreview || '<em>No type or text set</em>');
+
+    preview.innerHTML = combined;
+}
+
+/**
+ * Updates the collapsed preview text for a section based on its current title and description.
+ */
+function updateSectionCollapsedPreview(sectionId) {
+    const card = document.querySelector(`[data-section-id="${sectionId}"]`);
+    if (!card) return;
+    const preview = card.querySelector('.section-collapsed-preview');
+    if (!preview) return;
+
+    const titleInput = card.querySelector('.section-title');
+    const descInput = card.querySelector('.section-description');
+    const titleVal = titleInput ? titleInput.value.trim() : '';
+    const descVal = descInput ? descInput.value.trim() : '';
+
+    // Fall back to placeholder (e.g. "Section 1") if title is empty
+    const titleDisplay = titleVal || (titleInput ? titleInput.placeholder : '');
+    const descPreview = descVal.length > 50 ? descVal.slice(0, 50) + '...' : descVal;
+    const combined = titleDisplay && descPreview
+        ? `${titleDisplay} · ${descPreview}`
+        : (titleDisplay || '<em>Untitled section</em>');
+
+    preview.innerHTML = combined;
 }
 
 {% if existing_questions %}
@@ -829,6 +913,11 @@ function loadExistingQuestions() {
 
     renumberSectionCards();
     initializeSortable();
+
+    // Focus the first question so users can see how expansion works
+    if (existingQuestions.length > 0) {
+        focusItem('question-1', 'question');
+    }
 }
 {% endif %}
 
@@ -860,6 +949,7 @@ function loadQuestionFromTemplate(templateData) {
     }
 
     initializeSortable();
+    focusItem(questionId, 'question');
 }
 
 function addQuestion() {
@@ -881,6 +971,7 @@ function addQuestion() {
 
     container.insertAdjacentHTML('beforeend', questionHtml);
     initializeSortable();
+    focusItem(questionId, 'question');
 }
 
 function removeQuestion(questionId) {

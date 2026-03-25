@@ -13,7 +13,6 @@ Include this in {% block styles %} for survey-related pages
     .question-header {
         background-color: #f8f9fa;
         padding: 0.75rem 1rem;
-        border-bottom: 1px solid #dee2e6;
         display: flex;
         justify-content: between;
         align-items: center;
@@ -186,15 +185,48 @@ Include this in {% block styles %} for survey-related pages
         background-color: #f0fdf4;
     }
 
+    .section-card {
+        cursor: pointer;
+    }
+
+    .section-card.is-active {
+        cursor: default;
+    }
+
+    .section-card:not(.is-active):hover {
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.1);
+    }
+
     .section-card-header {
         padding: 0.5rem 1rem;
         display: flex;
         align-items: center;
+    }
+
+    .section-card.is-active .section-card-header {
         border-bottom: 1px solid #c3e6cb;
     }
 
     .section-card-body {
+        display: none;
         padding: 0.5rem 1rem;
+    }
+
+    .section-card.is-active .section-card-body {
+        display: block;
+    }
+
+    .section-collapsed-preview {
+        font-size: 0.85rem;
+        color: #6c757d;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 60%;
+    }
+
+    .section-card.is-active .section-collapsed-preview {
+        display: none;
     }
 
     .section-card .section-title::placeholder,
@@ -206,6 +238,53 @@ Include this in {% block styles %} for survey-related pages
     /* Section navigation in take_survey */
     .survey-section-indicator {
         font-size: 0.9rem;
+    }
+
+    /* Collapsible question cards */
+    .question-card {
+        cursor: pointer;
+    }
+
+    .question-card.is-active {
+        cursor: default;
+    }
+
+    .question-card:not(.is-active):hover {
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.1);
+    }
+
+    .question-card-body {
+        display: none;
+        {% comment %} max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease; {% endcomment %}
+    }
+
+    .question-card.is-active .question-card-body {
+        display: block;
+        {% comment %} max-height: 2000px;
+        transition: max-height 0.4s ease; {% endcomment %}
+    }
+
+    .question-collapsed-preview {
+        font-size: 0.85rem;
+        color: #6c757d;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 60%;
+    }
+
+    .question-card.is-active .question-collapsed-preview {
+        display: none;
+    }
+
+    .question-header {
+        user-select: none;
+    }
+
+    .question-card.is-active .question-header {
+        border-bottom: 1px solid #dee2e6;
     }
 
     /* Utility classes */
