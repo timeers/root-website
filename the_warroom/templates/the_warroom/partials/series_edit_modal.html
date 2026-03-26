@@ -32,7 +32,16 @@
                 <hr>
 
                 <!-- Matches -->
-                <h6 class="fw-bold mb-3"><i class="bi bi-diagram-3-fill"></i> {% trans 'Matches' %}</h6>
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3-fill"></i> {% trans 'Matches' %}</h6>
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted">{% trans 'Scheduled time:' %}</small>
+                        <div class="btn-group btn-group-sm" role="group" id="tzToggleGroup">
+                            <button type="button" class="btn btn-outline-secondary active" id="tzLocalBtn" onclick="_setTzMode('local')">Local</button>
+                            <button type="button" class="btn btn-outline-secondary" id="tzUtcBtn" onclick="_setTzMode('utc')">UTC</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="mb-3">
                     <ul class="list-group" id="editSeriesMatches">
                         <!-- Populated by JS -->
@@ -90,6 +99,24 @@ let _seriesDeletedMatchIds = [];
 let _seriesNewMatchCount = 0;
 let _seriesRemovedSeatIds = [];
 let _seriesAddedParticipantIds = [];
+let _seriesTzMode = 'local';
+
+function _setTzMode(mode) {
+    if (mode === _seriesTzMode) return;
+    document.querySelectorAll('#editSeriesMatches input[type="datetime-local"]').forEach(input => {
+        const val = input.value;
+        if (!val) return;
+        if (mode === 'utc') {
+            input.value = new Date(val).toISOString().slice(0, 16);
+        } else {
+            const utcDate = new Date(val + 'Z');
+            input.value = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        }
+    });
+    _seriesTzMode = mode;
+    document.getElementById('tzLocalBtn').classList.toggle('active', mode === 'local');
+    document.getElementById('tzUtcBtn').classList.toggle('active', mode === 'utc');
+}
 
 const _SERIES_DISCORD_RE = /^https:\/\/(discord\.com|discordapp\.com)\//;
 const _SERIES_VIDEO_RE = /^https:\/\/(www\.)?(youtube\.com|youtu\.be|twitch\.tv)\//;
@@ -109,6 +136,9 @@ function openSeriesEditModal(seriesId) {
     _seriesNewMatchCount = 0;
     _seriesRemovedSeatIds = [];
     _seriesAddedParticipantIds = [];
+    _seriesTzMode = 'local';
+    document.getElementById('tzLocalBtn').classList.add('active');
+    document.getElementById('tzUtcBtn').classList.remove('active');
 
     document.getElementById('editSeriesId').value = seriesId;
     document.getElementById('editSeriesName').value = seriesData.name || '';
@@ -400,10 +430,13 @@ function saveSeriesEdit() {
         if (!matchId || li.dataset.isNew === 'true') return;
         const input = li.querySelector('input[type="datetime-local"]');
         const val = input ? input.value : '';
-        matchUpdates.push({
-            id: parseInt(matchId),
-            scheduled_time: val ? new Date(val).toISOString() : null,
-        });
+        let scheduledTime = null;
+        if (val) {
+            scheduledTime = _seriesTzMode === 'utc'
+                ? new Date(val + 'Z').toISOString()
+                : new Date(val).toISOString();
+        }
+        matchUpdates.push({ id: parseInt(matchId), scheduled_time: scheduledTime });
     });
     body.matches = matchUpdates;
 
@@ -588,23 +621,27 @@ function _updateSeriesCard(s) {
             newHr.className = 'my-2';
             cardBody.appendChild(newHr);
 
-            const gamesLabel = document.createElement('small');
-            gamesLabel.className = 'text-muted';
-            gamesLabel.textContent = 'Games:';
-            cardBody.appendChild(gamesLabel);
-
+            const _schedFmt = new Intl.DateTimeFormat(undefined, {
+                month: 'numeric', day: 'numeric', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+            });
             s.matches.forEach((m, idx) => {
                 const row = document.createElement('div');
-                row.className = 'd-flex align-items-center gap-2 small';
+                row.className = 'd-flex align-items-center gap-2 mb-1';
                 let actionHtml;
                 if (m.has_game && m.game_final) {
-                    actionHtml = `<a href="${m.game_url}" class="ms-auto" title="View Game"><i class="bi bi-box-arrow-up-right"></i></a>`;
+                    actionHtml = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>View</a>`;
                 } else if (m.has_game && !m.game_final) {
-                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm py-0 ms-auto" title="Edit Game"><i class="bi bi-pencil"></i></a>`;
+                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm ms-auto"><i class="bi bi-pencil-square me-1"></i></a>`;
                 } else {
-                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm py-0 ms-auto" title="Record Game"><i class="bi bi-plus-lg"></i></a>`;
+                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm ms-auto"><i class="bi bi-plus-lg"></i></a>`;
                 }
-                row.innerHTML = `<span>Game ${idx + 1}</span>${actionHtml}`;
+                let timeHtml = '';
+                if (m.scheduled_time) {
+                    const formatted = _schedFmt.format(new Date(m.scheduled_time));
+                    timeHtml = `<span class="text-muted small scheduled-time" data-utc="${m.scheduled_time}">${formatted}</span>`;
+                }
+                row.innerHTML = `<span>Game ${idx + 1}</span>${timeHtml}${actionHtml}`;
                 cardBody.appendChild(row);
             });
         }
@@ -617,14 +654,25 @@ function _updateSeriesCard(s) {
         if (s.number_of_games === 1 && s.matches.length === 1) {
             const m = s.matches[0];
             const footer = document.createElement('div');
-            footer.className = 'card-footer text-end';
-            if (m.has_game && m.game_final) {
-                footer.innerHTML = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>View Game</a>`;
-            } else if (m.has_game && !m.game_final) {
-                footer.innerHTML = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil me-1"></i>Edit Game</a>`;
-            } else {
-                footer.innerHTML = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg me-1"></i>Record Game</a>`;
+            footer.className = 'card-footer d-flex align-items-center';
+            const _footerFmt = new Intl.DateTimeFormat(undefined, {
+                month: 'numeric', day: 'numeric', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+            });
+            let timeSpan = '<span class="me-auto"></span>';
+            if (m.scheduled_time) {
+                const formatted = _footerFmt.format(new Date(m.scheduled_time));
+                timeSpan = `<span class="text-muted small scheduled-time me-auto" data-utc="${m.scheduled_time}">${formatted}</span>`;
             }
+            let actionBtn = '';
+            if (m.has_game && m.game_final) {
+                actionBtn = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right"></i></a>`;
+            } else if (m.has_game && !m.game_final) {
+                actionBtn = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil-square me-1"></i></a>`;
+            } else {
+                actionBtn = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg"></i></a>`;
+            }
+            footer.innerHTML = timeSpan + actionBtn;
             // Insert footer after card-body
             cardBody.parentElement.appendChild(footer);
         }

@@ -23,20 +23,26 @@
 <article class="d-flex content-section">
     <div class="w-100">
         <!-- Classification Tabs -->
-        <ul class="nav nav-tabs" id="seriesTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="groups-tab" data-bs-toggle="tab"
-                   href="#groups" role="tab" aria-controls="groups" aria-selected="false">{% trans 'Groups' %}</a>
-            </li>
-            <li class="nav-item" role="presentation">
-                <a class="nav-link active" id="tournaments-tab" data-bs-toggle="tab"
-                   href="#tournaments" role="tab" aria-controls="tournaments" aria-selected="true">{% trans 'Tournaments' %}</a>
-            </li>
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="leagues-tab" data-bs-toggle="tab"
-                   href="#leagues" role="tab" aria-controls="leagues" aria-selected="false">{% trans 'Leagues' %}</a>
-            </li>
-        </ul>
+        <div class="d-flex align-items-center justify-content-between">
+            <ul class="nav nav-tabs" id="seriesTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="groups-tab" data-bs-toggle="tab"
+                       href="#groups" role="tab" aria-controls="groups" aria-selected="false">{% trans 'Groups' %}</a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link active" id="tournaments-tab" data-bs-toggle="tab"
+                       href="#tournaments" role="tab" aria-controls="tournaments" aria-selected="true">{% trans 'Tournaments' %}</a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="leagues-tab" data-bs-toggle="tab"
+                       href="#leagues" role="tab" aria-controls="leagues" aria-selected="false">{% trans 'Leagues' %}</a>
+                </li>
+            </ul>
+            <a href="{% url 'about-series' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-info-circle"></i>
+                <span class="d-sm-inline">{% trans 'About' %}</span>
+            </a>
+        </div>
 
         <div class="tab-content" id="seriesTabsContent">
             <!-- Groups Tab -->

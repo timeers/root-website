@@ -38,11 +38,7 @@
                         {% endif %}
                     </strong>
                     <div class="d-flex align-items-center gap-1">
-                        {% if can_manage and not series.is_bye %}
-                        <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal({{ series.id }})" title="{% trans 'Edit' %}">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                        {% endif %}
+ 
                         {% if series.status == 'Completed' %}
                         <strong class="text-success">{% trans 'Complete' %}</strong>
                         <i class="bi bi-check-circle text-success"></i>
@@ -52,6 +48,11 @@
                         {% else %}
                         <strong class="text-secondary">{% trans 'Pending' %}</strong>
                         <i class="bi bi-circle text-secondary"></i>
+                        {% endif %}
+                        {% if can_manage and not series.is_bye %}
+                            <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal({{ series.id }})" title="{% trans 'Edit' %}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
                         {% endif %}
                     </div>
                 </div>
@@ -97,20 +98,24 @@
                     {% for match in series.matches.all %}
                     <div class="d-flex align-items-center gap-2 mb-1">
                         <span>{% trans 'Game' %} {{ forloop.counter }}</span>
+                        {% if match.scheduled_time %}
+                        <span class="text-muted small scheduled-time" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
+                        {% endif %}
+
                         {% if match.game %}
                             {% if match.game.final %}
-                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
                             {% elif match.id in recordable_match_ids %}
-                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm ms-auto"><i class="bi bi-pencil me-1"></i>{% trans 'Edit Game' %}</a>
+                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm ms-auto"><i class="bi bi-pencil-square me-1"></i></a>
                             {% else %}
-                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
                             {% endif %}
                         {% elif match.id in recordable_match_ids %}
-                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm ms-auto"><i class="bi bi-plus-lg me-1"></i>{% trans 'Record Game' %}</a>
+                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm ms-auto"><i class="bi bi-plus-lg"></i></a>
                         {% elif match.status == 'Completed' %}
-                        <span class="badge bg-success ms-auto">{% trans 'Done' %}</span>
+                            <span class="badge bg-success ms-auto">{% trans 'Done' %}</span>
                         {% else %}
-                        <span class="text-muted ms-auto">—</span>
+                            <span class="text-muted ms-auto">—</span>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -120,17 +125,22 @@
                 {% if series.number_of_games == 1 %}
                     {% with match=series.matches.all.0 %}
                     {% if match %}
-                    <div class="card-footer text-end">
+                    <div class="card-footer d-flex align-items-center">
+                        {% if match.scheduled_time %}
+                        <span class="text-muted small scheduled-time me-auto" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
+                        {% else %}
+                        <span class="me-auto"></span>
+                        {% endif %}
                         {% if match.game %}
                             {% if match.game.final %}
-                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
                             {% elif match.id in recordable_match_ids %}
-                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil me-1"></i>{% trans 'Edit Game' %}</a>
+                            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil-square me-1"></i>{% trans 'Edit' %}</a>
                             {% else %}
-                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View Game' %}</a>
+                            <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
                             {% endif %}
                         {% elif match.id in recordable_match_ids %}
-                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg me-1"></i>{% trans 'Record Game' %}</a>
+                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg me-1"></i>{% trans 'Record' %}</a>
                         {% endif %}
                     </div>
                     {% endif %}
@@ -157,4 +167,17 @@
     {% endif %}
 
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var fmt = new Intl.DateTimeFormat(undefined, {
+        month: 'numeric', day: 'numeric', year: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+        timeZoneName: 'short'
+    });
+    document.querySelectorAll('.scheduled-time[data-utc]').forEach(function(el) {
+        var d = new Date(el.dataset.utc);
+        if (!isNaN(d)) el.textContent = fmt.format(d);
+    });
+});
+</script>
 {% endblock %}

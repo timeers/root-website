@@ -32,42 +32,53 @@
                 </a>
             {% endif %}
         </nav>
-
+        {% if user.is_authenticated %}
         <!-- Action Buttons -->
         <div class="section-nav-action-buttons">
 
                 <!-- Desktop buttons for Games-related pages -->
                 <div class="section-nav-actions-desktop">
+                    {% if user.profile.player and active_page == 'series' %}
+                        <a class="btn btn-primary btn-sm" href="{% url 'tournament-dynamic-create' %}">
+                            <i class="bi bi-plus-circle"></i>
+                            <span class="d-none d-sm-inline">
+                            {% trans 'New Series' %}
+                            </span>
+                        </a>
+                    {% else %}
                     <div class="btn-group">
                         <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                            {% trans 'Record' %} +
+                            <i class="bi bi-plus-circle"></i>
+                            <span class="d-none d-sm-inline">
+                            {% trans 'Record' %}
+                            </span>
                         </button>
                         <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="{% url 'record-game-v2' %}">{% trans 'New Game' %}</a></li>
                             <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
-                            {% if user.profile.player and active_page == 'series' %}
-                            <li><a class="dropdown-item" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a></li>
-                            {% endif %}
                         </ul>
                     </div>
+                    {% endif %}
                 </div>
 
                 <!-- Mobile dropdown for Games-related pages -->
                 <div class="section-nav-actions-mobile">
-                    <div class="btn-group">
-                        <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                            {% trans 'Record' %} +
-                        </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="{% url 'record-game-v2' %}">{% trans 'New Game' %}</a></li>
-                            <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
-                            {% if user.profile.player and active_page == 'series' %}
-                            <li><a class="dropdown-item" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a></li>
-                            {% endif %}
-                        </ul>
-                    </div>
+                    {% if user.profile.player and active_page == 'series' %}
+                        <a class="btn btn-success" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a>
+                    {% else %}
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                {% trans 'Record' %} +
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="{% url 'record-game-v2' %}">{% trans 'New Game' %}</a></li>
+                                <li><a class="dropdown-item" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %}</a></li>
+                            </ul>
+                        </div>
+                    {% endif %}
                 </div>
 
         </div>
+        {% endif %}
     </div>
 </article>

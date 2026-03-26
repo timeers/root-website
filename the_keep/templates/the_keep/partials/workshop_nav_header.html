@@ -19,7 +19,7 @@
                 {% trans 'Surveys' %}
             </a>
         </nav>
-
+        {% if user.is_authenticated %}
         <!-- Action Buttons -->
         <div class="section-nav-action-buttons">
             <div class="btn-group">
@@ -39,5 +39,6 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
     </div>
 </article>
