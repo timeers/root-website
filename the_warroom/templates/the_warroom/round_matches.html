@@ -140,7 +140,7 @@
                             <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
                             {% endif %}
                         {% elif match.id in recordable_match_ids %}
-                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg me-1"></i>{% trans 'Record' %}</a>
+                        <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg"></i></a>
                         {% endif %}
                     </div>
                     {% endif %}

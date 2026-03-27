@@ -1748,6 +1748,22 @@ def tournament_overview_page(request, slug):
                 'rounds__games__efforts__player',
                 distinct=True
             ),
+            annotated_scheduled_count=Count(
+                'rounds__series__matches',
+                filter=Q(
+                    rounds__series__matches__scheduled_time__isnull=False,
+                    rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                ),
+                distinct=True
+            ),
+            annotated_pending_count=Count(
+                'rounds__series__matches',
+                filter=Q(
+                    rounds__series__matches__scheduled_time__isnull=True,
+                    rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                ),
+                distinct=True
+            ),
         ).order_by('order')
         context['children'] = children
         context['children_type'] = 'stages'
@@ -1765,6 +1781,22 @@ def tournament_overview_page(request, slug):
                         'games__efforts__player',
                         distinct=True
                     ),
+                    annotated_scheduled_count=Count(
+                        'series__matches',
+                        filter=Q(
+                            series__matches__scheduled_time__isnull=False,
+                            series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                        ),
+                        distinct=True
+                    ),
+                    annotated_pending_count=Count(
+                        'series__matches',
+                        filter=Q(
+                            series__matches__scheduled_time__isnull=True,
+                            series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                        ),
+                        distinct=True
+                    ),
                 ).order_by('round_number')
                 context['children'] = children
                 context['children_type'] = 'rounds'
@@ -1773,6 +1805,17 @@ def tournament_overview_page(request, slug):
                 single_round = get_single_round(tournament, stage=single_stage)
                 context['single_round'] = single_round
                 context['single_stage'] = single_stage
+
+    context['scheduled_count'] = Match.objects.filter(
+        round__stage__tournament=tournament,
+        scheduled_time__isnull=False,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+    ).count()
+    context['pending_count'] = Match.objects.filter(
+        round__stage__tournament=tournament,
+        scheduled_time__isnull=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+    ).count()
 
     return render(request, 'the_warroom/tournament_overview.html', context)
 
@@ -2897,6 +2940,17 @@ def round_overview_page(request, tournament_slug, round_slug, stage_slug=None):
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'overview'
+
+    context['scheduled_count'] = Match.objects.filter(
+        round=round,
+        scheduled_time__isnull=False,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+    ).count()
+    context['pending_count'] = Match.objects.filter(
+        round=round,
+        scheduled_time__isnull=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+    ).count()
 
     return render(request, 'the_warroom/round_overview.html', context)
 
@@ -4083,12 +4137,39 @@ def stage_overview_page(request, tournament_slug, stage_slug):
                 'games__efforts__player',
                 distinct=True
             ),
+            annotated_scheduled_count=Count(
+                'series__matches',
+                filter=Q(
+                    series__matches__scheduled_time__isnull=False,
+                    series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                ),
+                distinct=True
+            ),
+            annotated_pending_count=Count(
+                'series__matches',
+                filter=Q(
+                    series__matches__scheduled_time__isnull=True,
+                    series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                ),
+                distinct=True
+            ),
         ).order_by('round_number')
         context['children'] = children
         context['children_type'] = 'rounds'
     else:
         single_round = get_single_round(tournament, stage=stage)
         context['single_round'] = single_round
+
+    context['scheduled_count'] = Match.objects.filter(
+        round__stage=stage,
+        scheduled_time__isnull=False,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+    ).count()
+    context['pending_count'] = Match.objects.filter(
+        round__stage=stage,
+        scheduled_time__isnull=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+    ).count()
 
     return render(request, 'the_warroom/stage_overview.html', context)
 

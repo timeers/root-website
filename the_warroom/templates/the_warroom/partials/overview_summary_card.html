@@ -24,6 +24,14 @@
                         {% endif %}
                         <small class="text-secondary d-block">
                             {{ item.game_count }} {% trans 'game' %}{{ item.game_count|pluralize }}
+                            {% if scheduled_count %}
+                                &middot;
+                                {{ scheduled_count }} {% trans 'scheduled' %}
+                            {% endif %}
+                            {% if pending_count %}
+                                &middot;
+                                {{ pending_count }} {% trans 'pending' %}
+                            {% endif %}
                             &middot;
                             {{ item.all_player_count }} {% trans 'player' %}{{ item.all_player_count|pluralize }}
                         </small>

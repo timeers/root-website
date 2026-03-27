@@ -16,6 +16,14 @@
             {% endif %}
             <small class="text-secondary d-block">
                 {{ item.annotated_game_count }} {% trans 'game' %}{{ item.annotated_game_count|pluralize }}
+                {% if item.annotated_scheduled_count %}
+                    &middot;
+                    {{ item.annotated_scheduled_count }} {% trans 'scheduled' %}
+                {% endif %}
+                {% if item.annotated_pending_count %}
+                    &middot;
+                    {{ item.annotated_pending_count }} {% trans 'pending' %}
+                {% endif %}
                 &middot;
                 {{ item.unique_players_count }} {% trans 'player' %}{{ item.unique_players_count|pluralize }}
                 {% if item.start_date %}
