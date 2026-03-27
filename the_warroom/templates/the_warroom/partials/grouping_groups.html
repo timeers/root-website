@@ -1,11 +1,11 @@
 {% load i18n %}
-{# Shared partial: Participant Groups card #}
+{# Shared partial: Player Groups card #}
 {# Requires context: stage, groups, is_processing, editable #}
 
 {% if stage and not is_processing %}
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-columns-gap"></i> {% trans 'Participant Groups' %}</h5>
+        <h5 class="mb-0"><i class="bi bi-columns-gap"></i> {% trans 'Player Groups' %}</h5>
     </div>
     <div class="card-body">
 
@@ -13,7 +13,7 @@
             <div class="alert alert-success mb-4">
                 <i class="bi bi-lock-fill"></i>
                 <strong>{% trans 'Grouping Finalized' %}</strong>
-                <p class="mb-0">Groups have been finalized and can no longer be modified.</p>
+                <p class="mb-0">Groups have been finalized and can only be modified manually.</p>
             </div>
         {% endif %}
         <div class="row g-3 mb-4" id="groups-container">
@@ -117,6 +117,21 @@
             </div>
             {% endif %}
         </div>
+        {% if editable and groups %}
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-success btn-sm" onclick="finalizeSession()">
+                <i class="bi bi-lock-fill"></i> {% trans 'Finalize Groups' %}
+            </button>
+            <form method="post" style="display: inline;">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reset_session">
+                <button type="submit" class="btn btn-outline-warning btn-sm"
+                        onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
+                    <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Clear Groups' %}
+                </button>
+            </form>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% if groups %}

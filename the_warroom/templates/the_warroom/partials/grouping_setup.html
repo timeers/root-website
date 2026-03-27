@@ -14,16 +14,6 @@
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-gear"></i> {% trans 'Grouping Settings' %}</h5>
-            {% if stage and not is_processing %}
-            <form method="post" style="display: inline;">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="reset_session">
-                <button type="submit" class="btn btn-sm btn-outline-danger"
-                        onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
-                    <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Reset' %}
-                </button>
-            </form>
-            {% endif %}
         </div>
     <div class="card-body">
         {% if total_players == 0 %}
@@ -160,11 +150,10 @@
             {% endif %}
 
             <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary" {% if total_players == 0 %}disabled{% endif %}>
+                <button type="submit" class="btn btn-primary btn-sm" {% if total_players == 0 %}disabled{% endif %}>
                     <i class="bi bi-play-fill"></i>
-                    {% trans 'Generate Groups' %}
+                    {% if groups %}{% trans 'Regenerate Groups' %}{% else %}{% trans 'Generate Groups' %}{% endif %}
                 </button>
-                <a href="{{ round.get_settings_url }}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
             </div>
         </form>
     </div>

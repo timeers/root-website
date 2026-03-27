@@ -21,18 +21,6 @@
             <h1 class="root-title mb-2">{% if is_finalized %}{% trans 'Match Generation' %}{% else %}{% trans 'Player Grouping' %}{% endif %}</h1>
             <p class="text-muted mb-0">{{ tournament.name }} - {{ round.name|default:round.round_number }}</p>
         </div>
-        {% if stage and not is_processing %}
-        <div class="d-flex gap-2">
-            {% if not is_finalized %}
-            <button class="btn btn-success" onclick="finalizeSession()">
-                <i class="bi bi-check-lg"></i> {% trans 'Finalize' %}
-            </button>
-            {% endif %}
-            {% if is_finalized %}
-            <span class="badge bg-success fs-6"><i class="bi bi-check-circle"></i> {% trans 'Finalized' %}</span>
-            {% endif %}
-        </div>
-        {% endif %}
     </div>
 
     <!-- Round Stats -->
