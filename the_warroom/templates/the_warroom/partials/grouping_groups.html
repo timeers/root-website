@@ -125,9 +125,9 @@
             <form method="post" style="display: inline;">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="reset_session">
-                <button type="submit" class="btn btn-outline-warning btn-sm"
+                <button type="submit" class="btn btn-outline-danger btn-sm"
                         onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
-                    <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Clear Groups' %}
+                    <i class="bi bi-trash3"></i> {% trans 'Clear Groups' %}
                 </button>
             </form>
         </div>

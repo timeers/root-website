@@ -2,7 +2,6 @@ from django.db.models.signals import pre_delete, pre_save, post_save, post_delet
 from django.dispatch import receiver
 from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus
 from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name
-from .services.winrate_service import calculate_and_cache_winrate
 
 @receiver(pre_save, sender=Effort)
 def effort_pre_save_snapshot(sender, instance, **kwargs):
@@ -72,16 +71,24 @@ def _collect_winrate_objects(instance, include_old=False):
     return objects_to_update
 
 
+def _obj_to_tuple(obj):
+    return (obj._meta.app_label, obj._meta.model_name, obj.pk)
+
+
 @receiver(post_save, sender=Effort)
 def handle_effort_save_update_winrates(sender, instance, **kwargs):
-    for obj in _collect_winrate_objects(instance, include_old=True):
-        calculate_and_cache_winrate(obj)
+    objects = _collect_winrate_objects(instance, include_old=True)
+    if objects:
+        from .tasks import update_cached_winrates
+        update_cached_winrates.delay([_obj_to_tuple(obj) for obj in objects])
 
 
 @receiver(post_delete, sender=Effort)
 def handle_effort_delete_update_winrates(sender, instance, **kwargs):
-    for obj in _collect_winrate_objects(instance, include_old=False):
-        calculate_and_cache_winrate(obj)
+    objects = _collect_winrate_objects(instance, include_old=False)
+    if objects:
+        from .tasks import update_cached_winrates
+        update_cached_winrates.delay([_obj_to_tuple(obj) for obj in objects])
 
 
 @receiver(pre_save, sender=Tournament)
@@ -172,13 +179,17 @@ def game_post_save_check_match(sender, instance, **kwargs):
     old_test_match = getattr(instance, '_pre_save_test_match', None)
     if old_final != instance.final or old_test_match != instance.test_match:
         seen = {'faction': set(), 'vagabond': set(), 'player': set()}
+        objects_to_update = []
         for effort in instance.efforts.select_related('faction', 'vagabond', 'player'):
             if effort.faction_id and effort.faction_id not in seen['faction']:
                 seen['faction'].add(effort.faction_id)
-                calculate_and_cache_winrate(effort.faction)
+                objects_to_update.append(_obj_to_tuple(effort.faction))
             if effort.vagabond_id and effort.vagabond_id not in seen['vagabond']:
                 seen['vagabond'].add(effort.vagabond_id)
-                calculate_and_cache_winrate(effort.vagabond)
+                objects_to_update.append(_obj_to_tuple(effort.vagabond))
             if effort.player_id and effort.player_id not in seen['player']:
                 seen['player'].add(effort.player_id)
-                calculate_and_cache_winrate(effort.player)
+                objects_to_update.append(_obj_to_tuple(effort.player))
+        if objects_to_update:
+            from .tasks import update_cached_winrates
+            update_cached_winrates.delay(objects_to_update)

@@ -87,24 +87,10 @@
             </div>
             {% endif %}
         </div>
-
-        {% if not is_bracket_finalized %}
-        <div class="d-flex gap-2 mb-3">
-            <button class="btn btn-success btn-sm" onclick="finalizeBracket()">
-                <i class="bi bi-lock-fill"></i> {% trans 'Finalize Bracket' %}
-            </button>
-            <button class="btn btn-outline-warning btn-sm" onclick="document.getElementById('bracketConfigForm').style.display = 'block'; this.parentElement.style.display = 'none';">
-                <i class="bi bi-arrow-counterclockwise"></i> {% trans 'Regenerate Bracket' %}
-            </button>
-        </div>
         {% endif %}
 
-        <div id="bracketConfigForm" style="display: none;">
-        {% else %}
+        {% if not is_bracket_finalized %}
         <div id="bracketConfigForm">
-        {% endif %}
-
-        {% if not is_bracket_finalized %}
             <div class="row g-3 mb-3">
                 <div class="col-md-6">
                     <label for="best_of" class="form-label fw-bold">{% trans 'Games per Match Series' %}</label>
@@ -115,7 +101,7 @@
                         </option>
                         {% endfor %}
                     </select>
-                    <small class="text-muted">How many games are played per match-up</small>
+                    <small class="text-muted">How many games are played per group</small>
                 </div>
 
                 <div class="col-md-6">
@@ -164,13 +150,20 @@
                 </div>
             </div>
             {% endif %}
+            
+            {% if has_matches %}
+            <button class="btn btn-success btn-sm ms-2" onclick="finalizeBracket()">
+                <i class="bi bi-lock-fill"></i> {% trans 'Finalize Bracket' %}
+            </button>
+            {% endif %}
 
             <button class="btn btn-primary btn-sm" onclick="generateBracket()">
                 <i class="bi bi-diagram-3"></i>
                 {% if has_matches %}{% trans 'Regenerate Bracket' %}{% else %}{% trans 'Generate Bracket' %}{% endif %}
             </button>
-        {% endif %}
+
         </div>
+        {% endif %}
     </div>
 </div>
 
@@ -181,6 +174,25 @@
 {# Ungrouped Players (read-only) - hidden once bracket is finalized #}
 {% include 'the_warroom/partials/grouping_ungrouped.html' with editable=False %}
 {% endif %}
+
+<!-- Finalize Bracket Confirmation Modal -->
+<div class="modal fade" id="finalizeBracketModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-diagram-3"></i> {% trans 'Finalize Bracket' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Once finalized, matches can no longer be regenerated.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-success" onclick="confirmFinalizeBracket()">{% trans 'Finalize' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <style>
 .group-card {
@@ -362,7 +374,11 @@ function generateBracket() {
 }
 
 function finalizeBracket() {
-    if (!confirm('Finalize the bracket? Matches can no longer be regenerated.')) return;
+    const modal = new bootstrap.Modal(document.getElementById('finalizeBracketModal'));
+    modal.show();
+}
+
+function confirmFinalizeBracket() {
     fetch('{{ bracket_finalize_url }}', {
         method: 'POST',
         headers: {

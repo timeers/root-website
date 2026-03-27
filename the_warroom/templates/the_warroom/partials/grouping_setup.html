@@ -151,7 +151,7 @@
 
             <div class="d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm" {% if total_players == 0 %}disabled{% endif %}>
-                    <i class="bi bi-play-fill"></i>
+                    <i class="bi bi-columns-gap"></i>
                     {% if groups %}{% trans 'Regenerate Groups' %}{% else %}{% trans 'Generate Groups' %}{% endif %}
                 </button>
             </div>
@@ -203,7 +203,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">{% trans 'Finalize Groups' %}</h5>
+                <h5 class="modal-title"><i class="bi bi-columns-gap"></i> {% trans 'Finalize Groups' %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">

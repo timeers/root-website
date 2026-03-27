@@ -15,6 +15,23 @@ from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_mes
 
 from .models import Game, Tournament, Stage, Round, CompetitionStatus
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
+from .services.winrate_service import calculate_and_cache_winrate
+
+
+@shared_task
+def update_cached_winrates(objects_to_update):
+    """
+    Recalculate cached winrates for a list of (app_label, model_name, pk) tuples.
+    Called asynchronously from signals after Effort/Game saves.
+    """
+    from django.apps import apps
+    for app_label, model_name, pk in objects_to_update:
+        try:
+            model = apps.get_model(app_label, model_name)
+            obj = model.objects.get(pk=pk)
+            calculate_and_cache_winrate(obj)
+        except Exception:
+            pass
 
 
 @shared_task
