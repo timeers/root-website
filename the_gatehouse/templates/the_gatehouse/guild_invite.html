@@ -70,7 +70,14 @@
           </div>
         </div>
       </div>
-      
+
+      {% if guild.approval_message %}
+      <div class="alert alert-primary mt-3">
+        <i class="bi bi-info-circle"></i>
+        {{ guild.approval_message }}
+      </div>
+      {% endif %}
+
       {% else %}
       <!-- Error State -->
       <div class="alert alert-danger">

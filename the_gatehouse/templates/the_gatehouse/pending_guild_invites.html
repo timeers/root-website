@@ -50,92 +50,94 @@
                                         </button>
                                     </td>
                                 </tr>
-
-                                <!-- Response Modal -->
-                                <div class="modal fade" id="respondModal{{ invite.id }}" tabindex="-1" aria-labelledby="respondModalLabel{{ invite.id }}" aria-hidden="true">
-                                    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-                                        <div class="modal-content">
-                                            <div class="modal-header">
-                                                <h5 class="modal-title" id="respondModalLabel{{ invite.id }}">
-                                                    <i class="bi bi-person-badge"></i>
-                                                    {{ invite.profile.name }}'s Request to Join {{ invite.guild.name }}
-                                                </h5>
-                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                            </div>
-                                            <div class="modal-body">
-                                                <!-- Request Message -->
-                                                <div class="mb-4">
-                                                    <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
-                                                        <i class="bi bi-chat-left-text me-1"></i> Request Message
-                                                    </h6>
-                                                    <div class="p-3 bg-light border rounded">
-                                                        {{ invite.request_message|linebreaks }}
-                                                    </div>
-                                                </div>
-
-                                                <!-- Agreement Message -->
-                                                <div class="mb-4">
-                                                    <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
-                                                        <i class="bi bi-check-circle me-1"></i> Agreement Response
-                                                    </h6>
-                                                    <div class="p-3 bg-light border rounded">
-                                                        {{ invite.agreement_message|linebreaks }}
-                                                    </div>
-                                                </div>
-
-                                                <!-- Moderator Response Form -->
-                                                <form id="respondForm{{ invite.id }}" method="post">
-                                                    {% csrf_token %}
-
-                                                    <!-- User Message -->
-                                                    <div class="mb-3">
-                                                        <label for="moderatorMessage{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
-                                                            <i class="bi bi-chat-dots me-1"></i> Message to User (Optional)
-                                                        </label>
-                                                        <textarea class="form-control"
-                                                                  id="moderatorMessage{{ invite.id }}"
-                                                                  name="moderator_message"
-                                                                  rows="3"
-                                                                  placeholder="Add a message that will be shown to the user..."></textarea>
-                                                        <small class="form-text text-muted">This message will be visible to the user on their request status page.</small>
-                                                    </div>
-
-                                                    <!-- Internal Note -->
-                                                    <div class="mb-3">
-                                                        <label for="moderatorNote{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
-                                                            <i class="bi bi-pencil-square me-1"></i> Internal Note (Optional)
-                                                        </label>
-                                                        <textarea class="form-control"
-                                                                  id="moderatorNote{{ invite.id }}"
-                                                                  name="moderator_note"
-                                                                  rows="2"
-                                                                  placeholder="Add an internal note for moderator records..."></textarea>
-                                                        <small class="form-text text-muted">This note is only visible to moderators and will not be sent to the user.</small>
-                                                    </div>
-                                                </form>
-                                            </div>
-                                            <div class="modal-footer">
-                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                                    Cancel
-                                                </button>
-                                                <button type="button"
-                                                        class="btn btn-danger"
-                                                        onclick="submitResponse({{ invite.id }}, 'reject')">
-                                                    <i class="bi bi-x-circle"></i> Reject
-                                                </button>
-                                                <button type="button"
-                                                        class="btn btn-success"
-                                                        onclick="submitResponse({{ invite.id }}, 'approve')">
-                                                    <i class="bi bi-check-circle"></i> Approve
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
+
+                {% for invite in pending_invites %}
+                    <!-- Response Modal -->
+                    <div class="modal fade" id="respondModal{{ invite.id }}" tabindex="-1" aria-labelledby="respondModalLabel{{ invite.id }}" aria-hidden="true">
+                        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="respondModalLabel{{ invite.id }}">
+                                        <i class="bi bi-person-badge"></i>
+                                        {{ invite.profile.name }}'s Request to Join {{ invite.guild.name }}
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <!-- Request Message -->
+                                    <div class="mb-4">
+                                        <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
+                                            <i class="bi bi-chat-left-text me-1"></i> Request Message
+                                        </h6>
+                                        <div class="p-3 bg-light border rounded">
+                                            {{ invite.request_message|linebreaks }}
+                                        </div>
+                                    </div>
+
+                                    <!-- Agreement Message -->
+                                    <div class="mb-4">
+                                        <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
+                                            <i class="bi bi-check-circle me-1"></i> Agreement Response
+                                        </h6>
+                                        <div class="p-3 bg-light border rounded">
+                                            {{ invite.agreement_message|linebreaks }}
+                                        </div>
+                                    </div>
+
+                                    <!-- Moderator Response Form -->
+                                    <form id="respondForm{{ invite.id }}" method="post">
+                                        {% csrf_token %}
+
+                                        <!-- User Message -->
+                                        <div class="mb-3">
+                                            <label for="moderatorMessage{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
+                                                <i class="bi bi-chat-dots me-1"></i> Message to User (Optional)
+                                            </label>
+                                            <textarea class="form-control"
+                                                      id="moderatorMessage{{ invite.id }}"
+                                                      name="moderator_message"
+                                                      rows="3"
+                                                      placeholder="Add a message that will be shown to the user..."></textarea>
+                                            <small class="form-text text-muted">This message will be visible to the user on their request status page.</small>
+                                        </div>
+
+                                        <!-- Internal Note -->
+                                        <div class="mb-3">
+                                            <label for="moderatorNote{{ invite.id }}" class="form-label text-uppercase text-muted" style="font-size: 0.85rem; font-weight: 600;">
+                                                <i class="bi bi-pencil-square me-1"></i> Internal Note (Optional)
+                                            </label>
+                                            <textarea class="form-control"
+                                                      id="moderatorNote{{ invite.id }}"
+                                                      name="moderator_note"
+                                                      rows="2"
+                                                      placeholder="Add an internal note for moderator records..."></textarea>
+                                            <small class="form-text text-muted">This note is only visible to moderators and will not be sent to the user.</small>
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                        Cancel
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-danger"
+                                            onclick="submitResponse({{ invite.id }}, 'reject')">
+                                        <i class="bi bi-x-circle"></i> Reject
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-success"
+                                            onclick="submitResponse({{ invite.id }}, 'approve')">
+                                        <i class="bi bi-check-circle"></i> Approve
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
             </div>
         </article>
     {% else %}
