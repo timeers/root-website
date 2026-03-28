@@ -461,17 +461,11 @@ class BracketService:
         Check if all match series in the round are complete.
         If so, mark the round and potentially the stage as completed.
         """
-        all_series = round.series.all()
-        if not all_series.exists():
+        all_series = list(round.series.prefetch_related('winners', 'matches').all())
+        if not all_series:
             return
 
-        # Single query: any series with no winners and at least one non-completed match is incomplete
-        incomplete_exists = all_series.filter(
-            winners__isnull=True,
-            matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
-        ).distinct().exists()
-
-        if not incomplete_exists:
+        if all(s.is_complete() for s in all_series):
             round.status = CompetitionStatus.COMPLETED
             round.save(update_fields=['status'])
 
