@@ -1211,7 +1211,8 @@ class Round(models.Model):
         """Return Profiles eligible to play in this round.
         If open_roster: all profiles. Otherwise: stage participants (ACTIVE),
         falling back to tournament-level registered players."""
-        if self.tournament.open_roster:
+        tournament = self.get_tournament()
+        if tournament.open_roster:
             return Profile.objects.all()
         if self.stage:
             stage_players = Profile.objects.filter(
@@ -1221,7 +1222,7 @@ class Round(models.Model):
             if stage_players.exists():
                 return stage_players
         return Profile.objects.filter(
-            tournament_participations__tournament=self.tournament,
+            tournament_participations__tournament=tournament,
             tournament_participations__status=TournamentPlayer.StatusChoices.REGISTERED,
         )
 
