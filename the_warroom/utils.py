@@ -1,6 +1,6 @@
 import re
 
-from the_gatehouse.services.discordservice import send_discord_message
+from the_gatehouse.tasks import send_discord_message_task
 
 from better_profanity import profanity
 profanity.load_censor_words()
@@ -43,8 +43,37 @@ def clean_nickname(raw_title):
     # If nickname contains profanity, censor it
     if profanity.contains_profanity(nickname):
         new_nickname = profanity.censor(nickname)
-        send_discord_message(f'Nickname "{nickname}" replaced with "{new_nickname}"')
+        send_discord_message_task.delay(f'Nickname "{nickname}" replaced with "{new_nickname}"')
         nickname = new_nickname
         
 
     return nickname[:50]  # Truncate to 50 characters
+
+
+def get_single_round(tournament, stage):
+    use_stages = tournament.use_stages
+    use_rounds = tournament.use_rounds
+
+    if not stage and not use_stages:
+        only_stage = tournament.stages.first()
+    elif stage:
+        only_stage = stage
+    else:
+        only_stage = None
+
+    if not use_rounds and only_stage:
+        only_round = only_stage.rounds.first()
+    else:
+        only_round = None
+
+    return only_round
+
+def get_single_stage(tournament):
+    use_stages = tournament.use_stages
+
+    if not use_stages:
+        only_stage = tournament.stages.first()
+    else:
+        only_stage = None
+
+    return only_stage

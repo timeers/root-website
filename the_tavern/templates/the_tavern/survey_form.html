@@ -1,0 +1,142 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% load survey_filters %}
+{% block title %}{% if is_edit_mode %}{% trans 'Edit Survey' %}{% else %}{% trans 'Create Survey' %}{% endif %} | {% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-section">
+    {% if is_edit_mode %}
+    <div class="mb-4 d-flex justify-content-between align-items-center">
+        <a href="{{ return_to }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {{ return_title }}
+        </a>
+    </div>
+    {% else %}
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+    {% endif %}
+
+
+    <h1 class="root-title">{% if is_edit_mode %}{% trans 'Edit Survey' %}{% else %}{% trans 'Create New Survey' %}{% endif %}</h1>
+
+    <form method="POST" id="survey-form" novalidate>
+        {% csrf_token %}
+
+        {# Survey Basic Information - Shared Partial #}
+        {% include 'the_tavern/partials/survey_settings_form.html' %}
+
+        {# Questions Section #}
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{% trans 'Questions' %}</h5>
+            </div>
+            <div class="card-body" id="questions-container">
+                {% if is_edit_mode and survey.questions.all %}
+                    {# Existing questions will be loaded here #}
+                {% else %}
+                    <p class="text-muted">{% trans 'No questions added yet. Click "Add Question" to get started.' %}</p>
+                {% endif %}
+            </div>
+            <div class="card-footer d-flex justify-content-end align-items-center">
+                {% if is_edit_mode %}
+                <div class="hidden-questions-dropdown" style="display: none;">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-eye"></i> {% trans 'Restore Hidden' %} (<span class="hidden-questions-count">0</span>)
+                        </button>
+                        <ul class="dropdown-menu hidden-questions-menu">
+                        </ul>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#templateModal">
+                        <i class="bi bi-download"></i> {% trans 'Load from Template' %}
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="addPageBreak()">
+                        <i class="bi bi-arrows-expand"></i> {% trans 'Add Section' %}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="addQuestion()">
+                        <i class="bi bi-plus-circle"></i> {% trans 'Add Question' %}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {# Hidden inputs to store questions and sections JSON data #}
+        <input type="hidden" name="questions_data" id="questions-data">
+        <input type="hidden" name="sections_data" id="sections-data">
+
+        {% if is_edit_mode %}
+        <div class="d-none d-md-flex justify-content-between">
+            <div>
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            </div>
+            <div>
+                <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
+                    <i class="bi bi-copy"></i> {% trans 'Duplicate' %}
+                </button>
+                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteSurveyModal">
+                    <i class="bi bi-trash"></i> {% trans 'Delete' %}
+                </button>
+                <button type="submit" class="btn btn-success fw-semibold">
+                    <i class="bi bi-check-circle"></i> {% trans 'Save Changes' %}
+                </button>
+            </div>
+        </div>
+        <div class="d-flex d-md-none justify-content-between">
+            <div>
+            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-sm btn-outline-secondary">{% trans 'Cancel' %}</a>
+            </div>
+            <div>
+                <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
+                    <i class="bi bi-copy"></i> {% trans 'Duplicate' %}
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteSurveyModal">
+                    <i class="bi bi-trash"></i> {% trans 'Delete' %}
+                </button>
+                <button type="submit" class="btn btn-success btn-sm fw-semibold">
+                    <i class="bi bi-check-circle"></i> {% trans 'Save Changes' %}
+                </button>
+            </div>
+        </div>
+        {% else %}
+        <div class="d-flex justify-content-between">
+            <a href="{% url 'survey-list' %}" class="btn btn-outline-secondary">{% trans 'Cancel' %}</a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check-circle"></i> {% trans 'Create Survey' %}
+            </button>
+        </div>
+        {% endif %}
+    </form>
+</div>
+
+{# Save Question as Template Modal #}
+{% include 'the_tavern/modals/save_template_modal.html' %}
+
+{# Template Selection Modal #}
+{% include 'the_tavern/modals/template_selection_modal.html' %}
+
+{% if is_edit_mode %}
+{# Duplicate Survey Confirmation Modal #}
+{% include 'the_tavern/modals/duplicate_survey_modal.html' %}
+
+{# Delete Survey Confirmation Modal #}
+{% include 'the_tavern/modals/delete_survey_modal.html' %}
+{% endif %}
+
+{# Add Guild from Invite Modal #}
+{% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='guild' %}
+
+{% endblock content %}
+
+{% block styles %}
+{% include 'the_tavern/partials/survey_styles.html' %}
+{% endblock styles %}
+
+{% block scripts %}
+{% include 'the_tavern/partials/survey_form_scripts.html' %}
+{% endblock scripts %}

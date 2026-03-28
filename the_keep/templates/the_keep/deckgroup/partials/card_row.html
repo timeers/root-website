@@ -9,6 +9,7 @@
         data-card-text="{{ card.text|default:'' }}"
         data-card-image="{% if card.front_image %}{{ card.front_image.url }}{% endif %}"
         data-card-tags='{{ card.tags|json_encode|default:"[]" }}'
+        data-card-faqs='{% if card.faqs.all %}[{% for faq in card.faqs.all %}{"q":"{{ faq.question|escapejs }}","a":"{{ faq.answer|escapejs }}"}{% if not forloop.last %},{% endif %}{% endfor %}]{% else %}[]{% endif %}'
         {% endif %}>
 
 

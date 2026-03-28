@@ -1,0 +1,556 @@
+{% load i18n %}
+{# Group Edit Modal - included once in grouping_groups.html, populated by JavaScript #}
+
+<div class="modal fade" id="groupEditModal" tabindex="-1" aria-labelledby="groupEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="groupEditModalLabel">{% trans 'Edit Group' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editGroupId">
+
+                <!-- Metadata Section (always visible) -->
+                <div class="mb-3">
+                    <label for="editGroupName" class="form-label fw-bold">{% trans 'Group Name' %}</label>
+                    <input type="text" class="form-control" id="editGroupName" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label for="editDiscordThread" class="form-label fw-bold">{% trans 'Discord Thread' %}</label>
+                    <input type="url" class="form-control" id="editDiscordThread" placeholder="https://discord.com/channels/...">
+                    <small class="text-muted">{% trans 'Must be a discord.com link' %}</small>
+                    <div class="invalid-feedback" id="discordError"></div>
+                </div>
+                <div class="mb-3">
+                    <label for="editVideoLink" class="form-label fw-bold">{% trans 'Video Link' %}</label>
+                    <input type="url" class="form-control" id="editVideoLink" placeholder="https://youtube.com/... or https://twitch.tv/...">
+                    <small class="text-muted">{% trans 'Must be a YouTube or Twitch link' %}</small>
+                    <div class="invalid-feedback" id="videoError"></div>
+                </div>
+
+                <!-- Participant Management (conditionally shown) -->
+                <div id="participantManagementSection" style="display: none;">
+                    <hr>
+                    <h6 class="fw-bold mb-3"><i class="bi bi-people"></i> {% trans 'Participants' %}</h6>
+
+                    <!-- Warning about match clearing -->
+                    <div class="alert alert-warning d-none" id="participantsChangedWarning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>{% trans 'Warning:' %}</strong> {% trans 'Changing participants will clear all matches for this round as they will need to be recalculated.' %}
+                    </div>
+
+                    <!-- Current Members -->
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">{% trans 'Current Members' %}</label>
+                        <ul class="list-group" id="editGroupMembers">
+                            <!-- Populated by JS -->
+                        </ul>
+                    </div>
+
+                    <!-- Add Player -->
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">{% trans 'Add Player' %}</label>
+                        <input type="text" class="form-control mb-2" id="editPlayerSearch" placeholder="{% trans 'Search players...' %}">
+                        <ul class="list-group" id="editPlayerSearchResults" style="max-height: 200px; overflow-y: auto;">
+                            <!-- Populated by JS -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="saveGroupEditBtn" onclick="saveGroupEdit()">
+                    <i class="bi bi-check-lg"></i> {% trans 'Save' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Ensure base variables are defined (may already be set by grouping_setup.html)
+if (typeof _editGroupBaseUrl === 'undefined') {
+    var _editGroupBaseUrl = typeof baseUrl !== 'undefined' ? baseUrl : '{{ base_url }}';
+    var _editGroupStageId = typeof stageId !== 'undefined' ? stageId : {{ stage.id }};
+    var _editGroupCsrfToken = typeof csrfToken !== 'undefined' ? csrfToken : '{{ csrf_token }}';
+}
+
+const _isBracketFinalized = {{ is_bracket_finalized|yesno:"true,false" }};
+const _hasRoundMatches = {{ has_matches|yesno:"true,false" }};
+
+// Global state for the modal
+let _allPlayersMap = {};
+let _originalParticipants = [];
+
+const DISCORD_URL_RE = /^https:\/\/(discord\.com|discordapp\.com)\//;
+const VIDEO_URL_RE = /^https:\/\/(www\.)?(youtube\.com|youtu\.be|twitch\.tv)\//;
+
+function _buildPlayerMap() {
+    _allPlayersMap = {};
+    // Grouped players
+    document.querySelectorAll('#groups-container > [data-group-id]').forEach(col => {
+        const groupId = parseInt(col.dataset.groupId);
+        const groupName = col.dataset.groupName;
+        if (!groupId || isNaN(groupId)) return;
+        col.querySelectorAll('.player-item').forEach(item => {
+            const playerId = parseInt(item.dataset.playerId);
+            if (!playerId || isNaN(playerId)) return;
+            const displayName = item.querySelector('.flex-grow-1')?.textContent?.trim() || '';
+            const imgEl = item.querySelector('img');
+            const imageUrl = imgEl ? imgEl.src : '';
+            _allPlayersMap[playerId] = { id: playerId, display_name: displayName, image_url: imageUrl, group_id: groupId, group_name: groupName };
+        });
+    });
+    // Ungrouped players
+    const ungroupedList = document.getElementById('ungrouped-players');
+    if (ungroupedList) {
+        ungroupedList.querySelectorAll('.player-item').forEach(item => {
+            const playerId = parseInt(item.dataset.playerId);
+            if (!playerId || isNaN(playerId)) return;
+            const displayName = item.querySelector('.flex-grow-1')?.textContent?.trim() || '';
+            const imgEl = item.querySelector('img');
+            const imageUrl = imgEl ? imgEl.src : '';
+            _allPlayersMap[playerId] = { id: playerId, display_name: displayName, image_url: imageUrl, group_id: null, group_name: 'Ungrouped' };
+        });
+    }
+}
+
+function openGroupEditModal(groupId) {
+    _buildPlayerMap();
+    const col = document.querySelector(`#groups-container > [data-group-id="${groupId}"]`);
+    if (!col) return;
+
+    document.getElementById('editGroupId').value = groupId;
+    document.getElementById('editGroupName').value = col.dataset.groupName || '';
+    document.getElementById('editDiscordThread').value = col.dataset.groupDiscord || '';
+    document.getElementById('editVideoLink').value = col.dataset.groupVideo || '';
+
+    // Clear validation states
+    document.getElementById('editDiscordThread').classList.remove('is-invalid');
+    document.getElementById('editVideoLink').classList.remove('is-invalid');
+
+    // Populate current members
+    const membersList = document.getElementById('editGroupMembers');
+    membersList.innerHTML = '';
+    _originalParticipants = [];
+
+    col.querySelectorAll('.player-item').forEach(item => {
+        const playerId = parseInt(item.dataset.playerId);
+        if (!playerId || isNaN(playerId)) return;
+        _originalParticipants.push(playerId);
+        _addMemberToEditList(playerId);
+    });
+
+    // Show/hide participant section based on bracket status
+    const canEditParticipants = !_isBracketFinalized;
+    document.getElementById('participantManagementSection').style.display = canEditParticipants ? 'block' : 'none';
+    document.getElementById('participantsChangedWarning').classList.add('d-none');
+
+    // Clear and populate search
+    document.getElementById('editPlayerSearch').value = '';
+    _updateSearchResults('');
+
+    const modal = new bootstrap.Modal(document.getElementById('groupEditModal'));
+    modal.show();
+}
+
+function _addMemberToEditList(playerId) {
+    const player = _allPlayersMap[playerId];
+    if (!player) return;
+    const list = document.getElementById('editGroupMembers');
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex align-items-center justify-content-between';
+    li.dataset.playerId = playerId;
+    const imgHtml = player.image_url
+        ? `<img src="${player.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
+        : '<i class="bi bi-person-circle me-2"></i>';
+    li.innerHTML = `<div class="d-flex align-items-center">${imgHtml}<span>${player.display_name}</span></div>
+        <button class="btn btn-sm btn-outline-danger" onclick="_removeFromEditGroup(${playerId})" title="Remove"><i class="bi bi-x-lg"></i></button>`;
+    list.appendChild(li);
+    _checkParticipantsChanged();
+}
+
+function _removeFromEditGroup(playerId) {
+    const list = document.getElementById('editGroupMembers');
+    const item = list.querySelector(`[data-player-id="${playerId}"]`);
+    if (item) item.remove();
+    _updateSearchResults(document.getElementById('editPlayerSearch').value);
+    _checkParticipantsChanged();
+}
+
+function _addToEditGroup(playerId) {
+    _addMemberToEditList(playerId);
+    _updateSearchResults(document.getElementById('editPlayerSearch').value);
+}
+
+function _getCurrentEditMembers() {
+    const list = document.getElementById('editGroupMembers');
+    return Array.from(list.querySelectorAll('[data-player-id]')).map(el => parseInt(el.dataset.playerId));
+}
+
+function _updateSearchResults(query) {
+    const resultsEl = document.getElementById('editPlayerSearchResults');
+    if (!resultsEl) return;
+    resultsEl.innerHTML = '';
+    const currentMembers = _getCurrentEditMembers();
+    const groupId = parseInt(document.getElementById('editGroupId').value);
+
+    const lowerQuery = query.toLowerCase();
+
+    Object.values(_allPlayersMap).forEach(player => {
+        if (currentMembers.includes(player.id)) return;
+        if (lowerQuery && !player.display_name.toLowerCase().includes(lowerQuery)) return;
+
+        const li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-action d-flex align-items-center justify-content-between py-1';
+        const imgHtml = player.image_url
+            ? `<img src="${player.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
+            : '<i class="bi bi-person-circle me-2"></i>';
+        let badge = '';
+        if (player.group_id && player.group_id !== groupId) {
+            badge = `<small class="text-warning ms-2"><i class="bi bi-exclamation-triangle"></i> In ${player.group_name}</small>`;
+        }
+        li.innerHTML = `<div class="d-flex align-items-center">${imgHtml}<span>${player.display_name}</span>${badge}</div>
+            <button class="btn btn-sm btn-outline-primary" onclick="_addToEditGroup(${player.id})" title="Add"><i class="bi bi-plus-lg"></i></button>`;
+        resultsEl.appendChild(li);
+    });
+
+    if (resultsEl.children.length === 0 && lowerQuery) {
+        resultsEl.innerHTML = '<li class="list-group-item text-muted text-center"><small>No players found</small></li>';
+    }
+}
+
+function _checkParticipantsChanged() {
+    const current = _getCurrentEditMembers().sort((a, b) => a - b);
+    const original = [..._originalParticipants].sort((a, b) => a - b);
+    const changed = current.length !== original.length || current.some((v, i) => v !== original[i]);
+    const warning = document.getElementById('participantsChangedWarning');
+    if (changed && _hasRoundMatches) {
+        warning.classList.remove('d-none');
+    } else {
+        warning.classList.add('d-none');
+    }
+}
+
+function _validateUrls() {
+    let valid = true;
+    const discordInput = document.getElementById('editDiscordThread');
+    const videoInput = document.getElementById('editVideoLink');
+    const discordVal = discordInput.value.trim();
+    const videoVal = videoInput.value.trim();
+
+    if (discordVal && !DISCORD_URL_RE.test(discordVal)) {
+        discordInput.classList.add('is-invalid');
+        document.getElementById('discordError').textContent = 'Must be a discord.com or discordapp.com link';
+        valid = false;
+    } else {
+        discordInput.classList.remove('is-invalid');
+    }
+
+    if (videoVal && !VIDEO_URL_RE.test(videoVal)) {
+        videoInput.classList.add('is-invalid');
+        document.getElementById('videoError').textContent = 'Must be a YouTube or Twitch link';
+        valid = false;
+    } else {
+        videoInput.classList.remove('is-invalid');
+    }
+
+    return valid;
+}
+
+function saveGroupEdit() {
+    if (!_validateUrls()) return;
+
+    const groupId = parseInt(document.getElementById('editGroupId').value);
+    const body = {
+        group_id: groupId,
+        name: document.getElementById('editGroupName').value.trim(),
+        discord_thread: document.getElementById('editDiscordThread').value.trim(),
+        video_link: document.getElementById('editVideoLink').value.trim(),
+    };
+
+    // Only send participants if the section is visible (bracket not finalized)
+    const participantSection = document.getElementById('participantManagementSection');
+    if (participantSection && participantSection.style.display !== 'none') {
+        body.participants = _getCurrentEditMembers();
+    }
+
+    const saveBtn = document.getElementById('saveGroupEditBtn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+
+    const url = `${_editGroupBaseUrl}${_editGroupStageId}/edit-group/`;
+
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': _editGroupCsrfToken
+        },
+        body: JSON.stringify(body)
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+
+        if (!ok || !data.success) {
+            if (data.reload) {
+                alert('Error: ' + (data.error || 'Unknown error') + '\nThe page will reload.');
+                location.reload();
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }
+            return;
+        }
+
+        // Close the modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('groupEditModal'));
+        if (modal) modal.hide();
+
+        // Update the edited group card
+        _updateGroupCardFull(data.group);
+
+        // Update affected groups (groups that lost players)
+        if (data.affected_groups) {
+            data.affected_groups.forEach(ag => _updateGroupCardFull(ag));
+        }
+
+        // Update ungrouped list if participants changed
+        if (data.participants_changed && data.ungrouped_players) {
+            _rebuildUngroupedList(data.ungrouped_players, data.ungrouped_count);
+        }
+
+        // If matches were cleared, update the bracket UI
+        if (data.matches_cleared) {
+            _clearBracketUI();
+        }
+    })
+    .catch(error => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+        console.error('Error:', error);
+        alert('An error occurred while saving.');
+    });
+}
+
+function _updateGroupCardFull(groupData) {
+    const col = document.querySelector(`#groups-container > [data-group-id="${groupData.id}"]`);
+    if (!col) return;
+
+    // Update data attributes
+    col.dataset.groupName = groupData.name || '';
+    col.dataset.groupDiscord = groupData.discord_thread || '';
+    col.dataset.groupVideo = groupData.video_link || '';
+
+    // Update card header name
+    const nameEl = col.querySelector('.card-header strong');
+    if (nameEl) nameEl.textContent = groupData.name || `Group ${groupData.id}`;
+
+    // Update member count badge
+    const countBadge = col.querySelector('.card-header .badge.bg-secondary');
+    if (countBadge) countBadge.textContent = groupData.member_count;
+
+    // Update conflict badge
+    const headerDiv = col.querySelector('.card-header > div:last-child');
+    if (headerDiv) {
+        let conflictBadge = headerDiv.querySelector('.badge.bg-warning');
+        if (groupData.conflict_count > 0) {
+            if (!conflictBadge) {
+                conflictBadge = document.createElement('span');
+                conflictBadge.className = 'badge bg-warning text-dark ms-1';
+                conflictBadge.setAttribute('role', 'button');
+                conflictBadge.setAttribute('data-bs-toggle', 'popover');
+                conflictBadge.setAttribute('data-bs-trigger', 'click hover');
+                conflictBadge.setAttribute('data-bs-placement', 'bottom');
+                headerDiv.appendChild(conflictBadge);
+            }
+            conflictBadge.setAttribute('data-bs-title', `Repeat matchup${groupData.conflict_count > 1 ? 's' : ''}`);
+            conflictBadge.setAttribute('data-bs-content', groupData.conflict_description);
+            conflictBadge.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> ${groupData.conflict_count}`;
+            new bootstrap.Popover(conflictBadge);
+        } else if (conflictBadge) {
+            const popover = bootstrap.Popover.getInstance(conflictBadge);
+            if (popover) popover.dispose();
+            conflictBadge.remove();
+        }
+    }
+
+    // Update links display
+    const cardBody = col.querySelector('.card-body');
+    if (cardBody) {
+        // Remove existing link elements
+        cardBody.querySelectorAll('.group-link-display').forEach(el => el.remove());
+
+        // Insert new links before members list
+        const membersList = cardBody.querySelector('.group-members');
+        if (groupData.discord_thread) {
+            const linkDiv = document.createElement('div');
+            linkDiv.className = 'small mb-1 group-link-display';
+            linkDiv.innerHTML = `<i class="bi bi-discord"></i> <a href="${groupData.discord_thread}" target="_blank" rel="noopener">Thread</a>`;
+            cardBody.insertBefore(linkDiv, membersList);
+        }
+        if (groupData.video_link) {
+            const linkDiv = document.createElement('div');
+            linkDiv.className = 'small mb-1 group-link-display';
+            linkDiv.innerHTML = `<i class="bi bi-camera-video"></i> <a href="${groupData.video_link}" target="_blank" rel="noopener">Video</a>`;
+            cardBody.insertBefore(linkDiv, membersList);
+        }
+    }
+
+    // Update members list if members data is provided
+    if (groupData.members) {
+        const membersList = col.querySelector('.group-members');
+        if (membersList) {
+            const isEditable = membersList.classList.contains('sortable-group');
+            membersList.innerHTML = '';
+            if (groupData.members.length === 0) {
+                membersList.innerHTML = '<li class="list-group-item text-muted text-center empty-placeholder"><small>Drop players here</small></li>';
+            } else {
+                groupData.members.forEach(member => {
+                    // Update player calendar data if available
+                    if (typeof _playerCalendarData !== 'undefined' && member.availability_hours && member.availability_hours.length) {
+                        _playerCalendarData[member.id] = {
+                            name: member.display_name,
+                            hours: member.availability_hours,
+                        };
+                    }
+
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item d-flex align-items-center player-item';
+                    li.dataset.playerId = member.id;
+                    li.dataset.source = 'group';
+                    let html = '';
+                    if (isEditable) html += '<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>';
+                    if (member.image_url) {
+                        html += `<img src="${member.image_url}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">`;
+                    } else {
+                        html += '<i class="bi bi-person-circle me-2"></i>';
+                    }
+                    html += `<span class="flex-grow-1">${member.display_name}</span>`;
+                    if (member.availability_hours && member.availability_hours.length) {
+                        html += `<small class="text-muted me-1">${member.availability_hours.length}h</small>`;
+                        html += `<button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal(${member.id})" title="View availability"><i class="bi bi-calendar-week"></i></button>`;
+                    }
+                    li.innerHTML = html;
+                    membersList.appendChild(li);
+                });
+            }
+        }
+    }
+
+    // Update calendar data
+    if (typeof _groupCalendarData !== 'undefined') {
+        const hasAvail = (groupData.all_hours && groupData.all_hours.length) ||
+                         (groupData.overlap_hours && groupData.overlap_hours.length);
+        if (hasAvail) {
+            _groupCalendarData[groupData.id] = {
+                name: groupData.name || 'Group ' + groupData.id,
+                all_hours: groupData.all_hours || [],
+                overlap_hours: groupData.overlap_hours || [],
+            };
+        } else {
+            delete _groupCalendarData[groupData.id];
+        }
+        // Show/hide calendar button
+        const nameDiv = col.querySelector('.card-header .d-flex.align-items-center');
+        if (nameDiv) {
+            let calBtn = nameDiv.querySelector('.cal-btn');
+            if (hasAvail && !calBtn) {
+                calBtn = document.createElement('button');
+                calBtn.className = 'btn btn-sm btn-link p-0 ms-1 text-muted cal-btn';
+                calBtn.setAttribute('onclick', `openCalendarModal(${groupData.id})`);
+                calBtn.setAttribute('title', 'View availability');
+                calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+                nameDiv.appendChild(calBtn);
+            } else if (!hasAvail && calBtn) {
+                calBtn.remove();
+            }
+        }
+    }
+}
+
+function _rebuildUngroupedList(players, count) {
+    // Update the ungrouped count in the header
+    const header = document.querySelector('#ungrouped-players')?.closest('.card')?.querySelector('.card-header h5');
+    if (header) {
+        header.innerHTML = `<i class="bi bi-person-x"></i> Ungrouped Players (${count})`;
+    }
+
+    const list = document.getElementById('ungrouped-players');
+    if (!list) return;
+    const isEditable = list.classList.contains('sortable-ungrouped');
+
+    // Rebuild player calendar data
+    if (typeof _playerCalendarData !== 'undefined') {
+        // Clear existing player data and rebuild from fresh list
+        _playerCalendarData = {};
+        players.forEach(player => {
+            if (player.availability_hours && player.availability_hours.length) {
+                _playerCalendarData[player.id] = {
+                    name: player.display_name,
+                    hours: player.availability_hours,
+                };
+            }
+        });
+    }
+
+    list.innerHTML = '';
+    if (players.length === 0) {
+        list.innerHTML = '<li class="list-group-item text-muted text-center ungrouped-empty-msg"><small>Drop players here</small></li>';
+    } else {
+        players.forEach(player => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex align-items-center player-item ungrouped-item';
+            li.dataset.playerId = player.id;
+            li.dataset.source = 'ungrouped';
+            let html = '';
+            if (isEditable) html += '<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>';
+            if (player.image_url) {
+                html += `<img src="${player.image_url}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">`;
+            } else {
+                html += '<i class="bi bi-person-circle me-2"></i>';
+            }
+            html += `<span class="flex-grow-1">${player.display_name}</span>`;
+            if (player.availability_hours && player.availability_hours.length) {
+                html += `<small class="text-muted me-1">${player.availability_hours.length}h</small>`;
+                html += `<button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal(${player.id})" title="View availability"><i class="bi bi-calendar-week"></i></button>`;
+            }
+            li.innerHTML = html;
+            list.appendChild(li);
+        });
+    }
+}
+
+function _clearBracketUI() {
+    // Hide match list and show bracket config form (same as "Regenerate" button)
+    const matchCards = document.querySelectorAll('.card.mb-2');
+    // Find the bracket configuration card and show the config form
+    const bracketConfigForm = document.getElementById('bracketConfigForm');
+    if (bracketConfigForm) {
+        bracketConfigForm.style.display = 'block';
+    }
+
+    // Hide match list items and status alerts within the bracket card
+    const bracketCard = bracketConfigForm?.closest('.card');
+    if (bracketCard) {
+        // Remove the "Bracket Generated" / "Bracket Finalized" alerts
+        bracketCard.querySelectorAll('.alert.alert-info, .alert.alert-success').forEach(el => el.remove());
+        // Remove the match list
+        bracketCard.querySelectorAll('.card.mb-2').forEach(el => el.remove());
+        // Remove the finalize/regenerate buttons div
+        bracketCard.querySelectorAll('.d-flex.gap-2.mb-3').forEach(el => el.remove());
+    }
+}
+
+// Wire up search input
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('editPlayerSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            _updateSearchResults(this.value);
+        });
+    }
+});
+</script>

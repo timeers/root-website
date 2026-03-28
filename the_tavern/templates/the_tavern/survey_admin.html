@@ -1,0 +1,45 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n socialaccount static %}
+
+{% block meta %}    {# Open Graph tags #}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+{% if meta_title %}
+<meta property="og:title" content="{{meta_title}}">
+{% endif %}
+{% if meta_description %}
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+{% endif %}
+{% endblock meta%}
+
+{% block content %}
+<div class="content-section">
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+    <div class="mb-4">
+        <h4 class="mb-3 root-title">
+            <i class="bi bi-search"></i> {% trans 'Survey Admin' %}
+        </h4>
+
+        <input 
+            type="search" 
+            name="q" 
+            placeholder="Search surveys..."
+            hx-get="{% url 'survey-admin' %}"
+            hx-trigger="keyup changed delay:300ms"
+            hx-target="#survey-list"
+            hx-include="[name='q']"
+            value="{{ search_query }}"
+            class="form-control flex-grow-1 mb-3"
+        >
+
+        <!-- Survey list container -->
+        <div id="survey-list" class='list-group'>
+            {% include 'the_tavern/partials/survey_list_container.html' %}
+        </div>
+    </div>
+</div>
+{% endblock content %}

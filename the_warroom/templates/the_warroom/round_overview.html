@@ -1,0 +1,27 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{{ round.name }} - {{ stage.name }} | {% endblock %}
+
+{% block meta %}
+{% include 'the_warroom/partials/meta_tags.html' %}
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=round.name %}
+
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/round_nav_header.html' with active_page='overview' %}
+
+    <!-- Round info -->
+    {% include 'the_warroom/partials/overview_summary_card.html' with item=round %}
+
+</div>
+{% endblock %}

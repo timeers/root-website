@@ -1,0 +1,25 @@
+{# Hierarchical Read-only Status Card for Settings Hub #}
+{# Required context: status_hierarchy (list of dicts with label, alert_type, alert_message, icon, is_current) #}
+
+<div class="col-md-6">
+    <div class="card h-100 border-{% for item in status_hierarchy %}{% if item.is_current %}{{ item.alert_type }}{% endif %}{% endfor %}">
+        <div class="card-body">
+            <h5 class="card-title root-title text-{% for item in status_hierarchy %}{% if item.is_current %}{{ item.alert_type }}{% endif %}{% endfor %}">
+                <i class="bi {% for item in status_hierarchy %}{% if item.is_current %}{{ item.icon }}{% endif %}{% endfor %} me-2"></i>Status
+            </h5>
+
+            {% for item in status_hierarchy reversed %}
+            <div class="d-flex align-items-center {% if not forloop.last %}mb-2 pb-2 border-bottom{% endif %}">
+                <i class="bi {{ item.icon }} text-{{ item.alert_type }} me-2" style="font-size: 1.1rem;"></i>
+                <div>
+                    <small class="fw-bold text-muted">{{ item.label }}</small>
+                    <p class="card-text mb-0 {% if not item.is_current %}text-muted{% endif %}"
+                       {% if not item.is_current %}style="font-size: 0.9rem;"{% endif %}>
+                        {{ item.alert_message }}
+                    </p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>

@@ -1,0 +1,9 @@
+<a href="{{ card.get_absolute_url }}" class="d-inline-flex align-items-center me-2 mb-1 clickable-link" style="text-decoration: none;">
+    {% if card.front_image %}
+    <img src="{{ card.front_image.url }}"
+         class="img-fluid rounded"
+         style="max-height: 40px; width: auto;"
+         alt="{{ card.name|default:'Card' }}">
+    {% endif %}
+    <small class="ms-1">{{ card.name }}</small>
+</a>

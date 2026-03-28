@@ -1,0 +1,31 @@
+{% load crispy_forms_tags %}
+<!-- Asset Mode Toggle Slider Partial -->
+
+<!-- Hidden form field for asset_mode -->
+<input type="hidden" name="asset_mode" id="asset_mode_input" value="{{ tournament_form.asset_mode.value }}">
+
+<div>
+    <label class="form-label fw-bold mb-3">Asset Mode</label>
+    <div class="asset-mode-toggle">
+        <div class="asset-mode-slider position-1" id="mode-slider"></div>
+        <div class="asset-mode-option" data-mode="OPEN" data-value="1" data-position="1">
+            <i class="bi bi-unlock me-1"></i>Any
+        </div>
+        <div class="asset-mode-option" data-mode="OFFICIAL" data-value="2" data-position="2">
+            <i class="bi bi-shield-check me-1"></i>Official Only
+        </div>
+        <div class="asset-mode-option" data-mode="SELECTED" data-value="3" data-position="3">
+            <i class="bi bi-list-check me-1"></i>Selected Only
+        </div>
+    </div>
+    <div class="toggle-description" id="mode-description">
+        <i class="bi bi-info-circle me-1"></i>
+        <span id="mode-description-text">Any asset can be used in this series.</span>
+    </div>
+</div>
+
+<div class="row align-items-end">
+    <div id="clockwork-wrapper">
+        {{ tournament_form.include_clockwork|as_crispy_field }}
+    </div>
+</div>

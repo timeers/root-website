@@ -2,22 +2,118 @@ import requests
 import time
 
 from celery import shared_task
-from dateutil import parser, relativedelta
+from dateutil import parser
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from the_gatehouse.utils import format_bulleted_list
-from the_gatehouse.services.discordservice import send_rich_discord_message
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 
-from .models import Game, Tournament, Round
+from .models import Game, Tournament, Stage, Round, CompetitionStatus
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
+from .services.winrate_service import calculate_and_cache_winrate
+
+
+@shared_task
+def update_cached_winrates(objects_to_update):
+    """
+    Recalculate cached winrates for a list of (app_label, model_name, pk) tuples.
+    Called asynchronously from signals after Effort/Game saves.
+    """
+    from django.apps import apps
+    for app_label, model_name, pk in objects_to_update:
+        try:
+            model = apps.get_model(app_label, model_name)
+            obj = model.objects.get(pk=pk)
+            calculate_and_cache_winrate(obj)
+        except Exception:
+            pass
+
+
+@shared_task
+def update_competition_statuses():
+    """Update statuses for tournaments, stages, and rounds based on dates. Cascades completion to children."""
+    now = timezone.now().date()
+    updated = 0
+
+    # --- Tournaments ---
+    # Pending → Active
+    updated += Tournament.objects.filter(
+        is_active=True,
+        status=CompetitionStatus.PENDING,
+    ).filter(
+        Q(start_date__isnull=True) | Q(start_date__lte=now)
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gt=now)
+    ).update(status=CompetitionStatus.ACTIVE)
+
+    # Completed by end_date (cascade to children)
+    completed_tournaments = Tournament.objects.filter(
+        is_active=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
+        end_date__lt=now,
+    )
+    for t in completed_tournaments:
+        t.status = CompetitionStatus.COMPLETED
+        t.save(update_fields=['status'])
+        t.stages.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
+        Round.objects.filter(stage__tournament=t).exclude(
+            status=CompetitionStatus.COMPLETED
+        ).update(status=CompetitionStatus.COMPLETED)
+        updated += 1
+
+    # --- Stages ---
+    # Pending → Active
+    updated += Stage.objects.filter(
+        is_active=True,
+        status=CompetitionStatus.PENDING,
+    ).filter(
+        Q(start_date__isnull=True) | Q(start_date__lte=now)
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gt=now)
+    ).update(status=CompetitionStatus.ACTIVE)
+
+    # Completed by end_date (cascade to child rounds)
+    completed_stages = Stage.objects.filter(
+        is_active=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
+        end_date__lt=now,
+    )
+    for s in completed_stages:
+        s.status = CompetitionStatus.COMPLETED
+        s.save(update_fields=['status'])
+        s.rounds.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
+        updated += 1
+
+    # --- Rounds ---
+    # Pending → Active
+    updated += Round.objects.filter(
+        is_active=True,
+        status=CompetitionStatus.PENDING,
+    ).filter(
+        Q(start_date__isnull=True) | Q(start_date__lte=now)
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gt=now)
+    ).update(status=CompetitionStatus.ACTIVE)
+
+    # Completed by end_date
+    updated += Round.objects.filter(
+        is_active=True,
+        status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
+        end_date__lt=now,
+    ).update(status=CompetitionStatus.COMPLETED)
+
+    return f"Updated {updated} competition(s)"
 
 
 # Import League Games from Pliskin.dev REST API
 
 BASE_URL = "https://rootleague.pliskin.dev/api/match/"
+API_HEADERS = {'Authorization': f'Token {settings.RDL_API_TOKEN}'} if getattr(settings, 'RDL_API_TOKEN', '') else {}
 
 # Imports all games from the last 1 day
 @shared_task
@@ -77,20 +173,20 @@ def import_league_games(limit=25, tournament_name="", days_back=1, date_from=Non
             params['date_closed__lte'] = end_date.isoformat()
         
         try:
-            response = requests.get(BASE_URL, params=params, timeout=30)
+            response = requests.get(BASE_URL, params=params, headers=API_HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
             print(f"Error fetching API data: {e}")
             error_count += 1
             break
-        
+
         results = data.get('results', [])
-        
+
         if not results:
             has_more = False
             break
-        
+
         for match_data in results:
             try:
                 # Check if game already exists by league_id
@@ -150,7 +246,7 @@ def import_league_games(limit=25, tournament_name="", days_back=1, date_from=Non
             fields.append(error_field)
 
             # Send error message
-            send_rich_discord_message(
+            send_rich_discord_message_task.delay(
                 message,
                 author_name='RDB Admin',
                 category='report',
@@ -219,23 +315,23 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
             params['date_modified__lte'] = end_date.isoformat()
         
         try:
-            response = requests.get(BASE_URL, params=params, timeout=30)
+            response = requests.get(BASE_URL, params=params, headers=API_HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
             print(f"Error fetching API data: {e}")
             error_count += 1
             break
-        
+
         results = data.get('results', [])
-        
+
         if not results:
             has_more = False
             break
-        
+
         for match_data in results:
             try:
-                
+
                 # Parse dates
                 date_closed = parser.parse(match_data.get('date_closed'))
                 date_modified = parser.parse(match_data.get('date_modified'))
@@ -308,7 +404,7 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
             fields.append(error_field)
 
             # Send error message
-            send_rich_discord_message(
+            send_rich_discord_message_task.delay(
                 summary,
                 author_name='RDB Admin',
                 category='report',
@@ -318,7 +414,7 @@ def update_league_games(limit=50, days_back=2, days_cutoff=1, date_from=None, da
 
         # Send main update summary (only if anything happened)
         if updated_count > 0 or error_count > 0:
-            send_rich_discord_message(
+            send_rich_discord_message_task.delay(
                 summary,
                 author_name='RDB Admin',
                 category='rdl-update',
@@ -334,8 +430,14 @@ def check_all_league_rounds(delete=False, list_games=True):
     tournament, _ = Tournament.objects.get_or_create(name='Root Digital League')
     results = {}
     total_missing_count = 0
-    for round_obj in Round.objects.filter(tournament=tournament):
+    for round_obj in Round.objects.filter(
+        Q(tournament=tournament, stage__isnull=True) | Q(stage__tournament=tournament)
+    ):
         site_count, api_count, missing_count = compare_league_game_count(round_obj)
+
+        if missing_count is None:
+            print(f"Skipping '{round_obj.name}': API unreachable")
+            continue
 
         if missing_count > 0:
             results[round_obj.name] = {
@@ -365,8 +467,16 @@ def check_all_league_rounds(delete=False, list_games=True):
 
                     # Only delete if explicitly requested
                     if delete == True:
-                        count, _ = Game.objects.filter(league_id__in=deleted_ids, round=round_obj).delete()
-                        print(f"Deleted {count} games from '{round_obj.name}'")
+                        # Safety: refuse to delete more than half a round's games
+                        if len(deleted_ids) > site_count * 0.5:
+                            print(f"SAFETY: Refusing to delete {len(deleted_ids)}/{site_count} games from '{round_obj.name}' (>50%)")
+                            send_discord_message_task.delay(
+                                f"SAFETY: Refusing to delete {len(deleted_ids)}/{site_count} games from '{round_obj.name}' (>50%)",
+                                'report'
+                            )
+                        else:
+                            count, _ = Game.objects.filter(league_id__in=deleted_ids, round=round_obj).delete()
+                            print(f"Deleted {count} games from '{round_obj.name}'")
     if not results:
         print("All Root Digital League rounds are up to date.")
     else:
@@ -383,7 +493,7 @@ def check_all_league_rounds(delete=False, list_games=True):
                     'value': f"{value['missing_count']} games missing"
                 })
 
-        send_rich_discord_message(
+        send_rich_discord_message_task.delay(
             f'{total_missing_count} games missing from RDL',
             author_name='RDB Admin',
             category='rdl-delete',
@@ -417,7 +527,7 @@ def find_deleted_games(league_round, limit=200):
     # Fetch all pages from the API
     while url:
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, headers=API_HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
@@ -425,7 +535,7 @@ def find_deleted_games(league_round, limit=200):
             raise
 
         results = data.get("results", [])
-        api_game_ids.update(g["id"] for g in results if "id" in g)
+        api_game_ids.update(str(g["id"]) for g in results if "id" in g)
 
         # Move to the next page
         url = data.get("next")
@@ -474,6 +584,9 @@ def compare_league_game_count(league_round):
 
     api_count = count_games_from_api(tournament_name=tournament_name)
 
+    if api_count is None:
+        return site_count, None, None
+
     missing_count = site_count - api_count
 
 
@@ -494,10 +607,10 @@ def count_games_from_api(tournament_name):
         }
     
     try:
-        response = requests.get(BASE_URL, params=params, timeout=30)
+        response = requests.get(BASE_URL, params=params, headers=API_HEADERS, timeout=30)
         response.raise_for_status()
         data = response.json()
         return data.get('count', 0)
     except requests.RequestException as e:
         print(f"Error fetching API data: {e}")
-        return 0
+        return None

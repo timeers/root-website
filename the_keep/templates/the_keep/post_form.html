@@ -442,10 +442,8 @@
             });
         });
 
-        // Blur active element when register modal closes to prevent aria-hidden warning
+        // Clear stored data when register modal closes
         document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
-            document.activeElement.blur();
-            // Also clear the stored source select ID
             $(this).data('source-select-id', null);
         });
 

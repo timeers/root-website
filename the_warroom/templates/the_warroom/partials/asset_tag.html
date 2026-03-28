@@ -1,0 +1,13 @@
+<span class="badge bg-secondary me-2 mb-2 p-2 d-inline-flex align-items-center" id="asset-{{ asset_type }}-{{ asset.id }}">
+    {{ asset.name }}
+    <button
+        class="btn btn-sm btn-link text-white p-0 ms-2"
+        style="text-decoration: none; font-size: 1.2em;"
+        hx-delete="{% url 'tournament-remove-asset' slug=tournament.slug asset_type=asset_type asset_id=asset.id %}"
+        hx-target="#asset-{{ asset_type }}-{{ asset.id }}"
+        hx-swap="outerHTML"
+        hx-confirm="Remove {{ asset.title }} from tournament?"
+        title="Remove">
+        ✕
+    </button>
+</span>

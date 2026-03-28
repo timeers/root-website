@@ -1,199 +1,279 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags i18n %}
-{% block title %}Assets | {% endblock %}
-{% block content %}
-<h1>{{ tournament.name }}</h1>
-<h2>{% trans 'Manage Assets' %}</h2>
+{% load crispy_forms_tags %}
 
-<form method="POST">
-    {% csrf_token %}
-    {{ form.errors }}
-    {% if available_factions_count > 0 %}
-    <div>
-        <h4>{% trans 'Add Factions' %}</h4>
-        {{ form.available_factions }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'Factions will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.factions.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove Factions' %}</h4>
-        {{ form.tournament_factions }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'Factions will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
+{% block title %}Manage Assets - {{ tournament.name }}{% endblock %}
 
+{% block styles %}
+<style>
+/* Override global accordion styles for asset accordion */
+#assetAccordion.accordion {
+    max-width: 100%;
+    margin: 0;
+}
 
-    {% if available_maps_count > 0 %}
-    <div>
-        <h4>{% trans 'Add Maps' %}</h4>
-        {{ form.available_maps }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'Maps will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.maps.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove Maps' %}</h4>
-        {{ form.tournament_maps }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'Maps will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
+/* Override the global accordion-header styles that conflict with Bootstrap */
+#assetAccordion .accordion-header {
+    background-color: transparent;
+    cursor: default;
+    padding: 0;
+    font-weight: normal;
+    font-size: inherit;
+    display: block;
+    transition: none;
+}
 
+#assetAccordion .accordion-header:hover {
+    background-color: transparent;
+}
 
-    {% if available_decks_count > 0 %}
-    <div>
-        <h4>{% trans 'Add Decks' %}</h4>
-        {{ form.available_decks }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'Decks will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.decks.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove Decks' %}</h4>
-        {{ form.tournament_decks }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'Decks will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
+#assetAccordion .accordion-header::after {
+    content: none !important;
+}
 
-    {% if available_vagabonds_count > 0 %}
-    <div>
-        <h4>{% trans 'Add Vagabonds' %}</h4>
-        {{ form.available_vagabonds }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'Vagabonds will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.vagabonds.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove Vagabonds' %}</h4>
-        {{ form.tournament_vagabonds }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'Vagabonds will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
+#assetAccordion .accordion-body {
+    padding: 0;
+    display: block;
+    font-size: inherit;
+    color: inherit;
+}
 
+#assetAccordion .accordion-item {
+    border-bottom: none;
+}
 
-    {% if available_landmarks_count > 0 %}
-    <div>
-        <h4>{% trans 'Add Landmarks' %}</h4>
-        {{ form.available_landmarks }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'Landmarks will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.landmarks.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove Landmarks' %}</h4>
-        {{ form.tournament_landmarks }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'Landmarks will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
+/* Asset grid layout */
+.assets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+}
 
-    {% if available_hirelings_count > 0 %}
-    <div>
-        <h4>{% trans 'Add Hirelings' %}</h4>
-        {{ form.available_hirelings }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'Hirelings will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.hirelings.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove Hirelings' %}</h4>
-        {{ form.tournament_hirelings }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'Hirelings will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
-
-
-    {% if available_tweaks_count > 0 %}
-    <div>
-        <h4>{% trans 'Add House Rules' %}</h4>
-        {{ form.available_tweaks }}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            {% trans 'House Rules will be added to' %} {{ tournament.name }}
-        </ul>
-    </div>
-    {% endif %}
-    {% if tournament.tweaks.count > 0 %}
-    <div>
-        <h4>{% trans 'Remove House Rules' %}</h4>
-        {{ form.tournament_tweaks }}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            {% trans 'House Rules will be removed and unable to be selected' %}
-        </ul>
-    </div>
-    {% endif %}
-
-
-    <button class="btn btn-primary mb-1" type="submit">{% trans 'Save Changes' %}</button>
-</form>
+.asset-item {
+    margin-bottom: 0 !important;
+}
+</style>
 {% endblock %}
 
- {% block scripts %}
- <script>
-    $('#id_available_factions').select2();
-    $('#id_tournament_factions').select2();
-    $('#id_available_decks').select2();
-    $('#id_tournament_decks').select2();
-    $('#id_available_maps').select2();
-    $('#id_tournament_maps').select2();
-    $('#id_available_vagabonds').select2();
-    $('#id_tournament_vagabonds').select2();
-    $('#id_available_landmarks').select2();
-    $('#id_tournament_landmarks').select2();
-    $('#id_available_tweaks').select2();
-    $('#id_tournament_tweaks').select2();
-    $('#id_available_hirelings').select2();
-    $('#id_tournament_hirelings').select2();
- </script>
-    
- {% endblock scripts %}
+{% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Manage Assets" %}
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="bi bi-collection me-2"></i>Manage Assets</h2>
+        <a href="{% url 'tournament-settings' slug=tournament.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
+    </div>
+
+    <!-- Settings Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="bi bi-gear me-2"></i>{% if tournament.platform %}{{ tournament.platform }} {% endif %}Asset Settings
+        </div>
+        <div class="card-body">
+            <form method="post" id="asset-settings-form">
+                {% csrf_token %}
+
+                {% include 'the_warroom/partials/asset_mode_toggle.html' with tournament_form=form %}
+
+                <div>
+                    <button type="submit" class="btn btn-primary mt-2">
+                        <i class="bi bi-check-lg me-1"></i>Save Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if show_asset_management %}
+    <!-- Global Search -->
+    <div class="card mb-4" id="asset-search-card">
+        <div class="card-header bg-light">
+            <i class="bi bi-search me-2"></i>Search & Add Assets
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-3">
+                    <select id="asset-type-filter" class="form-select">
+                        <option value="">Select asset type...</option>
+                        <option value="faction">Factions</option>
+                        <option value="map">Maps</option>
+                        <option value="deck">Decks</option>
+                        <option value="hireling">Hirelings</option>
+                        <option value="landmark">Landmarks</option>
+                        {% if tournament.platform != "Root Digital" %}
+                        <option value="tweak">House Rules</option>
+                        {% endif %}
+                        <option value="vagabond">Vagabonds</option>
+                    </select>
+                </div>
+                <div class="col-md-9">
+                    <input type="text"
+                           id="asset-search-input"
+                           class="form-control"
+                           placeholder="Type to search..."
+                           disabled>
+                </div>
+            </div>
+            <div id="asset-search-results"></div>
+        </div>
+    </div>
+
+    <!-- Asset Categories Accordion -->
+    <div class="accordion" id="assetAccordion">
+        {% for asset_type, label, assets, icon in asset_types %}
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#{{ asset_type }}-section">
+                    <i class="bi {{ icon }} me-2"></i>
+                    {{ label }}
+                    <span class="badge bg-secondary ms-2" id="{{ asset_type }}-count">{{ assets.count }}</span>
+                </button>
+            </h2>
+            <div id="{{ asset_type }}-section"
+                 class="accordion-collapse collapse {% if forloop.first %}show{% endif %}"
+                 data-bs-parent="#assetAccordion">
+                <div class="accordion-body">
+                    <div id="{{ asset_type }}s-list" class="assets-grid">
+                        {% for asset in assets %}
+                            {% include 'the_warroom/partials/asset_item.html' %}
+                        {% empty %}
+                            <p class="text-muted mb-0" id="{{ asset_type }}-empty">No {{ label|lower }} added yet</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock content %}
+
+{% block scripts %}
+
+{% include 'the_warroom/partials/asset_mode_scripts.html' %}
+<script>
+// Asset management specific functionality
+const assetSearchCard = document.getElementById('asset-search-card');
+const assetAccordion = document.getElementById('assetAccordion');
+
+// Define custom callback for asset mode changes
+window.onAssetModeChange = function(mode) {
+    // Show/hide asset management sections (only if they exist in DOM)
+    // They only exist if the saved mode is SELECTED
+    if (assetSearchCard) {
+        assetSearchCard.style.display = (mode === 'SELECTED') ? 'block' : 'none';
+    }
+    if (assetAccordion) {
+        assetAccordion.style.display = (mode === 'SELECTED') ? 'block' : 'none';
+    }
+};
+
+const assetTypeFilter = document.getElementById('asset-type-filter');
+const assetSearchInput = document.getElementById('asset-search-input');
+const assetSearchResults = document.getElementById('asset-search-results');
+
+// Only set up search functionality if elements exist (SELECTED mode only)
+if (assetTypeFilter && assetSearchInput && assetSearchResults) {
+    // Enable search input when type is selected
+    assetTypeFilter.addEventListener('change', function() {
+        assetSearchInput.disabled = !this.value;
+        assetSearchInput.value = '';
+        assetSearchResults.innerHTML = '';
+        if (this.value) {
+            assetSearchInput.focus();
+            assetSearchInput.placeholder = `Search ${this.options[this.selectedIndex].text.toLowerCase()}...`;
+        } else {
+            assetSearchInput.placeholder = 'Type to search...';
+        }
+    });
+
+    // Debounced search
+    let searchTimeout;
+    assetSearchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(performAssetSearch, 500);
+    });
+}
+
+function performAssetSearch() {
+    const query = assetSearchInput.value.trim();
+    const assetType = assetTypeFilter.value;
+
+    if (query.length < 2) {
+        assetSearchResults.innerHTML = '';
+        return;
+    }
+
+    if (!assetType) {
+        assetSearchResults.innerHTML = '<p class="text-muted small">Please select an asset type first.</p>';
+        return;
+    }
+
+    fetch(`{% url 'tournament-search-assets' slug=tournament.slug asset_type='PLACEHOLDER' %}`.replace('PLACEHOLDER', assetType) + `?q=${encodeURIComponent(query)}`)
+        .then(response => response.text())
+        .then(html => {
+            assetSearchResults.innerHTML = html;
+            // Process any HTMX attributes in the new content
+            if (typeof htmx !== 'undefined') {
+                htmx.process(assetSearchResults);
+            }
+        })
+        .catch(error => {
+            console.error('Search error:', error);
+            assetSearchResults.innerHTML = '<p class="text-danger small">Search failed. Please try again.</p>';
+        });
+}
+
+// Update asset count for a specific type
+function updateAssetCount(assetType) {
+    const list = document.getElementById(`${assetType}s-list`);
+    if (list) {
+        const count = list.querySelectorAll('.asset-item').length;
+        const badge = document.getElementById(`${assetType}-count`);
+        if (badge) badge.textContent = count;
+    }
+}
+
+// Handle HTMX events for asset operations
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.successful) {
+        // Check if this was an add/remove operation
+        const target = evt.detail.target;
+
+        // If adding from search results
+        if (target && target.id && target.id.endsWith('-list')) {
+            const assetType = target.id.replace('s-list', '');
+            // Remove empty message if present
+            const emptyMsg = document.getElementById(`${assetType}-empty`);
+            if (emptyMsg) emptyMsg.remove();
+
+            updateAssetCount(assetType);
+
+            // Remove the clicked item from search results
+            const clickedBtn = evt.detail.elt;
+            if (clickedBtn && clickedBtn.closest('.list-group-item')) {
+                clickedBtn.closest('.list-group-item').remove();
+            }
+        }
+
+        // If removing an asset (swap outerHTML with empty)
+        if (evt.detail.requestConfig && evt.detail.requestConfig.verb === 'delete') {
+            // The asset-type is in the element ID: asset-{type}-{id}
+            const eltId = evt.detail.elt.id || '';
+            const match = eltId.match(/asset-(\w+)-\d+/);
+            if (match) {
+                setTimeout(() => updateAssetCount(match[1]), 100);
+            }
+        }
+    }
+});
+</script>
+
+{% endblock scripts %}

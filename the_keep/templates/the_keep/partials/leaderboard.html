@@ -12,7 +12,7 @@
     </thead>
     <tbody class="effort-rows">
         {% for faction in leaderboard_factions %}
-        <tr data-href="{% url 'faction-detail' faction.slug %}" class="clickable-row">
+        <tr data-href="{{ faction.leaderboard_link }}" class="clickable-row">
             <td>{{ forloop.counter }}</td>
             <td>
 

@@ -1,0 +1,112 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}Send to Series - {{ survey.title }} | {% endblock %}
+
+{% block content %}
+<div class="content-section">
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+    <div class="mb-4">
+        <h1 class="root-title mb-2">{% trans 'Send to Series' %}</h1>
+        <p class="text-muted mb-0">{{ survey.title }}</p>
+    </div>
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-trophy"></i> {{ tournament.name }}</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+
+                        {% if designated_stage %}
+                        <p class="text-muted mb-3">
+                            This survey is linked to a specific stage. Respondents will be sent directly to that stage.
+                        </p>
+                        <input type="hidden" name="stage_id" value="{{ designated_stage.id }}">
+                        <div class="mb-3 p-3 bg-light rounded border">
+                            <div class="d-flex align-items-center gap-2">
+                                <div>
+                                    <strong>{{ designated_stage.name }}</strong>
+                                    {% if designated_stage.start_date %}
+                                    <small class="text-muted ms-2">{{ designated_stage.start_date|date:"M j, Y" }}</small>
+                                    {% endif %}
+                                    <small class="text-muted ms-2">
+                                        ({{ designated_stage.participants.count }} player{{ designated_stage.participants.count|pluralize }} in stage)
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% else %}
+                        <p class="text-muted mb-3">
+                            Choose where to send the accepted survey respondents.
+                            Their availability data will be synced to the series' roster.
+                        </p>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">{% trans 'Destination' %}</label>
+
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="stage_id"
+                                       id="stage_none" value="none" checked>
+                                <label class="form-check-label" for="stage_none">
+                                    <strong>{{ tournament.name }}</strong>
+                                    <small class="text-muted ms-2">{% trans 'Sync players to series without adding to a stage' %}</small>
+                                </label>
+                            </div>
+
+                            {% for stage in stages %}
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="stage_id"
+                                       id="stage_{{ stage.id }}" value="{{ stage.id }}">
+                                <label class="form-check-label" for="stage_{{ stage.id }}">
+                                    <strong>{{ stage.name }}</strong>
+                                    {% if stage.start_date %}
+                                    <small class="text-muted ms-2">{{ stage.start_date|date:"M j, Y" }}</small>
+                                    {% endif %}
+                                    <small class="text-muted ms-2">
+                                        ({{ stage.participants.count }} player{{ stage.participants.count|pluralize }} in stage)
+                                    </small>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-send"></i> {% trans 'Send' %}
+                            </button>
+                            <a href="{% url 'survey-detail' survey.slug %}" class="btn btn-outline-secondary">
+                                {% trans 'Cancel' %}
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card bg-light">
+                <div class="card-body">
+                    <h6 class="card-title"><i class="bi bi-info-circle"></i> {% trans 'What this does' %}</h6>
+                    {% if designated_stage %}
+                    <ul class="small text-muted mb-0 ps-3">
+                        <li class="mb-1">Syncs each respondent's availability for the Tournament based on their responses</li>
+                        <li>Adds respondents to the designated Stage's roster as well as the Tournament's roster</li>
+                    </ul>
+                    {% else %}
+                    <ul class="small text-muted mb-0 ps-3">
+                        <li class="mb-1">Syncs each respondent's availability for the Series based on their responses</li>
+                        <li class="mb-1">If a Stage is selected, adds each respondent to that Stage's roster as well as the Series' roster</li>
+                        <li>The first option syncs players without adding them to any Stage</li>
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

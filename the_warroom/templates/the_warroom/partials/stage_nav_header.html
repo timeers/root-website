@@ -1,0 +1,80 @@
+{% load static i18n %}
+
+<article class="content-section mt-2">
+    <div class="section-nav-header">
+        <!-- Navigation Tabs -->
+        <nav class="section-nav-tabs">
+            <a href="{% url 'stage-overview' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
+                {% trans 'Overview' %}
+            </a>
+            {% if has_games %}
+            <a href="{% url 'stage-leaderboard-page' tournament.slug stage.slug %}"
+               data-carry-filters="leaderboard"
+               class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
+                {% trans 'Leaderboard' %}
+            </a>
+            <div class="section-nav-tab-group">
+                <a href="{% url 'stage-games-page' tournament.slug stage.slug %}"
+                   data-carry-filters="games"
+                   class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                    {% trans 'Games' %}
+                </a>
+                {% if has_bracket and active_page == 'games' %}
+                <div class="section-sub-nav">
+                    <a href="{% url 'stage-games-page' tournament.slug stage.slug %}"
+                       class="root-title section-sub-tab {% if active_sub_page == 'games' %}active{% endif %}">
+                        {% trans 'All Games' %}
+                    </a>
+                    <a href="{% url 'stage-bracket-page' tournament.slug stage.slug %}"
+                       class="root-title section-sub-tab {% if active_sub_page == 'bracket' %}active{% endif %}">
+                        {% trans 'Bracket' %}
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% elif has_bracket %}
+            <a href="{% url 'stage-bracket-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                {% trans 'Games' %}
+            </a>
+            {% endif %}
+            {% if has_games or has_players %}
+            <a href="{% url 'stage-roster-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
+                {% trans 'Roster' %}
+            </a>
+            {% endif %}
+            {% if has_surveys %}
+            <a href="{% url 'stage-surveys' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'surveys' %}active{% endif %}">
+                {% trans 'Surveys' %}
+            </a>
+            {% endif %}
+            <a href="{% url 'stage-details-page' tournament.slug stage.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
+                {% trans 'Details' %}
+            </a>
+        </nav>
+
+        <!-- Action Buttons -->
+        <div class="section-nav-action-buttons">
+            <div class="section-nav-actions-desktop">
+                {% if playable_round %}
+                <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                {% endif %}
+                {% if can_manage %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ stage.get_settings_url }}"><i class="bi bi-gear me-1"></i>{% trans 'Settings' %}</a>
+                {% endif %}
+            </div>
+            <div class="section-nav-actions-mobile">
+                {% if playable_round %}
+                <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                {% endif %}
+                {% if can_manage %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ stage.get_settings_url }}"><i class="bi bi-gear"></i></a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</article>

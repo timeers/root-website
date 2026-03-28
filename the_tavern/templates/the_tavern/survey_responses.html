@@ -1,0 +1,243 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'Responses' %}: {{ survey.title }} | {% endblock %}
+
+{% block styles %}
+<style>
+.dropdown-item.text-success:hover,
+.dropdown-item.text-success:focus {
+    background-color: #d1e7dd;  /* Light green background */
+    color: #0f5132;  /* Darker green text for better contrast */
+}
+
+.dropdown-item.text-warning:hover,
+.dropdown-item.text-warning:focus {
+    background-color: #fff3cd;  /* Light yellow background */
+    color: #664d03;  /* Darker yellow/brown text */
+}
+
+.dropdown-item.text-danger:hover,
+.dropdown-item.text-danger:focus {
+    background-color: #f8d7da;  /* Light red background */
+    color: #842029;  /* Darker red text */
+}
+</style>
+{% endblock styles %}
+
+{% block content %}
+<div class="content-section">
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+    <h1 class="root-title mb-2">{{ survey.title }}</h1>
+    <div class='mb-4'>
+        <div class="text-muted">
+            <i class="bi bi-chat-left-text"></i> {{ responses|length }} {% trans 'Response' %}{{ responses|length|pluralize }}
+        </div>
+        {% comment %} {% if survey.waitlist_threshold %}
+            <div class="text-muted">
+            {{ survey.waitlist_threshold }} Spots
+            </div>
+        {% endif %} {% endcomment %}
+    </div>
+    {% if responses %}
+        <h5 class='root-title'>Responses</h5>
+        <div class="row g-3">
+            {% for response in responses %}
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="d-flex align-items-center flex-fill">
+                                    {% if response.profile %}
+                                        {% if response.profile.image %}
+                                            <img src="{{ response.profile.image.url }}" alt="{{ response.profile.name }}" class="lg-faction-icon me-3">
+                                        {% else %}
+                                            <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
+                                        {% endif %}
+                                        <div>
+                                            <h5 class="card-title mb-1">
+                                                <a href="{{ response.profile.get_absolute_url }}" class="text-decoration-none">
+                                                    {{ response.profile.name }}
+                                                </a>
+                                                {% if survey.limit_responses and survey.has_waitlist %}
+                                                    {% if response.is_waitlisted %}
+                                                        <span class="badge bg-warning text-dark ms-1">{% trans 'Waitlist' %} #{{response.waitlist_number}}</span>
+                                                    {% else %}
+                                                        <span class="badge bg-success ms-1">{% trans 'Accepted' %}</span>
+                                                    {% endif %}
+                                                {% endif %}
+                                            </h5>
+                                            <p class="card-text text-muted mb-0">
+                                                <small>
+                                                    <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
+                                                    {% if response.was_updated %}
+                                                        | <i class="bi bi-pencil"></i> {% trans 'Updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
+                                                    {% endif %}
+                                                </small>
+                                            </p>
+                                        </div>
+                                    {% else %}
+                                        <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
+                                        <div>
+                                            <h5 class="card-title mb-1 text-muted">{% trans 'Anonymous' %}</h5>
+                                            <p class="card-text text-muted mb-0">
+                                                <small>
+                                                    <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
+                                                </small>
+                                            </p>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <div class="ms-3 d-flex gap-2">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i> {% trans 'View' %}
+                                    </a>
+
+                                    <!-- Admin Actions Dropdown -->
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            {% if survey.limit_responses and survey.has_waitlist %}
+                                                {% if response.is_waitlisted %}
+                                                    <li>
+                                                        <button class="dropdown-item text-success"
+                                                                data-action="move-accepted"
+                                                                data-response-id="{{ response.id }}"
+                                                                data-url="{% url 'survey-response-move-accepted' survey.slug response.id %}">
+                                                            <i class="bi bi-arrow-up-circle"></i> {% trans 'Move to Accepted' %}
+                                                        </button>
+                                                    </li>
+                                                {% else %}
+                                                    <li>
+                                                        <button class="dropdown-item text-warning"
+                                                                data-action="move-waitlist"
+                                                                data-response-id="{{ response.id }}"
+                                                                data-url="{% url 'survey-response-move-waitlist' survey.slug response.id %}">
+                                                            <i class="bi bi-arrow-down-circle"></i> {% trans 'Move to Waitlist' %}
+                                                        </button>
+                                                    </li>
+                                                {% endif %}
+                                                <li><hr class="dropdown-divider"></li>
+                                            {% endif %}
+                                            <li>
+                                                <button class="dropdown-item text-danger"
+                                                        data-action="delete"
+                                                        data-response-id="{{ response.id }}"
+                                                        data-user-name="{{ response.profile.name|default:'Anonymous' }}"
+                                                        data-url="{% url 'survey-response-delete' survey.slug response.id %}">
+                                                    <i class="bi bi-trash"></i> {% trans 'Delete Response' %}
+                                                </button>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info d-flex align-items-center">
+            <i class="bi bi-info-circle fs-4 me-3"></i>
+            <div>
+                <h5 class="alert-heading mb-1">{% trans 'No Responses Yet' %}</h5>
+                <p class="mb-0">{% trans 'This survey has not received any responses yet.' %}</p>
+            </div>
+        </div>
+    {% endif %}
+    {% if unresponded_players %}
+        <h5 class='root-title'>Invites</h5>
+        {% for player in unresponded_players %}
+                <div class="col-12">
+                    <div class="card mb-1">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="d-flex align-items-center flex-fill">
+                                        {% if player.image %}
+                                            <img src="{{ player.image.url }}" alt="{{ player.name }}" class="lg-faction-icon me-3">
+                                        {% else %}
+                                            <i class="bi bi-person-circle me-3" style="font-size: 2.5rem;"></i>
+                                        {% endif %}
+                                        <div>
+                                            <h5 class="card-title mb-1">
+                                                <a href="{{ player.get_absolute_url }}" class="text-decoration-none">
+                                                    {{ player.name }}
+                                                </a>
+                                            </h5>
+                                            <p class="card-text text-muted mb-0">
+                                                <small>
+                                                    <i class="bi bi-envelope"></i> {% trans 'Invited' %}
+                                                </small>
+                                            </p>
+                                        </div>
+                                </div>
+        
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+
+
+    {% endif %}
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Event delegation for all action buttons
+    document.addEventListener('click', function(e) {
+        const button = e.target.closest('[data-action]');
+        if (!button) return;
+
+        const action = button.dataset.action;
+        const url = button.dataset.url;
+        const responseId = button.dataset.responseId;
+        const userName = button.dataset.userName;
+
+        if (action === 'move-waitlist') {
+            if (!confirm('{% trans "Are you sure you want to move this response to the waitlist? The waitlist threshold will be reduced and this response will move to the end." %}')) {
+                return;
+            }
+            performAction(url, '{% trans "An error occurred while moving the response" %}');
+        } else if (action === 'move-accepted') {
+            if (!confirm('{% trans "Are you sure you want to move this response off the waitlist? The waitlist threshold will be increased." %}')) {
+                return;
+            }
+            performAction(url, '{% trans "An error occurred while moving the response" %}');
+        } else if (action === 'delete') {
+            if (!confirm(`{% trans "Are you sure you want to delete the response from" %} ${userName}? {% trans "This action cannot be undone." %}`)) {
+                return;
+            }
+            performAction(url, '{% trans "An error occurred while deleting the response" %}');
+        }
+    });
+
+    function performAction(url, errorMessage) {
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/json',
+            },
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert(data.error || '{% trans "An error occurred" %}');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert(errorMessage);
+        });
+    }
+});
+</script>
+{% endblock scripts %}

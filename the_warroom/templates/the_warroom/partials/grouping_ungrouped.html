@@ -1,0 +1,51 @@
+{% load i18n %}
+{# Shared partial: Ungrouped Players card #}
+{# Requires context: ungrouped_players, ungrouped_count, editable, stage #}
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-person-x"></i> {% trans 'Ungrouped Players' %} ({{ ungrouped_count }})</h5>
+    </div>
+    <div class="card-body">
+        <ul class="list-group list-group-flush {% if editable %}sortable-ungrouped{% endif %}" id="ungrouped-players" data-group-id="ungrouped" style="min-height: 40px;">
+            {% for sp in ungrouped_players %}
+            <li class="list-group-item d-flex align-items-center player-item ungrouped-item" data-player-id="{{ sp.id }}" data-source="ungrouped">
+                {% if editable %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
+                {% if sp.profile.image %}
+                <img src="{{ sp.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                {% else %}
+                <i class="bi bi-person-circle me-2"></i>
+                {% endif %}
+                <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                {% if sp.availability_hours %}
+                <small class="text-muted me-1">{{ sp.availability_hours|length }}h</small>
+                <button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal({{ sp.id }})" title="{% trans 'View availability' %}">
+                    <i class="bi bi-calendar-week"></i>
+                </button>
+                {% endif %}
+            </li>
+            {% empty %}
+            <li class="list-group-item text-muted text-center ungrouped-empty-msg">
+                {% if editable %}
+                <small>{% trans 'Drop players here' %}</small>
+                {% else %}
+                <small>{% trans 'No ungrouped players' %}</small>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% if ungrouped_players %}
+<script>
+var _playerCalendarData = _playerCalendarData || {};
+{% for sp in ungrouped_players %}
+{% if sp.availability_hours %}
+_playerCalendarData[{{ sp.id }}] = {
+    name: "{{ sp.profile.display_name|escapejs }}",
+    hours: {{ sp.availability_hours|safe }}
+};
+{% endif %}
+{% endfor %}
+</script>
+{% endif %}

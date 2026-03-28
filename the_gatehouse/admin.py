@@ -6,7 +6,8 @@ from django.shortcuts import render
 from .models import (Profile, PlayerBookmark,
                      Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
-                     Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification)
+                     Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
+                     )
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
@@ -309,3 +310,5 @@ admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
 admin.site.register(DiscordGuild, DiscordGuildAdmin)
 admin.site.register(Changelog, ChangelogAdmin)
 admin.site.register(DiscordGuildJoinRequest, DiscordGuildJoinRequestAdmin)
+
+

@@ -1,0 +1,25 @@
+<!-- Classification Toggle Slider Partial -->
+
+<!-- Hidden form field for classification -->
+<input type="hidden" name="classification" id="classification_input" value="{{ tournament_form.classification.value }}">
+
+<div id="classification-toggle-container" class="mb-2">
+    <label class="form-label fw-bold mb-3">Classification</label>
+    <div class="option-toggle option-toggle-3">
+        <div class="option-slider position-1" id="classification-slider"></div>
+        <div class="option-item" data-value="Game Group" data-position="1">
+            <i class="bi bi-people me-1"></i>Group
+        </div>
+        <div class="option-item" data-value="League" data-position="2">
+            <i class="bi bi-discord me-1"></i>League
+        </div>
+        <div class="option-item" data-value="Tournament" data-position="3">
+            <i class="bi bi-trophy me-1"></i>Tournament
+        </div>
+    </div>
+    <div class="toggle-description" id="classification-description">
+        <i class="bi bi-info-circle me-1"></i>
+        <span id="classification-description-text"></span>
+    </div>
+</div>
+

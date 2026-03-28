@@ -3,7 +3,7 @@
 
 <article class="d-flex content-section" id="game-{{ game.id }}">
     
-    <div>
+    <div class="w-100">
         <a href="{{ game.get_absolute_url }}">
             {% if game.nickname %}
                 <h5>{{game.nickname}}</h5>
@@ -11,7 +11,7 @@
         <div class="article-metadata">
             <small class="text-muted">
                     {% if game.round %}
-                        {{ game.type }} {{ game.round.tournament.name }} {% trans 'Game' %} |
+                        {{ game.type }} {{ game.round.get_tournament.name }} {% trans 'Game' %} |
                     {% else %}
                         {{ game.type }} 
                         {% if game.solo %}

@@ -1,8 +1,31 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
-{% block content %}
-     <h1 class='root-title'>Ambush!</h1>
-     You are not allowed to view this page.
-     <img class='responsive-img rounded-corner-img mb-1' src="{% static 'images/ambush.jpg' %}" alt="403">
-{% endblock content %}
+
 {% block title %}403 | {% endblock title %}
+
+{% block content %}
+<div class="col-md-8 col-lg-6 mx-auto text-center">
+    <article class="content-section py-4 px-3">
+
+        <h1 class="root-title mb-3">403 - Forbidden!</h1>
+
+        <p class="mb-4" style="font-size: 1.1rem;">
+            The Root Database played an Ambush! You don't have permission to view this page.
+        </p>
+
+        <img class="responsive-img rounded-corner-img mb-4"
+             src="{% static 'images/ambush.jpg' %}"
+             alt="An ambush in the woodland"
+             style="max-width: min(500px, 100%);">
+
+        <p class="text-muted mb-3">
+            If you believe you should have access to this page, please let us know.
+        </p>
+
+        <a href="{% url 'general-feedback' %}" class="btn-outline" style="font-size: 1rem; padding: 0.5rem 1rem;">
+            <i class="bi bi-chat-dots me-1"></i> Submit Feedback
+        </a>
+
+    </article>
+</div>
+{% endblock content %}

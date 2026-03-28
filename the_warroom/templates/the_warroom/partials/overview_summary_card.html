@@ -1,0 +1,83 @@
+{% load i18n %}
+<!-- Overview summary card — pass item (Tournament/Stage/Round) and format_value -->
+<div class="row mb-4 g-3">
+    <div class="col-12">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        {% if item.guild %}
+                        <div class="d-flex align-items-center mb-1">
+                            {% if user_in_guild %}
+                                {% if item.guild.get_icon_url %}
+                                    <img src="{{ item.guild.get_icon_url }}" alt="{{ item.guild.guild_name }}"
+                                         class="faction-icon me-1">
+                                {% else %}
+                                    <i class="bi bi-people me-1"></i>
+                                {% endif %}
+                                <small class="text-secondary">{{ item.guild.guild_name }}</small>
+                            {% else %}
+                                <i class="bi bi-discord me-1 text-secondary"></i>
+                                <small class="text-secondary">Discord Guild</small>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        <small class="text-secondary d-block">
+                            {{ item.game_count }} {% trans 'game' %}{{ item.game_count|pluralize }}
+                            {% if scheduled_count %}
+                                &middot;
+                                {{ scheduled_count }} {% trans 'scheduled' %}
+                            {% endif %}
+                            {% if pending_count %}
+                                &middot;
+                                {{ pending_count }} {% trans 'pending' %}
+                            {% endif %}
+                            &middot;
+                            {{ item.all_player_count }} {% trans 'player' %}{{ item.all_player_count|pluralize }}
+                        </small>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        {% with effective_status=item.get_effective_status %}
+                        {% if effective_status == 'Active' %}
+
+                                <div class='text-success me-2'>
+                                    <small>{% trans 'Active' %}</small>
+                                </div>
+
+                            <i class="bi bi-play-circle-fill text-success"></i>
+                        {% elif effective_status == 'Pending' %}
+
+                                <div class='text-info me-2'>
+                                    <small>{% trans 'Scheduled' %}</small>
+                                </div>
+
+                            <i class="bi bi-clock-fill text-info"></i>
+                        {% else %}
+
+                                <div class='text-secondary me-2'>
+                                    <small>{% trans 'Concluded' %}</small>
+                                </div>
+
+                            <i class="bi bi-check-circle-fill text-secondary"></i>
+                        {% endif %}
+                        {% endwith %}
+                    </div>
+                </div>
+                {% if item.start_date or item.end_date %}
+                <dl class="mb-0">
+                    {% if item.start_date and item.end_date %}
+                    <dt class="text-muted small">{% trans 'Dates' %}</dt>
+                    {% elif item.start_date %}
+                    <dt class="text-muted small">{% trans 'Start Date' %}</dt>
+                    {% elif item.end_date %}
+                    <dt class="text-muted small">{% trans 'End Date' %}</dt>
+                    {% endif %}
+                    <dd>
+                        {{ item.start_date|date:"M j, Y" }}{% if item.end_date and item.start_date %} – {% endif %}{{ item.end_date|date:"M j, Y" }}
+                    </dd>
+                </dl>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

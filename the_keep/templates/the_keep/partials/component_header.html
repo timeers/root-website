@@ -3,7 +3,7 @@
 
     <div class="d-flex flex-nowrap ms-auto">
 
-        {% if stable_ready and object.status != "1" %}
+        {% comment %} {% if stable_ready and object.status != "1" %}
             <!-- Show option to Mark Stable -->
             <div>
                 <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'confirm-stable' object.slug %}"><i class="bi bi-check"></i> {% trans 'Stable' %}</a>
@@ -15,9 +15,9 @@
             <div>
                 <a class="btn btn-primary btn-sm mt-1 mb-1 ms-1" href="{% url 'confirm-testing' object.slug %}"><i class="bi bi-play-fill"></i> {% trans 'Testing' %}</a>
             </div>
-        {% endif %}
+        {% endif %} {% endcomment %}
         {% if can_edit %}
-                {% if not existing_law %}
+                {% comment %} {% if not existing_law %}
                     <div>
                         <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'post-law-group-create' slug=object.slug %}">
                             {% trans 'Add Law' %} <i class="bi bi-book"></i>
@@ -49,6 +49,16 @@
                 <div>
                     <a class="btn btn-warning btn-sm mt-1 mb-1 ms-1" href="{{ object.get_edit_url }}">
                         {% trans 'Edit' %} {{ object.component }} <i class="bi bi-pencil-square"></i>
+                    </a>
+                </div> {% endcomment %}
+                <!-- Settings Hub -->
+                <div>
+                    <a class="btn btn-outline-secondary btn-sm mt-1 mb-1 ms-1 position-relative" href="{% url 'post-settings' object.slug %}">
+                        <i class="bi bi-gear"></i>
+                        {% if stable_ready and object.status != "1" or testing_ready and object.status != "2" and object.status != "1" %}
+                            <span class="notification-badge">1</span>
+                        {% endif %}
+                        {% trans 'Settings' %}
                     </a>
                 </div>
         {% endif %}

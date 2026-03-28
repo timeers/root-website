@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from .services.github_laws import sync_github_rules
 from the_gatehouse.models import Language, Website
-from the_gatehouse.services.discordservice import send_discord_message
+from the_gatehouse.tasks import send_discord_message_task
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
@@ -51,7 +51,7 @@ def sync_rules_task(self):
     if updated_locales:
         locales_str = ", ".join(updated_locales)
         message = f"New Rules available for the following languages: {locales_str}"
-        send_discord_message(message=message, category='report')
+        send_discord_message_task.delay(message=message, category='report')
     else:
         message = "No new rules available from Leder Rules Library."
 

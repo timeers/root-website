@@ -17,90 +17,71 @@
     <meta name="description" content="{{ series_description }}">
 {% endblock meta %}
 
-
-
 {% block content %}
 {% include 'the_warroom/partials/warroom_nav_header.html' with active_page='series' %}
 
-{% if scheduled.count > 0 or future.count > 0 or user.is_authenticated and user_tournaments %}
-
-    <article class="d-flex content-section">
-        <div class="w-100">
-            <!-- Tab navigation -->
-            <ul class="nav nav-tabs" id="tournamentTabs" role="tablist">
-                {% if concluded %}
+<article class="d-flex content-section">
+    <div class="w-100">
+        <!-- Classification Tabs -->
+        <div class="d-flex align-items-center justify-content-between">
+            <ul class="nav nav-tabs" id="seriesTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="concluded-tab" data-bs-toggle="tab" href="#concluded" role="tab" aria-controls="concluded" aria-selected="false">Concluded</a>
+                    <a class="nav-link" id="groups-tab" data-bs-toggle="tab"
+                       href="#groups" role="tab" aria-controls="groups" aria-selected="false">{% trans 'Groups' %}</a>
                 </li>
-                {% endif %}
-
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link active" id="ongoing-tab" data-bs-toggle="tab" href="#ongoing" role="tab" aria-controls="ongoing" aria-selected="true">Ongoing</a>
+                    <a class="nav-link active" id="tournaments-tab" data-bs-toggle="tab"
+                       href="#tournaments" role="tab" aria-controls="tournaments" aria-selected="true">{% trans 'Tournaments' %}</a>
                 </li>
-                {% if user.is_authenticated and user.profile.admin %}
                 <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="scheduled-tab" data-bs-toggle="tab" href="#scheduled" role="tab" aria-controls="scheduled" aria-selected="false">Scheduled</a>
+                    <a class="nav-link" id="leagues-tab" data-bs-toggle="tab"
+                       href="#leagues" role="tab" aria-controls="leagues" aria-selected="false">{% trans 'Leagues' %}</a>
                 </li>
-                {% endif %}
-                {% if user.is_authenticated and user_tournaments %}
-                <li class="nav-item" role="presentation">
-                    <a class="nav-link" id="mine-tab" data-bs-toggle="tab" href="#mine" role="tab" aria-controls="mine" aria-selected="false">My Series</a>
-                </li>
-                {% endif %}
             </ul>
+            <a href="{% url 'about-series' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-info-circle"></i>
+                <span class="d-sm-inline">{% trans 'About' %}</span>
+            </a>
+        </div>
 
-            <!-- Tab content -->
-            <div class="tab-content" id="tournamentTabsContent">
-                {% if user.is_authenticated and user_tournaments %}
-                <!-- My Tournaments -->
-                <div class="tab-pane fade" id="mine" role="tabpanel" aria-labelledby="mine-tab">
-                    <h3 class='root-title'>My Series</h3>
-                    {% with user_tournaments as tournaments %}
-                        {% include 'the_warroom/partials/tournament_list.html' %}
-                    {% endwith %}
-                </div>
-                {% endif %}
+        <div class="tab-content" id="seriesTabsContent">
+            <!-- Groups Tab -->
+            <div class="tab-pane fade" id="groups" role="tabpanel" aria-labelledby="groups-tab">
+                {% include 'the_warroom/partials/series_tab_content.html' with cls_key='groups' cls_label='Group' my_series=groups_my participating_series=groups_participating community_series=groups_community public_series=groups_public has_more_my=has_more_groups_my has_more_participating=has_more_groups_participating has_more_community=has_more_groups_community has_more_public=has_more_groups_public my_offset=groups_my_offset participating_offset=groups_participating_offset community_offset=groups_community_offset public_offset=groups_public_offset %}
+            </div>
 
-                {% if user.is_authenticated and user.profile.admin %}
-                <!-- Scheduled Tournaments -->
-                <div class="tab-pane fade" id="scheduled" role="tabpanel" aria-labelledby="scheduled-tab">
-                    <h3 class='root-title'>Scheduled Series</h3>
-                    {% with scheduled as tournaments %}
-                        {% include 'the_warroom/partials/tournament_list.html' %}
-                    {% endwith %}
-                </div>
-                {% endif %}
+            <!-- Tournaments Tab (active) -->
+            <div class="tab-pane fade show active" id="tournaments" role="tabpanel" aria-labelledby="tournaments-tab">
+                {% include 'the_warroom/partials/series_tab_content.html' with cls_key='tournaments' cls_label='Tournament' my_series=tournaments_my participating_series=tournaments_participating community_series=tournaments_community public_series=tournaments_public has_more_my=has_more_tournaments_my has_more_participating=has_more_tournaments_participating has_more_community=has_more_tournaments_community has_more_public=has_more_tournaments_public my_offset=tournaments_my_offset participating_offset=tournaments_participating_offset community_offset=tournaments_community_offset public_offset=tournaments_public_offset %}
+            </div>
 
-                <!-- Ongoing Tournaments -->
-                <div class="tab-pane fade show active" id="ongoing" role="tabpanel" aria-labelledby="ongoing-tab">
-                    <h3 class='root-title'>Ongoing Series</h3>
-
-                    {% with ongoing as tournaments %}
-                        {% include 'the_warroom/partials/tournament_list.html' %}
-                    {% endwith %}
-                </div>
-                {% if concluded %}
-                <!-- Concluded Tournaments -->
-                <div class="tab-pane fade" id="concluded" role="tabpanel" aria-labelledby="concluded-tab">
-                    <h3 class='root-title'>Concluded Series</h3>
-                    {% with concluded as tournaments %}
-                        {% include 'the_warroom/partials/tournament_list.html' %}
-                    {% endwith %}
-                </div>
-                {% endif %}
+            <!-- Leagues Tab -->
+            <div class="tab-pane fade" id="leagues" role="tabpanel" aria-labelledby="leagues-tab">
+                {% include 'the_warroom/partials/series_tab_content.html' with cls_key='leagues' cls_label='League' my_series=leagues_my participating_series=leagues_participating community_series=leagues_community public_series=leagues_public has_more_my=has_more_leagues_my has_more_participating=has_more_leagues_participating has_more_community=has_more_leagues_community has_more_public=has_more_leagues_public my_offset=leagues_my_offset participating_offset=leagues_participating_offset community_offset=leagues_community_offset public_offset=leagues_public_offset %}
             </div>
         </div>
-    </article>
-{% else %}
+    </div>
+</article>
 
-    <article class="d-flex content-section">
-        <div class="w-100">
-        <h3 class='root-title'>Ongoing Series</h3>
-        {% with ongoing as tournaments %}
-            {% include 'the_warroom/partials/tournament_list.html' %}
-        {% endwith %}
-        </div>
-    </article>
-{% endif %}
+<script>
+    // Hash-based tab activation
+    document.addEventListener('DOMContentLoaded', function() {
+        var hash = window.location.hash;
+        if (hash) {
+            var tab = document.querySelector('#seriesTabs a[href="' + hash + '"]');
+            if (tab) {
+                var bsTab = new bootstrap.Tab(tab);
+                bsTab.show();
+            }
+        }
 
-{% endblock%}
+        // Update hash on tab change
+        var tabLinks = document.querySelectorAll('#seriesTabs a[data-bs-toggle="tab"]');
+        tabLinks.forEach(function(tabLink) {
+            tabLink.addEventListener('shown.bs.tab', function(e) {
+                history.replaceState(null, null, e.target.getAttribute('href'));
+            });
+        });
+    });
+</script>
+{% endblock %}

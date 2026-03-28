@@ -23,7 +23,8 @@ from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
 from the_keep.api_views import get_options_for_platform
 from the_warroom.api_views import get_options_for_tournament
-from the_gatehouse.views import bookmark_player, onboard_user, onboard_decline, set_language_custom
+from the_gatehouse.views import onboard_user, onboard_decline, set_language_custom
+from the_tavern.views import bookmark_player
 # from django.views.i18n import JavaScriptCatalog
 
 
@@ -65,6 +66,7 @@ urlpatterns = [
     path('', include('the_keep.urls')),
     path('', include('the_gatehouse.urls')),
     path('', include('the_warroom.urls')),
+    path('', include('the_tavern.urls')),
     path('accounts/', include('allauth.urls')),
 
     path('__debug__/', include("debug_toolbar.urls")),
@@ -74,5 +76,9 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
+    from django.views.defaults import page_not_found
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += [
+        path('test-404/', lambda request: page_not_found(request, None)),
+    ]
    

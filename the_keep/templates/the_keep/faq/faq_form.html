@@ -16,7 +16,23 @@
         {% csrf_token %}
         <fieldset class="mb-3">
             <legend class="border-bottom mb-4">New FAQ{% if post %} for {{ post.title }}{% endif %}</legend>
-            {{ form | crispy }}
+            {{ form.question | as_crispy_field }}
+            {{ form.answer | as_crispy_field }}
+            {{ form.reference_laws | as_crispy_field }}
+            {% if form.reference_cards %}
+            <div id="div_id_reference_cards" class="mb-3">
+                <label for="id_reference_cards" class="form-label">Reference cards</label>
+                <select name="reference_cards" class="form-select" multiple id="id_reference_cards">
+                    {% for card in form.fields.reference_cards.queryset %}
+                    <option value="{{ card.id }}"
+                            data-image="{{ card.front_image.url }}"
+                            {% if form.instance.pk and card in form.instance.reference_cards.all %}selected{% endif %}>
+                        {{ card.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
         </fieldset>
         <div class="mb-3">
             <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
@@ -39,9 +55,52 @@
     $(document).ready(function() {
         // Apply Select2 to the reference_laws field
         $('#id_reference_laws').select2({
-        placeholder: "Links to Reference Laws", // Add a placeholder
-        width: '100%' // Set the width to 100% for responsiveness
+        placeholder: "Links to Reference Laws",
+        width: '100%'
     });
+        // Apply Select2 to the reference_cards field with custom template
+        if ($('#id_reference_cards').length) {
+            // Store card data in a map for quick lookup
+            const cardDataMap = {};
+            $('#id_reference_cards option').each(function() {
+                const option = $(this);
+                if (option.val()) {
+                    cardDataMap[option.val()] = {
+                        text: option.text(),
+                        image: option.data('image')
+                    };
+                }
+            });
+
+            $('#id_reference_cards').select2({
+                placeholder: "Links to Cards",
+                width: '100%',
+                templateResult: formatCardOption,
+                templateSelection: formatCardSelection
+            });
+
+            function formatCardOption(card) {
+                if (!card.id) { return card.text; }
+                const data = cardDataMap[card.id];
+                if (!data || !data.image) { return card.text; }
+
+                const $card = $(
+                    '<span><img src="' + data.image + '" class="img-thumbnail me-2" style="height: 30px; width: auto; object-fit: contain;" /> ' + data.text + '</span>'
+                );
+                return $card;
+            }
+
+            function formatCardSelection(card) {
+                if (!card.id) { return card.text; }
+                const data = cardDataMap[card.id];
+                if (!data || !data.image) { return card.text; }
+
+                const $card = $(
+                    '<span><img src="' + data.image + '" class="img-thumbnail me-1" style="height: 20px; width: auto; object-fit: contain;" /> ' + data.text + '</span>'
+                );
+                return $card;
+            }
+        }
   });
 </script>
 {% endblock scripts %}

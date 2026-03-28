@@ -108,7 +108,7 @@
             {% endfor %}
         {% endif %}
 
-        {% if tournaments or rounds %}
+        {% if tournaments or rounds or stages %}
             <strong>{% trans 'Series' %}</strong>
             {% for result in tournaments %}
             <a href="{{ result.get_absolute_url }}">
@@ -117,10 +117,17 @@
                 </div>
             </a>
             {% endfor %}
+            {% for result in stages %}
+            <a href="{{ result.get_absolute_url }}">
+                <div class='clickable-segment'>
+                    {{ result }}
+                </div>
+            </a>
+            {% endfor %}
             {% for result in rounds %}
             <a href="{{ result.get_absolute_url }}">
                 <div class='clickable-segment'>
-                    {{ result.name }} - {{ result.tournament.name }}
+                    {{ result }}
                 </div>
             </a>
             {% endfor %}

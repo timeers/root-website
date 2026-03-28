@@ -1,0 +1,84 @@
+{# Survey List Item Partial #}
+{# Variables: survey, show_privacy_badge (optional), show_access_type (optional) #}
+{% load i18n %}
+<a href="{% url 'survey-detail' survey.slug %}" class="list-group-item list-group-item-action" style="text-decoration: none;">
+    <div class="d-flex w-100 justify-content-between align-items-start">
+        <div class="flex-fill">
+            <h5 class="mb-1">
+                {{ survey.title }}
+                {% if show_privacy_badge and not survey.is_public %}
+                    <i class="bi bi-shield-lock text-muted small"></i>
+                {% endif %}
+            </h5>
+            {% if show_owner and survey.created_by %}
+                <div class="d-flex align-items-center mb-1">
+                        {% if survey.created_by.image %}
+                            <img src="{{ survey.created_by.image.url }}" alt="{{ survey.created_by.name }}"
+                                    class="avatar-icon me-1">
+                        {% else %}
+                            <i class="bi bi-people"></i>
+                        {% endif %}
+                        {{ survey.created_by.name }}
+                </div>
+            {% endif %}
+            <small class="text-secondary d-block">
+                {{ survey.response_count }} {% trans 'response' %}{{ survey.response_count|pluralize }}
+                {% if survey.end_date %}
+                    {% trans 'Closes' %}: {{ survey.end_date|date:"M d, Y" }}
+                {% endif %}
+                {% if survey.is_quiz %}
+                        | <i class="bi bi-clipboard-check"></i>
+                        {% trans 'Quiz' %}
+                {% endif %}
+                {% if show_access_type %}
+                    {% if survey.guild %}
+                        | {% if survey.guild.get_icon_url %}
+                            <img src="{{ survey.guild.get_icon_url }}" alt="{{ survey.guild.guild_name }}"
+                                 class="faction-icon">
+                        {% else %}
+                            <i class="bi bi-discord"></i>
+                        {% endif %}
+                        {{ survey.guild.guild_name }}
+                    {% elif survey.stage %}
+                        | <i class="bi bi-trophy"></i>
+                        {{ survey.stage.name }}
+                    {% elif survey.series %}
+                        | <i class="bi bi-trophy"></i>
+                        {{ survey.series.name}}
+                    {% else %}
+                        | <i class="bi bi-envelope"></i> {% trans 'Invited' %}
+                    {% endif %}
+                {% endif %}
+            </small>
+        </div>
+        <div class="ms-3 d-flex align-items-center">
+            {# Status indicators for authenticated users #}
+            {% if user.is_authenticated and show_status %}
+                {% if survey.user_has_responded %}
+                    {% if survey.allow_multiple_responses %}
+                        <span class="text-primary" title="{% trans 'Can Take Again' %}">
+                            <i class="bi bi-check-square"></i>
+                        </span>
+                    {% else %}
+                        <span class="text-success" title="{% trans 'Completed' %}">
+                            <i class="bi bi-check-square"></i>
+                        </span>
+                    {% endif %}
+                {% elif survey.is_survey_full %}
+                    <span class="text-danger" title="{% trans 'Survey Full' %}">
+                        <i class="bi bi-dash-square"></i>
+                    </span>
+                {% elif survey.can_take_survey %}
+                    <span class="text-primary" title="{% trans 'Not started' %}">
+                        <i class="bi bi-square"></i>
+                    </span>
+                {% else %}
+                    <span class="text-warning" title="{% trans 'Private' %}">
+                        <i class="bi bi-x-square"></i>
+                    </span>
+                {% endif %}
+
+            {% endif %}
+        </div>
+    </div>
+</a>

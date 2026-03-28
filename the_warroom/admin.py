@@ -9,30 +9,65 @@ from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
 from django.http import HttpResponseRedirect 
-from django.core.exceptions import ObjectDoesNotExist
 
 from the_keep.models import Deck, Map, Faction, Vagabond, Tweak, Landmark, Hireling
 from the_gatehouse.models import Profile
 
-from .models import Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round
+from .models import (
+    Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round,
+    PlayerGroup, TournamentPlayer, Stage, StageParticipant, Match, MatchAdvancement, MatchSeries
+)
+from .services.root_league_api import get_game_round
+
 from .forms import GameImportForm, EffortImportForm
 
 class CsvImportForm(forms.Form):
     csv_upload = forms.FileField()
 
-class RoundInline(admin.StackedInline):
+class RoundInline(admin.TabularInline):
     model = Round
-    fk_name = 'tournament'
+    fk_name = 'stage'
     extra = 0
+    fields = ('name', 'round_number', 'start_date', 'end_date')
+
+class StageInline(admin.TabularInline):
+    model = Stage
+    extra = 0
+    fields = ('name', 'order', 'stage_format', 'grouping_type', 'naming_convention', 'include_waitlist')
 
 class TournamentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'start_date', 'end_date', 'platform', 'include_fan_content')
+    list_display = ('name', 'classification', 'is_active', 'start_date', 'end_date', 'status', 'platform')
+    list_filter = ('is_active', 'status', 'classification', 'platform')
     search_fields = ('name', 'description')
-    inlines = [RoundInline]
+    inlines = [StageInline]
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'classification', 'designer', 'moderators', 'description', 'rules', 'picture', 'guild')
+        }),
+        ('Availability', {
+            'fields': ('is_active', 'start_date', 'end_date', 'status')
+        }),
+        ('Game Settings', {
+            'fields': ('default_format', 'platform', 'link_required', 'teams', 'coalition_type')
+        }),
+        ('Player Settings', {
+            'fields': ('open_roster', 'enforce_player_count', 'min_players', 'max_players')
+        }),
+        ('Asset Settings', {
+            'fields': ('asset_mode', 'include_clockwork', 'factions', 'maps', 'decks', 'hirelings', 'landmarks', 'tweaks', 'vagabonds')
+        }),
+        ('Leaderboard Settings', {
+            'fields': ('game_threshold', 'leaderboard_positions')
+        }),
+        ('Structure', {
+            'fields': ('use_stages', 'use_rounds', 'publicly_visible')
+        }),
+    )
 
 class RoundAdmin(admin.ModelAdmin):
-    list_display = ('name', 'tournament', 'round_number', 'start_date', 'end_date')
-    search_fields = ['name', 'tournament__name']
+    list_display = ('name', 'stage', 'stage__tournament', 'round_number', 'is_active', 'start_date', 'end_date', 'status')
+    list_filter = ('is_active', 'status', 'grouping_status', 'bracket_status')
+    search_fields = ['name', 'stage__name', 'stage__tournament__name']
 
 class TurnInline(admin.StackedInline):
     model = TurnScore
@@ -135,22 +170,12 @@ class GameAdmin(admin.ModelAdmin):
                 date_obj = datetime.strptime(fields[0], '%m/%d/%Y %H:%M:%S')
 
                 if season_name:
-                    if match:
-                        # Join all found digits, then take the last two digits
-                        digits = ''.join(match)[-2:]
-                        season_number = int(digits)
-                    else:
-                        # Handle the case where no digits are found (if necessary)
-                        season_number = 0 
-                    # season_instance = Round.objects.get(name=season_name)
-                    try:
-                        season_instance = Round.objects.get(name=season_name, tournament__name="Root Digital League")
-                    except:
-                        try:
-                            series = Tournament.objects.get(name="Root Digital League")
-                        except:
-                            series = Tournament.objects.create(name="Root Digital League")
-                        season_instance = Round.objects.create(name=season_name, tournament=series, start_date=date_obj, round_number=season_number)
+                    series, _ = Tournament.objects.get_or_create(name="Root Digital League")
+                    season_instance = get_game_round(
+                        date_registered=date_obj,
+                        round_name=season_name,
+                        tournament=series
+                    )
                 else:
                     season_instance = None
 
@@ -515,3 +540,100 @@ admin.site.register(Tournament, TournamentAdmin)
 admin.site.register(Round, RoundAdmin)
 admin.site.register(ScoreCard, ScoreCardAdmin)
 # admin.site.register(TurnScore)
+
+
+# Player Grouping Admin
+
+class TournamentPlayerInline(admin.TabularInline):
+    model = TournamentPlayer
+    extra = 0
+    raw_id_fields = ('profile', 'survey_response')
+    fields = ('profile', 'status', 'availability_hours', 'waitlist_position')
+    readonly_fields = ('availability_hours',)
+
+
+class StageParticipantInline(admin.TabularInline):
+    model = StageParticipant
+    extra = 0
+    raw_id_fields = ('tournament_player',)
+    fields = ('tournament_player', 'status', 'seed')
+
+
+class StageAdmin(admin.ModelAdmin):
+    list_display = ('name', 'tournament', 'order', 'is_active', 'stage_format', 'grouping_type', 'status', 'grouped_count', 'ungrouped_count')
+    list_filter = ('is_active', 'status', 'tournament', 'stage_format', 'grouping_type')
+    search_fields = ('name', 'tournament__name')
+    raw_id_fields = ('tournament',)
+    inlines = [RoundInline, StageParticipantInline]
+    fieldsets = (
+        (None, {
+            'fields': ('tournament', 'name', 'order', 'stage_format')
+        }),
+        ('Availability', {
+            'fields': ('is_active', 'start_date', 'end_date', 'status')
+        }),
+        ('Grouping Configuration', {
+            'fields': ('grouping_type', 'naming_convention', 'include_waitlist', 'grouped_count', 'ungrouped_count')
+        }),
+        ('Player Settings', {
+            'fields': ('min_players', 'max_players')
+        }),
+        ('Leaderboard Settings', {
+            'fields': ('game_threshold', 'leaderboard_positions')
+        }),
+        ('Advancement', {
+            'fields': ('advancement_type', 'config')
+        }),
+    )
+
+
+class PlayerGroupAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'round', 'group_number', 'created_via', 'member_count', 'total_overlap_hours', 'best_consecutive_block')
+    list_filter = ('round__tournament', 'created_via')
+    search_fields = ('name', 'round__name', 'round__tournament__name')
+    readonly_fields = ('created_at', 'updated_at', 'total_overlap_hours', 'best_consecutive_block', 'days_with_overlap')
+    raw_id_fields = ('round', 'created_by')
+
+    def member_count(self, obj):
+        return obj.member_count
+    member_count.short_description = 'Members'
+
+
+class TournamentPlayerAdmin(admin.ModelAdmin):
+    list_display = ('profile', 'tournament', 'status', 'waitlist_position')
+    list_filter = ('status', 'tournament')
+    search_fields = ('profile__display_name', 'profile__discord', 'tournament__name')
+    raw_id_fields = ('tournament', 'profile', 'survey_response')
+
+
+admin.site.register(Stage, StageAdmin)
+admin.site.register(PlayerGroup, PlayerGroupAdmin)
+admin.site.register(TournamentPlayer, TournamentPlayerAdmin)
+
+
+class MatchAdvancementInline(admin.TabularInline):
+    model = MatchAdvancement
+    fk_name = 'from_series'
+    extra = 1
+
+
+@admin.register(MatchSeries)
+class MatchSeriesAdmin(admin.ModelAdmin):
+    list_display = ['__str__', 'round', 'player_group', 'number_of_games', 'status']
+    list_filter = ['round__tournament']
+    raw_id_fields = ['round', 'player_group']
+    filter_horizontal = ['winners']
+    inlines = [MatchAdvancementInline]
+
+
+@admin.register(Match)
+class MatchAdmin(admin.ModelAdmin):
+    list_display = ['__str__', 'round', 'match_number', 'series', 'game']
+    list_filter = ['round__tournament']
+    raw_id_fields = ['round', 'series', 'game']
+
+
+@admin.register(MatchAdvancement)
+class MatchAdvancementAdmin(admin.ModelAdmin):
+    list_display = ['from_series', 'position', 'to_stage']
+    raw_id_fields = ['from_series', 'to_stage']

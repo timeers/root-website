@@ -129,45 +129,24 @@
 
 
 
-{% if user.profile.admin %}
-    <article class="d-flex content-section">
-        <div class="w-100">
-        <h2>Admin Options</h2>
-        <div>
-            Admin users can edit and delete game data.<br>
-                This cannot be undone and should be handled with care.
-            </div>
-        <small>
-            <a class="btn btn-secondary" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
-            <a class="btn btn-danger" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
+{% if edit_permission %}
+<div class="text-center mb-3">
+<div class="card d-inline-block">
+    <div class="card-header bg-transparent text-center">
+        <small class="root-title text-muted">
+            {% if edit_permission.reason == 'organizer' %}
+                {{ game.get_tournament.classification }} {% trans 'Organizer Actions' %}
+            {% else %}
+                {{ edit_permission.reason_label }}
+            {% endif %}
         </small>
-        </div>
-        </article>
-{% elif user.profile == game.recorder and not game.final %}
-    <article class="d-flex content-section">
-        <div class="w-100">
-        <h2>{% trans 'Edit Options' %}</h2>
-        <div>
-            {% trans 'This game is in progress and can still be edited.' %}
-        </div>
-    <small>
-        <a class="btn btn-secondary" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
-        <a class="btn btn-danger" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
-    </small>
     </div>
-    </article>
-{% elif user.profile == game.recorder and user.is_authenticated %}
-<article class="d-flex content-section">
-    <div class="w-100">
-    {% comment %} <h2>Update Details</h2> {% endcomment %}
-    <div>
-        {% trans 'Change the Nickname, Notes or Discord Link for this game.' %}
+    <div class="card-body text-center">
+        <a class="btn btn-outline-secondary btn-sm" href="{{ game.get_edit_url }}">{% trans 'Edit Game' %}</a>
+        <a class="btn btn-outline-danger btn-sm ms-2" href="{{ game.get_delete_url }}">{% trans 'Delete Game' %}</a>
     </div>
-<small>
-    <a class="btn btn-secondary" href="{% url 'game-update-info' game.pk %}">{% trans 'Update' %}</a>
-</small>
 </div>
-</article>
+</div>
 {% endif %}
 
 {% if user.profile.player %}
@@ -228,7 +207,7 @@
   </div>
 </div>
 
-{% include 'the_warroom/partials/register_player_modal.html' %}
+{% include 'the_keep/partials/register_player_modal.html' %}
 {% endif %}
 
 {% endblock content %}
@@ -542,11 +521,6 @@ document.addEventListener('htmx:afterRequest', function(event) {
   }
 });
 
-// Blur handler for effort modal
-document.getElementById('addPlayerToEffortModal').addEventListener('hide.bs.modal', function() {
-  document.activeElement.blur();
-});
-
 // Handle register player form responses (works for both modal and regular form)
 document.addEventListener('htmx:afterRequest', function(event) {
     // Handle both register-form and register-player-modal-form
@@ -667,10 +641,8 @@ document.addEventListener('htmx:afterRequest', function(event) {
     }
 });
 
-// Blur active element when register modal closes to prevent aria-hidden warning
+// Clear stored data when register modal closes
 document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal', function (e) {
-  document.activeElement.blur();
-  // Also clear the stored source select ID and context
   $(this).data('source-select-id', null);
   $(this).data('source-context', null);
 });

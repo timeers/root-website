@@ -335,6 +335,13 @@ class TTSDeckGroup:
         Returns a list of TTSSpriteDecks.
         Deck IDs start at starting_deck_id and increment per deck.
         """
+        # Ensure CardDeck objects exist (1 per 99 cards)
+        card_count = len(self.group.ordered_cards)
+        if card_count > 0 and not self.group.decks.exists():
+            num_decks = (card_count - 1) // 99 + 1
+            for i in range(num_decks):
+                self.group.get_or_create_deck_for_card_index(i * 99)
+
         decks = []
         deck_id = starting_deck_id
 

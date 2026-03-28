@@ -1,5 +1,5 @@
 from django.db.models import Prefetch
-from the_keep.models import FAQ, Law, PostTranslation
+from the_keep.models import FAQ, Law, PostTranslation, Card
 
 
 def faq_queryset2(*, language, require_post=True):
@@ -32,7 +32,15 @@ def faq_queryset2(*, language, require_post=True):
                 'group',
                 'language',
             )
-        )
+        ),
+        Prefetch(
+            'reference_cards',
+            queryset=Card.objects.select_related(
+                'group',
+                'group__post',
+                'group__language',
+            )
+        ),
     ]
 
     if require_post:

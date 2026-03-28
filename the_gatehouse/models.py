@@ -1,11 +1,10 @@
 import os
 import uuid
+import calendar
+
 from urllib.parse import urlparse
 from django.contrib.auth.models import User
-from io import BytesIO
-# from the_warroom.models import Effort
 from django.urls import reverse
-from django.db.models.signals import pre_save, post_save
 from django.db import models
 from PIL import Image
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
@@ -232,9 +231,10 @@ class PageChoices(models.TextChoices):
     FEEDBACK = 'feedback', 'Feedback'
     ABOUT = 'about', 'About'
     SETTINGS = 'settings', 'Settings'
-
-
-
+    LAWS = 'laws', 'Laws'
+    FAQ = 'faq', 'FAQ'
+    SURVEYS = 'surveys', 'Surveys'
+    SERIES = 'series', 'Series'
 
 
 class BackgroundImage(models.Model):
@@ -409,10 +409,11 @@ class Profile(models.Model):
     admin_onboard = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
-    credit_link = models.CharField(max_length=400, null=True, blank=True)
+    credit_link = models.CharField(max_length=400, null=True, blank=True, help_text="User's external link to their other endeavors.")
     date_modified = models.DateTimeField(auto_now=True)
     guilds = models.ManyToManyField(DiscordGuild, related_name="members", help_text="User's known Root Guilds.", blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
+    cached_winrate = models.FloatField(null=True, blank=True)
 
     @property
     def name(self):
@@ -726,11 +727,12 @@ class Profile(models.Model):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
         """
         Get the players with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many players will be displayed.
         The game theshold is how many games a player needs to play to qualify.
+        link_builder: optional callable(profile) -> str URL. Defaults to player-detail.
         """
         # Start with the base queryset for profiles
         queryset = cls.objects.filter(efforts__in=effort_qs)
@@ -773,7 +775,15 @@ class Profile(models.Model):
             queryset = queryset.order_by('-win_rate', '-total_efforts')
 
         queryset = queryset[:limit]
-        
+
+        # Materialize queryset and set leaderboard_link on each profile
+        results = list(queryset)
+        for profile in results:
+            if link_builder:
+                profile.leaderboard_link = link_builder(profile)
+            else:
+                profile.leaderboard_link = reverse('player-detail', kwargs={'slug': profile.slug})
+
         # Return as JSON if requested
         if as_json:
             return [
@@ -786,10 +796,10 @@ class Profile(models.Model):
                     'slug': profile.slug,
                     'image_url': profile.image.url if profile.image else None,
                 }
-                for profile in queryset
+                for profile in results
             ]
-                
-        return queryset
+
+        return results
 
 
 
@@ -991,143 +1001,6 @@ class DiscordGuildJoinRequest(models.Model):
 
 
 
-# # Surveys
-# class Survey(models.Model):
-#     title = models.CharField(max_length=200)
-#     description = models.TextField(blank=True)
-#     is_active = models.BooleanField(default=True)
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     start_date = models.DateTimeField(null=True, blank=True)
-#     end_date = models.DateTimeField(null=True, blank=True)
-#     is_public = models.BooleanField(default=True)
-
-
-# class LikertScale(models.Model):
-#     min_value = models.IntegerField(default=1)
-#     max_value = models.IntegerField(default=5)
-#     labels = models.JSONField(default=dict)
-
-# # Each Survey is made up of one or more questions
-# # The Type determines what kind of question it is
-# class Question(models.Model):
-#     class QuestionType(models.TextChoices):
-#         MULTIPLE_CHOICE = 'MC', 'Multiple Choice'
-#         MULTIPLE_SELECTION = 'MS', 'Multiple Selection'
-#         OPEN_ENDED = 'OE', 'Open Ended'
-#         RANKING = 'RK', 'Ranking'
-#         RATING = 'RT', 'Rating'
-#         LIKERT = 'LK', 'Likert Scale'
-#         BOOLEAN = 'YN', 'Yes/No'
-#         DATE = 'DT', 'Date/Time'
-
-#     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
-#     text = models.TextField()
-#     likert_scale = models.ForeignKey(LikertScale, null=True, blank=True, on_delete=models.SET_NULL)
-#     question_type = models.CharField(max_length=2, choices=QuestionType.choices)
-#     order = models.PositiveIntegerField(default=0)
-#     required = models.BooleanField(default=True)
-#     help_text = models.CharField(max_length=300, blank=True)
-
-
-# # For multiple choice questions they will have multiple choices
-# class Choice(models.Model):
-#     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choices')
-#     text = models.CharField(max_length=200)
-#     order = models.PositiveIntegerField(default=0)
-
-# # A user's response to a survey is stored here
-# class SurveyResponse(models.Model):
-#     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='responses')
-#     user = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True)
-#     submitted_at = models.DateTimeField(auto_now_add=True)
-#     class Meta:
-#         # Prevent duplicate submissions
-#         unique_together = ('survey', 'user')
-
-#     def __str__(self):
-#         return f"{self.user} → {self.survey.title}"
-
-
-# # An anser to a question that is linked to a user's response
-# class Answer(models.Model):
-#     response = models.ForeignKey(SurveyResponse, on_delete=models.CASCADE, related_name='answers')
-#     question = models.ForeignKey(Question, on_delete=models.CASCADE)
-
-#     # For open-ended
-#     text_answer = models.TextField(blank=True, null=True)
-
-#     # For multiple choice
-#     selected_choice = models.ForeignKey(Choice, on_delete=models.SET_NULL, null=True, blank=True)
-#     selected_choices = models.ManyToManyField(Choice, blank=True)
-
-#     # For date questions
-#     date_answer = models.DateTimeField(blank=True, null=True)
-
-#     def clean(self):
-#         qtype = self.question.question_type
-
-#         # MULTIPLE CHOICE
-#         if qtype == Question.QuestionType.MULTIPLE_CHOICE:
-#             if not self.selected_choice:
-#                 raise ValidationError("Multiple choice question requires a selected choice.")
-#             if self.selected_choices.exists():
-#                 raise ValidationError("Only one choice allowed for multiple choice questions.")
-
-#         # MULTIPLE SELECTION
-#         elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
-#             if not self.pk:
-#                 # Need to save instance first to access selected_choices M2M
-#                 super().save()
-#             if self.selected_choices.count() == 0:
-#                 raise ValidationError("You must select at least one option for multiple selection questions.")
-#             if self.selected_choice:
-#                 raise ValidationError("Use 'selected_choices' only for multiple selection.")
-
-#         # OPEN ENDED
-#         elif qtype == Question.QuestionType.OPEN_ENDED:
-#             if not self.text_answer:
-#                 raise ValidationError("Open-ended question requires a text answer.")
-#             if self.selected_choice or self.selected_choices.exists():
-#                 raise ValidationError("Open-ended questions should not have choices selected.")
-
-#         # BOOLEAN (YES/NO)
-#         elif qtype == Question.QuestionType.BOOLEAN:
-#             if not self.selected_choice:
-#                 raise ValidationError("Yes/No question requires a choice.")
-#             valid = self.question.choices.filter(pk=self.selected_choice.pk).exists()
-#             if not valid:
-#                 raise ValidationError("Selected choice is not valid for this question.")
-
-#         # RANKING, LIKERT, RATING
-#         elif qtype in [Question.QuestionType.RANKING, Question.QuestionType.LIKERT, Question.QuestionType.RATING]:
-#             # Enforce that answers are in `RankedAnswer`, not here
-#             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
-#                 raise ValidationError("Use the associated ranking models to store ranking/likert/rating answers.")
-
-#         # DATE
-#         elif qtype == Question.QuestionType.DATE:
-#             if not self.date_answer:
-#                 raise ValidationError("A valid date/time must be provided.")
-#             if self.selected_choice or self.selected_choices.exists() or self.text_answer:
-#                 raise ValidationError("Only a date/time answer is allowed.")
-
-
-#         # Fallback
-#         else:
-#             raise ValidationError("Unsupported question type.")
-
-#     def __str__(self):
-#         return f"Answer to '{self.question.text}'"
-
-
-# class RankedAnswer(models.Model):
-#     answer = models.ForeignKey(Answer, on_delete=models.CASCADE, related_name='ranked_items')
-#     choice = models.ForeignKey(Choice, on_delete=models.CASCADE)
-#     rank = models.PositiveIntegerField()
-#     class Meta:
-#         unique_together = ('answer', 'rank')
-
-
 class UserNotification(models.Model):
     """
     Persistent notification system for users.
@@ -1183,3 +1056,10 @@ class UserNotification(models.Model):
             related_url=related_url
         )
         return notification
+
+
+# Stub function for old migrations that reference survey models
+# Survey models have been moved to the_tavern app
+def get_default_ta_days():
+    """Returns default enabled days for TIME_AVAILABILITY questions (all 7 days)"""
+    return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']

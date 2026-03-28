@@ -1,0 +1,79 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+{% block title %}{% if is_finalized %}Match Generation{% else %}Grouping{% endif %} - {{ round.name|default:round.round_number }} | {% endblock %}
+
+{% block meta %}
+{% trans "Grouping" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block content %}
+<div class="content-section">
+    <!-- Breadcrumb -->
+    {% if is_finalized %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Match Generation" %}
+    {% else %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Player Grouping" %}
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="root-title mb-2">{% if is_finalized %}{% trans 'Match Generation' %}{% else %}{% trans 'Player Grouping' %}{% endif %}</h1>
+            <p class="text-muted mb-0">{{ tournament.name }} - {{ round.name|default:round.round_number }}</p>
+        </div>
+    </div>
+
+    <!-- Round Stats -->
+    <div class="row g-3 mb-4">
+        <div class="{% if has_matches %}col-md-3{% else %}col-md-4{% endif %}">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-people fs-2 text-primary"></i>
+                    <h3 class="mb-0 mt-2">{{ total_players }}</h3>
+                    <small class="text-muted">{% trans 'Total Player' %}{{ total_players|pluralize }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="{% if has_matches %}col-md-3{% else %}col-md-4{% endif %}">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-question-circle fs-2 text-success"></i>
+                    <h3 class="mb-0 mt-2">{{ ungrouped_count }}</h3>
+                    <small class="text-muted">{% trans 'Ungrouped' %}</small>
+                </div>
+            </div>
+        </div>
+        <div class="{% if has_matches %}col-md-3{% else %}col-md-4{% endif %}">
+            <div class="card h-100 border-info">
+                <div class="card-body text-center">
+                    <i class="bi bi-columns-gap fs-2 text-info"></i>
+                    <h3 class="mb-0 mt-2">{{ group_count }}</h3>
+                    <small class="text-muted">{% trans 'Group' %}{{ group_count|pluralize }}</small>
+                </div>
+            </div>
+        </div>
+        {% if has_matches %}
+        <div class="col-md-3">
+            <div class="card h-100 border-warning">
+                <div class="card-body text-center">
+                    <i class="bi bi-diagram-3 fs-2 text-warning"></i>
+                    <h3 class="mb-0 mt-2">{{ match_count }}</h3>
+                    <small class="text-muted">{% trans 'Match' %}{{ match_count|pluralize:"es" }}</small>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if is_finalized %}
+        {% include 'the_warroom/partials/bracket_setup.html' %}
+    {% else %}
+        {% include 'the_warroom/partials/grouping_setup.html' %}
+    {% endif %}
+
+    {% if has_availability %}
+        {% include 'the_warroom/partials/grouping_calendar_modal.html' %}
+    {% endif %}
+
+</div>
+{% endblock content %}

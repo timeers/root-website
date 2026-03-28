@@ -1,0 +1,71 @@
+
+<script>
+// Asset mode toggle functionality
+(function() {
+    const modeDescriptions = {
+        'OPEN': 'All factions, decks, maps, etc can be used in this series.',
+        'OFFICIAL': 'All official content is automatically included in this series.',
+        'SELECTED': 'Only the assets you select will be available in this series.'
+    };
+
+    const assetModeOptions = document.querySelectorAll('.asset-mode-option');
+    const modeSlider = document.getElementById('mode-slider');
+    const modeDescriptionText = document.getElementById('mode-description-text');
+    const assetModeInput = document.getElementById('asset_mode_input');
+    const clockworkWrapper = document.getElementById('clockwork-wrapper');
+
+    // Function to update UI based on mode
+    function updateUIForMode(mode) {
+        // Update description
+        if (modeDescriptionText) {
+            modeDescriptionText.textContent = modeDescriptions[mode];
+        }
+
+        // Show/hide clockwork option (hide for SELECTED mode)
+        if (clockworkWrapper) {
+            clockworkWrapper.style.display = (mode === 'SELECTED') ? 'none' : 'block';
+        }
+
+        // Call any custom callback if defined
+        if (typeof window.onAssetModeChange === 'function') {
+            window.onAssetModeChange(mode);
+        }
+    }
+
+    // Set initial state based on current value
+    const currentValue = assetModeInput.value;
+    assetModeOptions.forEach(option => {
+        if (option.dataset.value === currentValue) {
+            option.classList.add('active');
+            if (modeSlider) {
+                modeSlider.className = 'asset-mode-slider position-' + option.dataset.position;
+            }
+            updateUIForMode(option.dataset.mode);
+        }
+    });
+
+    // Handle toggle clicks
+    assetModeOptions.forEach(option => {
+        option.addEventListener('click', function() {
+            const selectedMode = this.dataset.mode;
+            const selectedValue = this.dataset.value;
+            const selectedPosition = this.dataset.position;
+
+            // Update active state
+            assetModeOptions.forEach(opt => opt.classList.remove('active'));
+            this.classList.add('active');
+
+            // Move slider
+            if (modeSlider) {
+                modeSlider.className = 'asset-mode-slider position-' + selectedPosition;
+            }
+
+            // Update hidden input with the integer value
+            assetModeInput.value = selectedValue;
+
+            // Update UI
+            updateUIForMode(selectedMode);
+        });
+    });
+})();
+</script>

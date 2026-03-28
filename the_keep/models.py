@@ -32,7 +32,6 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.translation import gettext_lazy as _
 
 from the_gatehouse.models import Profile, Language
-from the_gatehouse.services.discordservice import send_rich_discord_message
 from the_gatehouse.utils import int_to_alpha, int_to_roman
 
 from .utils import (validate_hex_color, validate_png, 
@@ -559,12 +558,13 @@ class Post(models.Model):
             Post.objects.filter(pk=self.pk).update(designers_list=designers_list)
         # If the post is new and not in submittal status
         if new_post and self.status != StatusChoices.SUBMITTED:
+            from the_gatehouse.tasks import send_rich_discord_message_task
             fields = []
             fields.append({
                     'name': 'By:',
                     'value': self.designers_list
                 })
-            send_rich_discord_message(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
+            send_rich_discord_message_task.delay(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
             
             # If the designer is registered and the post was submitted by an admin, update the designer's profile
             if self.designer.group == "P":
@@ -1315,6 +1315,7 @@ class Vagabond(Post):
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
+    cached_winrate = models.FloatField(null=True, blank=True)
     starting_coins = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_boots = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_bag = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -1498,6 +1499,7 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
+    cached_winrate = models.FloatField(null=True, blank=True)
 
 
     def __add__(self, other):
@@ -1561,12 +1563,13 @@ class Faction(Post):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
         """
         Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many factions will be displayed.
         The game threshold is how many games a faction needs to play to qualify.
         If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
+        link_builder: optional callable(faction) -> str URL. Defaults to faction-detail.
         """
         language_code = get_language()
         
@@ -1628,6 +1631,14 @@ class Faction(Post):
             )
         )
         
+        # Materialize queryset and set leaderboard_link on each faction
+        results = list(queryset)
+        for faction in results:
+            if link_builder:
+                faction.leaderboard_link = link_builder(faction)
+            else:
+                faction.leaderboard_link = reverse('faction-detail', kwargs={'slug': faction.slug})
+
         # Return as JSON if requested
         if as_json:
             return [
@@ -1640,10 +1651,10 @@ class Faction(Post):
                     'slug': faction.slug,
                     'image_url': faction.small_icon.url if faction.small_icon else None,
                 }
-                for faction in queryset
+                for faction in results
             ]
-        
-        return queryset
+
+        return results
 
 
 
@@ -2673,7 +2684,7 @@ class RulesFile(models.Model):
 
 
 class FAQ(models.Model):
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)    
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True)   
     question = models.TextField()
     answer = models.TextField()
     date_posted = models.DateTimeField(default=timezone.now)
@@ -2682,6 +2693,12 @@ class FAQ(models.Model):
     website = models.BooleanField(default=False)
     reference_laws = models.ManyToManyField(
         Law,
+        symmetrical=False,
+        blank=True,
+        related_name='faqs'
+    )
+    reference_cards = models.ManyToManyField(
+        'Card',
         symmetrical=False,
         blank=True,
         related_name='faqs'
@@ -2762,6 +2779,7 @@ class DeckGroup(models.Model):
     post = models.ForeignKey(Post, related_name='decks', on_delete=models.CASCADE)
     piece = models.ForeignKey(Piece, related_name='decks', on_delete=models.CASCADE)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, default=get_default_language)
+    allow_reoganization = models.BooleanField(default=False)
 
     back_image = models.ImageField(upload_to=deck_back_upload_path)
     slug = models.SlugField(null=True, blank=True)
@@ -2870,6 +2888,11 @@ class Card(models.Model):
     tags = models.JSONField(default=list, blank=True, null=True)
 
     order = models.PositiveIntegerField(editable=False, default=0)  # for deterministic ordering
+
+    def __str__(self):
+        if self.name:
+            return self.name
+        return f"Card {self.id}"
 
     def save(self, *args, **kwargs):
         if not self.pk:

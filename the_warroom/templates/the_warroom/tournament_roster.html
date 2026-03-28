@@ -1,0 +1,52 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ tournament.name }} - {% trans 'Roster' %} | {% endblock %}
+
+{% block meta %}
+{% trans "Roster" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    {% trans "Roster" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
+
+
+    {% if tournament.description %}
+    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
+    {% endif %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='roster' %}
+
+    {% if can_manage %}
+    <div class="d-flex justify-content-end mb-3">
+        <a class="btn btn-primary btn-sm" href="{{ tournament.get_players_url }}">{% trans 'Manage Players' %}</a>
+    </div>
+    {% endif %}
+
+    <p class="text-muted mb-2">{{ players_count }} {% trans 'player' %}{{ players_count|pluralize }}</p>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>{% trans 'Player' %}</th>
+                    <th class="text-end">{% trans 'Games Played' %}</th>
+                    <th class="text-end">{% trans 'Wins' %}</th>
+                    <th class="text-end">{% trans 'Win Rate' %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% include 'the_warroom/partials/tournament_roster_rows.html' %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endblock %}

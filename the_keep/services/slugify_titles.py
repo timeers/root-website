@@ -30,6 +30,7 @@ def slugify_post_title(instance, save=False, new_slug=None):
 
 
 
+
 def slugify_expansion_title(instance, save=False, new_slug=None):
     from the_keep.models import Expansion
     if new_slug is not None:

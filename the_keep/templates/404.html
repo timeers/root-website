@@ -1,8 +1,31 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
-{% block content %}
-     <h1 class='root-title'>Scouting Party</h1>
-     We can't seem to find the page you're looking for.
-     <img class='responsive-img rounded-corner-img mb-1' src="{% static 'images/scouting_party.jpg'  %}" alt="404">
-{% endblock content %}
+
 {% block title %}404 | {% endblock title %}
+
+{% block content %}
+<div class="col-md-8 col-lg-6 mx-auto text-center">
+    <article class="content-section py-4 px-3">
+
+        <h1 class="root-title mb-3">404 - Not Found</h1>
+
+        <p class="mb-4" style="font-size: 1.1rem;">
+            Looks like you might be lost, we couldn't find the page you were looking for.
+        </p>
+
+        <img class="responsive-img rounded-corner-img mb-4"
+             src="{% static 'images/scouting_party.jpg' %}"
+             alt="A scouting party in the woodland"
+             style="max-width: min(500px, 100%);">
+
+        <p class="text-muted mb-3">
+            If you believe this page should exist, please let us know.
+        </p>
+
+        <a href="{% url 'general-feedback' %}" class="btn-outline" style="font-size: 1rem; padding: 0.5rem 1rem;">
+            <i class="bi bi-chat-dots me-1"></i> Submit Feedback
+        </a>
+
+    </article>
+</div>
+{% endblock content %}

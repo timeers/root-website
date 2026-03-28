@@ -1,0 +1,734 @@
+{% load i18n %}
+{# Mode 1: Grouping configuration and editing #}
+{# Shown when is_finalized == False #}
+
+{% if is_processing %}
+    <!-- Processing State -->
+    <div class="alert alert-info mb-4">
+        <i class="bi bi-hourglass-split"></i>
+        <strong>{% trans 'Processing...' %}</strong>
+        <p class="mb-0">Groups are being generated. Please wait.</p>
+    </div>
+{% else %}
+    <!-- Configuration Form -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-gear"></i> {% trans 'Grouping Settings' %}</h5>
+        </div>
+    <div class="card-body">
+        {% if total_players == 0 %}
+        <div class="alert alert-warning mb-4">
+            <h6 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> {% trans 'No Players' %}</h6>
+            <p class="mb-3">{% trans 'There are no players in this stage yet. Add players through player management or create a survey for participants to sign up.' %}</p>
+            <div class="d-flex gap-2">
+                <a href="{% url 'stage-manage-players' tournament.slug stage.slug %}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-people"></i> {% trans 'Manage Players' %}
+                </a>
+                <a href="{% url 'stage-surveys' tournament.slug stage.slug %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-clipboard-check"></i> {% trans 'Surveys' %}
+                </a>
+            </div>
+        </div>
+        {% endif %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="generate">
+
+            {% if not show_availability_options %}
+            <!-- No availability data - show grouping type selector -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">{% trans 'Grouping Method' %}</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_random" value="random"
+                        {% if not stage or stage.grouping_type == 'random' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_random">
+                        <strong>{% trans 'Random Assignment' %}</strong>
+                        <br><small class="text-muted">Randomly distribute players into groups</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_swiss" value="swiss"
+                        {% if stage and stage.grouping_type == 'swiss' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_swiss">
+                        <strong>{% trans 'Avoid Repeats' %}</strong>
+                        <br><small class="text-muted">Groups players who haven't played together in prior rounds. Best for multi-round events.</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_manual" value="manual"
+                        {% if stage and stage.grouping_type == 'manual' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_manual">
+                        <strong>{% trans 'Manual Assignment' %}</strong>
+                        <br><small class="text-muted">Manually drag players into groups</small>
+                    </label>
+                </div>
+            </div>
+            {% else %}
+            <!-- Grouping Method Selection for availability-based grouping -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">{% trans 'Grouping Method' %}</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_availability" value="availability"
+                        {% if not stage or stage.grouping_type == 'availability' or not stage.grouping_type %}checked{% endif %}>
+                    <label class="form-check-label" for="type_availability">
+                        <strong>{% trans 'Availability Optimized' %}</strong>
+                        <br><small class="text-muted">Prioritizes best availability matches, may leave some players ungrouped</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_swiss_avail" value="swiss"
+                        {% if stage and stage.grouping_type == 'swiss' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_swiss_avail">
+                        <strong>{% trans 'Avoid Repeats' %}</strong>
+                        <br><small class="text-muted">Prioritizes grouping players who haven't played together in prior rounds.</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_random_avail" value="random"
+                        {% if stage and stage.grouping_type == 'random' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_random_avail">
+                        <strong>{% trans 'Random Assignment' %}</strong>
+                        <br><small class="text-muted">Randomly assigns players to groups evenly</small>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="grouping_type" id="type_manual_avail" value="manual"
+                        {% if stage and stage.grouping_type == 'manual' %}checked{% endif %}>
+                    <label class="form-check-label" for="type_manual_avail">
+                        <strong>{% trans 'Manual Assignment' %}</strong>
+                        <br><small class="text-muted">Pre-creates empty groups for you to drag players into</small>
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if round %}
+            <div class="mb-4">
+                <label class="form-label fw-bold">{% trans 'Group Size' %}</label>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary fs-6">{% if round.get_min_players != round.get_max_players %}{{ round.get_min_players }} – {% endif %}{{ round.get_max_players }} players</span>
+                    <small class="text-muted">({% if round.min_players %}<a href="{{ round.get_edit_url }}">{% else %}<a href="{{ tournament.get_edit_url }}">{% endif %}change in settings</a>)</small>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label for="naming_convention" class="form-label">{% trans 'Group Naming' %}</label>
+                    <select class="form-select" id="naming_convention" name="naming_convention">
+                        {% for value, label in naming_conventions %}
+                        <option value="{{ value }}" {% if stage.naming_convention == value %}selected{% endif %}>
+                            {{ label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">How groups will be named (e.g., Group 1, Alpha, I)</small>
+                </div>
+            </div>
+
+            {# Optional: Survey Waitlist Configuration (only used by surveys) #}
+            {% if show_waitlist_config|default:False and waitlist_count|default:0 > 0 %}
+            <div class="card bg-light mb-4">
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="include_waitlist" name="include_waitlist"
+                            {% if stage and stage.include_waitlist %}checked{% endif %}
+                            onchange="toggleWaitlistCount()">
+                        <label class="form-check-label" for="include_waitlist">
+                            <strong>{% trans 'Include Waitlist Players' %}</strong>
+                        </label>
+                    </div>
+                    <div id="waitlist_count_wrapper" style="{% if not stage or not stage.include_waitlist %}display: none;{% endif %}">
+                        <label for="waitlist_count" class="form-label">{% trans 'Number of waitlist players to include' %}</label>
+                        <input type="number" class="form-control" id="waitlist_count" name="waitlist_count"
+                            value="{% if included_waitlist_count|default:0 > 0 %}{{ included_waitlist_count }}{% else %}{{ waitlist_count }}{% endif %}"
+                            min="1" max="{{ waitlist_count }}">
+                        <small class="text-muted">{{ waitlist_count }} player{{ waitlist_count|pluralize }} on waitlist</small>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm" {% if total_players == 0 %}disabled{% endif %}>
+                    <i class="bi bi-columns-gap"></i>
+                    {% if groups %}{% trans 'Regenerate Groups' %}{% else %}{% trans 'Generate Groups' %}{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+    </div>
+{% endif %}
+
+
+{% if is_processing %}
+<!-- Processing Status -->
+<div class="text-center py-5">
+    <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
+        <span class="visually-hidden">{% trans 'Processing...' %}</span>
+    </div>
+    <p class="text-muted mt-3">{% trans 'Generating groups, please wait...' %}</p>
+</div>
+{% if stage %}
+<div
+    hx-get="{{ base_url }}{{ stage.id }}/status/"
+    hx-trigger="every 2s"
+    hx-swap="none"
+    style="display:none;">
+</div>
+{% endif %}
+{% elif has_error %}
+<div class="alert alert-danger mb-4">
+    <h5><i class="bi bi-exclamation-triangle"></i> {% trans 'Error' %}</h5>
+    <p>{{ round.grouping_notes }}</p>
+</div>
+{% endif %}
+
+{% if is_swiss and round.round_number > 1 %}
+<div class="alert alert-info mb-3">
+    <i class="bi bi-shuffle"></i>
+    <strong>{% trans 'Avoid Repeats mode' %}</strong> — groups are formed to minimise players facing the same opponents as in prior rounds of this stage.
+    {% if round.grouping_notes %}<br><small class="text-warning">{{ round.grouping_notes }}</small>{% endif %}
+</div>
+{% endif %}
+
+{# Groups (editable) #}
+{% include 'the_warroom/partials/grouping_groups.html' with editable=True %}
+
+{# Ungrouped Players (editable) #}
+{% include 'the_warroom/partials/grouping_ungrouped.html' with editable=True %}
+
+<!-- Finalize Confirmation Modal -->
+<div class="modal fade" id="finalizeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-columns-gap"></i> {% trans 'Finalize Groups' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Once finalized, groups cannot be modified.</p>
+                <div id="finalizeWarnings"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-success" onclick="confirmFinalize()">{% trans 'Finalize' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.group-card {
+    transition: box-shadow 0.2s;
+}
+.group-card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+.group-card > .card-body {
+    display: flex;
+    flex-direction: column;
+}
+.group-card .group-members {
+    flex: 1;
+    min-height: 60px;
+}
+.player-item {
+    cursor: grab;
+}
+.player-item:not(.sortable-ghost):not(.sortable-drag):hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+.sortable-ghost {
+    opacity: 0.4;
+    background-color: #c8ebfb !important;
+}
+.sortable-drag {
+    opacity: 0.9;
+}
+.drag-handle {
+    cursor: grab;
+}
+.border-dashed {
+    border: 2px dashed #dee2e6 !important;
+}
+.empty-placeholder {
+    min-height: 50px;
+}
+</style>
+
+{% if stage and not is_processing %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<script>
+const csrfToken = '{{ csrf_token }}';
+const stageId = {{ stage.id }};
+const baseUrl = '{{ base_url }}';
+const minPlayers = {{ round.get_min_players }};
+const maxPlayers = {{ round.get_max_players }};
+const isAvailability = '{{ stage.grouping_type }}' === 'availability';
+
+// Initialise Bootstrap popovers (used for conflict badges)
+// Deferred so Bootstrap is guaranteed to be loaded
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => {
+        new bootstrap.Popover(el);
+    });
+});
+
+// Function to toggle waitlist count input (used by survey grouping)
+function toggleWaitlistCount() {
+    const checkbox = document.getElementById('include_waitlist');
+    const wrapper = document.getElementById('waitlist_count_wrapper');
+    if (checkbox && wrapper) {
+        wrapper.style.display = checkbox.checked ? 'block' : 'none';
+    }
+}
+
+// --- DOM update helpers ---
+
+function updateGroupCard(groupData) {
+    // Find the column wrapper by data-group-id
+    const col = document.querySelector(`#groups-container > [data-group-id="${groupData.id}"]`);
+    if (!col) return;
+
+    // Update member count badge
+    const countBadge = col.querySelector('.card-header .badge.bg-secondary');
+    if (countBadge) countBadge.textContent = groupData.member_count;
+
+    // Update conflict badge
+    const header = col.querySelector('.card-header > div');
+    if (header) {
+        let conflictBadge = header.querySelector('.badge.bg-warning');
+        if (groupData.conflict_count > 0) {
+            if (!conflictBadge) {
+                conflictBadge = document.createElement('span');
+                conflictBadge.className = 'badge bg-warning text-dark ms-1';
+                conflictBadge.setAttribute('role', 'button');
+                conflictBadge.setAttribute('data-bs-toggle', 'popover');
+                conflictBadge.setAttribute('data-bs-trigger', 'click hover');
+                conflictBadge.setAttribute('data-bs-placement', 'bottom');
+                header.appendChild(conflictBadge);
+            }
+            conflictBadge.setAttribute('data-bs-title', `Repeat matchup${groupData.conflict_count === 1 ? '' : 's'}`);
+            conflictBadge.setAttribute('data-bs-content', groupData.conflict_description);
+            conflictBadge.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> ${groupData.conflict_count}`;
+            // Dispose old popover and re-init
+            const existing = bootstrap.Popover.getInstance(conflictBadge);
+            if (existing) existing.dispose();
+            new bootstrap.Popover(conflictBadge);
+        } else if (conflictBadge) {
+            const existing = bootstrap.Popover.getInstance(conflictBadge);
+            if (existing) existing.dispose();
+            conflictBadge.remove();
+        }
+    }
+
+    // Update availability stats
+    if (isAvailability) {
+        const cardBody = col.querySelector('.card-body');
+        let statsDiv = cardBody.querySelector('.small.text-muted');
+        if (groupData.member_count > 0) {
+            const consecutive = groupData.best_consecutive_block
+                ? ` (${groupData.best_consecutive_block}h consecutive)` : '';
+            const statsHtml = `<i class="bi bi-clock"></i> ${groupData.total_overlap_hours}h overlap${consecutive}`;
+            if (!statsDiv) {
+                statsDiv = document.createElement('div');
+                statsDiv.className = 'small text-muted mb-2';
+                cardBody.insertBefore(statsDiv, cardBody.firstChild);
+            }
+            statsDiv.innerHTML = statsHtml;
+        } else if (statsDiv) {
+            statsDiv.remove();
+        }
+    }
+
+    // Show/hide empty placeholder
+    const list = col.querySelector('.group-members');
+    if (list) {
+        const players = list.querySelectorAll('.player-item');
+        let placeholder = list.querySelector('.empty-placeholder');
+        if (players.length === 0) {
+            if (!placeholder) {
+                placeholder = document.createElement('li');
+                placeholder.className = 'list-group-item text-muted text-center empty-placeholder';
+                placeholder.innerHTML = '<small>Drop players here</small>';
+                list.appendChild(placeholder);
+            }
+            placeholder.style.display = '';
+        } else if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+    }
+
+    // Show/hide delete button
+    const footer = col.querySelector('.card-footer');
+    if (groupData.member_count === 0) {
+        if (!footer) {
+            const card = col.querySelector('.card');
+            const newFooter = document.createElement('div');
+            newFooter.className = 'card-footer';
+            newFooter.innerHTML = `<button class="btn btn-sm btn-outline-danger w-100" onclick="deleteGroup(${groupData.id})"><i class="bi bi-trash"></i> Delete</button>`;
+            card.appendChild(newFooter);
+        }
+    } else if (footer) {
+        footer.remove();
+    }
+
+    // Update calendar data
+    if (typeof _groupCalendarData !== 'undefined') {
+        const hasAvail = (groupData.all_hours && groupData.all_hours.length) ||
+                         (groupData.overlap_hours && groupData.overlap_hours.length);
+        if (hasAvail) {
+            _groupCalendarData[groupData.id] = {
+                name: groupData.name || 'Group ' + groupData.id,
+                all_hours: groupData.all_hours || [],
+                overlap_hours: groupData.overlap_hours || [],
+            };
+        } else {
+            delete _groupCalendarData[groupData.id];
+        }
+        // Show/hide calendar button
+        const nameDiv = col.querySelector('.card-header .d-flex.align-items-center');
+        if (nameDiv) {
+            let calBtn = nameDiv.querySelector('.cal-btn');
+            if (hasAvail && !calBtn) {
+                calBtn = document.createElement('button');
+                calBtn.className = 'btn btn-sm btn-link p-0 ms-1 text-muted cal-btn';
+                calBtn.setAttribute('onclick', `openCalendarModal(${groupData.id})`);
+                calBtn.setAttribute('title', 'View availability');
+                calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+                nameDiv.appendChild(calBtn);
+            } else if (!hasAvail && calBtn) {
+                calBtn.remove();
+            }
+        }
+    }
+}
+
+function updateUngroupedCount(count) {
+    // Update the "(N)" in the ungrouped card header
+    const header = document.querySelector('.card .card-header h5 .bi-person-x');
+    if (header) {
+        const h5 = header.closest('h5');
+        if (h5) {
+            h5.innerHTML = `<i class="bi bi-person-x"></i> Ungrouped Players (${count})`;
+        }
+    }
+
+    // Show/hide "Drop players here" placeholder inside the always-visible list
+    const ungroupedList = document.getElementById('ungrouped-players');
+    if (!ungroupedList) return;
+
+    let emptyMsg = ungroupedList.querySelector('.ungrouped-empty-msg');
+    const hasPlayers = ungroupedList.querySelectorAll('.player-item').length > 0;
+    if (!hasPlayers) {
+        if (!emptyMsg) {
+            emptyMsg = document.createElement('li');
+            emptyMsg.className = 'list-group-item text-muted text-center ungrouped-empty-msg';
+            emptyMsg.innerHTML = '<small>Drop players here</small>';
+            ungroupedList.appendChild(emptyMsg);
+        }
+        emptyMsg.style.display = '';
+    } else if (emptyMsg) {
+        emptyMsg.style.display = 'none';
+    }
+}
+
+function initSortableGroup(container) {
+    new Sortable(container, {
+        group: 'players',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        onAdd: function(evt) {
+            const playerId = evt.item.dataset.playerId;
+            const toGroupId = evt.to.dataset.groupId;
+            const placeholder = evt.to.querySelector('.empty-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+            assignPlayerToGroup(playerId, toGroupId);
+        },
+        onRemove: function(evt) {
+            const remaining = Array.from(evt.from.children).filter(
+                el => !el.classList.contains('empty-placeholder')
+            );
+            if (remaining.length === 0) {
+                let placeholder = evt.from.querySelector('.empty-placeholder');
+                if (!placeholder) {
+                    placeholder = document.createElement('li');
+                    placeholder.className = 'list-group-item text-muted text-center empty-placeholder';
+                    placeholder.innerHTML = '<small>Drop players here</small>';
+                    evt.from.appendChild(placeholder);
+                }
+                placeholder.style.display = '';
+            }
+        }
+    });
+}
+
+function buildGroupCardHtml(groupData, playerItem) {
+    // Build a full group card column for a newly created group
+    const playerHtml = playerItem ? playerItem.outerHTML : `<li class="list-group-item text-muted text-center empty-placeholder"><small>Drop players here</small></li>`;
+    const groupName = groupData.name || `Group ${groupData.group_number}`;
+    let statsHtml = '';
+    if (isAvailability && groupData.member_count > 0) {
+        const consecutive = groupData.best_consecutive_block
+            ? ` (${groupData.best_consecutive_block}h consecutive)` : '';
+        statsHtml = `<div class="small text-muted mb-2"><i class="bi bi-clock"></i> ${groupData.total_overlap_hours}h overlap${consecutive}</div>`;
+    }
+    let conflictHtml = '';
+    if (groupData.conflict_count > 0) {
+        conflictHtml = `<span class="badge bg-warning text-dark ms-1" role="button" data-bs-toggle="popover" data-bs-trigger="click hover" data-bs-placement="bottom" data-bs-title="Repeat matchup${groupData.conflict_count === 1 ? '' : 's'}" data-bs-content="${groupData.conflict_description}"><i class="bi bi-exclamation-triangle-fill"></i> ${groupData.conflict_count}</span>`;
+    }
+    const hasCalData = (groupData.all_hours?.length || groupData.overlap_hours?.length);
+    const calBtnHtml = hasCalData
+        ? `<button class="btn btn-sm btn-link p-0 ms-1 text-muted cal-btn" onclick="openCalendarModal(${groupData.id})" title="View availability"><i class="bi bi-calendar-week"></i></button>`
+        : '';
+    // Update calendar data store
+    if (typeof _groupCalendarData !== 'undefined' && hasCalData) {
+        _groupCalendarData[groupData.id] = {
+            name: groupName,
+            all_hours: groupData.all_hours || [],
+            overlap_hours: groupData.overlap_hours || [],
+        };
+    }
+    return `<div class="col-md-6 col-lg-4" data-group-id="${groupData.id}" data-group-name="${groupName}">
+        <div class="card h-100 group-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <strong>${groupName}</strong>
+                    ${calBtnHtml}
+                </div>
+                <div>
+                    <span class="badge bg-secondary">${groupData.member_count}</span>
+                    ${conflictHtml}
+                </div>
+            </div>
+            <div class="card-body p-2">
+                ${statsHtml}
+                <ul class="list-group list-group-flush group-members sortable-group" data-group-id="${groupData.id}">
+                    ${playerHtml}
+                </ul>
+            </div>
+        </div>
+    </div>`;
+}
+
+// --- Initialize Sortable ---
+
+document.querySelectorAll('.sortable-group').forEach(initSortableGroup);
+
+const ungroupedContainer = document.getElementById('ungrouped-players');
+if (ungroupedContainer) {
+    new Sortable(ungroupedContainer, {
+        group: 'players',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        onAdd: function(evt) {
+            const playerId = evt.item.dataset.playerId;
+            const fromGroupId = evt.from.dataset.groupId;
+            removeFromGroup(playerId, fromGroupId);
+        }
+    });
+}
+
+const newGroupZone = document.getElementById('new-group-zone');
+if (newGroupZone) {
+    new Sortable(newGroupZone, {
+        group: 'players',
+        animation: 150,
+        onAdd: function(evt) {
+            const playerId = evt.item.dataset.playerId;
+            // Temporarily hold the DOM element — it will be moved into the new card
+            const playerItem = evt.item;
+            playerItem.remove();
+            createNewGroup(playerId, playerItem);
+        }
+    });
+}
+
+// --- API functions ---
+
+function assignPlayerToGroup(playerId, toGroupId) {
+    fetch(`${baseUrl}${stageId}/add-to-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            group_id: toGroupId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateGroupCard(data.to_group);
+            if (data.from_group) updateGroupCard(data.from_group);
+            updateUngroupedCount(data.ungrouped_count);
+        } else {
+            alert('Error: ' + data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function removeFromGroup(playerId, groupId) {
+    fetch(`${baseUrl}${stageId}/remove-from-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            group_id: groupId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.from_group) updateGroupCard(data.from_group);
+            updateUngroupedCount(data.ungrouped_count);
+        } else {
+            alert('Error: ' + data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function createNewGroup(playerId, playerItem) {
+    const body = {};
+    if (playerId) body.player_id = playerId;
+
+    fetch(`${baseUrl}${stageId}/create-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(body)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Insert new group card before the "new group" dropzone
+            const dropzone = document.getElementById('new-group-zone')?.closest('[class*="col-"]');
+            const temp = document.createElement('div');
+            temp.innerHTML = buildGroupCardHtml(data.group, playerItem);
+            const newCol = temp.firstElementChild;
+            dropzone.parentNode.insertBefore(newCol, dropzone);
+
+            // Initialize sortable on the new group's player list
+            const newList = newCol.querySelector('.sortable-group');
+            if (newList) initSortableGroup(newList);
+
+            // Initialize any popovers
+            newCol.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => {
+                new bootstrap.Popover(el);
+            });
+
+            if (data.from_group) updateGroupCard(data.from_group);
+            updateUngroupedCount(data.ungrouped_count);
+        } else {
+            alert('Error: ' + data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function deleteGroup(groupId) {
+    if (!confirm('Delete this empty group?')) return;
+
+    fetch(`${baseUrl}${stageId}/delete-group/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            group_id: groupId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const col = document.querySelector(`#groups-container > [data-group-id="${groupId}"]`);
+            if (col) col.remove();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}
+
+function finalizeSession() {
+    const warnings = [];
+
+    // Check each group's player count against min/max
+    const tooFew = [];
+    const tooMany = [];
+    document.querySelectorAll('#groups-container [data-group-id]').forEach(col => {
+        if (!col.dataset.groupName) return; // skip new-group dropzone
+        const count = col.querySelectorAll('.player-item').length;
+        const name = col.dataset.groupName;
+        if (count < minPlayers) tooFew.push(name);
+        if (count > maxPlayers) tooMany.push(name);
+    });
+
+    if (tooFew.length > 0) {
+        warnings.push(`<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle"></i> ${tooFew.length === 1 ? 'Group has' : 'Groups have'} fewer than ${minPlayers} players: <strong>${tooFew.join(', ')}</strong></div>`);
+    }
+    if (tooMany.length > 0) {
+        warnings.push(`<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle"></i> ${tooMany.length === 1 ? 'Group has' : 'Groups have'} more than ${maxPlayers} players: <strong>${tooMany.join(', ')}</strong></div>`);
+    }
+
+    // Check for ungrouped players
+    const ungroupedList = document.getElementById('ungrouped-players');
+    const ungroupedCount = ungroupedList ? ungroupedList.querySelectorAll('.player-item').length : 0;
+    if (ungroupedCount > 0) {
+        warnings.push(`<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle"></i> There ${ungroupedCount === 1 ? 'is' : 'are'} still <strong>${ungroupedCount}</strong> ungrouped player${ungroupedCount === 1 ? '' : 's'}.</div>`);
+    }
+
+    document.getElementById('finalizeWarnings').innerHTML = warnings.join('');
+
+    const modal = new bootstrap.Modal(document.getElementById('finalizeModal'));
+    modal.show();
+}
+
+function confirmFinalize() {
+    fetch(`${baseUrl}${stageId}/finalize/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}
+</script>
+{% endif %}

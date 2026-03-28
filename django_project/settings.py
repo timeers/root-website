@@ -29,6 +29,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECRET_KEY = os.environ.get('SECRET_KEY')
 SECRET_KEY = config['SECRET_KEY']
 
+# Token for RDL Match API
+RDL_API_TOKEN = config.get('RDL_API_TOKEN', '')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = (config['DEBUG_VALUE'] == 'True')
 
@@ -167,6 +170,14 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+    # Use Redis for sessions in development to avoid SQLite locking with Celery
+    SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://127.0.0.1:6379/1",
         }
     }
 

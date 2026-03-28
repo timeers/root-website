@@ -1,39 +1,38 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Round
+from .models import Round, StageParticipant, TournamentPlayer
 from the_gatehouse.models import Profile
-from the_keep.models import Map, Faction, Deck, Vagabond, Landmark, Tweak, Hireling
 from django.shortcuts import get_object_or_404
 
 
 def get_options_for_tournament(request, pk):
     if request.user.is_authenticated:
         round = get_object_or_404(Round, id=pk)
-        tournament = round.tournament
+        tournament = round.get_tournament()
 
-        if round.tournament.open_assets:
-            maps = Map.objects.all()
-            factions = Faction.objects.all()
-            decks = Deck.objects.all()
-            vagabonds = Vagabond.objects.all()
-            landmarks = Landmark.objects.all()
-            tweaks = Tweak.objects.all()
-            hirelings = Hireling.objects.all()
-        else:
-            maps = tournament.maps
-            factions = tournament.factions
-            decks = tournament.decks
-            vagabonds = tournament.vagabonds
-            landmarks = tournament.landmarks
-            tweaks = tournament.tweaks
-            hirelings = tournament.hirelings
-        if round.tournament.open_roster:
+        assets = tournament.get_asset_querysets()
+        maps = assets['maps']
+        factions = assets['factions']
+        decks = assets['decks']
+        vagabonds = assets['vagabonds']
+        landmarks = assets['landmarks']
+        tweaks = assets['tweaks']
+        hirelings = assets['hirelings']
+
+        if tournament.open_roster:
             players = Profile.objects.all()
         else:
-            if round.players.count() > 0:
-                players = round.players
+            stage_players = Profile.objects.filter(
+                tournament_participations__stage_participations__stage=round.stage,
+                tournament_participations__stage_participations__status=StageParticipant.ParticipantStatus.ACTIVE,
+            )
+            if stage_players.exists():
+                players = stage_players
             else:
-                players = tournament.players
+                players = Profile.objects.filter(
+                    tournament_participations__tournament=tournament,
+                    tournament_participations__status=TournamentPlayer.StatusChoices.REGISTERED,
+                )
         platform = tournament.platform
 
 
@@ -65,4 +64,5 @@ def get_options_for_tournament(request, pk):
         'hirelings': hirelings_data,
         'players': players_data,
         'platform': platform,
+        'link_required': tournament.link_required,
     })

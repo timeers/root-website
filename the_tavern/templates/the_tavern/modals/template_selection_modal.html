@@ -1,0 +1,55 @@
+{% load i18n %}
+{# Template Selection Modal #}
+<div class="modal fade" id="templateModal" tabindex="-1" aria-labelledby="templateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="templateModalLabel">
+                    <i class="bi bi-download"></i> {% trans 'Load Question from Template' %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="template-search" placeholder="{% trans 'Search templates...' %}">
+                </div>
+                <div id="template-list" class="list-group">
+                    {% for template in question_templates %}
+                        <div class="list-group-item list-group-item-action template-item d-flex justify-content-between align-items-center"
+                           data-template-id="{{ template.id }}"
+                           data-template-name="{{ template.name }}"
+                           data-template-type="{{ template.question_type }}"
+                           data-template-public="{{ template.is_public|yesno:'true,false' }}"
+                           data-template-owned="{{ template.created_by|default:''|slugify }}">
+                            <div class="template-load-trigger flex-grow-1" style="cursor: pointer;">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        {% if template.is_public %}
+                                            <i class="bi bi-globe text-primary me-1" title="{% trans 'Public template' %}"></i>
+                                        {% else %}
+                                            <i class="bi bi-person-lock text-dark me-1" title="{% trans 'Private template' %}"></i>
+                                        {% endif %}
+                                        {{ template.name }}
+                                    </h6>
+                                    <small class="text-muted">{{ template.get_question_type_display }}</small>
+                                </div>
+                            </div>
+                            {% if template.created_by == user.profile or user.profile.admin %}
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-2 template-delete-btn"
+                                    data-template-id="{{ template.id }}"
+                                    data-template-name="{{ template.name }}"
+                                    title="{% trans 'Delete template' %}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {% endif %}
+                        </div>
+                    {% empty %}
+                        <div class="alert alert-info" id="no-templates-message">
+                            {% trans 'No question templates available.' %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

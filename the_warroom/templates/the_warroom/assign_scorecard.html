@@ -31,8 +31,8 @@
 
 
 {% for scorecard in form.scorecard.field.queryset %}
-<div class="game-option my-2 d-flex" data-scorecard-id="{{ scorecard.id }}">
-    <div>
+<div class="game-option card my-2 d-flex" data-scorecard-id="{{ scorecard.id }}">
+    <div class="card-body">
         {% if scorecard.game_group %}
         <div>
             {{scorecard.game_group}}

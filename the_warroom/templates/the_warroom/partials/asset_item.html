@@ -1,0 +1,23 @@
+<div class="asset-item border rounded p-2 mb-2 d-flex justify-content-between align-items-center bg-white" id="asset-{{ asset_type }}-{{ asset.id }}">
+    <div class="asset-info d-flex align-items-center">
+        {% if asset.small_icon %}
+        <img src="{{ asset.small_icon.url }}" alt="{{ asset.title }}" class="me-2" style="width: 24px; height: 24px; object-fit: contain;">
+        {% else %}
+        <i class="bi bi-box me-2 text-muted"></i>
+        {% endif %}
+        <span>{{ asset.title }}</span>
+        {% if not asset.official %}
+        <span class="badge bg-secondary ms-2" style="font-size: 0.65rem;">Fan Content</span>
+        {% endif %}
+    </div>
+    <button
+        class="btn btn-sm btn-outline-danger"
+        hx-delete="{% url 'tournament-remove-asset' slug=tournament.slug asset_type=asset_type asset_id=asset.id %}"
+        hx-target="#asset-{{ asset_type }}-{{ asset.id }}"
+        hx-swap="outerHTML"
+        hx-confirm="Remove {{ asset.title }} from this series?"
+        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+        title="Remove">
+        <i class="bi bi-trash"></i>
+    </button>
+</div>

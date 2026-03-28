@@ -29,14 +29,14 @@
                                 <tr>
                                     <td>
                                         <a href="{{ post.get_absolute_url }}">
-                                            <img class="user-icon me-2" src="{{ post.picture.url }}" alt="{{ post.title }}">
+                                            <img class="lg-faction-icon me-2" src="{{ post.picture.url }}" alt="{{ post.title }}">
                                             {{ post.title }} ({{ post.get_component_display }})
                                         </a>
                                     </td>
                                     <td>
                                         {% if post.submitted_by %}
                                             <a href="{{ post.submitted_by.get_absolute_url }}">
-                                                <img class="user-icon me-2" src="{{ post.submitted_by.image.url }}" alt="{{ post.submitted_by.name }}">
+                                                <img class="lg-avatar-icon me-2" src="{{ post.submitted_by.image.url }}" alt="{{ post.submitted_by.name }}">
                                                 {{ post.submitted_by.name }}
                                             </a>
                                         {% else %}

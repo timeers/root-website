@@ -1,0 +1,22 @@
+{% load i18n %}
+<!-- Navigation -->
+<div class="d-flex align-items-center mb-4">
+    <div>
+        {% if return_title and return_to %}
+        <a href="{{ return_to }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {{return_title}}
+        </a>
+        {% else %}
+        <a href="{% url 'survey-list' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Surveys
+        </a>
+        {% endif%}
+    </div>
+    {% if can_edit_survey and not is_settings_page and return_title != 'Back to Settings' %}
+    <div class="ms-auto">
+        <a href="{% url 'survey-settings' survey.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-gear"></i> {% trans 'Settings' %}
+        </a>
+    </div>
+    {% endif %}
+</div>

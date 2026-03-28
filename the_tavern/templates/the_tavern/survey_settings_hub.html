@@ -1,0 +1,184 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}Settings - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{% trans 'Survey Settings' %}</h2>
+
+    </div>
+
+    <!-- Settings Cards Grid -->
+    <div class="row g-4">
+        <!-- Edit Survey Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-pencil me-2"></i>{% trans 'Edit Survey' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Update survey title, description, questions, settings, and access controls' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'survey-settings-edit' survey.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-pencil me-1"></i>{% trans 'Edit Survey' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Survey Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-eye me-2"></i>{% trans 'Preview Survey' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Preview how the survey looks to respondents without submitting a response' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'survey-settings-preview' survey.slug %}" class="btn btn-warning w-100">
+                        <i class="bi bi-eye me-1"></i>{% trans 'Preview' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Responses Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-chat-left-text me-2"></i>{% trans 'Responses' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'View and manage individual survey responses' %}
+                        {% if response_count %}
+                            <br><strong>{{ response_count }}</strong> {% trans 'response' %}{{ response_count|pluralize }} {% trans 'received' %}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'survey-settings-responses' survey.slug %}" class="btn btn-info w-100">
+                        <i class="bi bi-chat-left-text me-1"></i>{% trans 'View Responses' %} {% if response_count %}({{ response_count }}){% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Results Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-bar-chart me-2"></i>{% trans 'Results' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'View aggregated survey results and analytics' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'survey-settings-results' survey.slug %}" class="btn btn-info w-100">
+                        <i class="bi bi-bar-chart me-1"></i>{% trans 'View Results' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz Settings Card -->
+        {% if survey.is_quiz %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-clipboard-check me-2"></i>{% trans 'Quiz Settings' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Configure correct answers, scoring, and quiz display options' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'survey-settings-quiz' survey.slug %}" class="btn btn-success w-100">
+                        <i class="bi bi-clipboard-check me-1"></i>{% trans 'Quiz Settings' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Send to Tournament Card -->
+        {% if survey.series and response_count > 0 %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-send me-2"></i>{% trans 'Send to Series' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Enroll the survey respondents in the linked Series' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'survey-settings-send-availability' survey.slug %}" class="btn btn-info w-100">
+                        <i class="bi bi-send me-1"></i>{% trans 'Send to Series' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Duplicate Survey Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-copy me-2"></i>{% trans 'Duplicate Survey' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Create a copy of this survey with all questions and settings' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <button type="button" class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#duplicateSurveyModal">
+                        <i class="bi bi-copy me-1"></i>{% trans 'Duplicate Survey' %}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Survey Card -->
+        <div class="col-md-6">
+            <div class="card h-100 border-danger">
+                <div class="card-body">
+                    <h5 class="card-title text-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>{% trans 'Danger Zone' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Permanently delete this survey and all associated responses' %}
+                        {% if response_count > 0 %}
+                            <br><span class="text-danger"><strong>{% trans 'Warning:' %}</strong> {% trans 'This survey has' %} {{ response_count }} {% trans 'response' %}{{ response_count|pluralize }}.</span>
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <button type="button" class="btn btn-outline-danger w-100" data-bs-toggle="modal" data-bs-target="#deleteSurveyModal">
+                        <i class="bi bi-trash me-1"></i>{% trans 'Delete Survey' %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include 'the_tavern/modals/duplicate_survey_modal.html' %}
+{% include 'the_tavern/modals/delete_survey_modal.html' %}
+{% endblock %}

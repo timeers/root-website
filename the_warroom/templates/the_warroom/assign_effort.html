@@ -5,7 +5,11 @@
 
 <h1>{% trans 'Link a Game' %}</h1>
 {% with scorecard as object %}
-{% include 'the_warroom/partials/scorecard.html' %}
+<div class='card my-2'>
+    <div class='card-body'>
+        {% include 'the_warroom/partials/scorecard.html' %}
+    </div>
+</div>
 {% endwith %}
 <h2>{{ form.effort.field.queryset.count }} 
     {% if form.effort.field.queryset.count != 1 %}

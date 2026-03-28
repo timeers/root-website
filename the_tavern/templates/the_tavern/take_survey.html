@@ -1,0 +1,912 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n survey_filters %}
+{% block title %}{{ survey.title }} | {% endblock %}
+
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-section">
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+
+    <h1 class="root-title">{{ survey.title }}</h1>
+
+    {% if is_editing %}
+        <div class="alert alert-info">
+            <i class="bi bi-pencil-square"></i> {% trans 'You are editing your previous response.' %}
+        </div>
+    {% endif %}
+
+    {% if survey.description %}
+        <p class="lead">{{ survey.description|linebreaks }}</p>
+    {% endif %}
+
+    <hr>
+
+    <form method="POST">
+        {% csrf_token %}
+        <input type="hidden" name="timezone_offset_hours" id="id_timezone_offset_hours" value="">
+
+        {% for section_data in sections_data %}
+        <div class="survey-section" data-section-index="{{ forloop.counter0 }}"
+             {% if not forloop.first %}style="display: none;"{% endif %}>
+
+            {% if section_data.section %}
+                {% if section_data.section.title or section_data.section.description %}
+                <div class="mb-4">
+                    {% if section_data.section.title %}
+                        <h3>{{ section_data.section.title }}</h3>
+                    {% endif %}
+                    {% if section_data.section.description %}
+                        <p class="text-muted">{{ section_data.section.description }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+            {% endif %}
+
+            {% if forloop.first and survey.is_registration and survey.series and survey.series.rules %}
+            <div class="card mb-4 border-warning">
+                <div class="card-header bg-warning bg-opacity-25">
+                    <h5 class="mb-0">
+                        <i class="bi bi-scroll me-2"></i>{{ survey.series.name }} - {% trans 'Rules' %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div style="max-height: 400px; overflow-y: auto; padding: 1rem; background-color: var(--bs-light); border-radius: 0.375rem;">
+                        {{ survey.series.rules|linebreaks }}
+                    </div>
+                    <hr>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="rules_agreement" name="rules_agreement" required>
+                        <label class="form-check-label" for="rules_agreement">
+                            <strong>{% trans 'I have read and agree to these rules' %}</strong> <span class="text-danger">*</span>
+                        </label>
+                        <div class="invalid-feedback" id="rules_agreement_error" style="display: none;">
+                            {% trans 'You must agree to the tournament rules to submit this survey.' %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% for question in section_data.questions %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        {{ question_numbers|get_item:question.id }}. {{ question.text }}
+                        {% if question.required %}
+                            <span class="text-danger">*</span>
+                        {% endif %}
+                    </h5>
+
+                    {% if question.help_text %}
+                        <p class="text-muted small">{{ question.help_text }}</p>
+                    {% endif %}
+
+                    {# Scale with custom button-style layout #}
+                    {% if question.question_type == 'LK' %}
+                        {% if question.likert_scale %}
+                            <div class="mt-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <small class="text-muted">{{ question.likert_scale.min_label }}</small>
+                                    <small class="text-muted">{{ question.likert_scale.max_label }}</small>
+                                </div>
+                                <div class="btn-group d-flex flex-column flex-md-row gap-2" role="group">
+                                    {% for i in question.likert_scale.min_value|make_list_range:question.likert_scale.max_value %}
+                                        <div class="d-flex flex-column align-items-center flex-fill">
+                                            {% with field=form|get_question_field:question.id %}
+                                                <input type="radio" class="btn-check" name="question_{{ question.id }}"
+                                                       value="{{ i }}" id="q{{ question.id }}_{{ i }}"
+                                                       {% if question.required %}required{% endif %}
+                                                       {% if field.value == i %}checked{% endif %}>
+                                            {% endwith %}
+                                            <label class="btn btn-outline-primary w-100" for="q{{ question.id }}_{{ i }}">
+                                                {{ i }}
+                                            </label>
+                                            {% with label=question.likert_scale.labels|get_item:i %}
+                                                {% if label %}
+                                                    <small class="text-muted mt-1 text-center">{{ label }}</small>
+                                                {% endif %}
+                                            {% endwith %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                    {# Time Availability with timezone conversion #}
+                    {% elif question.question_type == 'TA' %}
+                        <div class="mt-3">
+                            <div class="alert alert-info" id="timezone_info_{{ question.id }}">
+                                <i class="bi bi-clock"></i> <span class="timezone-name">Detecting your timezone...</span>
+                            </div>
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-calendar3"></i> <strong>{% trans 'Applicable days' %}:</strong> {{ question.get_enabled_days_display }}
+                            </p>
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-check2-square"></i> {% trans 'Select all relevant hours (times shown in your local timezone):' %}
+                            </p>
+                            {% with field=form|get_question_field:question.id %}
+                                <div class="time-availability-grid" id="time_availability_{{ question.id }}" data-question-id="{{ question.id }}">
+                                    {% for choice in question.get_visible_choices %}
+                                        <div class="time-slot-item" data-utc-hour="{{ choice.text }}" data-choice-id="{{ choice.id }}">
+                                            <input type="checkbox" class="btn-check"
+                                                   name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}"
+                                                   id="time_{{ question.id }}_{{ choice.id }}"
+                                                   {% if question.required %}data-required="true"{% endif %}
+                                                   {% if field.value and choice.id in field.value %}checked{% endif %}>
+                                            <label class="btn btn-outline-primary w-100" for="time_{{ question.id }}_{{ choice.id }}">
+                                                <span class="local-time-display">{{ choice.text }}:00</span>
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endwith %}
+                            {% if question.required %}
+                                <div class="invalid-feedback" id="time_error_{{ question.id }}" style="display: none;">
+                                    {% trans 'Please select at least one time slot.' %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+
+                    {# Day Availability #}
+                    {% elif question.question_type == 'DY' %}
+                        <div class="mt-3">
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-check2-square"></i> {% trans 'Select all relevant days:' %}
+                            </p>
+                            {% with field=form|get_question_field:question.id %}
+                                <div class="day-availability-grid" id="day_availability_{{ question.id }}" data-question-id="{{ question.id }}">
+                                    {% for choice in question.get_visible_choices %}
+                                        <div class="day-slot-item" data-choice-id="{{ choice.id }}">
+                                            <input type="checkbox" class="btn-check"
+                                                   name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}"
+                                                   id="day_{{ question.id }}_{{ choice.id }}"
+                                                   {% if question.required %}data-required="true"{% endif %}
+                                                   {% if field.value and choice.id in field.value %}checked{% endif %}>
+                                            <label class="btn btn-outline-primary w-100 text-nowrap" for="day_{{ question.id }}_{{ choice.id }}">
+                                                <span>{{ choice.text }}</span>
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endwith %}
+                            {% if question.required %}
+                                <div class="invalid-feedback" id="day_error_{{ question.id }}" style="display: none;">
+                                    {% trans 'Please select at least one day.' %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                    {# Multiple Choice with Post icons #}
+                    {% elif question.question_type == 'MC' %}
+                        <div class="mt-3">
+                            {% with field=form|get_question_field:question.id %}
+                                {% if question.uses_all_official_posts %}
+                                    {# Dynamic Posts from get_post_choices #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                                   value="post_{{ post.id }}" id="q{{ question.id }}_p{{ post.id }}"
+                                                   {% if question.required %}required{% endif %}
+                                                   {% if field.value == post.id|stringformat:"s" or field.value == post.id %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
+                                                {% if post.small_icon %}
+                                                    <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ post.title }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Regular choices (text or Post-linked) #}
+                                    {% for choice in question.get_visible_choices %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
+                                                   {% if question.required %}required{% endif %}
+                                                   {% if field.value == choice.id|stringformat:"s" or field.value == choice.id %}checked{% endif %}
+                                                   onchange="hideOtherText('{{ question.id }}')">
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
+                                                {% if choice.post and choice.post.small_icon %}
+                                                    <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ choice.get_display_text }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                    {% if question.allow_other %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="radio" name="question_{{ question.id }}"
+                                                   value="other" id="q{{ question.id }}_other"
+                                                   {% if question.required %}required{% endif %}
+                                                   {% if field.value == 'other' %}checked{% endif %}
+                                                   onchange="showOtherText('{{ question.id }}')">
+                                            <label class="form-check-label" for="q{{ question.id }}_other">
+                                                {% trans 'Other' %}
+                                            </label>
+                                        </div>
+                                        {% with other_field=form|get_question_field_other:question.id %}
+                                        <div id="other_text_{{ question.id }}" class="ms-4 mt-1 mb-2" style="{% if field.value != 'other' %}display: none;{% endif %}">
+                                            <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
+                                                   placeholder="{% trans 'Please specify...' %}" maxlength="500"
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}
+                                                   oninput="clearOtherValidation(this)">
+                                            <div class="other-validation-error text-danger small mt-1" style="display: none;">{% trans 'Please specify your "Other" response.' %}</div>
+                                        </div>
+                                        {% endwith %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endwith %}
+                        </div>
+
+                    {# Multiple Selection with Post icons #}
+                    {% elif question.question_type == 'MS' %}
+                        <div class="mt-3">
+                            <div class="ms-checkbox-group" data-question-id="{{ question.id }}" {% if question.required %}data-required="true"{% endif %}>
+                            {% with field=form|get_question_field:question.id %}
+                                {% if question.uses_all_official_posts %}
+                                    {# Dynamic Posts from get_post_choices #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                                   value="post_{{ post.id }}" id="q{{ question.id }}_p{{ post.id }}"
+                                                   {% if field.value and post.id in field.value %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
+                                                {% if post.small_icon %}
+                                                    <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ post.title }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Regular choices (text or Post-linked) #}
+                                    {% for choice in question.get_visible_choices %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                                   value="{{ choice.id }}" id="q{{ question.id }}_c{{ choice.id }}"
+                                                   {% if field.value and choice.id in field.value %}checked{% endif %}>
+                                            <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
+                                                {% if choice.post and choice.post.small_icon %}
+                                                    <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                {% endif %}
+                                                {{ choice.get_display_text }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                    {% if question.allow_other %}
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" name="question_{{ question.id }}"
+                                                   value="other" id="q{{ question.id }}_other"
+                                                   {% if field.value and 'other' in field.value %}checked{% endif %}
+                                                   onchange="toggleMsOtherText('{{ question.id }}', this.checked)">
+                                            <label class="form-check-label" for="q{{ question.id }}_other">
+                                                {% trans 'Other' %}
+                                            </label>
+                                        </div>
+                                        {% with other_field=form|get_question_field_other:question.id %}
+                                        <div id="other_text_{{ question.id }}" class="ms-4 mt-1 mb-2" style="{% if not field.value or 'other' not in field.value %}display: none;{% endif %}">
+                                            <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
+                                                   placeholder="{% trans 'Please specify...' %}" maxlength="500"
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}
+                                                   oninput="clearOtherValidation(this)">
+                                            <div class="other-validation-error text-danger small mt-1" style="display: none;">{% trans 'Please specify your "Other" response.' %}</div>
+                                        </div>
+                                        {% endwith %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endwith %}
+                            </div>
+                            {% if question.required %}
+                                <div class="invalid-feedback" id="ms_error_{{ question.id }}" style="display: none;">
+                                    {% trans 'Please select at least one option.' %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                    {# Ranking questions with drag-and-drop #}
+                    {% elif question.question_type == 'RK' %}
+                        <div class="mt-3">
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-grip-vertical"></i> {% trans 'Drag and drop to rank these options (1 = highest):' %}
+                            </p>
+                            <div class="ranking-list" id="ranking_{{ question.id }}" data-question-id="{{ question.id }}">
+                                {% if question.uses_all_official_posts %}
+                                    {# Post-based ranking - dynamic Posts #}
+                                    {% for post in question.get_post_choices %}
+                                        <div class="ranking-item" data-choice-id="post_{{ post.id }}">
+                                            <span class="ranking-number">{{ forloop.counter }}</span>
+                                            <i class="bi bi-grip-vertical ranking-handle"></i>
+                                            {% if post.small_icon %}
+                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            <span class="ranking-text">{{ post.title }}</span>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {# Choice-based ranking #}
+                                    {% for choice in question.get_visible_choices %}
+                                        <div class="ranking-item" data-choice-id="{{ choice.id }}">
+                                            <span class="ranking-number">{{ forloop.counter }}</span>
+                                            <i class="bi bi-grip-vertical ranking-handle"></i>
+                                            {% if choice.post and choice.post.small_icon %}
+                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            {% endif %}
+                                            <span class="ranking-text">{{ choice.get_display_text }}</span>
+                                        </div>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            {% with field=form|get_question_field:question.id %}
+                                <input type="hidden" name="question_{{ question.id }}" id="ranking_input_{{ question.id }}"
+                                       {% if question.required %}required{% endif %}
+                                       {% if field.value %}value="{{ field.value }}"{% endif %}>
+                            {% endwith %}
+                        </div>
+
+                    {# All other question types - render form field #}
+                    {% else %}
+                        {% with field=form|get_question_field:question.id %}
+                            {% if field %}
+                                <div class="mt-3">
+                                    {{ field }}
+                                    {% if field.errors %}
+                                        <div class="invalid-feedback d-block">
+                                            {{ field.errors }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        {% endwith %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+
+        <hr>
+
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <button type="button" class="btn btn-outline-secondary survey-nav-prev"
+                        style="display: none;" onclick="navigateSection(-1)">
+                    <i class="bi bi-arrow-left"></i> {% trans 'Back' %}
+                </button>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <small class="text-muted">
+                    <span class="text-danger">*</span> {% trans 'Required fields' %}
+                </small>
+                <span class="text-muted survey-section-indicator"></span>
+                <button type="button" class="btn btn-primary survey-nav-next" onclick="navigateSection(1)">
+                    {% trans 'Next' %} <i class="bi bi-arrow-right"></i>
+                </button>
+                <button type="submit" class="btn btn-primary survey-nav-submit" style="display: none;">
+                    {% if is_editing %}
+                        <i class="bi bi-pencil-square"></i> {% trans 'Update Response' %}
+                    {% else %}
+                        {% trans 'Submit Survey' %}
+                    {% endif %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock content %}
+
+{% block styles %}
+{% include 'the_tavern/partials/survey_styles.html' %}
+<style>
+    /* Template-specific styles */
+    #timezone_info {
+        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .day-availability-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .day-slot-item {
+        display: flex;
+    }
+
+    .day-slot-item label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 2.5rem;
+        padding: 0.5rem;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    @media (max-width: 576px) {
+        .day-availability-grid {
+            grid-template-columns: repeat(auto-fit, minmax(75px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .day-slot-item label {
+            min-height: 2.25rem;
+            font-size: 0.9rem;
+            padding: 0.375rem;
+        }
+    }
+
+    @media (max-width: 360px) {
+        .day-availability-grid {
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .day-slot-item label {
+            min-height: 2.25rem;
+            font-size: 0.9rem;
+            padding: 0.375rem;
+        }
+    }
+
+
+</style>
+{% endblock styles %}
+
+{% block scripts %}
+<script>
+// ============================================
+// "Other" option toggle functions (MC/MS)
+// ============================================
+function showOtherText(questionId) {
+    const otherDiv = document.getElementById('other_text_' + questionId);
+    if (otherDiv) {
+        otherDiv.style.display = '';
+        const input = otherDiv.querySelector('input');
+        if (input) input.focus();
+    }
+}
+
+function hideOtherText(questionId) {
+    const otherDiv = document.getElementById('other_text_' + questionId);
+    if (otherDiv) {
+        otherDiv.style.display = 'none';
+        const input = otherDiv.querySelector('input');
+        if (input) {
+            input.value = '';
+            clearOtherValidation(input, true);
+        }
+    }
+}
+
+function toggleMsOtherText(questionId, checked) {
+    const otherDiv = document.getElementById('other_text_' + questionId);
+    if (otherDiv) {
+        otherDiv.style.display = checked ? '' : 'none';
+        const input = otherDiv.querySelector('input');
+        if (checked) {
+            if (input) input.focus();
+        } else {
+            if (input) {
+                input.value = '';
+                clearOtherValidation(input, true);
+            }
+        }
+    }
+}
+
+function setOtherValidationError(input) {
+    input.classList.add('is-invalid');
+    const errorDiv = input.parentElement.querySelector('.other-validation-error');
+    if (errorDiv) errorDiv.style.display = '';
+}
+
+function clearOtherValidation(input, force) {
+    if (force || input.value.trim()) {
+        input.classList.remove('is-invalid');
+        const errorDiv = input.parentElement.querySelector('.other-validation-error');
+        if (errorDiv) errorDiv.style.display = 'none';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // ============================================
+    // Section Navigation
+    // ============================================
+    const sections = document.querySelectorAll('.survey-section');
+    const totalSections = sections.length;
+    let currentSection = 0;
+
+    function updateSectionNav() {
+        const prevBtn = document.querySelector('.survey-nav-prev');
+        const nextBtn = document.querySelector('.survey-nav-next');
+        const submitBtn = document.querySelector('.survey-nav-submit');
+        const indicator = document.querySelector('.survey-section-indicator');
+
+        // Show/hide sections
+        sections.forEach((s, i) => {
+            s.style.display = i === currentSection ? '' : 'none';
+        });
+
+        if (totalSections <= 1) {
+            // No sections or single section - hide navigation, show submit
+            if (prevBtn) prevBtn.style.display = 'none';
+            if (nextBtn) nextBtn.style.display = 'none';
+            if (submitBtn) submitBtn.style.display = '';
+            if (indicator) indicator.textContent = '';
+            return;
+        }
+
+        if (prevBtn) prevBtn.style.display = currentSection > 0 ? '' : 'none';
+        if (nextBtn) nextBtn.style.display = currentSection < totalSections - 1 ? '' : 'none';
+        if (submitBtn) submitBtn.style.display = currentSection === totalSections - 1 ? '' : 'none';
+        if (indicator) indicator.textContent = `Page ${currentSection + 1} of ${totalSections}`;
+    }
+
+    function validateCurrentSection() {
+        const currentSectionEl = sections[currentSection];
+        let valid = true;
+
+        // Validate required radio groups
+        const radioGroups = new Set();
+        currentSectionEl.querySelectorAll('input[type="radio"][required]').forEach(r => {
+            radioGroups.add(r.name);
+        });
+        radioGroups.forEach(name => {
+            const checked = currentSectionEl.querySelector(`input[name="${name}"]:checked`);
+            if (!checked) {
+                valid = false;
+                // Add visual feedback
+                const container = currentSectionEl.querySelector(`input[name="${name}"]`).closest('.card');
+                if (container) container.classList.add('border-danger');
+            }
+            // If "Other" radio is selected, validate the text input is not empty
+            if (checked && checked.value === 'other') {
+                const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    setOtherValidationError(otherInput);
+                    valid = false;
+                } else if (otherInput) {
+                    clearOtherValidation(otherInput, true);
+                }
+            }
+        });
+
+        // Validate "Other" checkbox text for MS questions
+        currentSectionEl.querySelectorAll('input[type="checkbox"][value="other"]:checked').forEach(cb => {
+            const name = cb.name;
+            const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+            if (otherInput && !otherInput.value.trim()) {
+                setOtherValidationError(otherInput);
+                valid = false;
+            } else if (otherInput) {
+                clearOtherValidation(otherInput, true);
+            }
+        });
+
+        // Validate required text/select/textarea inputs
+        currentSectionEl.querySelectorAll('input[required]:not([type="radio"]):not([type="checkbox"]), select[required], textarea[required]').forEach(field => {
+            if (!field.value.trim()) {
+                field.classList.add('is-invalid');
+                valid = false;
+            } else {
+                field.classList.remove('is-invalid');
+            }
+        });
+
+        // Validate rules agreement checkbox (if present in this section)
+        const rulesCheckbox = currentSectionEl.querySelector('#rules_agreement');
+        if (rulesCheckbox && rulesCheckbox.required && !rulesCheckbox.checked) {
+            const errorDiv = document.getElementById('rules_agreement_error');
+            if (errorDiv) errorDiv.style.display = 'block';
+            valid = false;
+        }
+
+        // Validate required checkbox groups (MS, TA, DY)
+        currentSectionEl.querySelectorAll('.ms-checkbox-group[data-required="true"]').forEach(group => {
+            const checked = group.querySelector('input[type="checkbox"]:checked');
+            if (!checked) {
+                const errorDiv = document.getElementById(`ms_error_${group.dataset.questionId}`);
+                if (errorDiv) errorDiv.style.display = 'block';
+                valid = false;
+            }
+        });
+
+        // Validate required time availability
+        currentSectionEl.querySelectorAll('.time-availability-grid').forEach(grid => {
+            const questionId = grid.dataset.questionId;
+            const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
+            const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
+            const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+            if (isRequired && !isChecked) {
+                const errorDiv = document.getElementById(`time_error_${questionId}`);
+                if (errorDiv) errorDiv.style.display = 'block';
+                valid = false;
+            }
+        });
+
+        // Validate required day availability
+        currentSectionEl.querySelectorAll('.day-availability-grid').forEach(grid => {
+            const questionId = grid.dataset.questionId;
+            const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
+            const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
+            const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+            if (isRequired && !isChecked) {
+                const errorDiv = document.getElementById(`day_error_${questionId}`);
+                if (errorDiv) errorDiv.style.display = 'block';
+                valid = false;
+            }
+        });
+
+        if (!valid) {
+            // Scroll to first problem
+            const firstInvalid = currentSectionEl.querySelector('.is-invalid, .border-danger, .invalid-feedback[style*="display: block"]');
+            if (firstInvalid) {
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        return valid;
+    }
+
+    // Make navigateSection available globally
+    window.navigateSection = function(direction) {
+        if (direction > 0 && !validateCurrentSection()) {
+            return;
+        }
+
+        currentSection += direction;
+        currentSection = Math.max(0, Math.min(totalSections - 1, currentSection));
+        updateSectionNav();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // Initialize section navigation
+    updateSectionNav();
+
+    // ============================================
+    // Timezone and other existing functionality
+    // ============================================
+
+    // Capture timezone offset and store in hidden field
+    const now = new Date();
+    const timezoneOffsetMinutes = now.getTimezoneOffset();
+    const timezoneOffsetHours = -timezoneOffsetMinutes / 60;
+
+    const timezoneInput = document.getElementById('id_timezone_offset_hours');
+    if (timezoneInput) {
+        timezoneInput.value = timezoneOffsetHours;
+    }
+
+    // Time Availability: Detect timezone and convert hours
+    const timeAvailabilityGrids = document.querySelectorAll('.time-availability-grid');
+
+    timeAvailabilityGrids.forEach(grid => {
+        const questionId = grid.dataset.questionId;
+        const timezoneInfo = document.getElementById(`timezone_info_${questionId}`);
+
+        // Get timezone name (timezoneOffsetHours already calculated above)
+        const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        // Update timezone info display
+        if (timezoneInfo) {
+            const tzNameSpan = timezoneInfo.querySelector('.timezone-name');
+            const offsetSign = timezoneOffsetHours >= 0 ? '+' : '';
+            tzNameSpan.textContent = `Times shown in ${timezoneName} (UTC${offsetSign}${timezoneOffsetHours})`;
+        }
+
+        // Convert all time slots to local time
+        const timeSlots = grid.querySelectorAll('.time-slot-item');
+        timeSlots.forEach(slot => {
+            const utcHour = parseInt(slot.dataset.utcHour);
+            const localHour = (utcHour + timezoneOffsetHours + 24) % 24;
+
+            // Format hour for display (with AM/PM)
+            const displayTime = formatHour(localHour);
+            const timeDisplay = slot.querySelector('.local-time-display');
+            if (timeDisplay) {
+                timeDisplay.textContent = displayTime;
+            }
+        });
+
+        // Add form validation for required fields
+        const form = grid.closest('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const checkboxes = grid.querySelectorAll('input[type="checkbox"]');
+                const isRequired = checkboxes.length > 0 && checkboxes[0].dataset.required === 'true';
+                const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+
+                if (isRequired && !isChecked) {
+                    e.preventDefault();
+                    const errorDiv = document.getElementById(`time_error_${questionId}`);
+                    if (errorDiv) {
+                        errorDiv.style.display = 'block';
+                    }
+                    grid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    const errorDiv = document.getElementById(`time_error_${questionId}`);
+                    if (errorDiv) {
+                        errorDiv.style.display = 'none';
+                    }
+                }
+            });
+        }
+    });
+
+    function formatHour(hour) {
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        return `${displayHour}:00 ${period}`;
+    }
+
+    // Multiple Selection validation (at least one checkbox required)
+    const msCheckboxGroups = document.querySelectorAll('.ms-checkbox-group');
+
+    msCheckboxGroups.forEach(group => {
+        const questionId = group.dataset.questionId;
+        const isRequired = group.dataset.required === 'true';
+
+        if (isRequired) {
+            const form = group.closest('form');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    const checkboxes = group.querySelectorAll('input[type="checkbox"]');
+                    const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+
+                    if (!isChecked) {
+                        e.preventDefault();
+                        const errorDiv = document.getElementById(`ms_error_${questionId}`);
+                        if (errorDiv) {
+                            errorDiv.style.display = 'block';
+                        }
+                        group.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } else {
+                        const errorDiv = document.getElementById(`ms_error_${questionId}`);
+                        if (errorDiv) {
+                            errorDiv.style.display = 'none';
+                        }
+                    }
+                });
+            }
+        }
+    });
+
+    // "Other" text validation on form submit
+    const surveyForm = document.querySelector('form');
+    if (surveyForm) {
+        surveyForm.addEventListener('submit', function(e) {
+            let valid = true;
+            let firstInvalid = null;
+
+            // MC: check if "Other" radio is selected but text is empty
+            document.querySelectorAll('input[type="radio"][value="other"]:checked').forEach(radio => {
+                const name = radio.name;
+                const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    setOtherValidationError(otherInput);
+                    valid = false;
+                    if (!firstInvalid) firstInvalid = otherInput;
+                }
+            });
+
+            // MS: check if "Other" checkbox is checked but text is empty
+            document.querySelectorAll('input[type="checkbox"][value="other"]:checked').forEach(cb => {
+                const name = cb.name;
+                const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    setOtherValidationError(otherInput);
+                    valid = false;
+                    if (!firstInvalid) firstInvalid = otherInput;
+                }
+            });
+
+            if (!valid) {
+                e.preventDefault();
+                if (firstInvalid) {
+                    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
+    }
+
+    // Initialize Sortable for all ranking questions
+    const rankingLists = document.querySelectorAll('.ranking-list');
+
+    rankingLists.forEach(list => {
+        const questionId = list.dataset.questionId;
+
+        // Check if there's a prepopulated order (for editing)
+        const input = document.getElementById(`ranking_input_${questionId}`);
+        if (input && input.value) {
+            const choiceIds = input.value.split(',').map(id => id.trim());
+            const items = Array.from(list.querySelectorAll('.ranking-item'));
+
+            // Reorder items based on prepopulated data
+            choiceIds.forEach(choiceId => {
+                const item = items.find(el => el.dataset.choiceId === choiceId);
+                if (item) {
+                    list.appendChild(item);
+                }
+            });
+
+            updateRankingNumbers(questionId);
+        }
+
+        new Sortable(list, {
+            animation: 150,
+            handle: '.ranking-item',
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            onEnd: function() {
+                updateRankingNumbers(questionId);
+                updateRankingInput(questionId);
+            }
+        });
+
+        // Initialize the hidden input with initial order
+        updateRankingInput(questionId);
+    });
+
+    function updateRankingNumbers(questionId) {
+        const list = document.getElementById(`ranking_${questionId}`);
+        const items = list.querySelectorAll('.ranking-item');
+
+        items.forEach((item, index) => {
+            const numberSpan = item.querySelector('.ranking-number');
+            numberSpan.textContent = index + 1;
+        });
+    }
+
+    function updateRankingInput(questionId) {
+        const list = document.getElementById(`ranking_${questionId}`);
+        const items = list.querySelectorAll('.ranking-item');
+        const input = document.getElementById(`ranking_input_${questionId}`);
+
+        // Create comma-separated list of choice IDs in their current order
+        const choiceIds = Array.from(items).map(item => item.dataset.choiceId);
+        input.value = choiceIds.join(',');
+    }
+
+    // Rules agreement validation
+    const rulesAgreement = document.getElementById('rules_agreement');
+    if (rulesAgreement) {
+        const form = rulesAgreement.closest('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                if (!rulesAgreement.checked) {
+                    e.preventDefault();
+                    const errorDiv = document.getElementById('rules_agreement_error');
+                    if (errorDiv) {
+                        errorDiv.style.display = 'block';
+                    }
+                    rulesAgreement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        }
+
+        rulesAgreement.addEventListener('change', function() {
+            if (this.checked) {
+                const errorDiv = document.getElementById('rules_agreement_error');
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock scripts %}

@@ -35,14 +35,15 @@ from django.views.generic import (
     UpdateView,
     DeleteView
 )
-from the_warroom.models import Game, ScoreCard, Effort, Tournament, Round
+from the_warroom.models import Game, ScoreCard, Effort, Tournament, Stage, Round
 from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest
-from the_gatehouse.views import (designer_required_class_based_view, designer_required, tester_required,
+from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
-                                 admin_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
-from the_gatehouse.services.discordservice import send_discord_message, send_rich_discord_message, get_guild_link_config
-from the_gatehouse.utils import get_uuid, build_absolute_uri, int_to_alpha, int_to_roman
+                                 player_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
+from the_gatehouse.services.discordservice import get_guild_link_config
+from the_gatehouse.utils import build_absolute_uri
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from .tasks import sync_rules_task
 from .models import (
     Post, Expansion,
@@ -76,6 +77,7 @@ from .services.slugify_titles import slugify_deck_group_title
 from .services.upload_paths import deck_back_upload_path
 from the_tavern.forms import PostCommentCreateForm
 from the_tavern.views import bookmark_toggle
+from the_tavern.models import Survey
 
 from django.db import models
 from django.db.models import OuterRef, Subquery, F, Value, Exists
@@ -227,10 +229,11 @@ def expansion_detail_view(request, slug):
     else:  
         available_faq = None
 
-    if available_faq and available_law:
-        col_class = 'w-100'
-    else:
-        col_class = 'w-50'
+    # Count items for the law/faq section
+    items_count = sum([
+        1 if available_law else 0,
+        1 if available_faq else 0,
+    ])
 
     can_edit = user_can_edit(request, expansion)
 
@@ -263,7 +266,7 @@ def expansion_detail_view(request, slug):
         'wr_link_config': wr_link_config,
         'fr_link_config': fr_link_config,
 
-        'col_class': col_class,
+        'items_count': items_count,
         'available_law': available_law,
         'available_faq': available_faq,
         'language_code': language_code,
@@ -384,13 +387,13 @@ class PostCreateView(LoginRequiredMixin, CreateView):
                         'name': 'Designer:',
                         'value': post.designer.name
                     })
-                send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
+                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
             else:
                 fields.append({
                         'name': 'Posted by:',
                         'value': self.request.user.profile.name
                     })
-                send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
+                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
                 
         return response
 
@@ -478,7 +481,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
                 'name': 'Edited by:',
                 'value': self.request.user.profile.name
             })
-        send_rich_discord_message(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
+        send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
 
 
         return response
@@ -657,7 +660,7 @@ def home(request, *args, **kwargs):
     # game_count = Game.objects.filter(final=True).count()
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) on Home Page')
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) on Home Page')
     
     context = {
         'title': 'Home',
@@ -734,13 +737,13 @@ def create_post_translation(request, slug, lang=None):
                         'name': 'Posted by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message_task.delay(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
             else:
                 fields.append({
                         'name': 'Edited by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message_task.delay(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
 
 
             # Append the lang query parameter to the URL
@@ -946,6 +949,11 @@ def ultimate_component_view(request, slug, component):
     # Get the translation if available, fallback to default
     object_translation = obj.translations.filter(language=language).first()
 
+    # If no translation exists for the selected language, display the post's native language
+    if not object_translation and language != post.language:
+        language = post.language
+        language_code = language.code if language else 'en'
+
     existing_law = Law.objects.filter(group__post=post).first()
     if existing_law:
         editable_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
@@ -960,13 +968,43 @@ def ultimate_component_view(request, slug, component):
     existing_faq = FAQ.objects.filter(post=post).first()
     if existing_faq:
         available_faq = FAQ.objects.filter(post=post, language=language).first()
-    else:  
+    else:
         available_faq = None
 
-    if available_faq and available_law:
-        col_class = 'w-100'
+    # Get available surveys for this post
+    available_surveys = []
+    if request.user.is_authenticated:
+        profile = request.user.profile
+
+        # Get surveys linked to this post
+        post_surveys = Survey.objects.filter(post=post)
+
+        for survey in post_surveys:
+            # Include if survey is available (active) OR user can see results
+            if survey.is_available() or survey.can_see_results(profile):
+                available_surveys.append(survey)
     else:
-        col_class = 'w-50'
+        # For anonymous users, show link if there are:
+        # 1. Active surveys they could take after logging in, OR
+        # 2. Closed surveys with public results they could view after logging in
+        # The post-surveys view will handle login redirect if needed
+        now = timezone.now()
+
+        available_surveys = Survey.objects.filter(post=post).filter(
+            Q(is_active=True) |  # Active surveys
+            Q(is_active=False, show_results_on_close=True)  # Closed surveys with public results
+        ).exclude(
+            # Exclude surveys that haven't started yet
+            start_date__gt=now
+        )
+
+    # Count items for the law/faq/surveys/cards section
+    items_count = sum([
+        1 if available_law else 0,
+        1 if available_faq else 0,
+        1 if available_surveys else 0,
+        1 if has_decks else 0
+    ])
 
 
     available_translations = obj.translations.all().count()
@@ -1050,9 +1088,10 @@ def ultimate_component_view(request, slug, component):
 
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewed {obj.component}: {obj.title} ({language_code})')
+        print('here')
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed {obj.component}: {obj.title} ({language_code})')
     # else:
-    #     send_discord_message(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
+    #     send_discord_message_task.delay(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
 
     # print(f'Stable Ready: {stable_ready}')
     view_status = 4
@@ -1195,8 +1234,6 @@ def ultimate_component_view(request, slug, component):
 
 
     links_count = obj.count_links(request.user)
-    if has_decks:
-        links_count += 1
 
     if obj.color_group:
         color_group = ColorChoices.get_color_group_by_hex(obj.color_group)
@@ -1281,9 +1318,11 @@ def ultimate_component_view(request, slug, component):
         'available_faq': available_faq,
         'existing_faq': existing_faq,
 
+        'available_surveys': available_surveys,
+
         'can_edit': can_edit,
 
-        'col_class': col_class,
+        'items_count': items_count,
 
         'tts_link': tts_link,
         'bgg_link': bgg_link,
@@ -1479,12 +1518,13 @@ def component_games(request, slug, component):
         if not request.user.profile.weird:
             games = games.filter(official=True)
 
-    # Apply distinct and prefetch_related to all cases  
-    prefetch_values = [
-        'efforts__player', 'efforts__faction', 'efforts__vagabond', 'round__tournament', 
-        'hirelings', 'landmarks', 'tweaks', 'map', 'deck', 'undrafted_faction', 'undrafted_vagabond'
-    ]
-    games = games.distinct().prefetch_related(*prefetch_values)
+    # Apply distinct, select_related for FKs, prefetch_related for M2M + efforts
+    opts = Game.with_efforts()
+    games = games.distinct().select_related(
+        *opts['select'], 'undrafted_faction', 'undrafted_vagabond'
+    ).prefetch_related(
+        *opts['prefetch'], 'hirelings', 'landmarks', 'tweaks'
+    )
 
     game_filter = GameFilter(request.GET, user=request.user, queryset=games)
 
@@ -1503,11 +1543,11 @@ def component_games(request, slug, component):
     if not page_number:
         
         if obj.component == "Faction":
-            efforts = Effort.objects.filter(game__in=filtered_games, faction=obj)
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'), faction=obj)
         elif obj.component == "Vagabond":
-            efforts = Effort.objects.filter(game__in=filtered_games, vagabond=obj)
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'), vagabond=obj)
         else:
-            efforts = Effort.objects.filter(game__in=filtered_games)
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'))
 
         game_values = efforts.aggregate(
             total_efforts=Count('id'),
@@ -1542,12 +1582,16 @@ def component_games(request, slug, component):
     meta_description = f'Games recorded with {obj.title}'
     meta_image_url = obj.get_meta_image_url(language)
 
+    filtered_count = paginator.count
+    has_filters = any(v for k, v in request.GET.items() if k != 'page')
+    games_total = games.count() if has_filters else filtered_count
+
     context = {
         'object': obj,
-        'games_total': games.count(),
-        'filtered_games': filtered_games.count(),
+        'games_total': games_total,
+        'filtered_games': filtered_count,
         'games': page_obj,  # Pagination applied here
-        'is_paginated': len(filtered_games) > paginate_by,
+        'is_paginated': paginator.num_pages > 1,
         'form': game_filter.form,
         'filterset': game_filter,
         'win_count': win_count,
@@ -1579,7 +1623,7 @@ def bookmark_post(request, obj):
 def list_view(request, slug=None):
 
     if request.user.is_authenticated:
-        send_discord_message(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) viewing The Archive')
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewing The Archive')
     
     theme = get_theme(request)
 
@@ -2090,39 +2134,10 @@ def apply_filters(qs, filters, component):
             winrate_max = float(filters.get('winrate_max', 100))
 
             if winrate_min != 0 or winrate_max != 100:
-                qs = qs.annotate(
-                    total_wins=Count(
-                        'efforts__game',
-                        filter=Q(
-                            efforts__win=True,
-                            # efforts__game__test_match=False,
-                            efforts__game__final=True
-                        )
-                    ),
-                    total_games=Count(
-                        'efforts__game',
-                        filter=Q(
-                            # efforts__game__test_match=False,
-                            efforts__game__final=True
-                        )
-                    ),
-                    coalition_count=Count(
-                        'efforts__game', 
-                        filter=Q(
-                            efforts__win=True, 
-                            efforts__game__coalition_win=True
-                        )
-                    )
-                ).filter(
-                    total_games__gt=0
-                ).annotate(
-                    calculated_winrate=ExpressionWrapper(
-                        100.0 * F('total_wins') / F('total_games'),
-                        output_field=FloatField()
-                    )
-                ).filter(
-                    calculated_winrate__gte=winrate_min,
-                    calculated_winrate__lte=winrate_max
+                qs = qs.filter(
+                    cached_winrate__isnull=False,
+                    cached_winrate__gte=winrate_min,
+                    cached_winrate__lte=winrate_max,
                 )
         except (TypeError, ValueError):
             pass
@@ -2807,6 +2822,134 @@ def delete_piece(request, id):
         raise PermissionDenied() 
 
 
+@login_required
+def post_settings_hub(request, slug):
+    """Settings hub page consolidating all post management actions."""
+    post = get_object_or_404(Post, slug=slug)
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
+
+    can_edit = user_can_edit(request, obj)
+    if not can_edit:
+        raise PermissionDenied
+
+    profile = request.user.profile
+    is_designer = profile == obj.designer
+    language_code = request.GET.get('lang') or get_language()
+    language = Language.objects.filter(code=language_code).first()
+
+    # Stable/Testing readiness (designer only)
+    stable_ready = None
+    testing_ready = None
+    if is_designer:
+        games = obj.get_games_queryset()
+        stable_ready_result = obj.stable_check()
+        stable_ready = stable_ready_result.stable_ready
+        if obj.status == '3' and games.count() > 0:
+            testing_ready = True
+
+    # Law state
+    existing_law = Law.objects.filter(group__post=post).first()
+    editable_law = None
+    if existing_law:
+        editable_law = Law.objects.filter(group__post=post, language=language, prime_law=True).first()
+
+    # FAQ state
+    existing_faq = FAQ.objects.filter(post=post).first()
+    available_faq = None
+    if existing_faq:
+        available_faq = FAQ.objects.filter(post=post, language=language).first()
+
+    # Translations count
+    available_translations = obj.translations.count()
+
+    # Decks/Cards
+    has_decks = obj.decks.exists()
+
+    # Surveys linked to this post
+    from the_tavern.models import Survey
+    survey_count = Survey.objects.filter(post=post).count()
+
+    # Only admin can delete
+    can_delete = profile.admin
+
+    context = {
+        'object': obj,
+        'post': post,
+        'object_component': obj.get_component_display(),
+        'can_edit': can_edit,
+        'is_designer': is_designer,
+        'stable_ready': stable_ready,
+        'testing_ready': testing_ready,
+        'existing_law': existing_law,
+        'editable_law': editable_law,
+        'available_faq': available_faq,
+        'available_translations': available_translations,
+        'has_decks': has_decks,
+        'survey_count': survey_count,
+        'can_delete': can_delete,
+        'language_code': language_code,
+    }
+    return render(request, 'the_keep/post_settings_hub.html', context)
+
+
+@login_required
+def post_pieces_view(request, slug):
+    """Standalone page for editing a post's component pieces."""
+    post = get_object_or_404(Post, slug=slug)
+    Klass = COMPONENT_MAPPING.get(post.component)
+    obj = get_object_or_404(Klass, slug=slug)
+
+    if not user_can_edit(request, obj):
+        raise PermissionDenied
+
+    language_code = request.GET.get('lang') or get_language()
+
+    warriors = []
+    for piece in obj.warriors():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        warriors.append(piece)
+
+    buildings = []
+    for piece in obj.buildings():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        buildings.append(piece)
+
+    tokens = []
+    for piece in obj.tokens():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        tokens.append(piece)
+
+    cards = []
+    for piece in obj.cards():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        cards.append(piece)
+
+    otherpieces = []
+    for piece in obj.otherpieces():
+        if piece.small_icon:
+            piece.fresh_small_icon_url = get_fresh_image_url(piece.small_icon)
+        otherpieces.append(piece)
+
+    context = {
+        'object': obj,
+        'post': post,
+        'component': obj.component,
+        'can_edit': True,
+        'warriors': warriors,
+        'buildings': buildings,
+        'tokens': tokens,
+        'cards': cards,
+        'otherpieces': otherpieces,
+        'language_code': language_code,
+    }
+    return render(request, 'the_keep/post_pieces.html', context)
+
+
 # This view is used to check the status of a Post and return playtest details. The page is intentionally 'game-ified' to encourage playtests with different components.
 
 def status_check(request, slug):
@@ -2986,7 +3129,7 @@ def status_check(request, slug):
 
 
 # This view is so that the owner of a Post can mark it as Stable directly
-@player_required
+@player_onboard_required
 def confirm_stable(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
@@ -3028,7 +3171,7 @@ def confirm_stable(request, slug):
     return render(request, 'the_keep/confirm_stable.html', context)
 
 # This view is so that the owner of a Post can mark it as Testing directly
-@player_required
+@player_onboard_required
 def confirm_testing(request, slug):
     # Get the Post object based on the slug from the URL
     post = get_object_or_404(Post, slug=slug)
@@ -3098,7 +3241,7 @@ class PNPAssetCreateView(CreateView):
         fields = [
             {'name': 'Posted by:', 'value': self.request.user.profile.name},
         ]
-        send_rich_discord_message(f'{asset}', category='FAQ Law', title='New Asset', fields=fields)
+        send_rich_discord_message_task.delay(f'{asset}', category='FAQ Law', title='New Asset', fields=fields)
         # Redirect to the asset list
         return reverse_lazy('asset-list') 
 
@@ -3143,7 +3286,7 @@ class PNPAssetUpdateView(UpdateView):
         fields = [
             {'name': 'Edited by:', 'value': self.request.user.profile.name},
         ]
-        send_rich_discord_message(f'{asset}', category='FAQ Law', title='Edited Asset', fields=fields)
+        send_rich_discord_message_task.delay(f'{asset}', category='FAQ Law', title='Edited Asset', fields=fields)
         # Redirect to the asset list
         return reverse_lazy('asset-list') 
 
@@ -3254,9 +3397,9 @@ class PNPAssetListView(ListView):
             return render(self.request, 'the_keep/partials/asset_list_table.html', context)
 
         if self.request.user.is_authenticated:
-            send_discord_message(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')
+            send_discord_message_task.delay(f'[{self.request.user}]({build_absolute_uri(self.request, self.request.user.profile.get_absolute_url())}) viewing The Workshop')
         # else:
-        #     send_discord_message(f'{get_uuid(self.request)} viewing The Workshop')
+        #     send_discord_message_task.delay(f'{get_uuid(self.request)} viewing The Workshop')
 
         return super().render_to_response(context, **response_kwargs)
 
@@ -3408,6 +3551,7 @@ def universal_search(request):
         players = Profile.objects.none()
         games = Game.objects.none()
         tournaments = Tournament.objects.none()
+        stages = Stage.objects.none()
         rounds = Round.objects.none()
         resources = PNPAsset.objects.none()
         pieces = Piece.objects.none()
@@ -3435,10 +3579,11 @@ def universal_search(request):
                 scorecards = ScoreCard.objects.filter(game_group__icontains=query, effort=None, recorder=request.user.profile)
         
         games = Game.objects.filter(nickname__icontains=query)     
-        tournaments = Tournament.objects.filter(name__icontains=query, start_date__lte=timezone.now())  
-        rounds = Round.objects.filter(Q(name__icontains=query)|Q(tournament__name__icontains=query), start_date__lte=timezone.now())   
+        tournaments = Tournament.objects.filter(name__icontains=query, publicly_visible=True)  
+        stages = Stage.objects.filter(name__icontains=query, tournament__use_stages=True, tournament__publicly_visible=True)
+        rounds = Round.objects.filter(name__icontains=query, stage__isnull=False, stage__tournament__use_rounds=True, stage__tournament__publicly_visible=True)   
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
-        pieces = Piece.objects.filter(Q(name__icontains=query), parent__status__lte=view_status).order_by('parent__status')
+        pieces = Piece.objects.filter(name__icontains=query, parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
         if len(query) > 3:
             translations = PostTranslation.objects.filter(translated_title__icontains=query).exclude(language=language_object)
@@ -3506,7 +3651,7 @@ def universal_search(request):
     total_results = (factions.count() + maps.count() + decks.count() + vagabonds.count() +
                      landmarks.count() + hirelings.count() + expansions.count() + 
                      players.count() + games.count() + scorecards.count() + 
-                     tournaments.count() + rounds.count() + tweaks.count() + 
+                     tournaments.count() + stages.count() + rounds.count() + tweaks.count() + 
                      resources.count() + pieces.count() + color_count + translations.count() + translated_posts.count() +
                      laws.count() + bot_laws.count() + fan_laws.count() +
                      cards.count()
@@ -3534,6 +3679,7 @@ def universal_search(request):
         'games': games[:result_count],
         'scorecards': scorecards[:result_count],
         'tournaments': tournaments[:result_count],
+        'stages': stages[:result_count],
         'rounds': rounds[:result_count],
         'resources': resources[:result_count],
         'pieces': pieces[:result_count],
@@ -3907,7 +4053,7 @@ def create_law_group(request, slug):
                 'name': 'Posted by:',
                 'value': request.user.profile.name
             }]
-            send_rich_discord_message(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
+            send_rich_discord_message_task.delay(f'{language} Law Created for {obj.title}', category='FAQ Law', title='New Law', fields=fields)
 
             return redirect('law-view', slug=group.slug, language_code=language.code)
     else:
@@ -4657,7 +4803,15 @@ def faq_queryset(*, language, require_post=True):
                 'group',
                 'language',
             )
-        )
+        ),
+        Prefetch(
+            'reference_cards',
+            queryset=Card.objects.select_related(
+                'group',
+                'group__post',
+                'group__language',
+            )
+        ),
     ]
 
     if require_post:
@@ -4895,6 +5049,29 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
             ).distinct()        
 
         form.fields['reference_laws'].queryset = laws_qs.distinct()
+
+        if post:
+            cards_qs = Card.objects.filter(
+                group__post=post,
+                group__language=language,
+                name__isnull=False,
+            ).exclude(name='').select_related('group')
+            form.fields['reference_cards'].queryset = cards_qs
+
+            # Add custom widget attributes with card image URLs
+            choices = []
+            for card in cards_qs:
+                choices.append((card.id, card.name, card.front_image.url if card.front_image else ''))
+            form.fields['reference_cards'].widget.choices = [
+                (card_id, name) for card_id, name, _ in choices
+            ]
+            # Store image URLs as widget attribute for template access
+            form.fields['reference_cards'].widget.card_images = {
+                card_id: image_url for card_id, _, image_url in choices
+            }
+        else:
+            form.fields.pop('reference_cards', None)
+
         return form
 
 
@@ -4938,7 +5115,7 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
 
         post = self.get_post()
         if post:
-            send_rich_discord_message(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
+            send_rich_discord_message_task.delay(f'FAQ Created for {post.title}', category='FAQ Law', title='New FAQ', fields=fields)
             return reverse('faq-view', kwargs={'slug': post.slug, 'language_code': language_code})
         return reverse('lang-faq', kwargs={'language_code': language_code})
 
@@ -4989,6 +5166,29 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
             ).distinct()        
 
         form.fields['reference_laws'].queryset = laws_qs.distinct()
+
+        if post:
+            cards_qs = Card.objects.filter(
+                group__post=post,
+                group__language=language,
+                name__isnull=False,
+            ).exclude(name='').select_related('group')
+            form.fields['reference_cards'].queryset = cards_qs
+
+            # Add custom widget attributes with card image URLs
+            choices = []
+            for card in cards_qs:
+                choices.append((card.id, card.name, card.front_image.url if card.front_image else ''))
+            form.fields['reference_cards'].widget.choices = [
+                (card_id, name) for card_id, name, _ in choices
+            ]
+            # Store image URLs as widget attribute for template access
+            form.fields['reference_cards'].widget.card_images = {
+                card_id: image_url for card_id, _, image_url in choices
+            }
+        else:
+            form.fields.pop('reference_cards', None)
+
         return form
 
 
@@ -5206,7 +5406,9 @@ def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
     context = {
         "deckgroup": deckgroup,
         "post": post,
-        "cards": deckgroup.cards.all().order_by("order"),
+        "cards": deckgroup.cards.all().order_by("order").prefetch_related(
+            Prefetch('faqs', queryset=FAQ.objects.filter(language=language))
+        ),
         'can_edit': can_edit,
         'language_code': language_code,
         "title": title,
@@ -5320,6 +5522,7 @@ def edit_deckgroup(request, post_slug, language_code, deckgroup_slug):
         "is_edit": True,
         "language_code": language_code,
         "title": title,
+        "allow_reorganization": deckgroup.allow_reoganization,
     })
 
 @editor_required

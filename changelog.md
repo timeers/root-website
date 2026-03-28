@@ -1,12 +1,42 @@
 # Changelog
 
-## [1.10.3] - 2026-1-16 ?
+## [1.11.0] - 2026-3-27 A Series of Surveys & Scorecards
+This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design and games can be edited or deleted after submission. Thank you to safailla and trippingrannys for their suggestions that went into this update.
+
+### New Features
+- Surveys (Multiple Choice, Multiple Selection, Open Ended, Yes/No, Scale, Ranking, Availability, Time, Date)
+- Surveys can be used as tournament registration forms
+- Public, Private, and Discord Guild locked Surveys
+- Survey History to view your responses and past surveys
+- Send survey responses to a tournament and create groups of players from the responses based on availability questions
+- Rearange player turn order in the record game form
+- Edit submitted and finalized games
+- Add Discord Guilds to Surveys or Tournaments to require guild membership for participation
+- Added the ability to link cards to FAQs as reference
 
 ### Improvements
 - Changelog page now selects the most recent update or scrolls to the selected update
+- Discord Guild invite requests now display average response time.
+- Leaderboard filter updates url for easier sharing
+- Using Celery for Discord status updates
+- Scorecards have a more modern look and improved UI
+- Improved Series' Asset and Player managment pages
+- Option to add Tournament Moderators
+- Cleaned up the 404 and 403 pages
+- Removed based on Faction (if one exists) from the Stable Status page
+- Improved games queryset loading
+- RDL now uses new Tournament > Stage > Round format for API
+- RDL game import now uses the Match API Token
+- Filter games and leaderboards by date range
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences
+- It is now possible to delete turns from an existing Scorecard
+- Fixed bug with RDL player names importing incorrectly
+- Fixed modal bug on Guild invite approval form
+- RDL cleanup bug that could delete all RDL games fixed
+- Fixed bug where new card could be added multiple times by clicking save button repeatedly
+
 
 ## [1.10.2] - 2026-1-14 Battlefield Unification
 The Battlefield now has a new tab structure to quickly navigate between games, leaderboards, series and your submitted games. A similar tab structure is added to the Workshop.

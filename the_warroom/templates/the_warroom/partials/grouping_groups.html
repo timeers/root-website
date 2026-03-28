@@ -1,0 +1,161 @@
+{% load i18n %}
+{# Shared partial: Player Groups card #}
+{# Requires context: stage, groups, is_processing, editable #}
+
+{% if stage and not is_processing %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-columns-gap"></i> {% trans 'Player Groups' %}</h5>
+    </div>
+    <div class="card-body">
+
+        {% if not editable %}
+            <div class="alert alert-success mb-4">
+                <i class="bi bi-lock-fill"></i>
+                <strong>{% trans 'Grouping Finalized' %}</strong>
+                <p class="mb-0">Groups have been finalized and can only be modified manually.</p>
+            </div>
+        {% endif %}
+        <div class="row g-3 mb-4" id="groups-container">
+            {% if groups %}
+            {% for group in groups %}
+            <div class="col-md-6 col-lg-4" data-group-id="{{ group.id }}" data-group-name="{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}" data-group-discord="{{ group.discord_thread|default:'' }}" data-group-video="{{ group.video_link|default:'' }}">
+                <div class="card h-100 group-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <strong>{% if group.name %}{{ group.name }}{% else %}Group {{ group.group_number }}{% endif %}</strong>
+                            <button class="btn btn-sm btn-link p-0 ms-2 text-muted" onclick="openGroupEditModal({{ group.id }})" title="{% trans 'Edit group' %}">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            {% if group.all_hours or group.overlap_hours %}
+                            <button class="btn btn-sm btn-link p-0 ms-1 text-muted cal-btn" onclick="openCalendarModal({{ group.id }})" title="{% trans 'View availability' %}">
+                                <i class="bi bi-calendar-week"></i>
+                            </button>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <span class="badge bg-secondary">{{ group.member_count }}</span>
+                            {% if group.conflict_count %}
+                            <span class="badge bg-warning text-dark ms-1"
+                                role="button"
+                                data-bs-toggle="popover"
+                                data-bs-trigger="click hover"
+                                data-bs-placement="bottom"
+                                data-bs-title="Repeat matchup{{ group.conflict_count|pluralize }}"
+                                data-bs-content="{{ group.conflict_description }}">
+                                <i class="bi bi-exclamation-triangle-fill"></i> {{ group.conflict_count }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-body p-2">
+                        <!-- Group Stats -->
+                        {% if stage.grouping_type == 'availability' %}
+                        <div class="small text-muted mb-2">
+                            <i class="bi bi-clock"></i> {{ group.total_overlap_hours }}h overlap
+                            {% if group.best_consecutive_block %}
+                            ({{ group.best_consecutive_block }}h consecutive)
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {% if group.discord_thread %}
+                        <div class="small mb-1 group-link-display">
+                            <i class="bi bi-discord"></i> <a href="{{ group.discord_thread }}" target="_blank" rel="noopener">{% trans 'Thread' %}</a>
+                        </div>
+                        {% endif %}
+                        {% if group.video_link %}
+                        <div class="small mb-1 group-link-display">
+                            <i class="bi bi-camera-video"></i> <a href="{{ group.video_link }}" target="_blank" rel="noopener">{% trans 'Video' %}</a>
+                        </div>
+                        {% endif %}
+                        <!-- Members List -->
+                        <ul class="list-group list-group-flush group-members {% if editable %}sortable-group{% endif %}" data-group-id="{{ group.id }}">
+                            {% for sp in group.tournament_players.all %}
+                            <li class="list-group-item d-flex align-items-center player-item" data-player-id="{{ sp.id }}" data-source="group">
+                                {% if editable %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
+                                {% if sp.profile.image %}
+                                <img src="{{ sp.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                                {% else %}
+                                <i class="bi bi-person-circle me-2"></i>
+                                {% endif %}
+                                <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
+                                {% if sp.availability_hours %}
+                                <small class="text-muted me-1">{{ sp.availability_hours|length }}h</small>
+                                <button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal({{ sp.id }})" title="{% trans 'View availability' %}">
+                                    <i class="bi bi-calendar-week"></i>
+                                </button>
+                                {% endif %}
+                            </li>
+                            {% empty %}
+                            <li class="list-group-item text-muted text-center empty-placeholder">
+                                <small>{% trans 'Drop players here' %}</small>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% if editable and group.member_count == 0 %}
+                    <div class="card-footer">
+                        <button class="btn btn-sm btn-outline-danger w-100" onclick="deleteGroup({{ group.id }})">
+                            <i class="bi bi-trash"></i> {% trans 'Delete' %}
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            <!-- New Group Dropzone -->
+            {% if editable %}
+            <div class="col-md-6 col-lg-4">
+                <div class="card h-100 border-dashed" style="border-style: dashed !important;">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center text-muted" id="new-group-zone">
+                        <i class="bi bi-plus-circle fs-1 mb-2"></i>
+                        <p class="mb-0">{% trans 'Drop to create new group' %}</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% if editable and groups %}
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-success btn-sm" onclick="finalizeSession()">
+                <i class="bi bi-lock-fill"></i> {% trans 'Finalize Groups' %}
+            </button>
+            <form method="post" style="display: inline;">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reset_session">
+                <button type="submit" class="btn btn-outline-danger btn-sm"
+                        onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
+                    <i class="bi bi-trash3"></i> {% trans 'Clear Groups' %}
+                </button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% if groups %}
+<script>
+var _groupCalendarData = _groupCalendarData || {};
+var _playerCalendarData = _playerCalendarData || {};
+{% for group in groups %}
+{% if group.all_hours or group.overlap_hours %}
+_groupCalendarData[{{ group.id }}] = {
+    name: "{% if group.name %}{{ group.name|escapejs }}{% else %}Group {{ group.group_number }}{% endif %}",
+    all_hours: {{ group.all_hours|default:"[]"|safe }},
+    overlap_hours: {{ group.overlap_hours|default:"[]"|safe }}
+};
+{% endif %}
+{% for sp in group.tournament_players.all %}
+{% if sp.availability_hours %}
+_playerCalendarData[{{ sp.id }}] = {
+    name: "{{ sp.profile.display_name|escapejs }}",
+    hours: {{ sp.availability_hours|safe }}
+};
+{% endif %}
+{% endfor %}
+{% endfor %}
+</script>
+{% endif %}
+{% include 'the_warroom/partials/grouping_edit_modal.html' %}
+{% endif %}

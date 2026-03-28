@@ -1,0 +1,293 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n socialaccount static %}
+{% block title %}{{ survey.title }} | {% endblock %}
+
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
+
+{% block content %}
+<div class="content-section">
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+    <!-- Survey Header -->
+    <div class="mb-4">
+        <h1 class="root-title mb-2">{{ survey.title }}</h1>
+        {% if survey.created_by %}
+        <a href={{ survey.created_by.get_absolute_url }}>
+            <p class="text-muted mb-1">
+                {% if survey.created_by.image %}
+                <img src="{{ survey.created_by.image.url }}" alt="{{ survey.created_by.name }}" class="avatar-icon">
+                {% else %}
+                <i class="bi bi-person-circle"></i>
+                {% endif %} 
+                <strong>{{ survey.created_by.name }}</strong>
+            </p>
+        </a>
+        {% endif %}
+
+        <!-- Linked Context -->
+        {% if survey.stage or survey.series or survey.post %}
+            <div class="mb-4">
+                <small class="text-muted">
+                    {% if survey.series %}
+                        {% if survey.stage %}
+                            <a href="{{ survey.stage.get_absolute_url }}" class="text-decoration-none">
+                                <i class="bi {% if survey.series.classification == 'League' %}bi-discord{% elif survey.series.classification == 'Game Group' %}bi-people{% else %}bi-trophy{% endif %}"></i> {{ survey.stage }}
+                            </a>
+                        {% elif survey.series %}
+                            <a href="{{ survey.series.get_absolute_url }}" class="text-decoration-none">
+                                <i class="bi {% if survey.series.classification == 'League' %}bi-discord{% elif survey.series.classification == 'Game Group' %}bi-people{% else %}bi-trophy{% endif %}"></i> {{ survey.series.name }}
+                            </a>
+                        {% endif %}
+                    {% endif %}
+                    {% if survey.post %}
+                        {% if survey.stage or survey.series %}
+                            <span class="text-muted mx-1">&middot;</span>
+                        {% endif %}
+                        <a href="{{ survey.post.get_absolute_url }}" class="text-decoration-none">
+                            {% if survey.post.small_icon %}<img src="{{ survey.post.small_icon.url }}" alt="" class="faction-icon">{% endif %} {{ survey.post.title }}
+                        </a>
+                    {% endif %}
+                </small>
+            </div>
+        {% endif %}
+
+
+        {% if survey.description %}
+            <p class="lead mt-3">{{ survey.description|linebreaks }}</p>
+        {% endif %}
+    </div>
+
+    <!-- Survey Stats Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6">
+            {% if can_view_survey %}
+                <a href="{% url 'survey-preview' survey.slug %}">
+            {% elif not user.is_authenticated %}
+                <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
+            {% endif %}
+            <div class="card border-primary h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-question-circle fs-2 text-primary"></i>
+                    <h3 class="mb-0 mt-2">{{ survey_question_count }}</h3>
+                    <small class="text-muted">{% trans 'Question' %}{{ survey_question_count|pluralize }}</small>
+                </div>
+            </div>
+            {% if can_view_survey or not user.is_authenticated %}
+                </a>
+            {% endif %}
+        </div>
+        <div class="col-md-3 col-sm-6">
+            {% if can_edit_survey %}
+                <a href="{% url 'survey-responses' survey.slug %}">
+            {% endif %}
+            <div class="card border-success h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-chat-left-text fs-2 text-success"></i>
+                    <h3 class="mb-0 mt-2">{{ survey_user_response_count }}{% if survey.limit_responses %}/{{survey.waitlist_threshold}}{% endif %}</h3>
+                    <small class="text-muted">{% trans 'Response' %}{% if survey.limit_responses %}{{ survey.waitlist_threshold|pluralize }}{% else %}{{ survey_user_response_count|pluralize }}{% endif %}</small>
+                </div>
+            </div>
+            {% if can_edit_survey %}
+                </a>
+            {% endif %}
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-info h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-calendar-check fs-2 text-info"></i>
+                    <div class="mt-2">
+                        {% if survey.start_date %}
+                            <small class="text-muted d-block">{% trans 'Opens' %}</small>
+                            <strong class="d-block">{{ survey.start_date|date:"M d, Y" }}</strong>
+                        {% else %}
+                            <small class="text-muted">{% trans 'No start date' %}</small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-warning h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-calendar-x fs-2 text-warning"></i>
+                    <div class="mt-2">
+                        {% if survey.end_date %}
+                            <small class="text-muted d-block">{% trans 'Closes' %}</small>
+                            <strong class="d-block">{{ survey.end_date|date:"M d, Y" }}</strong>
+                        {% else %}
+                            <small class="text-muted">{% trans 'No end date' %}</small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Survey Status Badge -->
+    <div class="mb-4">
+        {% if survey.is_active %}
+            {% if survey.is_available %}
+                <span class="badge bg-success">
+                    <i class="bi bi-check-circle"></i> {% trans 'Active' %}
+                </span>
+            {% else %}
+                <span class="badge bg-secondary">
+                    <i class="bi bi-x-circle"></i> {% trans 'Closed' %}
+                </span>
+            {% endif %}
+        {% else %}
+            <span class="badge bg-secondary">
+                <i class="bi bi-x-circle"></i> {% trans 'Inactive' %}
+            </span>
+        {% endif %}
+        {% if survey.allow_multiple_responses %}
+            <span class="badge bg-info">
+                <i class="bi bi-arrow-repeat"></i> {% trans 'Multiple Responses' %}
+            </span>
+        {% endif %}
+        {% if survey.allow_edit_responses %}
+            <span class="badge bg-warning text-dark">
+                <i class="bi bi-pencil"></i> {% trans 'Editable Responses' %}
+            </span>
+        {% endif %}
+        {% if survey.is_quiz %}
+            <span class="badge bg-success">
+                <i class="bi bi-clipboard-check"></i> {% trans 'Quiz' %}
+            </span>
+        {% endif %}
+        {% comment %} {% if survey.show_results_to_respondents %}
+            <span class="badge bg-primary">
+                <i class="bi bi-bar-chart-line"></i> {% trans 'Results Visible' %}
+            </span>
+        {% endif %} {% endcomment %}
+        {% if survey.limit_responses %}
+            {% if survey.has_waitlist and survey.get_waitlisted_response_count > 0 %}
+                <span class="badge bg-info">
+                    <i class="bi bi-stopwatch-fill"></i> {{ survey.get_waitlisted_response_count }} {% trans 'on Waitlist' %}
+                </span>
+            {% elif is_survey_full %}
+                <span class="badge bg-danger">
+                    <i class="bi bi-x-circle-fill"></i> {% trans 'Survey Full' %}
+                </span>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <!-- Take / Retake Survey Button -->
+    <hr class="my-4">
+    {% if can_take_survey %}
+        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-primary mb-3">
+            {% if responses %}
+                <i class="bi bi-arrow-repeat"></i> {% trans 'Retake Survey' %}
+            {% else %}
+                <i class="bi bi-pencil-square"></i> {% trans 'Take Survey Now' %}
+            {% endif %}
+        </a>
+    {% endif %}
+
+    <!-- Your Responses Section -->
+    {% if responses %}
+        <h3 class="mb-3 root-title">
+            {% if survey.allow_multiple_responses %}
+            <i class="bi bi-file-earmark-text"></i> {% trans 'Your Responses' %}
+            {% else %}
+            <i class="bi bi-file-earmark-text"></i> {% trans 'Your Response' %}
+            {% endif %}
+        </h3>
+        <div class="row g-3">
+            {% for response in responses %}
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-fill">
+                                    <h5 class="card-title mb-2">
+                                        <i class="bi bi-calendar"></i> {{ response.submitted_at|date:"F j, Y" }}
+                                    </h5>
+                                    <p class="card-text text-muted mb-2">
+                                        <small>
+                                            <i class="bi bi-clock"></i> {% trans 'Submitted' %} {{ response.submitted_at|date:"M d, Y g:i A" }}
+                                            {% if can_edit_response and response.was_edited %}
+                                                | <i class="bi bi-pencil"></i> {% trans 'Last updated' %} {{ response.updated_at|date:"M d, Y g:i A" }}
+                                            {% endif %}
+                                        </small>
+                                    </p>
+                                </div>
+                                <div class="ms-3 d-flex gap-2">
+                                    <a href="{% url 'survey-user-response' survey.slug response.id %}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i> {% trans 'View' %}
+                                    </a>
+                                    {% if can_edit_response %}
+                                        <a href="{% url 'survey-edit-response' survey.slug response.id %}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-pencil"></i> {% trans 'Edit' %}
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% elif not can_take_survey %}
+        {% if can_view_survey %}
+            {% if survey.has_ended %}
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">No Response</h5>
+                        <p class="mb-0">This survey has closed.</p>
+                    </div>
+                </div>
+            {% elif not survey.has_started %}
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">No Response{% if allow_multiple_responses %}s{% endif %} Yet</h5>
+                        <p class="mb-0">This survey has not started yet.</p>
+                    </div>
+                </div>
+            {% elif is_survey_full %}
+                <div class="alert alert-warning d-flex align-items-center">
+                    <i class="bi bi-x-circle-fill fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">{% trans 'Survey Full' %}</h5>
+                        <p class="mb-0">{% trans 'This survey has reached its maximum number of responses.' %}</p>
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">No Response</h5>
+                        <p class="mb-0">This survey is not currently available.</p>
+                    </div>
+                </div>
+            {% endif %}
+        {% elif survey.is_public and not user.is_authenticated %}
+            <a href="{% provider_login_url 'discord' %}?next={{ request.path }}">
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-door-open fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">Public Survey</h5>
+                        <p class="mb-0">Log in to take this survey.</p>
+                        <a href="{% url 'survey-take' survey.slug %}" class="btn btn-sm btn-primary mt-2">
+                            {% trans 'Take Survey Now' %}
+                        </a>
+                    </div>
+                </div>
+            </a>
+        {% else %}
+            <div class="alert alert-warning d-flex align-items-center">
+                <i class="bi bi-shield-exclamation fs-4 me-3"></i>
+                <div>
+                    <h5 class="alert-heading mb-1">Private Survey</h5>
+                    <p class="mb-0">You must have an invite to take this survey.</p>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock content %}

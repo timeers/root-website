@@ -9,21 +9,21 @@
     <div class="d-flex flex-wrap justify-content-around">
     {% if object.leder_games_link %}
         <a class="me-2 mt-1" href="{{ object.leder_games_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/LG.webp' %}" alt="Leder Games">
+            <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/LG.webp' %}" alt="Leder Games">
             {% trans 'Find at Leder Games' %}
         </a>
     {% endif %}
 
     {% if bgg_link %}
         <a class="me-2 mt-1" href="{{ bgg_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/BGG.webp' %}" alt="Board Game Geek">
+            <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/BGG.webp' %}" alt="Board Game Geek">
             {% trans 'Board Game Geek Post' %}
         </a>
     {% endif %}
 
     {% if tts_link %}
         <a class="me-2 mt-1" href="{{ tts_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/TTS.webp' %}" alt="Tabletop Simulator">
+            <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/TTS.webp' %}" alt="Tabletop Simulator">
             {% trans 'Tabletop Simulator' %}
         </a>
     {% endif %}
@@ -32,18 +32,18 @@
         {% if user.is_authenticated %}
             {% if user.profile.player %}
                 <a class="me-2 mt-1" href="{{ object.ww_link }}" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+                    <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
                     {% trans 'Woodland Warriors Thread' %}
                 </a>
             {% else %}
                 <span class="me-2 mt-1" style="display: inline-flex; align-items: center;">
-                    <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+                    <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
                     {% trans 'Join on Discord for Link' %}
                 </span>
             {% endif %}
         {% else %}
             <a class="me-2 mt-1" href="{% provider_login_url 'discord' %}?next={{ request.path }}" style="display: inline-flex; align-items: center;">
-                <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+                <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
                 {% trans 'Woodland Warriors Thread' %}
             </a>
         {% endif %}
@@ -53,30 +53,28 @@
         {% if wr_link_config %}
             {% if wr_link_config.type == 'discord_join' %}
             <span class="me-2 mt-1" style="display: inline-flex; align-items: center;">
-                <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
+                <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                 {% trans 'Join on Discord for Link' %}
             </span>
             {% else %}
             <a class="me-2 mt-1" href="{{ wr_link_config.url }}" style="display: inline-flex; align-items: center;">
-                <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
+                <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root">
                 {{ wr_link_config.text }}
             </a>
             {% endif %}
         {% endif %}
     {% endif %}
 
-
-
     {% if object.fr_link %}
         {% if fr_link_config %}
             {% if fr_link_config.type == 'discord_join' %}
             <span class="me-2 mt-1" style="display: inline-flex; align-items: center;">
-                <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
+                <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
                 {% trans 'Join on Discord for Link' %}
             </span>
             {% else %}
             <a class="me-2 mt-1" href="{{ fr_link_config.url }}" style="display: inline-flex; align-items: center;">
-                <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
+                <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/FR.webp' %}" alt="French Root">
                 {{ fr_link_config.text }}
             </a>
             {% endif %}
@@ -85,29 +83,22 @@
 
     {% if pnp_link  %}
         <a class="me-2 mt-1" href="{{ pnp_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/PNP.webp' %}" alt="Print & Play">
+            <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/PNP.webp' %}" alt="Print & Play">
             {% trans 'Print & Play Files' %}
         </a>
     {% endif %}
     {% if object.stl_link  %}
         <a class="me-2 mt-1" href="{{ object.stl_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/STL.webp' %}" alt="STL Files">
+            <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/STL.webp' %}" alt="STL Files">
             {% trans 'STL Files' %}
         </a>
     {% endif %}
     {% if object.rootjam_link  %}
         <a class="me-2 mt-1" href="{{ object.rootjam_link }}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/link_icons/RootJam.webp' %}" alt="RootJam Link">
+            <img class="external-link-image me-2 mt-1" src="{% static 'images/link_icons/RootJam.webp' %}" alt="RootJam Link">
             {% trans 'RootJam Page' %}
-        </a>
-    {% endif %}
-    {% if has_decks %}
-        <a class="me-2 mt-1" href="{% url 'post-cards-router' language_code=language_code post_slug=object.slug %}" style="display: inline-flex; align-items: center;">
-            <img class="user-icon me-2 mt-1" src="{% static 'images/tags/Dominance_Tag.png' %}" alt="Cards Link">
-            {% trans 'View Cards' %}
         </a>
     {% endif %}
     </div>
     </div>
 </article>
-

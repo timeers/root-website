@@ -1,13 +1,47 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %}Delete | {% endblock %}
+{% block title %}Delete Round | {% endblock %}
+
 {% block content %}
-<form method="POST" action=".">
-    {% csrf_token %}
-    <h1>Delete {{ round }}?</h1>
-    <p>Are you sure you want to delete the selected round? This cannot be undone.</p>
-    <p>The games related to this round will not be removed, but their relationship to this series will be cleared.</p>
-    <button class="btn btn-danger" type="submit">{% trans 'Yes, delete' %}</button>
-    <a class="btn btn-secondary" href="{{ round.get_absolute_url }}">{% trans 'Cancel' %}</a>
-</form>
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Delete" %}
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-trash me-2 text-danger"></i>Delete Round</h2>
+        <a href="{{ round.get_absolute_url }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Round
+        </a>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card border-danger">
+                <div class="card-header bg-transparent border-danger">
+                    <h5 class="mb-0 text-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Confirm Deletion
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">Are you sure you want to permanently delete <strong>{{ round }}</strong>? This cannot be undone.</p>
+                    <p class="card-text text-muted"><i class="bi bi-info-circle me-1"></i>Games related to this round will not be removed, but their relationship to this series will be cleared.</p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <form method="POST" action=".">
+                        {% csrf_token %}
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-danger" type="submit">
+                                <i class="bi bi-trash me-1"></i>{% trans 'Yes, delete' %}
+                            </button>
+                            <a class="btn btn-outline-secondary" href="{{ round.get_absolute_url }}">
+                                {% trans 'Cancel' %}
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock content %}

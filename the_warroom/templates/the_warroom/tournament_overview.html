@@ -1,75 +1,67 @@
 {% extends 'the_keep/base.html' %}
 {% load static i18n %}
-{% block title %}{{ object.name }} | {% endblock %}
+{% block title %}{{ tournament.name }} | {% endblock %}
 
-{% block meta %}    <!-- Open Graph tags -->
-<meta property="og:type" content="website">
-<meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
-<meta property="og:site_name" content="Root Database">
-
-<meta property="og:title" content="{{meta_title}}">
-<meta property="og:description" content="{{meta_description}}">
-<meta name="description" content="{{meta_description}}">
-{% endblock meta%}
+{% block meta %}
+{% include 'the_warroom/partials/meta_tags.html' %}
+{% endblock meta %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center flex-wrap">
-    <div class="d-flex align-items-center flex-wrap gap-2">
-        <a href="{% url 'tournaments-home' %}">Series</a>
-        <i class="bi bi-chevron-right"></i>
-        {% if object.type == 'Round' %}
-        <a href="{{ object.tournament.get_absolute_url }}">{{ object.tournament.name }}</a>
-        <i class="bi bi-chevron-right"></i>
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
+
+
+    {% if tournament.description %}
+    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
+    {% endif %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='overview' %}
+
+
+    <!-- Overview summary -->
+    {% include 'the_warroom/partials/overview_summary_card.html' with item=tournament %}
+
+    <!-- Children list -->
+    {% if children_type == 'stages' %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-layers me-2"></i>{% trans 'Stages' %}</h4>
+    </div>
+    {% elif children_type == 'rounds' %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-collection me-2"></i>{% trans 'Rounds' %}</h4>
+    </div>
+    {% endif %}
+
+    {% if children %}
+    <div class="list-group mb-4">
+        {% for child in children %}
+            {% include 'the_warroom/partials/series_list_item.html' with item=child %}
+        {% endfor %}
+    </div>
+    {% elif children_type == 'stages' %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No stages yet.' %}
+        {% if can_manage %}
+        <a href="{% url 'stage-create' tournament_slug=tournament.slug %}" class="alert-link">{% trans 'Add the first stage.' %}</a>
         {% endif %}
-
-        {{ object.name }}
-
     </div>
-    {% if playable_round %}
-        <div>
-            <a class="btn btn-success btn-sm mt-1 mb-1" href="{% url 'record-game' %}?series={{ playable_round.id }}">New Game +</a>
-        </div>
-    {% endif %}
-</div>
-<div style="display: flex; justify-content: space-between; align-items: center;">
-    <h1>{{object.name}}</h1>
-    {% if user.is_authenticated %}
-        {% if user.profile.admin or user.profile == object.tournament.designer %}
-            <a class="btn btn-warning btn-sm ms-2 mt-1 mb-1" href="{{ object.get_update_url }}"><i class="bi bi-pencil-square"></i></a>
-        {% elif user.profile == object.designer and object.type == "Tournament" %}
-            <a class="btn btn-warning btn-sm ms-2 mt-1 mb-1" href="{% url 'tournament-designer-update' slug=object.slug %}"><i class="bi bi-pencil-square"></i></a>
+    {% elif children_type == 'rounds' %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No rounds yet.' %}
+        {% if can_manage and single_stage %}
+        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=single_stage.slug %}" class="alert-link">{% trans 'Add the first round.' %}</a>
         {% endif %}
-    {% endif %}
-</div>
-
-
-
-{% if object.type == 'Round' %}
-    {% if object.tournament.designer %}
-    <div>
-    Hosted by {{ object.tournament.designer.name }}
     </div>
     {% endif %}
-{% else %}
-    {% if object.designer %}
-    <div>
-    Hosted by {{ object.designer.name }}
-    </div>
-    {% endif %}
-{% endif %}
 
-{% if object.description %}
-<div class='sub-data'>
-<small>
-    {{ object.description }}
-</small>
+
+
+
 </div>
-{% endif %}
-<div>
-
-            {% include 'the_warroom/partials/tournament_round_detail.html' %}
-        
-</div>
-
 {% endblock %}

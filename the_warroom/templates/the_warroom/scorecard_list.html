@@ -29,7 +29,7 @@
                 <a class="btn btn-sm btn-success mb-3 mt-1 ms-1" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %} +</a>
             {% endif %}
             {% if user.profile.player %}
-            <a href="{% url 'record-game' %}" class="btn btn-sm btn-success mt-1 ms-1 mb-3" id="recordgame">
+            <a href="{% url 'record-game-v2' %}" class="btn btn-sm btn-success mt-1 ms-1 mb-3" id="recordgame">
                 {% trans 'New Game' %} +
             </a>
             {% endif %}
@@ -54,9 +54,9 @@
 
 
     <div class="d-flex content-section">
-        <div class="article-img-container">
-            <img class="article-img" src="{{ user.profile.image.url }}">
-        </div>
+
+            <img class="xl-avatar-icon" src="{{ user.profile.image.url }}">
+
             <div>
                 <div class='d-flex flex-nowrap'>
                     <h1 class="account-heading root-title">{% trans 'My Scorecards' %}</h1>

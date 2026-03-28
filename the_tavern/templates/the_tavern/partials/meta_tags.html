@@ -1,0 +1,8 @@
+{% load static %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ meta_title }}{% if meta_page_suffix %} - {{ meta_page_suffix }}{% endif %}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">

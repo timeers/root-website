@@ -1,0 +1,38 @@
+{% load i18n %}
+<div class="modal fade" id="duplicateSurveyModal" tabindex="-1" aria-labelledby="duplicateSurveyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title" id="duplicateSurveyModalLabel">
+                    <i class="bi bi-question-diamond"></i> {% trans 'Duplicate Survey' %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle-fill"></i>
+                    <strong>{% trans 'This will create a copy of:' %}</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>{% trans 'Survey settings and configuration' %}</li>
+                        <li>{% trans 'All questions (excluding hidden questions)' %}</li>
+                        <li>{% trans 'All question options (excluding hidden options)' %}</li>
+                        <li>{% trans 'All correct answers (if any)' %}</li>
+                    </ul>
+                </div>
+
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>{% trans 'Note:' %}</strong> {% trans 'The new survey will be set to inactive. Remember to activate it when you are ready to use it.' %}
+                </div>
+
+                <p>{% trans 'Do you want to create a copy of' %} "<strong>{{ survey.title }}</strong>"?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <a href="{% url 'survey-duplicate' survey.slug %}" class="btn btn-warning">
+                    <i class="bi bi-copy"></i> {% trans 'Duplicate Survey' %}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

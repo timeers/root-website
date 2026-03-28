@@ -1,0 +1,49 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{{ stage.name }} - {{ tournament.name }} | {% endblock %}
+
+{% block meta %}
+{% include 'the_warroom/partials/meta_tags.html' %}
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=stage.name %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/stage_nav_header.html' with active_page='overview' %}
+
+    <!-- Overview summary -->
+    {% include 'the_warroom/partials/overview_summary_card.html' with item=stage %}
+
+    {% if children_type == 'rounds' %}
+    <!-- Rounds -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-collection me-2"></i>{% trans 'Rounds' %}</h4>
+
+    </div>
+
+    {% if children %}
+    <div class="list-group mb-4">
+        {% for child in children %}
+            {% include 'the_warroom/partials/series_list_item.html' with item=child %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No rounds yet for this stage.' %}
+        {% if can_manage %}
+        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="alert-link">{% trans 'Add the first round.' %}</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+</div>
+{% endblock %}

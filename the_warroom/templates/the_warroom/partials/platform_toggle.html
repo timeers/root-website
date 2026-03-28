@@ -1,0 +1,49 @@
+{% load crispy_forms_tags %}
+<!-- Platform Toggle Slider Partial -->
+
+<!-- Hidden form field for platform -->
+<input type="hidden" name="platform" id="platform_input" value="{{ tournament_form.platform.value|default:'' }}">
+
+<div id="platform-toggle-container">
+    <label class="form-label fw-bold mb-3">Required Platform</label>
+    <div class="option-toggle option-toggle-4">
+        <div class="option-slider position-1" id="platform-slider"></div>
+        <div class="option-item" data-value="" data-position="0">
+            <i class="bi bi-question-circle me-1"></i>All
+        </div>
+        <div class="option-item" data-value="Tabletop Simulator" data-position="1">
+            <i class="bi bi-pc-display me-1"></i>
+            <span class="toggle-text-full">Tabletop Simulator</span>
+            <span class="toggle-text-short">TTS</span>
+        </div>
+        <div class="option-item" data-value="Root Digital" data-position="2">
+            <i class="bi bi-tablet me-1"></i>
+            <span class="toggle-text-full">Digital</span>
+            <span class="toggle-text-short">DWD</span>
+        </div>
+        <div class="option-item" data-value="In Person" data-position="3">
+            <i class="bi bi-people me-1"></i>
+            <span class="toggle-text-full">In Person</span>
+            <span class="toggle-text-short">IRL</span>
+        </div>
+    </div>
+    <div class="toggle-description" id="platform-description">
+        <i class="bi bi-info-circle me-1"></i>
+        <span id="platform-description-text"></span>
+    </div>
+</div>
+
+<script>
+initToggle({
+    containerId: 'platform-toggle-container',
+    inputId: 'platform_input',
+    sliderId: 'platform-slider',
+    descriptionId: 'platform-description-text',
+    descriptions: {
+        '': 'Games can be played on any platform.',
+        'Tabletop Simulator': 'Games must be played on Tabletop Simulator.',
+        'Root Digital': 'Games must be played on the Direwolf Digital Root app.',
+        'In Person': 'Games must be played in person with physical components.'
+    }
+});
+</script>

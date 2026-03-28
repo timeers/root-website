@@ -1,0 +1,74 @@
+{% load static i18n %}
+
+<article class="content-section mt-2">
+    <div class="section-nav-header">
+        <!-- Navigation Tabs -->
+        <nav class="section-nav-tabs">
+            <a href="{{ round.get_absolute_url }}"
+               class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
+                {% trans 'Overview' %}
+            </a>
+            {% if has_games %}
+            <a href="{{ round.get_leaderboard_url }}"
+               data-carry-filters="leaderboard"
+               class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
+                {% trans 'Leaderboard' %}
+            </a>
+            <div class="section-nav-tab-group">
+                <a href="{{ round.get_games_url }}"
+                   data-carry-filters="games"
+                   class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                    {% trans 'Games' %}
+                </a>
+                {% if has_matches and is_bracket_finalized and active_page == 'games' %}
+                <div class="section-sub-nav">
+                    <a href="{{ round.get_games_url }}"
+                       class="root-title section-sub-tab {% if active_sub_page == 'games' %}active{% endif %}">
+                        {% trans 'All Games' %}
+                    </a>
+                    <a href="{{ round.get_matches_url }}"
+                       class="root-title section-sub-tab {% if active_sub_page == 'matches' %}active{% endif %}">
+                        {% trans 'Scheduled Matches' %}
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% elif has_matches and is_bracket_finalized %}
+            <a href="{{ round.get_matches_url }}"
+               class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
+                {% trans 'Games' %}
+            </a>
+            {% endif %}
+            {% if has_games or has_players %}
+            <a href="{{ round.get_roster_url }}"
+               class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
+                {% trans 'Roster' %}
+            </a>
+            {% endif %}
+            <a href="{{ round.get_details_url }}"
+               class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
+                {% trans 'Details' %}
+            </a>
+        </nav>
+
+        <!-- Action Buttons -->
+        <div class="section-nav-action-buttons">
+            <div class="section-nav-actions-desktop">
+                {% if playable_round %}
+                <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                {% endif %}
+                {% if can_manage %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ round.get_settings_url }}"><i class="bi bi-gear me-1"></i>{% trans 'Settings' %}</a>
+                {% endif %}
+            </div>
+            <div class="section-nav-actions-mobile">
+                {% if playable_round %}
+                <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                {% endif %}
+                {% if can_manage %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ round.get_settings_url }}"><i class="bi bi-gear"></i></a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</article>

@@ -11,6 +11,7 @@
     <form hx-get="{{ filter_url }}"
             hx-target="#games-container"
             hx-swap="{{ swap_method|default:'outerHTML' }}"
+            hx-push-url="true"
             {% if include_limit_threshold %}hx-include="#limit, #threshold"{% endif %}
             id="gamefilterform">
 
@@ -60,6 +61,19 @@
             {{ form.player }}
         {% endif %}
         </div>
+        
+        {# Date filters #}
+        <div class="row align-items-end">
+            <div class="col mb-1">
+                <label for="id_date_after">{% trans 'From' %}</label>
+                {{ form.date_after }}
+            </div>
+            <div class="col-auto mb-1 pb-2">&ndash;</div>
+            <div class="col mb-1">
+                <label for="id_date_before">{% trans 'To' %}</label>
+                {{ form.date_before }}
+            </div>
+        </div>
 
         {# Official filter - conditional display based on user permissions #}
         {% if user.is_authenticated and not user.profile.weird %}
@@ -95,7 +109,7 @@
             <input type="number"
                    id="threshold"
                    name="threshold"
-                   min="1"
+                   min="0"
                    max="1000"
                    class="form-control"
                    value="{{ leaderboard_threshold }}">

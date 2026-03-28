@@ -1,0 +1,494 @@
+{% extends 'the_keep/base.html' %}
+{% block title %}{{ action }} Series | {% endblock %}
+{% load crispy_forms_tags i18n %}
+
+{% block content %}
+    <div class="content-section">
+        <!-- Breadcrumb -->
+        <nav aria-label="breadcrumb" class="mb-3 d-flex justify-content-between align-items-center">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">Series</a></li>
+                {% if tournament.id %}
+                <li class="breadcrumb-item"><a href="{% url 'tournament-detail' slug=tournament.slug %}">{{ tournament.name }}</a></li>
+                {% endif %}
+                <li class="breadcrumb-item active">{% if tournament.id %}Edit {{tournament.classification}}{% else %}New Series{% endif %}</li>
+            </ol>
+            <a href="{% url 'about-series' %}" target="_blank" class="btn btn-sm btn-outline-info">
+                <i class="bi bi-info-circle me-1"></i>About
+            </a>
+        </nav>
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <fieldset class="mb-3">
+                <legend class="border-bottom mb-4">{% if tournament %}{{ tournament.name }}{% else %}{{ action }} Series{% endif %}</legend>
+
+                {% if action == 'Create' %}
+                <p class="text-muted">
+                    A Series can be an ongoing or limited series of games. Once created you can schedule and create new Rounds for the Series.
+                    A League, Tournament or Playtest are examples of a Series and can have multiple Rounds.
+                    Each Series has an overall Leaderboard as well as Season/Round Leaderboards.
+                </p>
+                {% endif %}
+
+                {% if is_admin %}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i>{% trans 'Administration' %}</h5>
+                        </div>
+                        <div class="card-body">
+                            {{ form.designer|as_crispy_field }}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <!-- Basic Information Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>{% trans 'Basic Information' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-12 mb-2">
+                                {{ form.name|as_crispy_field }}
+                            </div>
+
+                        </div>
+                        {% if is_admin or action == 'Create' %}
+                        <div class="row">
+                            <div class="col-12">
+                                {% include 'the_warroom/partials/classification_toggle.html' with tournament_form=form %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        <div class='row'>
+                            <div class="col-md-12">
+                                {{ form.guild|as_crispy_field }}
+                                <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-bs-toggle="modal" data-bs-target="#addGuildModal">
+                                    <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12 mb-2">
+                                {{ form.description|as_crispy_field }}
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12 mb-2">
+                                {{ form.rules|as_crispy_field }}
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.picture|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Dates & Visibility Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Status & Schedule' %}</h5>
+                    </div>
+                    <div class="card-body"> 
+
+                    {% include 'the_warroom/partials/status_toggle.html' with entity_type='tournament' entity=tournament %}
+
+
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.start_date|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.end_date|as_crispy_field }}
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.publicly_visible|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Moderators Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>{% trans 'Moderators' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Moderators can manage players, stages, rounds, and surveys but cannot edit the Series itself.</p>
+
+                        <!-- Search for moderators -->
+                        <div class="mb-3">
+                            <input type="text"
+                                   class="form-control"
+                                   placeholder="Search players to add as moderator..."
+                                   hx-get="{% url 'search-moderators' %}"
+                                   hx-trigger="keyup changed delay:500ms"
+                                   hx-target="#moderator-search-results"
+                                   hx-vals="js:{exclude: getModeratorExcludeIds(), designer: getDesignerId()}"
+                                   name="q"
+                                   id="moderator-search-input"
+                                   autocomplete="off">
+                            <div id="moderator-search-results" class="mt-2"></div>
+                        </div>
+
+                        <!-- Current moderators list -->
+                        <div id="moderator-list">
+                            {% for mod in moderators %}
+                            <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-white" id="moderator-{{ mod.id }}">
+                                <div class="d-flex align-items-center">
+                                    {% if mod.image %}
+                                    <img src="{{ mod.image.url }}" class="md-avatar-icon me-2">
+                                    {% else %}
+                                    <i class="bi bi-person-circle me-2 text-muted" style="font-size: 1.5rem;"></i>
+                                    {% endif %}
+                                    <span>{{ mod.display_name }}</span>
+                                </div>
+                                <input type="hidden" name="moderators" value="{{ mod.id }}">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeModerator({{ mod.id }})">
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div id="moderator-empty" class="text-muted{% if moderators %} d-none{% endif %}">No moderators assigned.</div>
+                    </div>
+                </div>
+
+
+
+
+                <!-- Player Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'Player Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="id_enforce_player_count" name="enforce_player_count"
+                                       {% if form.instance.enforce_player_count %}checked{% endif %}
+                                       onchange="togglePlayerCountFields()">
+                                <label class="form-check-label" for="id_enforce_player_count">
+                                    {% trans 'Restrict Player Count' %}
+                                </label>
+                            </div>
+                            <small class="form-text text-muted mb-2">{% trans 'Enable to set minimum and maximum player limits for this series' %}</small>
+
+                            <div id="player-count-fields" style="display: {% if form.instance.enforce_player_count %}block{% else %}none{% endif %};" class="mt-3">
+                                <div class="row">
+                                    <div class="col-md-6 mb-2">
+                                        {{ form.min_players|as_crispy_field }}
+                                    </div>
+                                    <div class="col-md-6 mb-2">
+                                        {{ form.max_players|as_crispy_field }}
+                                    </div>
+                                </div>
+                            </div>
+               
+                            {{ form.open_roster|as_crispy_field }}
+            
+                    </div>
+                </div>
+
+                <!-- Game & Asset Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-controller me-2"></i>{% trans 'Game & Asset Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+
+                            {% if is_admin %}
+                            <div id="default-format-field"
+                                 style="{% if tournament and tournament.classification != 'Tournament' %}display:none;{% endif %}">
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        {{ form.default_format|as_crispy_field }}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% include 'the_warroom/partials/platform_toggle.html' with tournament_form=form %}
+
+                            {% include 'the_warroom/partials/asset_mode_toggle.html' with tournament_form=form %}
+
+                    </div>
+                </div>
+
+                <!-- Leaderboard Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>{% trans 'Leaderboard Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Set the defaults for the Leaderboard. <strong>Positions</strong> controls how many players and factions are displayed. <strong>Threshold</strong> sets the minimum number of games required before a player or faction becomes eligible.</p>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.leaderboard_positions|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.game_threshold|as_crispy_field }}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                <!-- Game Submission Settings Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-pencil me-2"></i>{% trans 'Game Submission Settings' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.teams|as_crispy_field }}
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.link_required|as_crispy_field }}
+                            </div>
+                        </div>
+                        {% include 'the_warroom/partials/coalition_toggle.html' with tournament_form=form %}
+
+                    </div>
+                </div>
+            </fieldset>
+            
+            {% if use_stages_locked and use_rounds_locked %}
+            <input type="hidden" name="use_stages" value="on">
+            <input type="hidden" name="use_rounds" value="on">
+            {% else %}
+            <!-- Structure Settings Card -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-layers me-2"></i>{% trans 'Structure Settings' %}</h5>
+                </div>
+                <div class="card-body">
+                    {% if action == 'Create' %}
+                    <p class="text-muted small">If you need a more complex structure for this Series you can enable Stages and Rounds below.</p>
+                    {% endif %}
+
+                    <!-- Use Stages -->
+                    <div>
+              
+                            {% if use_stages_locked %}
+                            <input type="hidden" name="use_stages" value="on">
+                            {% else %}
+                            <div class="form-check mb-2">
+                                {{ form.use_stages }}
+                                <label class="form-check-label" for="{{ form.use_stages.id_for_label }}">
+                                    {{ form.use_stages.label }}
+                                </label>
+                                <div class="form-text text-muted">Stages allow you to specify which players are participating. If you want to have a Loser's bracket or something similar with certain players you'll want to use Stages.</div>
+                            </div>
+                            {% endif %}
+            
+                    </div>
+
+                    {% if action == 'Create' %}
+                    <!-- Stage name field (shown when use_stages is checked) -->
+                    <div id="stage-name-field" style="display:none;">
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                {{ form.stage_name|as_crispy_field }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Use Rounds -->
+                    <div>
+                   
+                            {% if use_rounds_locked %}
+                            <input type="hidden" name="use_rounds" value="on">
+                            {% else %}
+                            <div class="form-check mb-2">
+                                {{ form.use_rounds }}
+                                <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
+                                    {{ form.use_rounds.label }}
+                                </label>
+                                <div class="form-text text-muted">Rounds allow you to set multiple matchups with the same players and group players by availability. If you want each player to play a set number of games against different opponents you'll want to use Rounds.</div>
+                            </div>
+                            {% endif %}
+              
+                    </div>
+
+                    {% if action == 'Create' %}
+                        <!-- Round name field (shown when both use_stages and use_rounds are checked) -->
+                        <div id="round-name-field" style="display:none;">
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    {{ form.round_name|as_crispy_field }}
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Save/Cancel Buttons -->
+            <div class="mb-3">
+                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+                {% if tournament %}
+                <a class="btn btn-secondary" href="{% url 'tournament-detail' tournament.slug %}">{% trans 'Cancel' %}</a>
+                {% else %}
+                <a class="btn btn-secondary" href="{% url 'tournaments-home' %}">{% trans 'Cancel' %}</a>
+                {% endif %}
+            </div>
+        </form>
+
+    </div>
+
+{% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='id_guild' %}
+{% endblock content %}
+
+{% block head %}
+{% include 'the_warroom/partials/toggle_scripts.html' %}
+{% endblock %}
+
+{% block scripts %}
+
+{% include 'the_warroom/partials/asset_mode_scripts.html' %}
+{% include 'the_warroom/partials/status_toggle_scripts.html' %}
+
+<script>
+    // Initialize Select2 for designer and guild fields
+    if ($('#id_designer').length) {
+        $('#id_designer').select2();
+    }
+    if ($('#id_guild').length) {
+        $('#id_guild').select2();
+    }
+
+    // Cross-constrain native date inputs
+    const startDate = document.getElementById('id_start_date');
+    const endDate = document.getElementById('id_end_date');
+
+    startDate.addEventListener('change', function() {
+        endDate.min = this.value || '';
+    });
+    endDate.addEventListener('change', function() {
+        startDate.max = this.value || '';
+    });
+
+    // Initialize cross-constraints from existing values
+    if (startDate.value) endDate.min = startDate.value;
+    if (endDate.value) startDate.max = endDate.value;
+
+    // Toggle player count fields visibility
+    function togglePlayerCountFields() {
+        const checkbox = document.getElementById('id_enforce_player_count');
+        const fields = document.getElementById('player-count-fields');
+        fields.style.display = checkbox.checked ? 'block' : 'none';
+    }
+
+    // Create mode: toggle stage name / use_rounds / round name fields
+    const useStagesCheckbox = document.getElementById('id_use_stages');
+    const useRoundsCheckbox = document.getElementById('id_use_rounds');
+    const stageNameField = document.getElementById('stage-name-field');
+    const roundNameField = document.getElementById('round-name-field');
+
+    function updateStructureFields() {
+        const stagesOn = useStagesCheckbox && useStagesCheckbox.checked;
+        const roundsOn = useRoundsCheckbox && useRoundsCheckbox.checked;
+        if (stageNameField) stageNameField.style.display = stagesOn ? 'block' : 'none';
+        if (roundNameField) roundNameField.style.display = roundsOn ? 'block' : 'none';
+    }
+
+    if (useStagesCheckbox) {
+        useStagesCheckbox.addEventListener('change', updateStructureFields);
+    }
+    if (useRoundsCheckbox) {
+        useRoundsCheckbox.addEventListener('change', updateStructureFields);
+    }
+    // Run on load to reflect pre-filled values (e.g. on validation failure)
+    updateStructureFields();
+
+    // Show/hide default_format based on classification (admin only)
+    const classificationInput = document.getElementById('classification_input');
+    if (classificationInput) {
+        const formatField = document.getElementById('default-format-field');
+        function updateFormatField(value) {
+            if (formatField) {
+                formatField.style.display = value === 'Tournament' ? 'block' : 'none';
+            }
+        }
+        updateFormatField(classificationInput.value);
+        initToggle({
+            containerId: 'classification-toggle-container',
+            inputId: 'classification_input',
+            sliderId: 'classification-slider',
+            descriptionId: 'classification-description-text',
+            descriptions: {
+                'Game Group': 'Casual game group with no competitive structure.',
+                'League': 'Semi-competitive series with ongoing standings.',
+                'Tournament': 'Structured and competitive series with brackets and rules.'
+            },
+            onChange: updateFormatField
+        });
+    }
+
+    // Moderator helpers for HTMX search
+    function getModeratorExcludeIds() {
+        const inputs = document.querySelectorAll('input[name="moderators"]');
+        return Array.from(inputs).map(i => i.value).join(',');
+    }
+
+    function getDesignerId() {
+        const designerSelect = document.getElementById('id_designer');
+        if (designerSelect) return designerSelect.value || '';
+        return '{{ request.user.profile.id }}';
+    }
+
+    // Moderator management
+    function addModerator(id, name, imageUrl) {
+        // Check if already added
+        if (document.getElementById('moderator-' + id)) return;
+
+        const list = document.getElementById('moderator-list');
+        const emptyMsg = document.getElementById('moderator-empty');
+        if (emptyMsg) emptyMsg.classList.add('d-none');
+
+        let avatarHtml;
+        if (imageUrl) {
+            avatarHtml = '<img src="' + imageUrl + '" class="md-avatar-icon me-2">';
+        } else {
+            avatarHtml = '<i class="bi bi-person-circle me-2 text-muted" style="font-size: 1.5rem;"></i>';
+        }
+
+        const card = document.createElement('div');
+        card.className = 'd-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-white';
+        card.id = 'moderator-' + id;
+        card.innerHTML =
+            '<div class="d-flex align-items-center">' + avatarHtml + '<span>' + name + '</span></div>' +
+            '<input type="hidden" name="moderators" value="' + id + '">' +
+            '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeModerator(' + id + ')">' +
+            '<i class="bi bi-x-circle"></i></button>';
+
+        list.appendChild(card);
+
+        // Clear search
+        document.getElementById('moderator-search-input').value = '';
+        document.getElementById('moderator-search-results').innerHTML = '';
+    }
+
+    function removeModerator(id) {
+        const card = document.getElementById('moderator-' + id);
+        if (card) card.remove();
+
+        const list = document.getElementById('moderator-list');
+        const emptyMsg = document.getElementById('moderator-empty');
+        if (list && list.children.length === 0 && emptyMsg) {
+            emptyMsg.classList.remove('d-none');
+        }
+    }
+
+</script>
+{% endblock %}

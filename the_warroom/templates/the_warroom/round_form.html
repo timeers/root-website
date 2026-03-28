@@ -1,0 +1,194 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags i18n %}
+{% block title %}{% if round.id %}Update Round{% else %}New Round{% endif %} | {% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    {% if round.id %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Edit" %}
+    {% else %}
+        {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="New Round" breadcrumb_hide_round=True %}
+    {% endif %}
+</div>
+<div class="content-section">
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <fieldset class="mb-3">
+            <legend class="border-bottom mb-4">
+                {% if round.id %}
+                    Update {{ round.get_tournament.name }} — {{ round.name|default:round.round_number }}
+                {% else %}
+                    New {{ tournament.name }} Round
+                {% endif %}
+            </legend>
+
+            {% if not round.id %}
+            <p class="text-muted mb-4">
+                A Round can be a structured subset of games (e.g., Finals, Semi-Finals, Season 5) or an ongoing series.
+                Each Round has its own leaderboard which feeds into the Series leaderboard.
+            </p>
+            {% endif %}
+
+            <!-- Basic Information -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>{% trans 'Basic Information' %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.name|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.round_number|as_crispy_field }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-2">
+                            {{ form.description|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-calendar-week me-2"></i>{% trans 'Status & Schedule' %}</h5>
+                </div>
+                <div class="card-body">
+                    {% include 'the_warroom/partials/status_toggle.html' with entity_type='round' entity=round tournament=tournament stage=stage %}
+
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.start_date|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.end_date|as_crispy_field }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Game Settings -->
+            <div class="card mb-3 bg-light">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-question-octagon me-2"></i>{% trans 'Override Settings' %}</h5>
+                    <small class="form-text text-muted d-block">
+                        Override Series Defaults
+                    </small>
+                </div>
+                <div class="card-body">
+                    <h6 class="text-muted mb-2"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h6>
+                    <small class="form-text text-muted d-block mb-3">
+                        Override the leaderboard settings for this round. Leave blank to inherit from the stage
+                        ({{ stage.get_game_threshold }} game threshold, {{ stage.get_leaderboard_positions }} positions).
+                    </small>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.game_threshold|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.leaderboard_positions|as_crispy_field }}
+                        </div>
+                    </div>
+           
+
+                    {% if tournament.enforce_player_count %}
+                    <h6 class="text-muted mb-2"><i class="bi bi-people me-2"></i>{% trans 'Game Size' %}</h6>
+                    <small class="form-text text-muted d-block mb-3">
+                        Override the series defaults for player count per game. Leave blank to inherit from the series
+                        ({% if stage.get_min_players_display != stage.get_max_players_display %}{{ stage.get_min_players_display }} - {% endif %}{{ stage.get_max_players_display }} players).
+                    </small>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.min_players|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            {{ form.max_players|as_crispy_field }}
+                        </div>
+                    </div>
+                    {% endif %}
+            
+                </div>
+            </div>
+
+        </fieldset>
+
+        <div class="mb-3 d-flex gap-2">
+            <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+            {% if round.id %}
+            <a class="btn btn-secondary" href="{{ round.get_absolute_url }}">{% trans 'Cancel' %}</a>
+            {% else %}
+            <a class="btn btn-secondary" href="{{ tournament.get_absolute_url }}">{% trans 'Cancel' %}</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+{% include 'the_warroom/partials/status_toggle_scripts.html' %}
+<script>
+    $(document).ready(function(){
+        // Parent date constraints — use stage dates if set, else fall back to tournament
+        const parentMin = {% if stage.start_date %}"{{ stage.start_date|date:'Y-m-d' }}"{% elif tournament.start_date %}"{{ tournament.start_date|date:'Y-m-d' }}"{% else %}null{% endif %};
+        const parentMax = {% if stage.end_date %}"{{ stage.end_date|date:'Y-m-d' }}"{% elif tournament.end_date %}"{{ tournament.end_date|date:'Y-m-d' }}"{% else %}null{% endif %};
+
+        const startDate = document.getElementById('id_start_date');
+        const endDate = document.getElementById('id_end_date');
+
+        // Set parent bounds
+        if (parentMin) { startDate.min = parentMin; endDate.min = parentMin; }
+        if (parentMax) { startDate.max = parentMax; endDate.max = parentMax; }
+
+        // Cross-constrain native date inputs
+        startDate.addEventListener('change', function() {
+            endDate.min = this.value || parentMin || '';
+        });
+        endDate.addEventListener('change', function() {
+            startDate.max = this.value || parentMax || '';
+        });
+
+        // Initialize cross-constraints from existing values
+        if (startDate.value) endDate.min = startDate.value;
+        if (endDate.value) startDate.max = endDate.value;
+
+        // Duplicate round name validation
+        const existingNames = JSON.parse('{{ existing_names_json|escapejs }}');
+        const nameInput = document.getElementById('id_name');
+        const form = document.querySelector('form');
+        let errorDiv = null;
+
+        function clearError() {
+            if (errorDiv) {
+                errorDiv.remove();
+                errorDiv = null;
+            }
+            nameInput.classList.remove('is-invalid');
+        }
+
+        function showError(msg) {
+            clearError();
+            nameInput.classList.add('is-invalid');
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'invalid-feedback d-block';
+            errorDiv.textContent = msg;
+            nameInput.parentNode.appendChild(errorDiv);
+        }
+
+        nameInput.addEventListener('input', clearError);
+
+        form.addEventListener('submit', function(e) {
+            const name = nameInput.value.trim();
+            if (name && existingNames.some(n => n.toLowerCase() === name.toLowerCase())) {
+                e.preventDefault();
+                showError('A round with this name already exists in this stage.');
+                nameInput.focus();
+            }
+        });
+    });
+</script>
+{% endblock %}

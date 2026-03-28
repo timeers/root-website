@@ -1,0 +1,437 @@
+{% load i18n %}
+{# Survey Basic Information Card - Shared between create and edit survey #}
+<div class="card mb-2">
+    <div class="card-header">
+        <h5 class="mb-0">{% trans 'Survey Information' %}</h5>
+    </div>
+    <div class="card-body">
+        {# Basic Details Section #}
+        <div class="mb-2">
+            <label for="title" class="form-label">{% trans 'Title' %} <span id="title-required-indicator">*</span></label>
+            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title|default:'' }}" maxlength="200">
+            <div class="invalid-feedback d-none" id="title-error">
+                {% trans 'Survey title is required' %}
+            </div>
+        </div>
+
+        <div class="mb-2">
+            <label for="description" class="form-label">{% trans 'Description' %}</label>
+            <textarea class="form-control" id="description" name="description" rows="3">{{ survey.description|default:'' }}</textarea>
+        </div>
+
+
+
+        {# Advanced Settings Button + Summary #}
+        <div class="mt-3">
+            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#advancedSettingsModal">
+                <i class="bi bi-sliders me-1"></i> {% trans 'Advanced Settings' %}
+            </button>
+            <div id="advanced-settings-summary" class="mt-2 d-flex flex-wrap gap-1">
+                <span class="text-muted small">{% trans 'Default settings' %}</span>
+            </div>
+        </div>
+
+        {# Survey Status #}
+        <div class="row mt-3">
+            <div class="col-12">
+                <div id="active-status-container" class="border rounded p-3 d-flex align-items-center justify-content-between" style="background-color: {% if not survey or survey.is_active %}#d1e7dd{% else %}#f8d7da{% endif %};">
+                    <div class="d-flex align-items-center gap-3">
+                        <i id="active-status-icon" class="bi {% if not survey or survey.is_active %}bi-check-circle-fill text-success{% else %}bi-x-circle-fill text-danger{% endif %}" style="font-size: 1.5rem;"></i>
+                        <div>
+                            <label class="form-check-label fw-bold mb-0" for="is_active" style="font-size: 1.1rem; cursor: pointer;">
+                                {% trans 'Survey Status' %}
+                            </label>
+                            <div>
+                                <small class="text-muted">
+                                    <span id="active-status-text">
+                                        {% if not survey or survey.is_active %}
+                                            {% trans 'Survey is accepting responses' %}
+                                        {% else %}
+                                            {% trans 'Survey is not accepting responses' %}
+                                        {% endif %}
+                                    </span>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-check form-switch ms-4" style="font-size: 1.5rem;">
+                        <input class="form-check-input" type="checkbox" role="switch" id="is_active" name="is_active"
+                                {% if not survey or survey.is_active %}checked{% endif %}
+                                style="width: 3rem; height: 1.5rem; cursor: pointer;"
+                                onchange="updateActiveStatus()">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{# Advanced Settings Modal #}
+<div class="modal fade" id="advancedSettingsModal" tabindex="-1" aria-labelledby="advancedSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="advancedSettingsModalLabel"><i class="bi bi-sliders me-2"></i>{% trans 'Advanced Settings' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+
+                {# Access Control Section #}
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <h6 class="text-muted mb-2"><i class="bi bi-shield-lock me-2"></i>{% trans 'Manage Access' %}</h6>
+
+                    {# Private Survey Checkbox #}
+                    <div class="mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_private" name="is_private"
+                                   {% if survey and not survey.is_public %}checked{% endif %}
+                                   onchange="toggleAccessRestrictionsSection()">
+                            <label class="form-check-label" for="is_private">
+                                {% trans 'Private Survey' %}
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">If checked, only invited players{% if user_guilds %} or guild members{% endif %} can access this survey</small>
+                    </div>
+
+                    {# Access Restrictions Section - Only visible when survey is private #}
+                    <div id="access-restrictions-section" style="display: {% if survey and not survey.is_public %}block{% else %}none{% endif %};" data-has-restrictions="{% if survey and survey.guild or survey and survey.invited_players.exists %}true{% else %}false{% endif %}">
+                        <div class="row">
+                            {# Invited Players - Left Side #}
+                            <div class="col-md-6">
+                                <label class="form-label">{% trans 'Invited Players' %}</label>
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="openInvitePlayersModal()">
+                                        <i class="bi bi-person-plus"></i> {% trans 'Manage Invites' %}
+                                    </button>
+                                    <span class="text-muted small">
+                                        <span id="invited-players-count">{% if survey %}{{ survey.invited_players.count }}{% else %}0{% endif %}</span> {% trans 'player(s) invited' %}
+                                    </span>
+                                </div>
+                                <div id="invited-players-summary" class="d-flex flex-wrap gap-1">
+                                    {% if survey %}
+                                        {% for player in survey.invited_players.all %}
+                                        <span class="badge bg-secondary invited-player-badge" data-player-id="{{ player.id }}">
+                                            {{ player.name }}
+                                            <button type="button" class="btn-close btn-close-white ms-1" style="font-size: 0.6rem;" onclick="removeInvitedPlayer({{ player.id }})"></button>
+                                        </span>
+                                        {% endfor %}
+                                    {% endif %}
+                                </div>
+                                <input type="hidden" name="invited_players" id="invited-players-input" value="{% if survey %}{% for player in survey.invited_players.all %}{{ player.id }}{% if not forloop.last %},{% endif %}{% endfor %}{% endif %}">
+                            </div>
+
+                            {# Guild Selection - Right Side #}
+                            <div class="col-md-6">
+                                <label for="guild" class="form-label">{% trans 'Guild' %}</label>
+                                <select class="form-select" id="guild" name="guild">
+                                    <option value="">{% trans 'No guild restriction' %}</option>
+                                    {% for guild in user_guilds %}
+                                        {% if guild.icon_hash %}
+                                            <option value="{{ guild.id }}" data-icon="{{ guild.get_icon_url|default:'' }}" {% if survey.guild_id == guild.id %}selected{% endif %}>{{ guild.name }}</option>
+                                        {% else %}
+                                            <option value="{{ guild.id }}" data-icon="" {% if survey.guild_id == guild.id %}selected{% endif %}>{{ guild.name }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                                <small class="form-text text-muted d-block">{% trans 'Restrict survey to Discord guild members' %}</small>
+                                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="openAddGuildModal()">
+                                    <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# Survey Association Section #}
+                {% if user_tournaments or user_posts %}
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <h6 class="text-muted mb-2"><i class="bi bi-share me-2"></i>{% trans 'Survey Association' %}</h6>
+                    <div class="row">
+                        {% if user_tournaments %}
+                        <div class="col-md-6 mb-2">
+                            <label for="series" class="form-label">{% trans 'Series/Tournament' %}</label>
+                            {% if prefill_series_id %}
+                                {# Locked: show a read-only badge and submit value via hidden input #}
+                                <input type="hidden" name="series" value="{{ prefill_series_id }}">
+                                <div class="form-control bg-light d-flex align-items-center gap-2">
+                                    {% for t in user_tournaments %}{% if t.id == prefill_series_id %}{{ t.name }}{% endif %}{% endfor %}
+                                    <i class="bi bi-lock text-muted ms-auto" title="{% trans 'Locked' %}"></i>
+                                </div>
+                            {% else %}
+                                <select class="form-select" id="series" name="series" onchange="loadSeriesStages()"
+                                        {% if survey.stage_id %}data-preselected-stage="{{ survey.stage_id }}"{% endif %}>
+                                    <option value="">{% trans 'No series association' %}</option>
+                                    {% for tournament in user_tournaments %}
+                                        <option value="{{ tournament.id }}" {% if survey.series_id == tournament.id %}selected{% endif %}>{{ tournament.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <small class="form-text text-muted">{% trans 'Associate with a tournament or series you host' %}</small>
+                                <div class='alert alert-info' id="series_access_note" style="display: none;">
+                                    <i class="bi bi-info-circle"></i>
+                                    <small class="form-text text-muted">
+                                        {% trans 'Players invited to this tournament will have access' %}
+                                    </small>
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label for="stage" class="form-label">{% trans 'Stage' %}</label>
+                            {% if prefill_stage_id %}
+                                {# Locked: show a read-only badge and submit value via hidden input #}
+                                <input type="hidden" name="stage" value="{{ prefill_stage_id }}">
+                                <div class="form-control bg-light d-flex align-items-center gap-2" id="stage">
+                                    {# Stage name is loaded async; use data attr so JS can fill it in #}
+                                    <span id="prefill-stage-name" data-stage-id="{{ prefill_stage_id }}">
+                                        {% trans 'Loading...' %}
+                                    </span>
+                                    <i class="bi bi-lock text-muted ms-auto" title="{% trans 'Locked' %}"></i>
+                                </div>
+                            {% else %}
+                                <select class="form-select" id="stage" name="stage" {% if not survey.series and not prefill_series_id %}disabled{% endif %}>
+                                    <option value="">{% trans 'All stages / No specific stage' %}</option>
+                                </select>
+                                <small class="form-text text-muted">{% trans 'Optionally associate with a specific stage' %}</small>
+                                <div class='alert alert-info' id="stage_access_note" style="display: none;">
+                                    <i class="bi bi-info-circle"></i>
+                                    <small class="form-text text-muted">
+                                        {% trans 'Players in this stage will have access' %}
+                                    </small>
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {# Registration Survey Toggle - only visible when series is selected #}
+                        <div class="col-md-12 mb-2" id="registration-survey-container"
+                             style="display: {% if survey.is_registration and survey.series_id %}block{% else %}none{% endif %};">
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" id="is_registration" name="is_registration"
+                                       {% if survey.is_registration %}checked{% endif %}>
+                                <label class="form-check-label" for="is_registration">
+                                    {% trans 'Registration Survey' %}
+                                    <i class="bi bi-question-circle text-muted ms-1"
+                                       data-bs-toggle="tooltip"
+                                       title="{% trans 'Tournament rules will be displayed at the top of the survey with a required agreement checkbox' %}"></i>
+                                </label>
+                            </div>
+                            <small class="form-text text-muted">{% trans 'When enabled, respondents must agree to the tournament rules before submitting' %}</small>
+                        </div>
+                        {% if user_posts %}
+                        <div class="col-md-6 mb-2">
+                            <label for="post" class="form-label">{% trans 'Subject' %}</label>
+                            {% if prefill_post_id %}
+                                {# Locked: show a read-only badge and submit value via hidden input #}
+                                <input type="hidden" name="post" value="{{ prefill_post_id }}">
+                                <div class="form-control bg-light d-flex align-items-center gap-2">
+                                    {% for post in user_posts %}{% if post.id == prefill_post_id %}{{ post.title }}{% endif %}{% endfor %}
+                                    <i class="bi bi-lock text-muted ms-auto" title="{% trans 'Locked' %}"></i>
+                                </div>
+                            {% else %}
+                                <select class="form-select" id="post" name="post">
+                                    <option value="">{% trans 'No post association' %}</option>
+                                    {% for post in user_posts %}
+                                        {% if post.small_icon %}
+                                            <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
+                                        {% else %}
+                                            <option value="{{ post.id }}" data-icon="" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                                <small class="form-text text-muted">{% trans 'Associate with a Root component you designed' %}</small>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {# Schedule Section #}
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <h6 class="text-muted mb-2"><i class="bi bi-calendar me-2"></i>{% trans 'Schedule' %}</h6>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="start_date" class="form-label">{% trans 'Start Date' %}</label>
+                            <input type="datetime-local" class="form-control" id="start_date" name="start_date_display">
+                            <input type="hidden" id="start_date_utc" name="start_date">
+                            <small class="form-text text-muted">{% trans 'When the survey becomes available (leave blank for immediate)' %}</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="end_date" class="form-label">{% trans 'End Date' %}</label>
+                            <input type="datetime-local" class="form-control" id="end_date" name="end_date_display">
+                            <input type="hidden" id="end_date_utc" name="end_date">
+                            <small class="form-text text-muted">{% trans 'When the survey closes (leave blank for no end date)' %}</small>
+                        </div>
+                    </div>
+
+                </div>
+
+                {# Settings Section #}
+                <div class="border rounded p-3 bg-light" id="settings-section">
+                    <h6 class="text-muted mb-2"><i class="bi bi-gear me-2"></i>{% trans 'Settings' %}</h6>
+
+                    {# --- Responses --- #}
+                    <small class="fw-semibold text-muted text-uppercase d-block mb-2">
+                        <i class="bi bi-clipboard2-plus me-1"></i>{% trans 'Responses' %}
+                    </small>
+                    <div class="mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="allow_edit_responses" name="allow_edit_responses"
+                                   {% if survey.allow_edit_responses %}checked{% endif %}>
+                            <label class="form-check-label" for="allow_edit_responses">
+                                {% trans 'Allow Editing Responses' %}
+                                    <i class="bi bi-question-circle text-muted ms-1"
+                                        data-bs-toggle="tooltip"
+                                        title="{% trans 'Respondents can update their answers after submitting' %}"></i>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Response Mode Toggle -->
+                    <input type="hidden" id="response_mode_value"
+                           value="{% if survey.allow_multiple_responses %}multiple{% elif survey.limit_responses %}limited{% else %}single{% endif %}">
+                    <input type="hidden" name="allow_multiple_responses" id="allow_multiple_responses_input"
+                           value="{% if survey.allow_multiple_responses %}on{% endif %}">
+                    <input type="hidden" name="limit_responses" id="limit_responses_input"
+                           value="{% if survey.limit_responses %}on{% endif %}">
+
+                    <div id="response-mode-toggle-container" class="mb-2">
+                        <div class="option-toggle option-toggle-3">
+                            <div class="option-slider {% if survey.allow_multiple_responses %}position-1{% elif survey.limit_responses %}position-3{% else %}position-2{% endif %}" id="response-mode-slider"></div>
+                            <div class="option-item {% if survey.allow_multiple_responses %}active{% endif %}" data-value="multiple" data-position="1">
+                                <i class="bi bi-infinity me-1"></i>{% trans 'Multiple' %}
+                            </div>
+                            <div class="option-item {% if not survey.allow_multiple_responses and not survey.limit_responses %}active{% endif %}" data-value="single" data-position="2">
+                                <i class="bi bi-person me-1"></i>{% trans '1 Per Person' %}
+                            </div>
+                            <div class="option-item {% if survey.limit_responses %}active{% endif %}" data-value="limited" data-position="3">
+                                <i class="bi bi-lock me-1"></i>{% trans 'Limit' %}
+                            </div>
+                        </div>
+                        <div class="toggle-description" id="response-mode-description">
+                            <i class="bi bi-info-circle me-1"></i>
+                            <span id="response-mode-description-text"></span>
+                        </div>
+                    </div>
+
+                    <!-- Response Limit Section -->
+                    <div class="row mb-2" id="limit_responses_container" style="display: none;">
+                        <div class="col-12">
+                            <label for="waitlist_threshold" class="form-label">{% trans 'Response Limit' %}</label>
+                            <input type="number" class="form-control" id="waitlist_threshold" name="waitlist_threshold"
+                                   min="1" placeholder="e.g., 20" value="{{ survey.waitlist_threshold|default:'' }}">
+                            <small class="text-muted">{% trans 'Maximum number of accepted responses' %}</small>
+                        </div>
+                        <div class="col-12 mt-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="has_waitlist" name="has_waitlist"
+                                       {% if survey.has_waitlist %}checked{% endif %}>
+                                <label class="form-check-label" for="has_waitlist">
+                                    {% trans 'Add additional responses to waitlist' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'When enabled, responses beyond the limit are placed on a waitlist instead of being rejected' %}"></i>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+
+                    {# --- Results --- #}
+                    <small class="fw-semibold text-muted text-uppercase d-block mb-2">
+                        <i class="bi bi-clipboard2-data me-1"></i>{% trans 'Results' %}
+                    </small>
+                    <div class="row mb-1">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="show_results_to_respondents" name="show_results_to_respondents"
+                                       {% if survey.show_results_to_respondents %}checked{% endif %}>
+                                <label class="form-check-label" for="show_results_to_respondents">
+                                    {% trans 'Show Results to Respondents' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'Respondents can view a summary of the results once they have submitted their response' %}"></i>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="show_results_on_close" name="show_results_on_close"
+                                       {% if not survey or survey.show_results_on_close %}checked{% endif %}>
+                                <label class="form-check-label" for="show_results_on_close">
+                                    {% trans 'Show Results Once Closed' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'Results are made public once the survey is closed' %}"></i>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+
+                    {# --- Quiz --- #}
+                    <small class="fw-semibold text-muted text-uppercase d-block mb-2">
+                        <i class="bi bi-clipboard2-check me-1"></i>{% trans 'Quiz' %}
+                    </small>
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="is_quiz" name="is_quiz"
+                                       {% if survey.is_quiz %}checked{% endif %}>
+                                <label class="form-check-label" for="is_quiz">
+                                    {% trans 'Provide correct answers' %}
+                                        <i class="bi bi-question-circle text-muted ms-1"
+                                            data-bs-toggle="tooltip"
+                                            title="{% trans 'Adds the option to record correct answers for certain questions' %}"></i>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                    <i class="bi bi-check-lg me-1"></i>{% trans 'Done' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Invite Players Modal #}
+<div class="modal fade" id="invitePlayersModal" tabindex="-1" aria-labelledby="invitePlayersModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="invitePlayersModalLabel">{% trans 'Invite Players' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <label class="form-label">{% trans 'Search Players' %}</label>
+                    <input type="text" class="form-control" id="player-search-input" placeholder="{% trans 'Type at least 2 characters to search...' %}">
+                </div>
+                <div id="player-search-results" class="mb-2" style="max-height: 200px; overflow-y: auto;">
+                    <p class="text-muted small">{% trans 'Search results will appear here' %}</p>
+                </div>
+                <hr>
+                <div>
+                    <label class="form-label">{% trans 'Selected Players' %} (<span id="modal-selected-count">0</span>)</label>
+                    <div id="modal-selected-players" class="d-flex flex-wrap gap-2" style="min-height: 40px;">
+                        <p class="text-muted small" id="no-players-message">{% trans 'No players selected yet' %}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Close' %}</button>
+                <button type="button" class="btn btn-primary" onclick="saveInvitedPlayers()" data-bs-dismiss="modal">
+                    <i class="bi bi-check"></i> {% trans 'Save' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

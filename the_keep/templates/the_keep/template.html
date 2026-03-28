@@ -30,6 +30,7 @@
     <!-- Apple Bookmark Icon -->
     <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}" type="image/png">
 
+    {% block styles %}{% endblock styles %}
     {% block head %}{% endblock head %}
 
     <!-- HTMX -->
@@ -97,6 +98,43 @@
         $(document.body).on("click", "tr[data-href]", function () {
             window.location.href = this.dataset.href;
         });
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el); });
+    });
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        var tooltips = [].slice.call(evt.detail.target.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltips.map(function (el) { return new bootstrap.Tooltip(el); });
+    });
+    // Fix aria-hidden warning: blur focused element before Bootstrap hides modal
+    document.addEventListener('hide.bs.modal', function () {
+        document.activeElement.blur();
+    });
+</script>
+<script>
+    // Carry filter query params between Games and Leaderboard tabs
+    document.addEventListener('click', function(e) {
+        var link = e.target.closest('a[data-carry-filters]');
+        if (!link) return;
+
+        var currentParams = new URLSearchParams(window.location.search);
+        if (!currentParams.toString()) return;
+
+        var targetType = link.getAttribute('data-carry-filters');
+        var newParams = new URLSearchParams();
+
+        var excludeAlways = ['page'];
+        var gamesExclude = ['limit', 'threshold'];
+
+        currentParams.forEach(function(value, key) {
+            if (excludeAlways.indexOf(key) !== -1) return;
+            if (targetType === 'games' && gamesExclude.indexOf(key) !== -1) return;
+            newParams.append(key, value);
+        });
+
+        if (newParams.toString()) {
+            e.preventDefault();
+            window.location.href = link.getAttribute('href') + '?' + newParams.toString();
+        }
     });
 </script>
     {% block scripts %}{% endblock %}

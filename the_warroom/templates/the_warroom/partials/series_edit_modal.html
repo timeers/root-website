@@ -1,0 +1,778 @@
+{% load i18n %}
+{# Series Edit Modal - included in bracket_setup.html and round_matches.html #}
+
+<div class="modal fade" id="seriesEditModal" tabindex="-1" aria-labelledby="seriesEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title" id="seriesEditModalLabel">{% trans 'Edit Match' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editSeriesId">
+
+                <!-- Group Metadata -->
+                <div class="mb-3">
+                    <label for="editSeriesName" class="form-label fw-bold">{% trans 'Group Name' %}</label>
+                    <input type="text" class="form-control" id="editSeriesName" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label for="editSeriesDiscordThread" class="form-label fw-bold"><i class="bi bi-discord"></i> {% trans 'Discord Thread' %}</label>
+                    <input type="url" class="form-control" id="editSeriesDiscordThread" placeholder="https://discord.com/channels/...">
+                    <small class="text-muted">{% trans 'Must be a discord.com link' %}</small>
+                    <div class="invalid-feedback" id="seriesDiscordError"></div>
+                </div>
+                <div class="mb-3">
+                    <label for="editSeriesVideoLink" class="form-label fw-bold"><i class="bi bi-play-btn-fill"></i> {% trans 'Video Link' %}</label>
+                    <input type="url" class="form-control" id="editSeriesVideoLink" placeholder="https://youtube.com/... or https://twitch.tv/...">
+                    <small class="text-muted">{% trans 'Must be a YouTube or Twitch link' %}</small>
+                    <div class="invalid-feedback" id="seriesVideoError"></div>
+                </div>
+
+                <hr>
+
+                <!-- Matches -->
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3-fill"></i> {% trans 'Matches' %}</h6>
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted">{% trans 'Scheduled time:' %}</small>
+                        <div class="btn-group btn-group-sm" role="group" id="tzToggleGroup">
+                            <button type="button" class="btn btn-outline-secondary active" id="tzLocalBtn" onclick="_setTzMode('local')">Local</button>
+                            <button type="button" class="btn btn-outline-secondary" id="tzUtcBtn" onclick="_setTzMode('utc')">UTC</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <ul class="list-group" id="editSeriesMatches">
+                        <!-- Populated by JS -->
+                    </ul>
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="_seriesAddNewMatch()">
+                        <i class="bi bi-plus-lg"></i> {% trans 'Add Match' %}
+                    </button>
+                </div>
+
+                <hr>
+
+                <!-- Participants -->
+                <h6 class="fw-bold mb-3"><i class="bi bi-people-fill"></i> {% trans 'Participants' %}</h6>
+                <div class="mb-3">
+                    <label class="form-label text-muted small"><i class="bi bi-person-check-fill"></i> {% trans 'Current Seats' %}</label>
+                    <ul class="list-group" id="editSeriesSeats">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-muted small"><i class="bi bi-person-fill-add"></i> {% trans 'Add Participant' %}</label>
+                    <input type="text" class="form-control mb-2" id="editSeatSearch" placeholder="{% trans 'Search players...' %}">
+                    <ul class="list-group" id="editSeatSearchResults" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer d-flex">
+                <div id="seriesDeleteSection" class="me-auto">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="seriesDeleteBtn" onclick="_seriesShowDeleteConfirm()">
+                        <i class="bi bi-trash"></i> {% trans 'Delete Match' %}
+                    </button>
+                    <span id="seriesDeleteConfirm" style="display: none;">
+                        <span class="text-danger small me-2">{% trans 'Are you sure?' %}</span>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="_seriesConfirmDelete()">
+                            <i class="bi bi-trash-fill"></i> {% trans 'Yes, delete' %}
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="_seriesCancelDelete()">
+                            {% trans 'No' %}
+                        </button>
+                    </span>
+                </div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="saveSeriesEditBtn" onclick="saveSeriesEdit()">
+                    <i class="bi bi-check-lg"></i> {% trans 'Save' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- Series Edit Modal State ---
+let _seriesDeletedMatchIds = [];
+let _seriesNewMatchCount = 0;
+let _seriesRemovedSeatIds = [];
+let _seriesAddedParticipantIds = [];
+let _seriesTzMode = 'local';
+
+function _setTzMode(mode) {
+    if (mode === _seriesTzMode) return;
+    document.querySelectorAll('#editSeriesMatches input[type="datetime-local"]').forEach(input => {
+        const val = input.value;
+        if (!val) return;
+        if (mode === 'utc') {
+            input.value = new Date(val).toISOString().slice(0, 16);
+        } else {
+            const utcDate = new Date(val + 'Z');
+            input.value = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        }
+    });
+    _seriesTzMode = mode;
+    document.getElementById('tzLocalBtn').classList.toggle('active', mode === 'local');
+    document.getElementById('tzUtcBtn').classList.toggle('active', mode === 'utc');
+}
+
+const _SERIES_DISCORD_RE = /^https:\/\/(discord\.com|discordapp\.com)\//;
+const _SERIES_VIDEO_RE = /^https:\/\/(www\.)?(youtube\.com|youtu\.be|twitch\.tv)\//;
+
+// These must be set by the including template:
+// _seriesEditUrl  — POST endpoint
+// _seriesCsrfToken — CSRF token
+// _seriesDataMap  — {seriesId: {name, discord_thread, video_link, matches: [...], seats: [...]}}
+// _stageParticipants — [{id, display_name, image_url, status}, ...]
+
+function openSeriesEditModal(seriesId) {
+    const seriesData = _seriesDataMap[seriesId];
+    if (!seriesData) { console.error('Series data not found:', seriesId); return; }
+
+    // Reset state
+    _seriesDeletedMatchIds = [];
+    _seriesNewMatchCount = 0;
+    _seriesRemovedSeatIds = [];
+    _seriesAddedParticipantIds = [];
+    _seriesTzMode = 'local';
+    document.getElementById('tzLocalBtn').classList.add('active');
+    document.getElementById('tzUtcBtn').classList.remove('active');
+
+    document.getElementById('editSeriesId').value = seriesId;
+    document.getElementById('editSeriesName').value = seriesData.name || '';
+    document.getElementById('editSeriesDiscordThread').value = seriesData.discord_thread || '';
+    document.getElementById('editSeriesVideoLink').value = seriesData.video_link || '';
+
+    // Clear validation
+    document.getElementById('editSeriesDiscordThread').classList.remove('is-invalid');
+    document.getElementById('editSeriesVideoLink').classList.remove('is-invalid');
+
+    // Reset delete confirmation
+    const deleteBtn = document.getElementById('seriesDeleteBtn');
+    const deleteConfirm = document.getElementById('seriesDeleteConfirm');
+    const deleteSection = document.getElementById('seriesDeleteSection');
+    if (deleteBtn) deleteBtn.style.display = '';
+    if (deleteConfirm) deleteConfirm.style.display = 'none';
+    // Hide delete for series with recorded games
+    const hasGames = (seriesData.matches || []).some(m => m.has_game);
+    if (deleteSection) deleteSection.style.display = hasGames ? 'none' : '';
+
+    // Populate matches
+    const matchList = document.getElementById('editSeriesMatches');
+    matchList.innerHTML = '';
+    (seriesData.matches || []).forEach(m => _seriesAddMatchRow(m));
+
+    // Populate seats
+    const seatList = document.getElementById('editSeriesSeats');
+    seatList.innerHTML = '';
+    (seriesData.seats || []).forEach(s => _seriesAddSeatRow(s));
+
+    // Clear search
+    document.getElementById('editSeatSearch').value = '';
+    _seriesUpdateSeatSearch('');
+
+    const modal = new bootstrap.Modal(document.getElementById('seriesEditModal'));
+    modal.show();
+}
+
+function _seriesAddMatchRow(match) {
+    const list = document.getElementById('editSeriesMatches');
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex align-items-center gap-2';
+    li.dataset.matchId = match.id || '';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'fw-semibold me-2';
+    nameSpan.style.minWidth = '80px';
+    nameSpan.textContent = match.name || 'New Match';
+    li.appendChild(nameSpan);
+
+    // Scheduled time input
+    const timeInput = document.createElement('input');
+    timeInput.type = 'datetime-local';
+    timeInput.className = 'form-control form-control-sm';
+    timeInput.style.maxWidth = '220px';
+    timeInput.dataset.matchId = match.id || '';
+    if (match.scheduled_time) {
+        // Convert ISO to datetime-local format
+        const dt = new Date(match.scheduled_time);
+        const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
+        timeInput.value = local.toISOString().slice(0, 16);
+    }
+    li.appendChild(timeInput);
+
+    // Calendar button (if group has availability data)
+    const seriesData = _seriesDataMap[document.getElementById('editSeriesId').value];
+    if (seriesData && seriesData.player_group_id &&
+        typeof _groupCalendarData !== 'undefined' &&
+        _groupCalendarData[seriesData.player_group_id]) {
+        const calBtn = document.createElement('button');
+        calBtn.type = 'button';
+        calBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+        calBtn.title = 'View group availability';
+        calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+        calBtn.onclick = function() {
+            _openCalendarFromSeriesEdit(seriesData.player_group_id);
+        };
+        li.appendChild(calBtn);
+    }
+
+    // Spacer
+    const spacer = document.createElement('div');
+    spacer.className = 'flex-grow-1';
+    li.appendChild(spacer);
+
+    // Game linked indicator or delete button
+    if (match.has_game) {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-success';
+        badge.innerHTML = '<i class="bi bi-link-45deg"></i> Game';
+        li.appendChild(badge);
+    } else if (match.id) {
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-sm btn-outline-danger';
+        delBtn.title = 'Delete match';
+        delBtn.innerHTML = '<i class="bi bi-trash"></i>';
+        delBtn.onclick = function() { _seriesRemoveMatch(match.id, li); };
+        li.appendChild(delBtn);
+    }
+
+    list.appendChild(li);
+}
+
+function _seriesRemoveMatch(matchId, li) {
+    if (matchId) _seriesDeletedMatchIds.push(matchId);
+    li.remove();
+}
+
+function _seriesAddNewMatch() {
+    _seriesNewMatchCount++;
+    const list = document.getElementById('editSeriesMatches');
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex align-items-center gap-2';
+    li.dataset.matchId = '';
+    li.dataset.isNew = 'true';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'fw-semibold me-2';
+    nameSpan.style.minWidth = '80px';
+    nameSpan.textContent = 'New Match';
+    li.appendChild(nameSpan);
+
+    const timeInput = document.createElement('input');
+    timeInput.type = 'datetime-local';
+    timeInput.className = 'form-control form-control-sm';
+    timeInput.style.maxWidth = '220px';
+    li.appendChild(timeInput);
+
+    // Calendar button (if group has availability data)
+    const seriesData = _seriesDataMap[document.getElementById('editSeriesId').value];
+    if (seriesData && seriesData.player_group_id &&
+        typeof _groupCalendarData !== 'undefined' &&
+        _groupCalendarData[seriesData.player_group_id]) {
+        const calBtn = document.createElement('button');
+        calBtn.type = 'button';
+        calBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+        calBtn.title = 'View group availability';
+        calBtn.innerHTML = '<i class="bi bi-calendar-week"></i>';
+        calBtn.onclick = function() {
+            _openCalendarFromSeriesEdit(seriesData.player_group_id);
+        };
+        li.appendChild(calBtn);
+    }
+
+    const spacer = document.createElement('div');
+    spacer.className = 'flex-grow-1';
+    li.appendChild(spacer);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm btn-outline-danger';
+    delBtn.title = 'Remove';
+    delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+    delBtn.onclick = function() { _seriesNewMatchCount--; li.remove(); };
+    li.appendChild(delBtn);
+
+    list.appendChild(li);
+}
+
+function _seriesAddSeatRow(seat) {
+    const list = document.getElementById('editSeriesSeats');
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex align-items-center justify-content-between';
+    li.dataset.seatId = seat.id || '';
+    li.dataset.participantId = seat.participant_id;
+
+    const left = document.createElement('div');
+    left.className = 'd-flex align-items-center';
+    const imgHtml = seat.image_url
+        ? `<img src="${seat.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
+        : '<i class="bi bi-person-circle me-2"></i>';
+    const statusBadge = seat.status !== 'active'
+        ? ` <span class="badge bg-${seat.status === 'eliminated' ? 'danger' : 'warning'} ms-1">${seat.status}</span>`
+        : '';
+    left.innerHTML = `${imgHtml}<span>${seat.display_name}</span>${statusBadge}`;
+    li.appendChild(left);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn btn-sm btn-outline-danger';
+    removeBtn.title = 'Remove';
+    removeBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+    removeBtn.onclick = function() { _seriesRemoveSeat(seat, li); };
+    li.appendChild(removeBtn);
+
+    list.appendChild(li);
+}
+
+function _seriesRemoveSeat(seat, li) {
+    if (seat.id) _seriesRemovedSeatIds.push(seat.id);
+    // If this was a newly added participant, remove from added list
+    const addedIdx = _seriesAddedParticipantIds.indexOf(seat.participant_id);
+    if (addedIdx > -1) _seriesAddedParticipantIds.splice(addedIdx, 1);
+    li.remove();
+    _seriesUpdateSeatSearch(document.getElementById('editSeatSearch').value);
+}
+
+function _seriesGetCurrentSeatParticipantIds() {
+    const list = document.getElementById('editSeriesSeats');
+    return Array.from(list.querySelectorAll('[data-participant-id]')).map(
+        el => parseInt(el.dataset.participantId)
+    );
+}
+
+function _seriesUpdateSeatSearch(query) {
+    const results = document.getElementById('editSeatSearchResults');
+    if (!results) return;
+    results.innerHTML = '';
+
+    const currentIds = _seriesGetCurrentSeatParticipantIds();
+    const lowerQuery = query.toLowerCase();
+
+    (_stageParticipants || []).forEach(sp => {
+        if (currentIds.includes(sp.id)) return;
+        if (lowerQuery && !sp.display_name.toLowerCase().includes(lowerQuery)) return;
+
+        const li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-action d-flex align-items-center justify-content-between py-1';
+        const imgHtml = sp.image_url
+            ? `<img src="${sp.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
+            : '<i class="bi bi-person-circle me-2"></i>';
+        const statusBadge = sp.status !== 'active'
+            ? `<span class="badge bg-${sp.status === 'eliminated' ? 'danger' : 'warning'} ms-1">${sp.status}</span>`
+            : '';
+        li.innerHTML = `<div class="d-flex align-items-center">${imgHtml}<span>${sp.display_name}</span>${statusBadge}</div>
+            <button class="btn btn-sm btn-outline-primary" onclick="_seriesAddSeatFromSearch(${sp.id})" title="Add"><i class="bi bi-plus-lg"></i></button>`;
+        results.appendChild(li);
+    });
+
+    if (results.children.length === 0 && lowerQuery) {
+        results.innerHTML = '<li class="list-group-item text-muted text-center"><small>No players found</small></li>';
+    }
+}
+
+function _seriesAddSeatFromSearch(participantId) {
+    const sp = (_stageParticipants || []).find(p => p.id === participantId);
+    if (!sp) return;
+    _seriesAddedParticipantIds.push(participantId);
+    _seriesAddSeatRow({
+        id: null,
+        participant_id: sp.id,
+        display_name: sp.display_name,
+        image_url: sp.image_url,
+        status: sp.status,
+    });
+    _seriesUpdateSeatSearch(document.getElementById('editSeatSearch').value);
+}
+
+function _seriesValidateUrls() {
+    let valid = true;
+    const discordInput = document.getElementById('editSeriesDiscordThread');
+    const videoInput = document.getElementById('editSeriesVideoLink');
+    const dVal = discordInput.value.trim();
+    const vVal = videoInput.value.trim();
+
+    if (dVal && !_SERIES_DISCORD_RE.test(dVal)) {
+        discordInput.classList.add('is-invalid');
+        document.getElementById('seriesDiscordError').textContent = 'Must be a discord.com or discordapp.com link';
+        valid = false;
+    } else {
+        discordInput.classList.remove('is-invalid');
+    }
+
+    if (vVal && !_SERIES_VIDEO_RE.test(vVal)) {
+        videoInput.classList.add('is-invalid');
+        document.getElementById('seriesVideoError').textContent = 'Must be a YouTube or Twitch link';
+        valid = false;
+    } else {
+        videoInput.classList.remove('is-invalid');
+    }
+
+    return valid;
+}
+
+function saveSeriesEdit() {
+    if (!_seriesValidateUrls()) return;
+
+    const seriesId = parseInt(document.getElementById('editSeriesId').value);
+    const body = {
+        series_id: seriesId,
+        name: document.getElementById('editSeriesName').value.trim(),
+        discord_thread: document.getElementById('editSeriesDiscordThread').value.trim(),
+        video_link: document.getElementById('editSeriesVideoLink').value.trim(),
+    };
+
+    // Collect match scheduled_time updates (existing matches only)
+    const matchRows = document.querySelectorAll('#editSeriesMatches li[data-match-id]');
+    const matchUpdates = [];
+    matchRows.forEach(li => {
+        const matchId = li.dataset.matchId;
+        if (!matchId || li.dataset.isNew === 'true') return;
+        const input = li.querySelector('input[type="datetime-local"]');
+        const val = input ? input.value : '';
+        let scheduledTime = null;
+        if (val) {
+            scheduledTime = _seriesTzMode === 'utc'
+                ? new Date(val + 'Z').toISOString()
+                : new Date(val).toISOString();
+        }
+        matchUpdates.push({ id: parseInt(matchId), scheduled_time: scheduledTime });
+    });
+    body.matches = matchUpdates;
+
+    // Deleted matches
+    if (_seriesDeletedMatchIds.length > 0) {
+        body.delete_match_ids = _seriesDeletedMatchIds;
+    }
+
+    // New matches
+    if (_seriesNewMatchCount > 0) {
+        body.add_matches = _seriesNewMatchCount;
+    }
+
+    // Removed seats
+    if (_seriesRemovedSeatIds.length > 0) {
+        body.remove_seat_ids = _seriesRemovedSeatIds;
+    }
+
+    // Added seats
+    if (_seriesAddedParticipantIds.length > 0) {
+        body.add_seat_participant_ids = _seriesAddedParticipantIds;
+    }
+
+    const saveBtn = document.getElementById('saveSeriesEditBtn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+
+    fetch(_seriesEditUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': _seriesCsrfToken,
+        },
+        body: JSON.stringify(body),
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+
+        if (!ok || !data.success) {
+            alert('Error: ' + (data.error || 'Unknown error'));
+            return;
+        }
+
+        const modal = bootstrap.Modal.getInstance(document.getElementById('seriesEditModal'));
+        if (modal) modal.hide();
+
+        _updateSeriesCard(data.series);
+        _seriesDataMap[data.series.id] = data.series;
+    })
+    .catch(error => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+        console.error('Error:', error);
+        alert('An error occurred while saving.');
+    });
+}
+
+function _updateSeriesCard(s) {
+    const card = document.querySelector(`[data-series-id="${s.id}"]`);
+    if (!card) return;
+
+    // Update header name
+    const nameEl = card.querySelector('.card-header strong');
+    if (nameEl) nameEl.textContent = s.name || 'Match Series';
+
+    // Detect layout before headerRight block (needed for Bo badge)
+    const cardBody = card.querySelector('.card-body');
+    const isBracketLayout = !!(cardBody && cardBody.querySelector('ul.list-group'));
+
+    const headerRight = card.querySelector('.card-header .d-flex.align-items-center.gap-1');
+    if (headerRight) {
+        // Update Bo badge (bracket/match generation page only)
+        if (isBracketLayout) {
+            let boBadge = headerRight.querySelector('.badge.bg-secondary');
+            if (s.number_of_games > 1) {
+                if (!boBadge) {
+                    boBadge = document.createElement('span');
+                    boBadge.className = 'badge bg-secondary';
+                    headerRight.appendChild(boBadge);
+                }
+                boBadge.textContent = 'Bo' + s.number_of_games;
+            } else if (boBadge) {
+                boBadge.remove();
+            }
+        }
+
+        // Update status indicator (round_matches page)
+        const statusMap = {
+            'Completed': { cls: 'text-success', icon: 'bi-check-circle', label: 'Complete' },
+            'Active':    { cls: 'text-primary', icon: 'bi-circle-half', label: 'Active' },
+            'Pending':   { cls: 'text-secondary', icon: 'bi-circle', label: 'Pending' },
+        };
+        const info = statusMap[s.status];
+        if (info) {
+            const statusStrong = headerRight.querySelector('strong.text-success, strong.text-primary, strong.text-secondary');
+            const statusIcon = headerRight.querySelector('i.bi-check-circle, i.bi-circle-half, i.bi-circle');
+            if (statusStrong) {
+                statusStrong.className = `${info.cls}`;
+                statusStrong.tagName === 'STRONG' ? statusStrong.textContent = info.label : null;
+                statusStrong.textContent = info.label;
+            }
+            if (statusIcon) {
+                statusIcon.className = `bi ${info.icon} ${info.cls}`;
+            }
+        }
+    }
+
+    // Update participant list in card body
+    if (!cardBody) return;
+
+    const hr = cardBody.querySelector('hr');
+
+    // Remove existing participant elements (everything before <hr> or all participant content)
+    const toRemove = [];
+    for (const child of cardBody.children) {
+        if (child === hr) break;
+        if (child.tagName === 'UL' || child.tagName === 'P' ||
+            (child.classList && child.classList.contains('d-flex') && (child.querySelector('img') || child.querySelector('.bi-person-circle')))) {
+            toRemove.push(child);
+        }
+    }
+    toRemove.forEach(el => el.remove());
+
+    const insertBefore = hr || cardBody.firstChild;
+
+    if (isBracketLayout) {
+        // bracket_setup.html style: <ul class="list-group list-group-flush"><li>...</li></ul>
+        const newList = document.createElement('ul');
+        newList.className = 'list-group list-group-flush';
+        s.seats.forEach(seat => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex align-items-center';
+            const imgHtml = seat.image_url
+                ? `<img src="${seat.image_url}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">`
+                : '<i class="bi bi-person-circle me-2"></i>';
+            li.innerHTML = `${imgHtml}<span class="flex-grow-1">${seat.display_name}</span>`;
+            newList.appendChild(li);
+        });
+        if (s.seats.length === 0) {
+            const li = document.createElement('li');
+            li.className = 'list-group-item text-muted text-center';
+            li.innerHTML = '<small>No participants</small>';
+            newList.appendChild(li);
+        }
+        cardBody.insertBefore(newList, insertBefore);
+    } else {
+        // round_matches.html style: <div class="d-flex align-items-center gap-2 mb-1">...</div>
+        const fragment = document.createDocumentFragment();
+        s.seats.forEach(seat => {
+            const div = document.createElement('div');
+            div.className = 'd-flex align-items-center gap-2 mb-1';
+            const imgHtml = seat.image_url
+                ? `<img src="${seat.image_url}" alt="" class="avatar-icon image1">`
+                : '<i class="bi bi-person-circle image1"></i>';
+            div.innerHTML = `<div class="parent">${imgHtml}</div><span>${seat.display_name}</span>`;
+            fragment.appendChild(div);
+        });
+        if (s.seats.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'text-muted mb-0';
+            p.textContent = 'No participants';
+            fragment.appendChild(p);
+        }
+        cardBody.insertBefore(fragment, insertBefore);
+    }
+
+    // --- Rebuild games section (round_matches page) ---
+    if (!isBracketLayout && typeof _recordGameUrl !== 'undefined') {
+        // Remove existing hr + games section
+        const oldHr = cardBody.querySelector('hr');
+        if (oldHr) {
+            // Remove hr and everything after it within card-body
+            while (oldHr.nextSibling) oldHr.nextSibling.remove();
+            oldHr.remove();
+        }
+
+        // Rebuild if multi-game series
+        if (s.number_of_games > 1) {
+            const newHr = document.createElement('hr');
+            newHr.className = 'my-2';
+            cardBody.appendChild(newHr);
+
+            const _schedFmt = new Intl.DateTimeFormat(undefined, {
+                month: 'numeric', day: 'numeric', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+            });
+            s.matches.forEach((m, idx) => {
+                const row = document.createElement('div');
+                row.className = 'd-flex align-items-center gap-2 mb-1';
+                let actionHtml;
+                if (m.has_game && m.game_final) {
+                    actionHtml = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>View</a>`;
+                } else if (m.has_game && !m.game_final) {
+                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm ms-auto"><i class="bi bi-pencil-square me-1"></i></a>`;
+                } else {
+                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm ms-auto"><i class="bi bi-plus-lg"></i></a>`;
+                }
+                let timeHtml = '';
+                if (m.scheduled_time) {
+                    const formatted = _schedFmt.format(new Date(m.scheduled_time));
+                    timeHtml = `<span class="text-muted small scheduled-time" data-utc="${m.scheduled_time}">${formatted}</span>`;
+                }
+                row.innerHTML = `<span>Game ${idx + 1}</span>${timeHtml}${actionHtml}`;
+                cardBody.appendChild(row);
+            });
+        }
+
+        // Rebuild card-footer for single-game series
+        const cardEl = card.querySelector('.card') || card.querySelector('.card.h-100') || card.closest('.card') || card.querySelector(':scope > .card');
+        const existingFooter = card.querySelector('.card-footer');
+        if (existingFooter) existingFooter.remove();
+
+        if (s.number_of_games === 1 && s.matches.length === 1) {
+            const m = s.matches[0];
+            const footer = document.createElement('div');
+            footer.className = 'card-footer d-flex align-items-center';
+            const _footerFmt = new Intl.DateTimeFormat(undefined, {
+                month: 'numeric', day: 'numeric', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+            });
+            let timeSpan = '<span class="me-auto"></span>';
+            if (m.scheduled_time) {
+                const formatted = _footerFmt.format(new Date(m.scheduled_time));
+                timeSpan = `<span class="text-muted small scheduled-time me-auto" data-utc="${m.scheduled_time}">${formatted}</span>`;
+            }
+            let actionBtn = '';
+            if (m.has_game && m.game_final) {
+                actionBtn = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right"></i></a>`;
+            } else if (m.has_game && !m.game_final) {
+                actionBtn = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil-square me-1"></i></a>`;
+            } else {
+                actionBtn = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg"></i></a>`;
+            }
+            footer.innerHTML = timeSpan + actionBtn;
+            // Insert footer after card-body
+            cardBody.parentElement.appendChild(footer);
+        }
+    }
+}
+
+// --- Series Delete ---
+function _seriesShowDeleteConfirm() {
+    document.getElementById('seriesDeleteBtn').style.display = 'none';
+    document.getElementById('seriesDeleteConfirm').style.display = '';
+}
+
+function _seriesCancelDelete() {
+    document.getElementById('seriesDeleteConfirm').style.display = 'none';
+    document.getElementById('seriesDeleteBtn').style.display = '';
+}
+
+function _seriesConfirmDelete() {
+    if (typeof _deleteSeriesUrl === 'undefined') {
+        alert('Delete is not available on this page.');
+        return;
+    }
+    const seriesId = parseInt(document.getElementById('editSeriesId').value);
+    const confirmBtn = document.querySelector('#seriesDeleteConfirm .btn-danger');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Deleting...';
+
+    fetch(_deleteSeriesUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': _seriesCsrfToken,
+        },
+        body: JSON.stringify({ series_id: seriesId }),
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="bi bi-trash-fill"></i> Yes, delete';
+
+        if (!ok || !data.success) {
+            alert('Error: ' + (data.error || 'Unknown error'));
+            _seriesCancelDelete();
+            return;
+        }
+
+        const modal = bootstrap.Modal.getInstance(document.getElementById('seriesEditModal'));
+        if (modal) modal.hide();
+
+        // Remove card from grid
+        const card = document.querySelector(`[data-series-id="${seriesId}"]`);
+        if (card) card.remove();
+
+        // Remove from data map
+        delete _seriesDataMap[seriesId];
+    })
+    .catch(error => {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="bi bi-trash-fill"></i> Yes, delete';
+        console.error('Error:', error);
+        alert('An error occurred while deleting the series.');
+        _seriesCancelDelete();
+    });
+}
+
+// --- Calendar Modal Integration ---
+function _openCalendarFromSeriesEdit(groupId) {
+    // Hide the series edit modal (don't close it to preserve state)
+    const seriesModal = bootstrap.Modal.getInstance(document.getElementById('seriesEditModal'));
+    if (seriesModal) {
+        seriesModal.hide();
+    }
+
+    // Open calendar modal
+    openCalendarModal(groupId);
+
+    // Set up event listener to re-open series edit modal when calendar closes
+    const calendarModalEl = document.getElementById('calendarModal');
+    if (calendarModalEl) {
+        const reopenSeriesModal = function() {
+            // Re-open series edit modal
+            const newSeriesModal = new bootstrap.Modal(document.getElementById('seriesEditModal'));
+            newSeriesModal.show();
+
+            // Remove this event listener (one-time use)
+            calendarModalEl.removeEventListener('hidden.bs.modal', reopenSeriesModal);
+        };
+
+        // Use 'hidden.bs.modal' event which fires when modal is fully hidden
+        calendarModalEl.addEventListener('hidden.bs.modal', reopenSeriesModal, { once: true });
+    }
+}
+
+// Wire up search
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('editSeatSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            _seriesUpdateSeatSearch(this.value);
+        });
+    }
+});
+</script>

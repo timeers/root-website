@@ -1,0 +1,113 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n warroom_tags %}
+{% block title %}Bracket — {{ tournament.name }} | {% endblock %}
+
+{% block meta %}
+{% trans "Bracket" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block content %}
+<div class="content-section">
+
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Bracket" %}
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-diagram-3 me-2"></i>{% trans 'Bracket Overview' %}</h2>
+    </div>
+
+    {% if not has_bracket %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No bracket matches have been generated yet. Finalize grouping for a round to generate matches.' %}
+    </div>
+    {% endif %}
+
+    {% for stage in stages %}
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">
+                    {{ stage.name }}
+                </a>
+            </h5>
+            <div>
+                {% if stage.stage_format %}
+                <span class="badge bg-info">{{ stage.get_stage_format_display }}</span>
+                {% endif %}
+                {% if stage.status == 'Completed' %}
+                <span class="badge bg-success">{% trans 'Completed' %}</span>
+                {% elif stage.status == 'Active' %}
+                <span class="badge bg-primary">{% trans 'Active' %}</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">{% trans 'Pending' %}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-body p-0">
+            {% with stage_rounds=stage.rounds.all %}
+            {% if stage_rounds %}
+            <div class="d-flex gap-0 overflow-auto p-3">
+                {% for round in stage_rounds %}
+                {% if round.matches.all %}
+                <div class="flex-shrink-0" style="min-width: 220px;">
+                    <div class="text-center fw-bold mb-3 text-muted small text-uppercase">
+                        {{ round.name|default:round.round_number }}
+                    </div>
+                    <div class="d-flex flex-column gap-2">
+                        {% for match in round.matches.all %}
+                        <div class="card">
+                            <div class="card-body p-2">
+                                <div class="d-flex justify-content-between align-items-start mb-1">
+                                    <small class="text-muted fw-bold">Match {{ match.match_number }}</small>
+                                    {% if match.status == 'Completed' %}
+                                    <span class="badge bg-success">{% trans 'Done' %}</span>
+                                    {% elif match.status == 'Active' %}
+                                    <span class="badge bg-primary">{% trans 'Active' %}</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">{% trans 'TBD' %}</span>
+                                    {% endif %}
+                                </div>
+                                {% if match.player_group %}
+                                <div class="small">
+                                    {% if match.player_group.name %}
+                                    <div class="fw-semibold mb-1">{{ match.player_group.name }}</div>
+                                    {% endif %}
+                                    {% for tp in match.player_group.tournament_players.all %}
+                                    <div class="d-flex align-items-center gap-1">
+                                        {% if tp.profile.image %}
+                                        <img src="{{ tp.profile.image.url }}" alt="" class="rounded-circle" style="width:16px;height:16px;">
+                                        {% endif %}
+                                        <span>{{ tp.profile.display_name }}</span>
+                                        {% if match.series|is_series_winner:tp.id %}
+                                        <i class="bi bi-trophy-fill text-warning ms-auto"></i>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <div class="small text-muted fst-italic">{% trans 'Players TBD' %}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% if not forloop.last %}
+                <div class="flex-shrink-0 d-flex align-items-center px-2">
+                    <i class="bi bi-arrow-right text-muted fs-4"></i>
+                </div>
+                {% endif %}
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="p-3 text-muted">{% trans 'No rounds in this stage yet.' %}</div>
+            {% endif %}
+            {% endwith %}
+        </div>
+    </div>
+    {% endfor %}
+
+</div>
+{% endblock content %}

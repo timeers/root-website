@@ -1,0 +1,387 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{% trans 'Results' %}: {{ survey.title }} | {% endblock %}
+
+{% block meta %}
+{% trans "Results" as meta_page_suffix %}
+{% include 'the_tavern/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block content %}
+<div class="content-section">
+    
+    {% include 'the_tavern/partials/survey_navigation.html' %}
+
+
+    <h1 class="root-title">{{ survey.title }}</h1>
+    <p class="lead text-muted">{% trans 'Survey Results' %}</p>
+
+    <div class="alert alert-info">
+        <strong>{% trans 'Total Responses' %}:</strong> {{ total_responses }}{% if survey.limit_responses and survey.waitlist_threshold %}/{{survey.waitlist_threshold}}{% endif %}
+
+        {% if required_summary %}
+            <div class="d-flex align-items-center">
+                <i class="bi bi-trophy-fill fs-4 me-3"></i>
+                <div>
+                    <strong>{% trans 'Average Score' %}:</strong>
+                    <span class="fs-5 ms-2">{{ required_summary }} {% trans 'correct' %}</span>
+                    <span class="text-muted ms-2">{{ required_percent }}</span>
+                </div>
+            </div>
+        {% endif %}
+        {% if optional_summary %}
+            <div class="d-flex align-items-center">
+                <i class="bi bi-star-fill fs-4 me-3"></i>
+                <div>
+                    <strong>{% trans 'Optional Questions' %}:</strong>
+                    <span class="fs-5 ms-2">{{ optional_summary }} {% trans 'correct' %}</span>
+                    <span class="text-muted ms-2">{{ optional_percent }}</span>
+                </div>
+            </div>
+        {% endif %}
+
+    </div>
+
+    {% if survey.description %}
+        <p>{{ survey.description|linebreaks }}</p>
+    {% endif %}
+
+    <hr>
+
+
+
+    {% for question_data in questions_with_results %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">{{ question_data.question.text }}</h5>
+                <small class="text-muted">
+                    {{ question_data.question.get_question_type_display }} |
+                    {{ question_data.total_responses }} {% trans 'response' %}{{ question_data.total_responses|pluralize }}
+                </small>
+            </div>
+            <div class="card-body">
+                {% if question_data.has_correct_answer %}
+                    <div class="alert alert-success py-2 mb-3">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <strong>{% trans 'Correct Answer' %}:</strong> {{ question_data.correct_answer_display }}
+                    </div>
+                {% endif %}
+
+                {% if question_data.question.question_type == 'MC' or question_data.question.question_type == 'YN' or question_data.question.question_type == 'MS' %}
+                    {# Choice-based questions - show bar chart #}
+                    {% for result in question_data.results %}
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>{{ result.choice }}</span>
+                                <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                            </div>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar{% if result.is_other %} bg-secondary{% endif %}" role="progressbar"
+                                     style="width: {{ result.percentage }}%;"
+                                     aria-valuenow="{{ result.percentage }}"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100">
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+
+                    {% if question_data.other_responses %}
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-secondary" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#other_responses_{{ question_data.question.id }}">
+                                <i class="bi bi-pen"></i> {% trans 'View "Other" responses' %} ({{ question_data.other_responses|length }})
+                            </button>
+                            <div class="collapse mt-2" id="other_responses_{{ question_data.question.id }}">
+                                <ul class="list-group">
+                                    {% for text in question_data.other_responses %}
+                                        <li class="list-group-item">{{ text }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'TA' %}
+                    {# Time Availability - show bar chart with timezone conversion #}
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-clock"></i> {% trans 'Times shown in your timezone' %}: <span id="ta-timezone-{{ question_data.question.id }}"></span>
+                        <br><small class="text-muted">
+                            <i class="bi bi-calendar3"></i> {% trans 'Applicable days' %}: {{ question_data.question.get_enabled_days_display }}
+                        </small>
+                        <br><small class="text-muted">{% trans 'Sorted by popularity (most selected first)' %}</small>
+                    </div>
+                    {% for result in question_data.results %}
+                        {% if result.count > 0 %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="ta-time-label" data-utc-hour="{{ result.choice }}">{{ result.choice }}:00 UTC</span>
+                                    <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-success" role="progressbar"
+                                         style="width: {{ result.percentage }}%;"
+                                         aria-valuenow="{{ result.percentage }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'DY' %}
+                    {# Day Availability - show bar chart with days #}
+                    {% for result in question_data.results %}
+                        {% if result.count > 0 %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="dy-day-label">{{ result.choice }}</span>
+                                    <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-success" role="progressbar"
+                                         style="width: {{ result.percentage }}%;"
+                                         aria-valuenow="{{ result.percentage }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'LK' %}
+                    {# Scale - show average and distribution #}
+                    {% if question_data.average %}
+                        <div class="alert alert-light">
+                            <strong>{% trans 'Average' %}:</strong> {{ question_data.average }}
+                            {% if question_data.question.likert_scale %}
+                                / {{ question_data.question.likert_scale.max_value }}
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    <h6>{% trans 'Distribution' %}:</h6>
+                    {% for result in question_data.results %}
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>{{ result.value }}</span>
+                                <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                            </div>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-info" role="progressbar"
+                                     style="width: {{ result.percentage }}%;"
+                                     aria-valuenow="{{ result.percentage }}"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100">
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+
+                {% elif question_data.question.question_type == 'NU' %}
+                    {# Numeric - show statistics and distribution #}
+                    {% if question_data.average %}
+                        <div class="row mb-3">
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Average' %}</small>
+                                        <h4 class="mb-0">{{ question_data.average }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Median' %}</small>
+                                        <h4 class="mb-0">{{ question_data.median }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Min' %}</small>
+                                        <h4 class="mb-0">{{ question_data.min_value }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center py-2">
+                                        <small class="text-muted">{% trans 'Max' %}</small>
+                                        <h4 class="mb-0">{{ question_data.max_value }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h6>{% trans 'Distribution' %}:</h6>
+                        {% for result in question_data.results %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span>{{ result.value }}</span>
+                                    <span><strong>{{ result.count }}</strong> ({{ result.percentage }}%)</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-primary" role="progressbar"
+                                         style="width: {{ result.percentage }}%;"
+                                         aria-valuenow="{{ result.percentage }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+
+                        {% if question_data.raw_values %}
+                            <div class="mt-3">
+                                <a class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
+                                   href="#raw-values-{{ question_data.question.id }}" role="button">
+                                    <i class="bi bi-list-ol"></i> {% trans 'Show all values' %}
+                                </a>
+                                <div class="collapse mt-2" id="raw-values-{{ question_data.question.id }}">
+                                    <div class="card card-body">
+                                        <small class="text-muted">
+                                            {{ question_data.raw_values|join:", " }}
+                                            {% if question_data.has_more_values %}
+                                                <br><em>{% trans '(showing first 100 values)' %}</em>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'OE' %}
+                    {# Open-ended - show all responses #}
+                    {% if question_data.results %}
+                        <div class="list-group">
+                            {% for result in question_data.results %}
+                                <div class="list-group-item">
+                                    <i class="bi bi-chat-quote"></i> {{ result.text|linebreaks }}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'RK' %}
+                    {# Ranking - show average ranks #}
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>{% trans 'Choice' %}</th>
+                                <th>{% trans 'Average Rank' %}</th>
+                                <th>{% trans 'Times Ranked' %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for choice, data in question_data.results %}
+                                <tr>
+                                    <td>{{ choice }}</td>
+                                    <td>{{ data.avg_rank }}</td>
+                                    <td>{{ data.count }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                {% elif question_data.question.question_type == 'DA' %}
+                    {# Date responses #}
+                    {% if question_data.results %}
+                        <ul class="list-group">
+                            {% for result in question_data.results %}
+                                <li class="list-group-item">{{ result.date|date:"F j, Y" }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'TI' %}
+                    {# Time responses #}
+                    {% if question_data.results %}
+                        <ul class="list-group">
+                            {% for result in question_data.results %}
+                                <li class="list-group-item">{{ result.date|date:"g:i A" }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+
+                {% elif question_data.question.question_type == 'DT' %}
+                    {# Date/Time responses #}
+                    {% if question_data.results %}
+                        <ul class="list-group">
+                            {% for result in question_data.results %}
+                                <li class="list-group-item">{{ result.date|date:"F j, Y g:i A" }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">{% trans 'No responses yet.' %}</p>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if not questions_with_results %}
+        <div class="alert alert-warning">
+            {% trans 'No results available yet.' %}
+        </div>
+    {% endif %}
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Convert all Time Availability times to user's local timezone
+    const taTimeLabels = document.querySelectorAll('.ta-time-label');
+
+    if (taTimeLabels.length > 0) {
+        // Get user's timezone information
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const now = new Date();
+        const tzAbbr = now.toLocaleTimeString('en-US', {
+            timeZoneName: 'short'
+        }).split(' ').pop();
+
+        // Update timezone display for each TA question
+        document.querySelectorAll('[id^="ta-timezone-"]').forEach(elem => {
+            elem.textContent = `${userTimezone} (${tzAbbr})`;
+        });
+
+        // Convert each time label
+        taTimeLabels.forEach(label => {
+            const utcHour = parseInt(label.getAttribute('data-utc-hour'));
+
+            // Create a date in UTC with the given hour
+            const utcDate = new Date();
+            utcDate.setUTCHours(utcHour, 0, 0, 0);
+
+            // Format in user's local timezone
+            const localTimeStr = utcDate.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+
+            // Update label text
+            label.textContent = `${localTimeStr}`;
+
+            // Add tooltip showing UTC time
+            label.title = `UTC: ${String(utcHour).padStart(2, '0')}:00`;
+        });
+    }
+});
+</script>
+{% endblock scripts %}

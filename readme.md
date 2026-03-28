@@ -1,47 +1,29 @@
-The goal is to have a website that lists official and unofficial Root content with an easy way to search for any fan related content and record games and track stats.
+# Root Database (RDB)
 
-There will be a list to search Factions, Maps, Decks etc.
-This section will have detailed info as well as stats.
+A fan database website for the board game [Root](https://ledergames.com/products/root-a-game-of-woodland-might-and-right). Tracks official and fan-created game content, gameplay records, rules, faqs, and tournament statistics.
 
-There will be another section that lists gameplay details. 
-Factions and other components used, score and players.
+## Features
 
-There will be a third section to list links to community resources.
+- **Content Repository**: Browse and search official and fan-made factions, maps, decks, hirelings, vagabonds, landmarks, house rules, and more
+- **Game Records**: Log games - factions, players, points, and optional turn-by-turn scorecards
+- **Tournaments**: Organize and track tournaments with stages, rounds, and leaderboards
+- **Discord Integration**: Log in via Discord OAuth; guild membership gates certain features
+- **Resources**: Search links to PNP resources to create new fan content
+- **Community**: Submit fan content for review with links to Discord guilds, create surveys for tournament registration and feedback
 
-Users will be able to log in via Discord. 
-If they belong to the WW discord server they will be able to record game results. 
-They will not be able to edit the results once a game has been submitted. 
-An admin will be able to edit or delete game data.
+## Tech Stack
 
-Some users will also be able to input new unofficial content which will be able to be selected in the gameplay section.
-These users will be able to update or delete the content they posted.
+- **Backend**: Django 5.1, PostgreSQL
+- **Task Queue**: Celery + Redis
+- **Auth**: Discord OAuth
+- **Frontend**: HTMX
 
-This django project is divided into three main sections:
+## Apps
 
-the_gatehouse is for website models and user profiles
-    -Profile
-    -Website
-    -Theme
-    -Foreground and Background Images
-the_keep is for posts (Factions, Maps etc.) and PNP resource links
-    -Posts
-        -Faction
-        -Deck
-        -Map
-        -Hireling
-        -Vagabond
-        -Landmark
-        -Tweak
-    -Expansions
-    -Post Translations
-    -Pieces
-the_warroom is for Games, Series and Scorecards
-    -Efforts
-    -Games
-    -Tournaments
-    -Rounds
-    -Scorecards
-    -Turns
-Todo:
-Allow players to be added to game after submission.
-Fix bug in Scorecards where you cannot delete a turn once saved.
+| App | Purpose |
+|---|---|
+| `the_gatehouse` | User profiles, site config, themes, Discord guild integration, notifications, analytics |
+| `the_keep` | Content repository — factions, maps, decks, hirelings, vagabonds, landmarks, rules/FAQs, PNP assets |
+| `the_warroom` | Games, Scorecards, Series/Tournamentsg |
+| `the_tavern` | Surveys |
+

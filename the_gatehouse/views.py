@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Count, Avg, F
 from django.http import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -19,16 +19,15 @@ from django.utils.translation import activate, get_language
 from django.urls import reverse
 from django.views.generic import ListView
 
-from the_tavern.views import bookmark_toggle
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm
-from .models import Profile, Language, Website, Changelog, ChangelogEntry, DiscordGuild, DiscordGuildJoinRequest
-from .services.discordservice import send_rich_discord_message, send_discord_message, update_discord_avatar, get_discord_invite_info
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest
+from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
-from .utils import build_absolute_uri
-
+from .utils import build_absolute_uri, plural
+from .tasks import send_rich_discord_message_task, send_discord_message_task
 
 
 def trigger_error(request):
@@ -274,10 +273,7 @@ def admin_required_class_based_view(view_class):
     return view_class
 
 
-@login_required
-@bookmark_toggle(Profile)
-def bookmark_player(request, obj):
-    return render(request, 'the_gatehouse/partials/bookmarks.html', {'player': obj})
+
 
 
 @player_required
@@ -314,7 +310,9 @@ def player_page_view(request, slug=None):
     view_status = 4
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
-    components = player.posts.filter(status__lte=view_status)
+    components = Post.objects.filter(
+        Q(designer=player) | Q(co_designers=player)
+    ).filter(status__lte=view_status).distinct()
     submissions = player.submissions.filter(status='9')
     posts_count = components.count()
     context = {
@@ -640,14 +638,14 @@ def player_stats(request, slug):
     round_slug = request.GET.get('round_slug')
     player = get_object_or_404(Profile, slug=slug)
     tournament = None
-    round = None
+    tournament_round = None
     if tournament_slug:
         tournament = get_object_or_404(Tournament, slug=tournament_slug)
         if round_slug:
-            round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
+            tournament_round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
 
-    if round:
-        efforts = Effort.objects.filter(player=player, game__round=round, game__final=True)
+    if tournament_round:
+        efforts = Effort.objects.filter(player=player, game__round=tournament_round, game__final=True)
     elif tournament:
         efforts = Effort.objects.filter(player=player, game__round__tournament=tournament, game__final=True)
     else:
@@ -676,7 +674,7 @@ def player_stats(request, slug):
     context = {
         'player': player,
         'selected_tournament': tournament,
-        'tournament_round': round,
+        'tournament_round': tournament_round,
         'top_factions': most_factions,
         'most_factions': top_factions,
         'all_games': all_games,
@@ -804,7 +802,7 @@ def manage_user(request, slug):
             # Save the user if any change was made
             if update_user:
                 user_to_edit.save()
-                send_discord_message(f'{user_to_edit.discord} ({user_to_edit.group}) updated by {request.user.profile.discord}', category='user_updates')
+                send_discord_message_task.delay(f'{user_to_edit.discord} ({user_to_edit.group}) updated by {request.user.profile.discord}', category='user_updates')
 
             # Redirect with a success message
             messages.success(request, update_message)
@@ -899,7 +897,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
                 if not from_user:
                     from_user = "Anonymous User"
             else:
-                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())})'
+                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group})'
 
             fields.append({'name': 'From', 'value': from_user})
 
@@ -908,7 +906,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
                 fields.append({'name': 'Subject', 'value': feedback_subject})
 
             # Send Discord message
-            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
+            send_rich_discord_message_task.delay(message, author_name=author, category=message_category, title=message_title, fields=fields)
 
             # Set success response message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
@@ -992,7 +990,7 @@ def discord_feedback(request):
                     from_user = "Anonymous User"
             else:
                 # author = request.user.profile.discord
-                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())})'
+                from_user = f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group})'
 
             fields.append({
                     'name': 'From',
@@ -1006,7 +1004,7 @@ def discord_feedback(request):
                     })
                 
             # Call the function to send the message to Discord
-            send_rich_discord_message(message, author_name=author, category=message_category, title=message_title, fields=fields)
+            send_rich_discord_message_task.delay(message, author_name=author, category=message_category, title=message_title, fields=fields)
             # Redirect and return a success message
             response_message = response_mapping.get(message_category, 'Your message has been sent!')
             messages.success(request, response_message)
@@ -1057,7 +1055,7 @@ def post_feedback(request, slug):
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
-@player_required
+@login_required
 def post_request(request):
 
     if request.user.profile.player:
@@ -1074,7 +1072,7 @@ def post_request(request):
     return render(request, 'the_gatehouse/discord_feedback.html', context)
 
 
-@player_required
+@player_onboard_required
 def player_feedback(request, slug):
 
     player = get_object_or_404(Profile, slug=slug.lower())
@@ -1210,6 +1208,119 @@ def french_root_invite(request, slug=None):
             return redirect('archive-home')
 
     return render(request, 'the_gatehouse/discord_feedback.html', context)
+
+def _parse_invite_code(invite_input):
+    """Extract Discord invite code from various input formats."""
+    from urllib.parse import urlparse
+
+    invite_input = invite_input.strip()
+
+    if invite_input.startswith('discord.gg/') or invite_input.startswith('discord.com/'):
+        invite_input = 'https://' + invite_input
+
+    parsed = urlparse(invite_input)
+
+    if parsed.netloc in ('discord.gg', 'www.discord.gg'):
+        code = parsed.path.strip('/')
+        if code:
+            return code.split('?')[0]
+
+    if parsed.netloc in ('discord.com', 'www.discord.com'):
+        path = parsed.path.strip('/')
+        if path.startswith('invite/'):
+            code = path[7:]
+            if code:
+                return code.split('?')[0]
+
+    # Treat as raw invite code
+    clean = invite_input.split('?')[0].strip('/')
+    if clean and len(clean) <= 32 and all(c.isalnum() or c in '-_' for c in clean):
+        return clean
+
+    return None
+
+
+@login_required
+def add_guild_from_invite(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method.'}, status=405)
+
+    import json as json_mod
+    try:
+        body = json_mod.loads(request.body)
+    except (json_mod.JSONDecodeError, ValueError):
+        return JsonResponse({'success': False, 'error': 'Invalid request body.'}, status=400)
+
+    invite_input = body.get('invite', '').strip()
+    if not invite_input:
+        return JsonResponse({'success': False, 'error': 'Please provide a Discord invite link or code.'}, status=400)
+
+    invite_code = _parse_invite_code(invite_input)
+    if not invite_code:
+        return JsonResponse({
+            'success': False,
+            'error': 'Could not parse a valid invite code. Accepted formats: discord.gg/CODE, discord.com/invite/CODE, or just the code.'
+        }, status=400)
+
+    guild_info = get_discord_invite_info(invite_code)
+    if not guild_info.get('success'):
+        return JsonResponse({'success': False, 'error': guild_info.get('error', 'Invalid or expired invite link.')}, status=400)
+
+    guild_id = guild_info['guild_id']
+
+    import json
+    with open('/etc/config.json') as config_file:
+        config = json.load(config_file)
+    if guild_id == config['WW_GUILD_ID']:
+        return JsonResponse({'success': False, 'error': 'This guild cannot be added via invite link.'}, status=400)
+
+    user_guilds = get_user_guilds(request.user)
+    if user_guilds is None:
+        return JsonResponse({
+            'success': False,
+            'error': 'Could not verify your Discord guild membership. Please try logging out and back in.'
+        }, status=400)
+
+    user_guild_ids = [g['id'] for g in user_guilds]
+    if guild_id not in user_guild_ids:
+        return JsonResponse({
+            'success': False,
+            'error': 'You must be a member of this Discord server to add it. Join the server first, then try again.'
+        }, status=403)
+
+    guild, created = DiscordGuild.objects.get_or_create(
+        guild_id=guild_id,
+        defaults={
+            'name': guild_info['name'],
+            'actual_name': guild_info['name'],
+            'description': guild_info.get('description') or '',
+            'icon_hash': guild_info.get('icon_hash') or '',
+            'banner_hash': guild_info.get('banner_hash') or '',
+            'member_count': guild_info.get('member_count', 0),
+            'online_count': guild_info.get('online_count', 0),
+        }
+    )
+    if not created:
+        guild.actual_name = guild_info['name']
+        guild.description = guild_info.get('description') or ''
+        guild.icon_hash = guild_info.get('icon_hash') or ''
+        guild.banner_hash = guild_info.get('banner_hash') or ''
+        guild.member_count = guild_info.get('member_count', 0)
+        guild.online_count = guild_info.get('online_count', 0)
+        guild.save()
+
+    request.user.profile.guilds.add(guild)
+
+    return JsonResponse({
+        'success': True,
+        'guild': {
+            'id': guild.id,
+            'guild_id': guild.guild_id,
+            'name': guild.guild_name(),
+            'icon_url': guild.get_icon_url() or '',
+        }
+    })
+
 
 @login_required
 def join_discord_server(request):
@@ -1510,10 +1621,36 @@ def changelog_select_view(request, slug):
 
 # Discord Server Invites
 
-@player_required
+@player_onboard_required
 def guild_join_request(request, guild_id):
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     profile = request.user.profile
+
+    all_approved_requests = guild.join_requests.filter(status=DiscordGuildJoinRequest.Status.APPROVED)
+
+    # Calculate average approval time
+    avg_approval_time = all_approved_requests.aggregate(
+        avg_time=Avg(F('updated_at') - F('created_at'))
+    )['avg_time']
+
+    if avg_approval_time:
+        # Get total seconds, hours, or days
+        total_seconds = avg_approval_time.total_seconds()
+
+        days = avg_approval_time.days
+        hours = int((total_seconds % 86400) // 3600)
+        minutes = int((total_seconds % 3600 ) // 60)
+        if days != 0:
+            formatted_approval_time = f"{plural(days, "day")}, {plural(hours, "hour")}, {plural(minutes, "minute")}"
+        elif hours != 0:
+            formatted_approval_time = f"{plural(hours, "hour")}, {plural(minutes, "minute")}"
+        else:
+            if total_seconds < 60:
+                formatted_approval_time = "less than a minute"
+            else:
+                formatted_approval_time = f"{plural(minutes, "minute")}"
+    else:
+        formatted_approval_time = None
 
     # Get the next URL from query parameters and resolve it
     next_param = request.GET.get('next', '')
@@ -1605,7 +1742,7 @@ def guild_join_request(request, guild_id):
                     'value': form.cleaned_data["agreement_message"]
                 })
                 message = f'{profile.discord} would like to join {guild.name}'
-                send_rich_discord_message(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields)
+                send_rich_discord_message_task.delay(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields)
                 messages.info(request, "Your request has been submitted. Please check back here later.")
                 return redirect(next_url)
     else:
@@ -1618,9 +1755,10 @@ def guild_join_request(request, guild_id):
         "form": form,
         "next_url": next_url,
         "title": title,
+        "formatted_approval_time": formatted_approval_time,
     })
 
-@player_required
+@player_onboard_required
 def guild_invite_view(request, guild_id):
     """Display Discord-style invite card for approved guild"""
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
@@ -1669,7 +1807,6 @@ def guild_invite_view(request, guild_id):
     return render(request, 'the_gatehouse/guild_invite.html', context)
 
 
-@login_required
 @admin_required
 def pending_guild_invites(request):
     """Admin view to manage pending guild join requests."""
@@ -1688,7 +1825,6 @@ def pending_guild_invites(request):
 
 
 
-@login_required
 @admin_required
 def approve_guild_invite(request, invite_id):
     """Approve a pending guild join request."""
@@ -1719,7 +1855,7 @@ def approve_guild_invite(request, invite_id):
         )
 
         # Send Discord notification
-        send_discord_message(
+        send_discord_message_task.delay(
             f"Guild invite approved: {invite.profile.name} → {invite.guild.name} (by {request.user.profile.name})",
             'report'
         )
@@ -1743,7 +1879,6 @@ def approve_guild_invite(request, invite_id):
     return redirect('pending-guild-invites')
 
 
-@login_required
 @admin_required
 def reject_guild_invite(request, invite_id):
     """Reject a pending guild join request."""
@@ -1774,7 +1909,7 @@ def reject_guild_invite(request, invite_id):
         )
 
         # Send Discord notification
-        send_discord_message(
+        send_discord_message_task.delay(
             f"Guild invite rejected: {invite.profile.name} → {invite.guild.name} (by {request.user.profile.name})",
             'report'
         )
@@ -1823,7 +1958,6 @@ def mark_guild_invite_clicked(request, guild_id):
 
 
 
-@login_required
 @admin_required
 def pending_posts(request):
     """Admin view to manage pending posts."""
@@ -1843,7 +1977,6 @@ def pending_posts(request):
     return render(request, 'the_gatehouse/pending_posts.html', context)
 
 
-@login_required
 @admin_required
 def approve_post(request, post_id):
     """Approve a pending post and move it to Development status."""
@@ -1863,7 +1996,7 @@ def approve_post(request, post_id):
             )
 
             # Send Discord notification
-            send_discord_message(
+            send_discord_message_task.delay(
                 f"Post approved: {post.title} ({post.get_component_display()}) by {request.user.profile.name}",
                 'report'
             )
@@ -1884,11 +2017,9 @@ def approve_post(request, post_id):
     return redirect('pending-posts')
 
 
-@login_required
 @admin_required
 def reject_post(request, post_id):
     """Reject a pending post and delete it."""
-    from the_keep.models import StatusChoices
 
     post = get_object_or_404(Post, id=post_id)
 
@@ -1906,7 +2037,7 @@ def reject_post(request, post_id):
             )
 
             # Send Discord notification
-            send_discord_message(
+            send_discord_message_task.delay(
                 f"Post rejected and deleted: {post_title} ({post_component}) by {request.user.profile.name}",
                 'report'
             )

@@ -1,0 +1,1261 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+{% block title %}Record Scores | {% endblock %}
+
+{% block styles %}
+<style>
+    /* Scorecard V2 Styles */
+    .scorecard-v2-container {
+        max-width: 900px;
+        margin: 0 auto;
+        --faction-color: {{ faction_color|default:"#6c757d" }};
+        {% if faction_color_rgb %}--faction-color-rgb: {{ faction_color_rgb }};{% endif %}
+    }
+
+    .scorecard-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 1rem;
+    }
+
+    .scorecard-title-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .scorecard-title {
+        margin: 0;
+        font-size: 1.5rem;
+    }
+
+    .header-buttons {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    /* Faction Selection Card */
+    .faction-select-card {
+        background: var(--bs-body-bg);
+        border: 2px solid var(--bs-border-color);
+        border-left: 5px solid var(--faction-color);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        {% if faction_color_rgb %}
+        background: linear-gradient(to right, rgba({{ faction_color_rgb }}, 0.08), var(--bs-body-bg) 30%);
+        {% endif %}
+    }
+
+    .faction-select-card h5 {
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .faction-display {
+        font-size: 1.25rem;
+        font-weight: bold;
+        padding: 0.5rem 1rem;
+        background: var(--bs-secondary-bg);
+        border-radius: 6px;
+        display: inline-block;
+    }
+
+    /* Seat Navigator */
+    .seat-navigator {
+        background: var(--bs-tertiary-bg);
+        border-radius: 8px;
+        text-align: center;
+    }
+
+    .seat-navigator-title {
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--bs-secondary-color);
+        margin-bottom: 0.75rem;
+    }
+
+    .seat-buttons {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .seat-btn {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: 2px solid var(--bs-border-color);
+        background: var(--bs-body-bg);
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+        color: inherit;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .seat-btn:hover {
+        border-color: var(--bs-primary);
+        color: var(--bs-primary);
+    }
+
+    .seat-btn.active {
+        background: var(--faction-color);
+        border-color: var(--faction-color);
+        color: white;
+    }
+
+
+    .seat-btn.active.has-scorecard::after {
+        color: white;
+    }
+
+    /* Score Target */
+    .score-target {
+        background: var(--bs-warning-bg-subtle);
+        border: 1px solid var(--bs-warning);
+        border-radius: 6px;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .score-target-label {
+        font-weight: bold;
+    }
+
+    .score-target-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--bs-warning-text-emphasis);
+    }
+
+    /* Info Card */
+    .info-card {
+        background: var(--bs-info-bg-subtle);
+        border: 1px solid var(--bs-info);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+    }
+
+    .info-card h6 {
+        margin-bottom: 0.5rem;
+        color: var(--bs-info-text-emphasis);
+    }
+
+    /* Game Group Input */
+    .game-group-section {
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+
+    .game-group-input {
+        max-width: 300px;
+        margin: 0 auto;
+    }
+
+    /* Delete column - fixed width */
+    .turn-column.delete-column {
+        flex: 0 0 40px;
+        min-width: 40px;
+    }
+
+    .delete-turn-btn {
+        color: var(--bs-danger);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+
+    .delete-turn-btn:hover {
+        background: var(--bs-danger-bg-subtle);
+    }
+
+    .delete-turn-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .add-turn-btn {
+        color: var(--bs-success);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background 0.2s;
+        font-size: 1.1rem;
+    }
+
+    .add-turn-btn:hover {
+        background: var(--bs-success-bg-subtle);
+    }
+
+    .add-turn-btn.hidden {
+        display: none;
+    }
+
+    /* Grand total styling */
+    .grand-total-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 5px;
+        margin-top: 10px;
+        border-top: 2px solid var(--bs-border-color);
+    }
+
+    .grand-total-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .grand-total-display {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: bold;
+    }
+
+    .grand-total {
+        font-size: 1.25rem;
+        color: var(--bs-success);
+    }
+
+    .grand-total.mismatch {
+        color: var(--bs-danger);
+    }
+
+    /* Description */
+    .description-section {
+        margin-bottom: 1rem;
+    }
+
+    .description-section textarea {
+        width: 100%;
+        min-height: 60px;
+    }
+
+    /* Form Actions - Reorganized Layout */
+    .form-actions {
+        display: flex;
+        padding-top: 1rem;
+        border-top: 1px solid var(--bs-border-color);
+        position: relative;
+        min-height: 50px;
+        align-items: center;
+    }
+
+    .action-group {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .action-group-main {
+        /* Save/Cancel/Delete buttons - centered absolutely */
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        justify-content: center;
+        z-index: 1;
+    }
+
+    .action-group-navigation {
+        /* Navigation buttons - on sides */
+        display: flex;
+        width: 100%;
+        justify-content: space-between;
+        z-index: 2;
+        pointer-events: none;
+    }
+
+    .action-group-navigation button {
+        pointer-events: auto;
+    }
+
+    @media (max-width: 992px) {
+        .form-actions {
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .action-group-main {
+            position: static;
+            transform: none;
+            order: 2;
+            justify-content: center;
+        }
+
+        .action-group-navigation {
+            order: 1;
+            pointer-events: auto;
+        }
+    }
+
+    /* Add Seat Card */
+    .add-seat-card {
+        background: linear-gradient(135deg, var(--bs-primary-bg-subtle), var(--bs-info-bg-subtle));
+        border: 2px dashed var(--bs-primary);
+        border-radius: 8px;
+        padding: 0.5rem;
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scorecard-v2-container">
+    <!-- Header -->
+    <div class="scorecard-header">
+        <div class="scorecard-title-group">
+            {% if game %}
+            <a href="{{ game.get_absolute_url }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 
+                <span class="ms-auto d-none d-md-inline">
+                {% trans 'Back to Game' %}
+                </span>
+            </a>
+            {% endif %}
+            <h1 class="scorecard-title">
+                {% if object.id %}
+                    {% trans 'Update Scorecard' %}
+                {% else %}
+                    {% trans 'Record Scorecard' %}
+                {% endif %}
+            </h1>
+        </div>
+        <div class="header-buttons">
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#collapseHelp" aria-expanded="false">
+                <i class="bi bi-question-circle"></i> {% trans 'Help' %}
+            </button>
+            {% if generic_view %}
+                <button class="btn btn-outline-warning btn-sm" id="toggle-detail" value="disabled" type="button">
+                    <i class="bi bi-list-columns"></i> {% trans 'Detailed' %}
+                </button>
+            {% else %}
+                <button class="btn btn-outline-warning btn-sm" id="toggle-detail" value="enabled" type="button">
+                    <i class="bi bi-list"></i> {% trans 'Simplify' %}
+                </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Help Card (Collapsed) -->
+    <div class="collapse" id="collapseHelp">
+        <div class="info-card">
+            <h6><i class="bi bi-info-circle"></i> {% trans 'How to Record Scores' %}</h6>
+            <ul class="mb-0">
+                <li>{% trans 'Record turn-by-turn points for each faction to track scoring pace.' %}</li>
+                <li>{% trans 'Use "Detailed" to break down points by category (Faction, Crafting, Battle, Other).' %}</li>
+                <li>{% trans 'Use "Game Nickname" to group multiple scorecards from the same game for easy navigation.' %}</li>
+                <li>{% trans 'Click "Play Dominance" if dominance was played during the game.' %}</li>
+                <li>You can delete any turn by clicking <i class="bi bi-trash"></i> or <i class="bi bi-x-circle ms-1"></i>.</li>
+                <li>You can add a turn by clicking <i class="bi bi-plus-circle"></i>.</li>
+            </ul>
+        </div>
+    </div>
+
+    <form method="POST" id="scorecard-form">
+        {% csrf_token %}
+        <div class="hidden">{{ formset.management_form }}</div>
+
+        <!-- Faction Selection -->
+        <div class="faction-select-card">
+            {% if faction_obj %}
+                <div class="d-flex">
+                    <div class="article-img-container">
+                        <img class="article-img" src="{% if faction_obj.picture %}{{ faction_obj.picture.url }}{% else %}{{ faction_obj.designer.image.url }}{% endif %}">
+                    </div>
+                    <div class='d-flex flex-nowrap'>
+                        <h1 class='root-title' {% if faction_color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {{ faction_color }};"{% endif %}>{{ faction_obj }}</h1>
+                    </div>
+                </div>
+                {% if effort.player %}
+                <div class='mt-2 ms-4'>   
+                    <img src="{{ effort.player.image.url }}" alt="" class="md-avatar-icon">
+                    {{ effort.player.name }}
+                </div>
+                {% endif %}
+                <div class="hidden">{{ form.faction }}</div>
+            {% else %}
+                <h5 class='root-title'>
+                    {% trans 'Faction' %}
+                </h5>
+                <div class="form-group">
+                    {{ form.faction }}
+                    <small class="text-muted d-block mt-1">
+                        {% trans 'Select the faction you want to record scores for' %}
+                    </small>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Game Group -->
+        {% if not all_game_efforts %}
+            {% if object.game_group and next_scorecard %}
+                
+                {% with object.game_group as game_group %}
+                <div class="game-group-section">
+                    <small class="text-muted">{% trans 'Game Nickname' %}: <strong>{{ object.game_group }}</strong></small>
+                    {% if object.game_group %}
+                    <small>
+                    <i class="bi bi-question-circle text-muted"
+                       data-bs-toggle="tooltip"
+                       data-bs-placement="right"
+                       title='{% blocktrans %}
+                        Record a new scorecard with the nickname "{{ game_group }}" if you would like to add more seats.
+                        {% endblocktrans %}
+                        '></i>
+                    </small>    
+                    {% endif %}
+                    <div class="hidden">{{ form.game_group }}</div>
+                </div>
+                {% endwith %}
+            {% else %}
+                
+                <div class="row">
+                    <div class="col-md-6 d-flex align-items-center">
+                        <div class="game-group-section w-100">
+                            <label class="form-label" for="{{ form.game_group.id_for_label }}">
+                                <i class="bi bi-collection"></i> {% trans 'Game Nickname' %}
+                                <small class="text-muted">({% trans 'Group multiple scorecards together' %})</small>
+                            </label>
+                            <input
+                                type="text"
+                                name="{{ form.game_group.name }}"
+                                id="{{ form.game_group.id_for_label }}"
+                                value="{% if game_group %}{{ game_group }}{% elif object.game_group %}{{ object.game_group }}{% endif %}"
+                                class="form-control game-group-input"
+                                placeholder="{% trans 'e.g., Monday Night Root' %}">
+                        </div>
+                    </div>
+                    <div class="col-md-6 d-flex align-items-center">
+                        <!-- Add Seat Prompt (for ungrouped scorecards) -->
+                        {% if not object.game_group or not next_scorecard %}
+                            <div class="add-seat-card w-100">
+                                <div>
+                                    <i class="bi bi-people"></i> {% trans 'Recording scores for multiple players in the same game?' %}
+                                </div>
+                                <button type="submit" class="btn btn-sm btn-primary add-seat-btn" name="add_player" value="true" id="add-seat-btn">
+                                    <i class="bi bi-plus-lg"></i> {% trans 'Save and Add Next Seat' %}
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
+        {% else %}
+            {% if object.game_group %}
+                <div class="game-group-section">
+                    <small class="text-muted">{% trans 'Game Nickname' %}: <strong>{{ object.game_group }}</strong></small>
+                </div>
+            {% endif %}
+            <div class="hidden">{{ form.game_group }}</div>
+        {% endif %}
+
+        <!-- Seat Navigator (for games with efforts) -->
+        {% if all_game_efforts %}
+        <div class="seat-navigator mb-2">
+            <div class="seat-navigator-title">
+                <i class="bi bi-people"></i> {% trans 'Seats' %}
+            </div>
+            <div class="seat-buttons">
+                {% for e in all_game_efforts %}
+                    {% if e.scorecard %}
+                        <button type="submit"
+                           class="seat-btn {% if e.is_current %}active{% endif %} has-scorecard"
+                           name="goto_scorecard" value="{{ e.scorecard.id }}"
+                           {% if e.is_current and e.effort.faction.color %}style="--faction-color: {{ e.effort.faction.color }};"{% endif %}
+                           title="{{ e.effort.player.name }} - {{ e.effort.faction }}">
+                           {% if not e.is_current %}
+                           <img src="{{ e.image_url }}" alt="League Icon" class='faction-icon'>
+                           {% endif %} 
+                           <span>{{ e.effort.faction }}</span>
+                        </button>
+                    {% else %}
+                        <button type="submit"
+                           class="seat-btn {% if e.is_current %}active{% endif %}"
+                           name="goto_effort" value="{{ e.effort.id }}"
+                           {% if e.is_current and e.effort.faction.color %}style="--faction-color: {{ e.effort.faction.color }};"{% endif %}
+                           title="{{ e.effort.player.name }} - {{ e.effort.faction }}">
+                           {% if not e.is_current %}
+                           <img src="{{ e.image_url }}" alt="League Icon" class='faction-icon'>
+                           {% endif %}  
+                           <span>{{ e.effort.faction }}</span>
+                        </button>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if message %}
+            <div class="alert alert-warning" role="alert">
+                {{ message }}
+            </div>
+        {% endif %}
+
+        <!-- Turns Table (Flexbox) -->
+        <div id="form-turn-list">
+            <div class="turn-header">
+                <div class="turn-column delete-column"></div>
+                <div class="turn-column">{% trans 'Turn' %}</div>
+                <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Faction Points' %}</div>
+                <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Crafting Points' %}</div>
+                <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Battle Points' %}</div>
+                <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Other Points' %}</div>
+                <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{% trans 'Total Points' %}</div>
+                <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Points' %}</div>
+                <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{% trans 'Total Score' %}</div>
+                <div class="turn-column dom-column hidden" id="id_dominance-column">
+                    <img class="lg-faction-icon"
+                        src="{% static 'images/tags/' %}Dominance_Tag.png"
+                        alt="Dominance">
+                </div>
+            </div>
+
+            {% for form in formset %}
+                <div id="form-{{ forloop.counter0 }}" class="turn-form active-form">
+                    <div class="turn-column delete-column">
+                        {% if form.instance.id %}
+                        <button type="button" class="delete-turn-btn" data-turn-id="{{ form.instance.id }}" title="{% trans 'Delete this turn' %}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% else %}
+                        <button type="button" class="delete-turn-btn remove-unsaved-turn" title="{% trans 'Remove this turn' %}">
+                            <i class="bi bi-x-circle"></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                    <div class="turn-column">
+                        {{ forloop.counter0|add:1 }}
+                        <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}"
+                        id="id_form-{{ forloop.counter0 }}-turn_number"/>
+                        {% if form.instance.id %}
+                            <input type="hidden" name="form-{{ forloop.counter0 }}-id" value="{{ form.instance.id }}"
+                            id="id_form-{{ forloop.counter0 }}-id"/>
+                        {% endif %}
+
+                    </div>
+                    <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ form.faction_points }}</div>
+                    <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ form.crafting_points }}</div>
+                    <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ form.battle_points }}</div>
+                    <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ form.other_points }}</div>
+                    <div class="turn-column total-points detail-column{% if generic_view %} hidden{% endif %}" id="total-points-{{ forloop.counter0 }}">0</div>
+                    <div class='hidden'>
+                        {{form.total_points}}
+                    </div>
+                    <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{{ form.generic_points }}</div>
+                    <div class="turn-column running-total generic-column{% if not generic_view %} hidden{% endif %}" id="running-total-{{ forloop.counter0 }}">0</div>
+                    <div class="turn-column dom-column hidden">{{ form.dominance }}</div>
+                </div>
+            {% endfor %}
+
+            <div id="total-row" class="turn-form total-row">
+                <div class="turn-column delete-column">
+                    <button type="button" class="add-turn-btn" id="add-more" title="{% trans 'Add Turn' %}">
+                        <i class="bi bi-plus-circle"></i>
+                    </button>
+                </div>
+                <div id='total-label' class="turn-column">{% if not generic_view %}
+                        {% trans 'Totals' %}
+                    {% else %}
+                        {% trans 'Total' %}
+                    {% endif %}</div>
+                <div id="total-faction" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
+                <div id="total-crafting" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
+                <div id="total-battle" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
+                <div id="total-other" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
+                <div id="total-total" class="turn-column detail-column{% if generic_view %} hidden{% endif %}">0</div>
+                <div id="total-generic" class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">0</div>
+                <div id="total-score-generic" class="turn-column generic-column{% if not generic_view %} hidden{% endif %}"></div>
+                <div id="total-dominance" class="turn-column dom-column hidden"></div>
+            </div>
+
+        </div>
+
+        <div id="empty-form" class="hidden">
+            <div class="turn-column delete-column">
+                <button type="button" class="delete-turn-btn remove-unsaved-turn" title="{% trans 'Remove this turn' %}">
+                    <i class="bi bi-x-circle"></i>
+                </button>
+            </div>
+            <div class="turn-column">
+                <input type="hidden" name="form-__prefix__-turn_number" value="0"
+                        id="id_form-__prefix__-turn_number"/>
+            </div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ formset.empty_form.faction_points }}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ formset.empty_form.crafting_points }}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ formset.empty_form.battle_points }}</div>
+            <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ formset.empty_form.other_points }}</div>
+            <div class="turn-column total-points detail-column{% if generic_view %} hidden{% endif %}" id="total-points-__prefix__">0</div>
+            <div class='hidden'>
+                {{formset.empty_form.total_points}}
+            </div>
+            <div class="turn-column generic-column{% if not generic_view %} hidden{% endif %}">{{ formset.empty_form.generic_points }}</div>
+            <div class="turn-column running-total generic-column{% if not generic_view %} hidden{% endif %}" id="running-total-__prefix__">0</div>
+            <div class="turn-column dom-column hidden">{{ formset.empty_form.dominance }}</div>
+        </div>
+
+        <!-- Grand Total Row with Actions -->
+        <div class="grand-total-row">
+            <div class="grand-total-actions">
+                <button class="btn btn-warning btn-sm" id="toggle-dominance" type="button">{% trans 'Play Dominance' %}</button>
+            </div>
+            <div class="grand-total-display">
+                <span>{% trans 'Grand Total' %}:</span>
+                <span class="grand-total" id="grand-total">0</span>
+                {% if score %}<span class="text-muted"> / {{ score }}</span>{% endif %}
+            </div>
+        </div>
+
+        <!-- Description -->
+        <div class="description-section">
+            <label class="form-label" for="{{ form.description.id_for_label }}">
+                <i class="bi bi-pencil"></i> {% trans 'Notes' %} <small class="text-muted">({% trans 'optional' %})</small>
+            </label>
+            {{ form.description }}
+        </div>
+
+        <!-- Hidden total fields -->
+        <div class="hidden">
+            {{ form.total_faction_points }}
+            {{ form.total_crafting_points }}
+            {{ form.total_battle_points }}
+            {{ form.total_other_points }}
+            {{ form.total_generic_points }}
+            {{ form.total_points }}
+        </div>
+
+
+
+        <!-- Form Actions -->
+        <div class="form-actions mb-2">
+            <!-- Navigation Buttons (centered with space between) -->
+            <div class="action-group action-group-navigation">
+                {% if previous_effort %}
+                <button type="submit" class="btn btn-outline-primary" name="previous-effort" value="true">
+                    <i class="bi bi-arrow-left"></i> {{ previous_effort.faction }}
+                </button>
+                {% elif previous_scorecard %}
+                <button type="submit" class="btn btn-outline-primary" name="previous" value="true">
+                    <i class="bi bi-arrow-left"></i> {{ previous_scorecard.faction }}
+                </button>
+                {% endif %}
+
+                {% if next_effort %}
+                <button type="submit" class="btn btn-outline-primary" name="next-effort" value="true">
+                    {{ next_effort.faction }} <i class="bi bi-arrow-right"></i>
+                </button>
+                {% elif next_scorecard %}
+                <button type="submit" class="btn btn-outline-primary" name="next" value="true">
+                    {{ next_scorecard.faction }} <i class="bi bi-arrow-right"></i>
+                </button>
+                {% endif %}
+            </div>
+
+            <!-- Save/Cancel/Delete Buttons (centered) -->
+            <div class="action-group action-group-main">
+                <button class="btn btn-success" type="submit">
+                    <i class="bi bi-check-lg"></i> {% trans 'Save' %}
+                </button>
+
+                {% if object.id %}
+                <a class="btn btn-outline-secondary" href="{% url 'detail-scorecard' object.id %}">
+                    {% trans 'Cancel' %}
+                </a>
+                <a class="btn btn-outline-danger" href="{% url 'delete-scorecard' object.id %}">
+                    <i class="bi bi-trash"></i> {% trans 'Delete' %}
+                </a>
+                {% elif previous_scorecard and not object.id %}
+                <a class="btn btn-outline-secondary" href="{% url 'update-scorecard' previous_scorecard.id %}">{% trans 'Cancel' %}</a>
+                {% elif game %}
+                <a class="btn btn-outline-secondary" href="{{ game.get_absolute_url }}">{% trans 'Cancel' %}</a>
+                {% else %}
+                <a class="btn btn-outline-secondary" href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock content %}
+
+
+
+{% block scripts %}
+<script>
+$(document).ready(function () {
+    $('#id_faction').select2();
+
+    // Configuration
+    const MAX_TURNS = 30;
+    const effort_score = {{ score|default:"null" }};
+    let nextFormIndex = parseInt($('#id_form-TOTAL_FORMS').val(), 10);
+    const startingIndex = nextFormIndex;
+    const addFormEl = document.getElementById('add-more');
+    const formTurnList = document.getElementById("form-turn-list");
+    const isExistingScorecard = {% if object.id %}true{% else %}false{% endif %};
+    const hasEffort = {{ effort|yesno:"true,false" }};
+
+    show_hide_remove();
+    setInitialDominance();
+    calculateAllTotals();
+
+    // Click event handlers
+    document.addEventListener('click', (event) => {
+        if (event.target.closest('#add-more')) {
+            add_new_form(event);
+        }
+        if (event.target.closest('#toggle-dominance')) {
+            toggle_dominance(event);
+        }
+        if (event.target.closest('#toggle-detail')) {
+            toggle_detail(event);
+        }
+    });
+
+    // Delegate events for delete buttons
+    $('#form-turn-list').on('click', '.remove-unsaved-turn', function(event) {
+        event.preventDefault();
+        removeUnsavedTurn($(this).closest('.turn-form'));
+    });
+
+    $('#form-turn-list').on('click', '.delete-turn-btn[data-turn-id]', function(event) {
+        event.preventDefault();
+        deleteSavedTurn($(this).data('turn-id'), $(this).closest('.turn-form'));
+    });
+
+
+    function removeUnsavedTurn($row) {
+        if (nextFormIndex <= 1) {
+            return; // Keep at least one turn
+        }
+
+        $row.remove();
+        nextFormIndex--;
+        $('#id_form-TOTAL_FORMS').val(nextFormIndex);
+
+        renumberTurns();
+        calculateAllTotals();
+        show_hide_remove();
+    }
+
+    function deleteSavedTurn(turnId, $row) {
+        if (!confirm('{% trans "Are you sure you want to delete this turn? This cannot be undone." %}')) {
+            return;
+        }
+
+        $.ajax({
+            url: window.location.href + '?turn_id=' + turnId,
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val()
+            },
+            success: function() {
+                $row.fadeOut(300, function() {
+                    $(this).remove();
+                    nextFormIndex--;
+                    $('#id_form-TOTAL_FORMS').val(nextFormIndex);
+                    renumberTurns();
+                    calculateAllTotals();
+                    show_hide_remove();
+                });
+            },
+            error: function() {
+                alert('{% trans "Failed to delete turn. Please try again." %}');
+            }
+        });
+    }
+
+    function renumberTurns() {
+        $('#form-turn-list .turn-form.active-form').each(function(index) {
+            const $row = $(this);
+            const turnNum = index + 1;
+
+            $row.attr('id', 'form-' + index);
+
+            // Update the displayed turn number (second column now, after delete column)
+            const $turnCol = $row.find('.turn-column').eq(1);
+            const $hiddenInput = $turnCol.find('input[name$="-turn_number"]');
+            const $turnDisplay = $turnCol.find('.turn-number-display');
+
+            // Check if there's a span (dynamically added turns) or just text (initial turns)
+            if ($turnDisplay.length) {
+                $turnDisplay.text(turnNum);
+            } else {
+                // For initial turns, update the text node
+                $turnCol.contents().filter(function() {
+                    return this.nodeType === 3 && this.textContent.trim() !== ''; // Non-empty text nodes
+                }).first().replaceWith(turnNum + '\n                    ');
+            }
+
+            // Update the hidden turn_number input value
+            $hiddenInput.val(turnNum);
+
+            // Update all field names and IDs
+            $row.find('input, select').each(function() {
+                const name = $(this).attr('name');
+                const id = $(this).attr('id');
+                if (name) {
+                    $(this).attr('name', name.replace(/form-\d+-/, 'form-' + index + '-'));
+                }
+                if (id) {
+                    $(this).attr('id', id.replace(/form-\d+-/, 'form-' + index + '-'));
+                }
+            });
+
+            // Update total and running total IDs
+            $row.find('.total-points').attr('id', 'total-points-' + index);
+            $row.find('.running-total').attr('id', 'running-total-' + index);
+        });
+    }
+
+    function remove_last_turn(event){
+        if (event) {
+            event.preventDefault();
+        }
+        const formCopyTarget = document.getElementById("form-turn-list");
+        const lastChild = formCopyTarget.lastElementChild;
+        const secondToLastChild = formCopyTarget.children[formCopyTarget.children.length - 2];
+        const secondChild = formCopyTarget.children[1];
+
+        if (secondToLastChild && secondToLastChild !== secondChild && nextFormIndex > startingIndex) {
+            formCopyTarget.removeChild(secondToLastChild);
+            const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+            totalNewForms.value = parseInt(totalNewForms.value, 10) - 1;
+            nextFormIndex--;
+            show_hide_remove();
+        } else {
+            console.log("Unable to remove turn. Contact admin or delete and start over.");
+        }
+
+        calculateAllTotals();
+    }
+
+
+    function add_new_form(event) {
+        if (nextFormIndex < MAX_TURNS){
+            if (event) {
+                event.preventDefault();
+            }
+
+            const totalNewForms = document.getElementById('id_form-TOTAL_FORMS');
+            const formCopyTarget = document.getElementById("form-turn-list");
+            const lastChild = formCopyTarget.lastElementChild;
+            const domButton = document.getElementById("toggle-dominance");
+
+            // Clone the empty form
+            const copyEmptyFormEl = document.getElementById('empty-form').cloneNode(true);
+
+            // Remove the hidden class to make it visible
+            copyEmptyFormEl.classList.remove('hidden');
+
+            // Update the class and ID of the cloned form
+            copyEmptyFormEl.setAttribute('class', 'turn-form active-form');
+            copyEmptyFormEl.setAttribute('id', `form-${nextFormIndex}`);
+
+            // Replace the __prefix__ in all form field names with the correct index
+            const regex = new RegExp('__prefix__', 'g');
+            copyEmptyFormEl.innerHTML = copyEmptyFormEl.innerHTML.replace(regex, nextFormIndex);
+
+            // Update the value of the turn_number field for the cloned form
+            const turnNumberInput = copyEmptyFormEl.querySelector('input[name="form-' + nextFormIndex + '-turn_number"]');
+            if (turnNumberInput) {
+                turnNumberInput.value = nextFormIndex + 1;
+
+                // Create a new span element to display the turn number above the input
+                const turnNumberDisplay = document.createElement('span');
+                turnNumberDisplay.classList.add('turn-number-display');
+                turnNumberDisplay.textContent = `${nextFormIndex + 1}`;
+
+                // Insert the turn number display above the turn_number input
+                turnNumberInput.parentNode.insertBefore(turnNumberDisplay, turnNumberInput);
+            }
+
+            const dominanceInput = copyEmptyFormEl.querySelector('input[name="form-' + nextFormIndex + '-dominance"]');
+            if (dominanceInput && domButton.value === 'enabled') {
+                dominanceInput.checked = true;
+            }
+
+            // Correctly update the form field names to match Django's expectations
+            $(copyEmptyFormEl).find('input, select, span').each(function() {
+                var name = $(this).attr('name');
+                if (name) {
+                    $(this).attr('name', name.replace('__prefix__', nextFormIndex));
+                }
+                var id = $(this).attr('id');
+                if (id) {
+                    $(this).attr('id', id.replace('__prefix__', nextFormIndex));
+                }
+            });
+
+            // Append the cloned form to the target form list (before total row)
+            formCopyTarget.insertBefore(copyEmptyFormEl, lastChild);
+
+            // Increment the form count
+            totalNewForms.value = nextFormIndex + 1;
+            nextFormIndex++;
+
+            show_hide_remove();
+            calculateAllTotals();
+        }
+    }
+
+
+    function show_hide_remove(){
+        // Hide add button if at max turns
+        if (nextFormIndex > 29){
+            addFormEl.classList.add('hidden');
+        } else {
+            addFormEl.classList.remove('hidden');
+        }
+
+        // Hide delete buttons if there's only one turn
+        const activeForms = document.querySelectorAll('.turn-form.active-form');
+        const deleteButtons = document.querySelectorAll('.delete-turn-btn');
+
+        if (activeForms.length <= 1) {
+            deleteButtons.forEach(btn => btn.style.display = 'none');
+        } else {
+            deleteButtons.forEach(btn => btn.style.display = '');
+        }
+    }
+
+    // Initial calculation
+    const turnRows = document.querySelectorAll('[id$="-turn_number"]');
+    turnRows.forEach((turnRow, index) => {
+        if (index < turnRows.length - 1) {
+            calculateTotalPoints(turnRow);
+        }
+    });
+
+    // Add event listener for input changes
+    formTurnList.addEventListener("input", function(event) {
+        if (event.target && event.target.matches(".turn-column input")) {
+            calculateTotalPoints(event.target);
+        }
+        if (event.target && event.target.matches(".dom-column input")) {
+            selectDominance(event.target);
+        }
+    });
+
+    function calculateTotalPoints(inputElement) {
+        const turnForm = inputElement.closest('.turn-form');
+        const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
+        const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
+        const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
+        const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
+        const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
+        const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
+
+        const totalPointsElement = turnForm.querySelector('.total-points');
+        const totalPointsField = turnForm.querySelector('[name*="total_points"]');
+
+        totalPointsField.value = totalPoints;
+        if (totalPointsElement) {
+            totalPointsElement.textContent = totalPoints;
+        }
+
+        updateOverallTotals();
+    }
+
+    function calculateAllTotals() {
+        let totalFaction = 0;
+        let totalCrafting = 0;
+        let totalBattle = 0;
+        let totalOther = 0;
+        let totalGeneric = 0;
+        let grandTotal = 0;
+
+        const turnForms = formTurnList.querySelectorAll('.turn-form.active-form');
+        turnForms.forEach(turnForm => {
+            const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
+            const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
+            const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
+            const otherPointsField = turnForm.querySelector('[name*="other_points"]');
+            const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
+            const totalPointsElement = turnForm.querySelector('.total-points');
+            const runningTotalElement = turnForm.querySelector('.running-total');
+
+            if (factionPointsField && craftingPointsField && battlePointsField && otherPointsField && genericPointsField) {
+                const factionPoints = parseFloat(factionPointsField.value) || 0;
+                const craftingPoints = parseFloat(craftingPointsField.value) || 0;
+                const battlePoints = parseFloat(battlePointsField.value) || 0;
+                const otherPoints = parseFloat(otherPointsField.value) || 0;
+                const genericPoints = parseFloat(genericPointsField.value) || 0;
+                const turnTotal = factionPoints + craftingPoints + battlePoints + otherPoints + genericPoints;
+
+                totalFaction += factionPoints;
+                totalCrafting += craftingPoints;
+                totalBattle += battlePoints;
+                totalOther += otherPoints;
+                totalGeneric += genericPoints;
+                grandTotal += turnTotal;
+
+                // Update turn total display
+                if (totalPointsElement) {
+                    totalPointsElement.textContent = turnTotal;
+                }
+
+                // Update hidden total_points field
+                const totalPointsField = turnForm.querySelector('[name*="total_points"]');
+                if (totalPointsField) {
+                    totalPointsField.value = turnTotal;
+                }
+            }
+
+            if (runningTotalElement) {
+                runningTotalElement.textContent = grandTotal;
+            }
+        });
+
+        // Update totals row
+        document.getElementById("total-faction").textContent = totalFaction;
+        document.getElementById("total-crafting").textContent = totalCrafting;
+        document.getElementById("total-battle").textContent = totalBattle;
+        document.getElementById("total-other").textContent = totalOther;
+        document.getElementById("total-generic").textContent = totalGeneric;
+
+        const scoreDisplay = (effort_score !== null) ? `${grandTotal} / ${effort_score}` : `${grandTotal}`;
+        document.getElementById("total-total").textContent = scoreDisplay;
+
+        // Update grand total display
+        const grandTotalEl = document.getElementById("grand-total");
+        grandTotalEl.textContent = grandTotal;
+
+        // Check mismatch
+        if (effort_score !== null) {
+            if (grandTotal === effort_score) {
+                grandTotalEl.classList.remove('mismatch');
+            } else {
+                grandTotalEl.classList.add('mismatch');
+            }
+        }
+
+        // Update hidden form fields
+        document.getElementById("id_total_faction_points").value = totalFaction;
+        document.getElementById("id_total_crafting_points").value = totalCrafting;
+        document.getElementById("id_total_battle_points").value = totalBattle;
+        document.getElementById("id_total_other_points").value = totalOther;
+        document.getElementById("id_total_generic_points").value = totalGeneric;
+        document.getElementById("id_total_points").value = grandTotal;
+    }
+
+    function updateOverallTotals() {
+        calculateAllTotals();
+    }
+
+
+    function setInitialDominance(){
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
+        const domColumns = document.querySelectorAll('.dom-column');
+        const domButton = document.getElementById("toggle-dominance");
+        let initialDom = false;
+
+        checkboxes.forEach(function(checkbox) {
+            if (checkbox.checked) {
+                initialDom = true;
+            }
+        });
+
+        if (initialDom){
+            domColumns.forEach(function(element) {
+                element.classList.remove('hidden');
+            });
+            domButton.innerText = "Undo Dominance";
+            domButton.value = "enabled";
+        } else {
+            domColumns.forEach(function(element) {
+                element.classList.add('hidden');
+            });
+        }
+    }
+
+    function toggle_dominance(event){
+        if (event) {
+            event.preventDefault();
+        }
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
+        const dominanceColumn = document.getElementById("id_dominance-column");
+        const domColumns = document.querySelectorAll('.dom-column');
+
+        if (dominanceColumn.classList.contains('hidden')) {
+            domColumns.forEach(function(element) {
+                element.classList.remove('hidden');
+            });
+            const lastCheckbox = checkboxes[checkboxes.length - 2];
+            if (lastCheckbox) {
+                lastCheckbox.checked = true;
+            }
+            event.target.innerText = "Undo Dominance";
+            event.target.value = "enabled";
+        } else {
+            domColumns.forEach(function(element) {
+                element.classList.add('hidden');
+            });
+            checkboxes.forEach(function(checkbox) {
+                checkbox.checked = false;
+            });
+            event.target.innerText = "Play Dominance";
+            event.target.value = "disabled";
+        }
+    }
+
+    function toggle_detail(event){
+        if (event) {
+            event.preventDefault();
+        }
+
+        const detailColumns = document.querySelectorAll('.detail-column');
+        const genericColumns = document.querySelectorAll('.generic-column');
+        const totalLabel = document.getElementById("total-label");
+        const turnForms = document.querySelectorAll('.active-form');
+
+        if (event.target.value === "disabled"){
+            event.target.innerHTML = '<i class="bi bi-list"></i> {% trans "Simplify" %}';
+            totalLabel.innerText = "Totals";
+            event.target.value = "enabled";
+            detailColumns.forEach(function(element) {
+                element.classList.remove('hidden');
+            });
+            genericColumns.forEach(function(element) {
+                element.classList.add('hidden');
+            });
+
+            turnForms.forEach(turnForm => {
+                const genericPoints = parseFloat(turnForm.querySelector('[name*="generic_points"]').value) || 0;
+
+                const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
+                const otherPointsField = turnForm.querySelector('[name*="other_points"]');
+
+                genericPointsField.value = 0;
+                otherPointsField.value = genericPoints;
+            });
+
+        } else {
+            event.target.innerHTML = '<i class="bi bi-list-columns"></i> {% trans "Detailed" %}';
+            totalLabel.innerText = "Total";
+            event.target.value = "disabled";
+            detailColumns.forEach(function(element) {
+                element.classList.add('hidden');
+            });
+            genericColumns.forEach(function(element) {
+                element.classList.remove('hidden');
+            });
+
+            turnForms.forEach(turnForm => {
+                const factionPoints = parseFloat(turnForm.querySelector('[name*="faction_points"]').value) || 0;
+                const craftingPoints = parseFloat(turnForm.querySelector('[name*="crafting_points"]').value) || 0;
+                const battlePoints = parseFloat(turnForm.querySelector('[name*="battle_points"]').value) || 0;
+                const otherPoints = parseFloat(turnForm.querySelector('[name*="other_points"]').value) || 0;
+
+                const totalPoints = factionPoints + craftingPoints + battlePoints + otherPoints;
+
+                const factionPointsField = turnForm.querySelector('[name*="faction_points"]');
+                const craftingPointsField = turnForm.querySelector('[name*="crafting_points"]');
+                const battlePointsField = turnForm.querySelector('[name*="battle_points"]');
+                const otherPointsField = turnForm.querySelector('[name*="other_points"]');
+                const genericPointsField = turnForm.querySelector('[name*="generic_points"]');
+
+                genericPointsField.value = totalPoints;
+                factionPointsField.value = 0;
+                craftingPointsField.value = 0;
+                battlePointsField.value = 0;
+                otherPointsField.value = 0;
+            });
+        }
+        calculateAllTotals();
+    }
+
+
+    function selectDominance(inputElement){
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][id^="id_form-"]');
+        const currentId = inputElement.id;
+        const currentNumber = parseInt(currentId.split('-')[1]);
+        const emptyFormDom = document.getElementById("id_form-__prefix__-dominance");
+
+        if(inputElement.checked){
+            checkboxes.forEach(function(checkbox) {
+                const checkboxId = checkbox.id;
+                const checkboxNumber = parseInt(checkboxId.split('-')[1]);
+
+                if (checkboxNumber > currentNumber && checkbox.checked === false) {
+                    checkbox.checked = true;
+                }
+            });
+            emptyFormDom.checked = true;
+        } else {
+            checkboxes.forEach(function(checkbox) {
+                const checkboxId = checkbox.id;
+                const checkboxNumber = parseInt(checkboxId.split('-')[1]);
+
+                if (checkboxNumber < currentNumber && checkbox.checked === true) {
+                    checkbox.checked = false;
+                }
+            });
+        }
+    }
+
+    // Validate game nickname when "Save and Add Next Seat" is clicked
+    $('#add-seat-btn').on('click', function(e) {
+        const gameGroupField = document.getElementById('id_game_group');
+        const gameGroup = gameGroupField ? gameGroupField.value.trim() : '';
+
+        if (!gameGroup) {
+            e.preventDefault();
+
+            // Add validation error styling
+            gameGroupField.classList.add('is-invalid');
+
+            // Create or update error message
+            let errorDiv = gameGroupField.parentElement.querySelector('.invalid-feedback');
+            if (!errorDiv) {
+                errorDiv = document.createElement('div');
+                errorDiv.className = 'invalid-feedback';
+                errorDiv.style.display = 'block';
+                gameGroupField.parentElement.appendChild(errorDiv);
+            }
+            errorDiv.textContent = '{% trans "Please enter a Game Nickname to group scorecards together." %}';
+
+            // Scroll to the field
+            gameGroupField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            gameGroupField.focus();
+
+            return false;
+        }
+    });
+
+    // Remove validation error when user starts typing
+    $('#id_game_group').on('input', function() {
+        this.classList.remove('is-invalid');
+        const errorDiv = this.parentElement.querySelector('.invalid-feedback');
+        if (errorDiv) {
+            errorDiv.remove();
+        }
+    });
+
+});
+</script>
+{% endblock %}

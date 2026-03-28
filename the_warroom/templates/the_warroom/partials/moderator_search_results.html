@@ -1,0 +1,21 @@
+{% if players %}
+<div class="list-group">
+    {% for player in players %}
+    <div class="list-group-item d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center">
+            {% if player.image %}
+            <img src="{{ player.image.url }}" class="md-avatar-icon me-2">
+            {% else %}
+            <i class="bi bi-person-circle me-2 text-muted" style="font-size: 1.5rem;"></i>
+            {% endif %}
+            <span>{{ player.display_name }}</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-success" onclick="addModerator({{ player.id }}, '{{ player.display_name|escapejs }}', '{% if player.image %}{{ player.image.url }}{% endif %}')">
+            <i class="bi bi-plus-circle"></i> Add
+        </button>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted mb-0">No players found.</p>
+{% endif %}

@@ -1,0 +1,289 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{% trans 'About Series' %} | {% endblock %}
+
+{% block styles %}
+<style>
+    .permissions-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    .permissions-table thead th {
+        background-color: var(--table-header-bg, #f8f9fa);
+        border-bottom: 2px solid var(--bs-border-color);
+        padding: 10px 12px;
+        text-align: center;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .permissions-table thead th:first-child {
+        text-align: left;
+    }
+    .permissions-table tbody td {
+        padding: 10px 12px;
+        text-align: center;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .permissions-table tbody td:first-child {
+        text-align: left;
+        font-weight: 500;
+    }
+    .permissions-table tbody tr:hover {
+        background-color: var(--table-hover-bg, rgba(0,0,0,0.02));
+    }
+    .perm-yes {
+        color: #198754;
+        font-weight: bold;
+    }
+    .perm-no {
+        color: #adb5bd;
+    }
+    .perm-limited {
+        color: #fd7e14;
+        font-size: 0.8rem;
+    }
+    .about-section {
+        margin-bottom: 2rem;
+    }
+    .about-section h5 {
+        margin-bottom: 1rem;
+    }
+
+    @media (max-width: 576px) {
+        .permissions-table {
+            font-size: 0.8rem;
+        }
+        .permissions-table thead th,
+        .permissions-table tbody td {
+            padding: 8px 6px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a></li>
+            <li class="breadcrumb-item active">{% trans 'About' %}</li>
+        </ol>
+    </nav>
+
+    <h2 class="root-title mb-4">{% trans 'About Series' %}</h2>
+
+    <!-- What is a Series -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'What is a Series?' %}</h5>
+            <p>
+                {% blocktrans %}
+                A Series is a way to organize and manage games on the Root Database. Whether you're organizing       
+                a competitive tournament or a recurring game group, a Series provides a
+                structure to track games, manage players, and display leaderboards.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                Each Series can be classified as a <strong>Tournament</strong>, <strong>League</strong>, or
+                <strong>Group</strong>. While the underlying system is the same, the classification helps players
+                understand what kind of experience and structure to expect.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Structure -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Structure' %}</h5>
+            <p>{% blocktrans %}A Series can be as simple or as complex (up to a point) as you want. Series are organized in a hierarchy:{% endblocktrans %}</p>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">{% trans 'Series' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    The top level. Contains all settings, players, and configuration for the entire event.
+                    Owned by a single organizer who can appoint moderators to help manage it.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Stage' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    An intermediate layer within a Series. Use stages to divide your event into phases.
+                    For example, a "Group Stage" followed by a "Playoffs" stage. 
+                    Each Stage can have a different subset players from the Series roster.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Round' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    The level within a stage where games are actually played. 
+                    Rounds can have brackets, player groupings, and their own game settings.
+                    If you need to randomize player matchups so that each player plays two games against random opponents this would take place in two different Rounds.
+                    {% endblocktrans %}
+                </dd>
+            </dl>
+            <p>{% blocktrans %}Stages and Rounds are optional. You can keep it simple and have a Series as one group of games without a structure, or you can add some structure and create multiple stages with scheduled matchups.{% endblocktrans %}</p>
+        </div>
+    </div>
+
+    <!-- Permissions Table -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Permissions' %}</h5>
+            <p class="text-muted mb-3">
+                {% blocktrans %}
+                Different actions are available depending on your role within a Series.
+                {% endblocktrans %}
+            </p>
+            <div class="table-responsive">
+                <table class="permissions-table">
+                    <thead>
+                        <tr>
+                            <th>{% trans 'Action' %}</th>
+                            <th>{% trans 'Owner' %}</th>
+                            <th>{% trans 'Moderators' %}</th>
+                            <th>{% trans 'Players' %}</th>
+                            <th>{% trans 'Logged In' %}</th>
+                            <th>{% trans 'Logged Out' %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Series Management -->
+                        <tr>
+                            <td colspan="6" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Series Management' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Create a Series' %}</td>
+                            <td>—</td>
+                            <td>—</td>
+                            <td>—</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Edit Series Settings' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Delete Series' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Add/Remove Moderators' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Add/Remove Players' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+
+                        <!-- Stage & Round Management -->
+                        <tr>
+                            <td>{% trans 'Create Stage' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Create Round' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Configure Brackets' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+                        <!-- Games -->
+                        <tr>
+                            <td colspan="6" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Games' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Record a Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Edit an Unsaved Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-limited">{% trans 'Own games' %}</span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Delete a Game' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+                        <!-- Viewing -->
+                        <tr>
+                            <td colspan="6" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Viewing' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Series' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Leaderboards' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -9,6 +9,9 @@ from .services.discordservice import send_discord_message, send_rich_discord_mes
 from .services.context_service import get_daily_user_summary
 from .utils import format_bulleted_list
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task
@@ -210,3 +213,27 @@ def daily_users():
         fields=summary['fields']
     )
 
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def send_rich_discord_message_task(*args, **kwargs):
+    try:
+        send_rich_discord_message(*args, **kwargs)
+    except Exception:
+        logger.exception("Discord webhook failed")
+        raise
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def send_discord_message_task(*args, **kwargs):
+    try:
+        send_discord_message(*args, **kwargs)
+    except Exception:
+        logger.exception("Discord webhook failed")
+        raise

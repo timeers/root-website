@@ -12,12 +12,12 @@
     </thead>
     <tbody class="effort-rows">
         {% for player in leaderboard_players %}
-        <tr data-href="{% url 'player-detail' player.slug %}" class="clickable-row">
+        <tr data-href="{{ player.leaderboard_link }}" class="clickable-row">
         {% comment %} <tr data-href="{{ player.url }}" class="clickable-row"> {% endcomment %}
             <td>{{ forloop.counter }}</td>
             <td>
 
-                    <img class="faction-icon" src="{{ player.image.url }}">
+                    <img class="avatar-icon" src="{{ player.image.url }}">
                     {% comment %} <img class="faction-icon" src="{{ player.image_url }}"> {% endcomment %}
                     {{ player.display_name }}
 

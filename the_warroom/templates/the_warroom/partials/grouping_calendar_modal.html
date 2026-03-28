@@ -1,0 +1,199 @@
+{% load i18n %}
+{# Availability Calendar Modal - single shared instance for groups and players #}
+
+<div class="modal fade" id="calendarModal" tabindex="-1" aria-labelledby="calendarModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title" id="calendarModalLabel">{% trans 'Availability' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="calendarModalBody">
+                <!-- Calendar rendered dynamically by JS -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var _groupCalendarData = _groupCalendarData || {};
+var _playerCalendarData = _playerCalendarData || {};
+
+function openCalendarModal(groupId) {
+    const data = _groupCalendarData[groupId];
+    if (!data) return;
+
+    const datasets = [];
+    if (data.overlap_hours && data.overlap_hours.length) {
+        datasets.push({hours: data.overlap_hours, label: 'Overlap Hours', color: '#4CAF50'});
+    }
+    if (data.all_hours && data.all_hours.length) {
+        datasets.push({hours: data.all_hours, label: 'All Hours', color: '#90CAF9'});
+    }
+
+    document.getElementById('calendarModalLabel').textContent = (data.name || 'Group') + ' — Availability';
+    _renderCalendarInModal(datasets);
+}
+
+function openPlayerCalendarModal(playerId) {
+    const data = _playerCalendarData[playerId];
+    if (!data) return;
+
+    const datasets = [];
+    if (data.hours && data.hours.length) {
+        datasets.push({hours: data.hours, label: data.name || 'Available', color: '#4CAF50'});
+    }
+
+    document.getElementById('calendarModalLabel').textContent = (data.name || 'Player') + ' — Availability';
+    _renderCalendarInModal(datasets);
+}
+
+function _renderCalendarInModal(rawDatasets) {
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    const body = document.getElementById('calendarModalBody');
+    body.innerHTML = '';
+
+    if (!rawDatasets.length || rawDatasets.every(d => !d.hours || !d.hours.length)) {
+        body.innerHTML = '<div class="text-muted text-center py-3">No availability data</div>';
+        const modal = new bootstrap.Modal(document.getElementById('calendarModal'));
+        modal.show();
+        return;
+    }
+
+    // Timezone offset
+    const localOffsetHours = -(new Date().getTimezoneOffset() / 60);
+
+    function getTimezoneAbbr() {
+        try {
+            const tz = Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+                .formatToParts(new Date())
+                .find(p => p.type === 'timeZoneName');
+            return tz ? tz.value : 'Local';
+        } catch(e) { return 'Local'; }
+    }
+    const tzAbbr = getTimezoneAbbr();
+
+    function shiftHours(hours, offset) {
+        return hours.map(h => ((h + offset) % 168 + 168) % 168);
+    }
+
+    const datasets = rawDatasets.map(d => ({
+        label: d.label || 'Hours',
+        color: d.color || '#4CAF50',
+        utcHours: new Set(d.hours || []),
+        localHours: new Set(shiftHours(d.hours || [], localOffsetHours))
+    }));
+
+    let showingUTC = false;
+
+    // Build DOM structure
+    const wrapper = document.createElement('div');
+    wrapper.className = 'availability-calendar';
+
+    const controls = document.createElement('div');
+    controls.className = 'd-flex justify-content-between align-items-center mb-1';
+
+    const tzLabel = document.createElement('small');
+    tzLabel.className = 'cal-tz-label text-muted';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'btn btn-outline-secondary btn-sm cal-toggle';
+
+    controls.appendChild(tzLabel);
+    controls.appendChild(toggleBtn);
+    wrapper.appendChild(controls);
+
+    const grid = document.createElement('div');
+    grid.className = 'cal-grid';
+    wrapper.appendChild(grid);
+
+    const legend = document.createElement('div');
+    legend.className = 'cal-legend';
+    wrapper.appendChild(legend);
+
+    body.appendChild(wrapper);
+
+    function render() {
+        grid.innerHTML = '';
+
+        // Corner cell
+        const corner = document.createElement('div');
+        corner.className = 'cal-corner cal-header';
+        grid.appendChild(corner);
+
+        // Day headers
+        DAYS.forEach(day => {
+            const hdr = document.createElement('div');
+            hdr.className = 'cal-header';
+            hdr.textContent = day;
+            grid.appendChild(hdr);
+        });
+
+        // Hour rows
+        for (let hour = 0; hour < 24; hour++) {
+            const lbl = document.createElement('div');
+            lbl.className = 'cal-time-label';
+            if (hour % 6 === 0) lbl.textContent = hour + ':00';
+            grid.appendChild(lbl);
+
+            for (let day = 0; day < 7; day++) {
+                const hourOfWeek = day * 24 + hour;
+                const cell = document.createElement('div');
+                cell.className = 'cal-cell';
+
+                let cellColor = null;
+                for (let i = datasets.length - 1; i >= 0; i--) {
+                    const hoursSet = showingUTC ? datasets[i].utcHours : datasets[i].localHours;
+                    if (hoursSet.has(hourOfWeek)) cellColor = datasets[i].color;
+                }
+                if (cellColor) cell.style.backgroundColor = cellColor;
+
+                // Tooltip
+                const matchingLabels = [];
+                for (let i = 0; i < datasets.length; i++) {
+                    const hoursSet = showingUTC ? datasets[i].utcHours : datasets[i].localHours;
+                    if (hoursSet.has(hourOfWeek)) matchingLabels.push(datasets[i].label);
+                }
+                const timeStr = DAY_NAMES[day] + ' ' + hour.toString().padStart(2, '0') + ':00 - '
+                    + ((hour + 1) % 24).toString().padStart(2, '0') + ':00';
+                cell.title = matchingLabels.length ? timeStr + '\n' + matchingLabels.join(', ') : timeStr;
+
+                grid.appendChild(cell);
+            }
+        }
+
+        if (showingUTC) {
+            tzLabel.textContent = 'Showing: UTC';
+            toggleBtn.textContent = 'Show ' + tzAbbr;
+        } else {
+            tzLabel.textContent = 'Showing: ' + tzAbbr;
+            toggleBtn.textContent = 'Show UTC';
+        }
+    }
+
+    // Legend
+    datasets.forEach(d => {
+        const item = document.createElement('span');
+        item.className = 'cal-legend-item';
+        const swatch = document.createElement('span');
+        swatch.className = 'cal-legend-swatch';
+        swatch.style.backgroundColor = d.color;
+        item.appendChild(swatch);
+        item.appendChild(document.createTextNode(d.label));
+        legend.appendChild(item);
+    });
+
+    toggleBtn.addEventListener('click', function() {
+        showingUTC = !showingUTC;
+        render();
+    });
+
+    render();
+
+    const modal = new bootstrap.Modal(document.getElementById('calendarModal'));
+    modal.show();
+}
+</script>

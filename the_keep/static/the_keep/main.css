@@ -344,6 +344,7 @@ em, i {
   .hidden-status > div {
     overflow: hidden;
   }
+  .list-group-item-action:hover .hidden-status,
   .post-card:hover .hidden-status {
     grid-template-columns: 1fr;
     opacity: 1;  /* Fade in the content when hovered */
@@ -363,6 +364,7 @@ em, i {
   .hidden-status {
     transition: none;
   }
+  .list-group-item-action:hover .hidden-status,
   .post-card:hover .hidden-status {
     transition: none;
   }
@@ -385,6 +387,7 @@ em, i {
     opacity: 0;  /* Keep content hidden even on hover */
   }
 
+    .list-group-item-action:hover .hidden-status,
     .post-card:hover .hidden-snippet,
     .post-card:hover .hidden-status {
       grid-template-columns: 0fr;
@@ -446,6 +449,42 @@ em, i {
     border-radius: 2px;
   }
 
+  .avatar-icon {
+    width: 20px;   /* Fixed width */
+    height: 20px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .md-avatar-icon {
+    width: 30px;   /* Fixed width */
+    height: 30px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .lg-avatar-icon {
+    width: 40px;   /* Fixed width */
+    height: 40px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .xl-avatar-icon {
+    width: 80px;   /* Fixed width */
+    height: 80px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
   .icon-bar {
     display: flex;
     gap: 0; /* optional: explicitly removes space */
@@ -473,7 +512,7 @@ em, i {
   opacity: 0.6; /* dim it slightly */
 }
 
-  .user-icon {
+  .external-link-image {
     max-height: 40px;
     max-width: 40px; 
     height: auto;  
@@ -482,6 +521,17 @@ em, i {
     margin-bottom: 2px;
     border-radius: 5px;
   }
+
+.md-faction-icon {
+  max-height: 30px;
+  max-width: 30px; 
+  height: auto;  
+  width: auto;  
+  margin-right: 2px;
+  margin-bottom: 2px;
+  border-radius: 3px;
+}
+
 
 .lg-faction-icon {
   max-height: 40px;
@@ -2165,8 +2215,9 @@ tr.clickable-row:hover {
 /* Navigation tabs container */
 .section-nav-tabs {
   display: flex;
-  gap: 2rem;
-  align-items: center;
+  row-gap: 0.25rem;
+  column-gap: 2rem;
+  align-items: baseline;
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
@@ -2226,6 +2277,7 @@ tr.clickable-row:hover {
 /* Mobile dropdown hidden by default */
 .section-nav-actions-mobile {
   display: none;
+  gap: 0.25rem;
 }
 
 /* Mobile responsive styles */
@@ -2237,7 +2289,8 @@ tr.clickable-row:hover {
 
   /* Reduce tab spacing on mobile */
   .section-nav-tabs {
-    gap: 1rem;
+    row-gap: 0.25rem;
+    column-gap: 1rem;
   }
 
   /* Scale down tab font size */
@@ -2259,7 +2312,8 @@ tr.clickable-row:hover {
 /* Extra small screens - further condensing */
 @media (max-width: 480px) {
   .section-nav-tabs {
-    gap: 0.75rem;
+    row-gap: 0.25rem;
+    column-gap: 0.75rem;
   }
 
   .section-nav-tab {
@@ -2281,6 +2335,46 @@ tr.clickable-row:hover {
   vertical-align: middle;
 }
 
+/* Tab group: wraps a main tab + its sub-nav */
+.section-nav-tab-group {
+  position: relative;
+}
+
+/* Sub-navigation links centered beneath parent tab */
+.section-sub-nav {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  gap: 0.75rem;
+  white-space: nowrap;
+}
+
+.section-sub-tab {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #6c757d;
+  text-decoration: none;
+  letter-spacing: 0.03em;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.section-sub-tab:hover {
+  color: var(--button-color);
+}
+
+.section-sub-tab.active {
+  color: var(--button-color);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .section-sub-tab {
+    font-size: 0.65rem;
+  }
+}
+
 /* Changelog highlight styling */
 .changelog-selected {
   border: 3px solid var(--theme-color) !important;
@@ -2299,4 +2393,291 @@ tr.clickable-row:hover {
   50% {
     transform: scale(1.01);
   }
+}
+
+/* Toggle Slider Base Styles */
+.asset-mode-toggle,
+.option-toggle {
+  display: flex;
+  background: #e9ecef;
+  border-radius: 50px;
+  padding: 4px;
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+}
+
+.asset-mode-option,
+.option-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-radius: 50px;
+  font-weight: 500;
+  color: #6c757d;
+  z-index: 1;
+  position: relative;
+}
+
+.asset-mode-option:hover,
+.option-item:hover {
+  color: #495057;
+}
+
+.asset-mode-option.active,
+.option-item.active {
+  color: #fff;
+}
+
+.asset-mode-slider,
+.option-slider {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  height: calc(100% - 8px);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 50px;
+  transition: transform 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+/* 3-option slider (33.333% width per option) */
+.asset-mode-slider,
+.option-toggle-3 .option-slider {
+  width: calc(33.333% - 4px);
+}
+
+.asset-mode-slider.position-1,
+.option-toggle-3 .option-slider.position-1 {
+  transform: translateX(0);
+}
+
+.asset-mode-slider.position-2,
+.option-toggle-3 .option-slider.position-2 {
+  transform: translateX(calc(100% + 4px));
+}
+
+.asset-mode-slider.position-3,
+.option-toggle-3 .option-slider.position-3 {
+  transform: translateX(calc(200% + 8px));
+}
+
+/* 4-option slider (25% width per option) */
+.option-toggle-4 .option-slider {
+  width: calc(25% - 4px);
+}
+
+.option-toggle-4 .option-slider.position-0 {
+  transform: translateX(0);
+}
+
+.option-toggle-4 .option-slider.position-1 {
+  transform: translateX(calc(100% + 4px));
+}
+
+.option-toggle-4 .option-slider.position-2 {
+  transform: translateX(calc(200% + 8px));
+}
+
+.option-toggle-4 .option-slider.position-3 {
+  transform: translateX(calc(300% + 12px));
+}
+
+.toggle-description {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+/* Responsive platform text - show full text on larger screens */
+.toggle-text-short {
+  display: none;
+}
+
+.toggle-text-full {
+  display: inline;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 768px) {
+  .asset-mode-option,
+  .option-item {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  /* Extra compact for 4-option toggles */
+  .option-toggle-4 .option-item {
+    padding: 8px 6px;
+    font-size: 0.8rem;
+  }
+
+  .asset-mode-option i,
+  .option-item i {
+    font-size: 0.9rem;
+  }
+
+  .toggle-description {
+    font-size: 0.85rem;
+    padding: 10px;
+  }
+
+  /* Switch to short text on tablets */
+  .toggle-text-short {
+    display: inline;
+  }
+
+  .toggle-text-full {
+    display: none;
+  }
+}
+
+@media (max-width: 576px) {
+  .asset-mode-option,
+  .option-item {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+
+  /* Very compact for 4-option toggles on mobile */
+  .option-toggle-4 .option-item {
+    padding: 6px 4px;
+    font-size: 0.7rem;
+  }
+
+  .asset-mode-option i,
+  .option-item i {
+    font-size: 0.85rem;
+    margin-right: 2px !important;
+  }
+
+  /* Even smaller icons for 4-option on mobile */
+  .option-toggle-4 .option-item i {
+    font-size: 0.75rem;
+  }
+
+  .toggle-description {
+    font-size: 0.8rem;
+    padding: 8px;
+  }
+
+  /* Reduce margin for icons on very small screens */
+  .option-item .me-1 {
+    margin-right: 0.15rem !important;
+  }
+}
+
+@media (max-width: 400px) {
+  /* Extra small screens - make 4-option even more compact */
+  .option-toggle-4 .option-item {
+    padding: 6px 2px;
+    font-size: 0.65rem;
+  }
+
+  .option-toggle-4 .option-item i {
+    font-size: 0.7rem;
+  }
+}
+
+/* ── Availability Calendar ── */
+.availability-calendar {
+  overflow-x: auto;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: 42px repeat(7, 1fr);
+  grid-template-rows: auto repeat(24, 1fr);
+  gap: 1px;
+  background: #dee2e6;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  min-width: 360px;
+  min-height: 320px;
+}
+
+.cal-header {
+  background: #f8f9fa;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 4px 2px;
+  color: #495057;
+}
+
+.cal-corner {
+  background: #f8f9fa;
+}
+
+.cal-time-label {
+  background: #f8f9fa;
+  font-size: 0.6rem;
+  color: #6c757d;
+  text-align: right;
+  padding: 0 4px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  line-height: 1;
+}
+
+.cal-cell {
+  background: #fff;
+  position: relative;
+  min-height: 12px;
+  transition: outline 0.1s;
+}
+
+.cal-cell:hover {
+  outline: 1.5px solid #495057;
+  outline-offset: -1px;
+  z-index: 2;
+}
+
+.cal-cell[title] {
+  cursor: default;
+}
+
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+.cal-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.cal-toggle {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+}
+
+.cal-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 24px;
+  color: #6c757d;
+  font-size: 0.85rem;
+  background: #fff;
 }

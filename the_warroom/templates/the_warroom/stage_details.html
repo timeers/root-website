@@ -1,0 +1,102 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ stage.name }} - {% trans 'Details' %} | {% endblock %}
+
+{% block meta %}
+{% trans "Details" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    {% trans "Details" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=stage.name %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/stage_nav_header.html' with active_page='details' %}
+
+    <!-- Stage Specifications -->
+    <div class="card">
+        <div class="card-body">
+            <h4 class="card-title mb-3">{% trans 'Stage Details' %}</h4>
+            <dl class="row mb-0">
+                <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
+                <dd class="col-sm-8">
+                    {% with effective_status=stage.get_effective_status %}
+                        <div class="d-flex align-items-center">
+                            {% if effective_status == 'Active' %}
+                                <div class='text-success me-2'>
+                                    <small>{% trans 'Active' %}</small>
+                                </div>
+                                <i class="bi bi-play-circle-fill text-success"></i>
+                            {% elif effective_status == 'Pending' %}
+                                <div class='text-info me-2'>
+                                    <small>{% trans 'Scheduled' %}</small>
+                                </div>
+                                <i class="bi bi-clock-fill text-info"></i>
+                            {% else %}
+                                <div class='text-secondary me-2'>
+                                    <small>{% trans 'Concluded' %}</small>
+                                </div>
+                                <i class="bi bi-check-circle-fill text-secondary"></i>
+                            {% endif %}
+                        </div>
+                    {% endwith %}
+                </dd>
+
+                {% if stage.start_date or stage.end_date %}
+                <dt class="col-sm-4 text-muted">
+                    {% if not stage.end_date %}
+                        {% trans 'Start Date' %}
+                    {% elif not stage.start_date %}
+                        {% trans 'End Date' %}
+                    {% else %}
+                        {% trans 'Dates' %}
+                    {% endif %}
+                </dt>
+                <dd class="col-sm-8">
+                    {{ stage.start_date|date:"M j, Y" }}{% if stage.end_date and stage.start_date %} – {% endif %}{{ stage.end_date|date:"M j, Y" }}
+                </dd>
+                {% endif %}
+
+                {% if stage.stage_format %}
+                    <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
+                    <dd class="col-sm-8">
+                        {{ stage.get_stage_format_display|default:tournament.get_default_format_display }}
+                    </dd>
+                {% endif %}
+
+                {% comment %} <dt class="col-sm-4 text-muted">{% trans 'Advancement Type' %}</dt>
+                <dd class="col-sm-8">{{ stage.get_advancement_type_display }}</dd> {% endcomment %}
+
+                {% if min_players or max_players %}
+                <dt class="col-sm-4 text-muted">{% trans 'Players per Group' %}</dt>
+                <dd class="col-sm-8">
+                    {% if min_players != max_players %}
+                    {{ min_players }} – {{ max_players }}
+                    {% else %}
+                    {{ max_players }}
+                    {% endif %}
+                </dd>
+                {% endif %}
+
+            </dl>
+
+            {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=stage.get_game_threshold leaderboard_positions=stage.get_leaderboard_positions %}
+
+            {% if asset_types %}
+            <hr class="my-3">
+            <h5 class="mb-3">{% trans 'Allowed Assets' %}</h5>
+            {% include 'the_warroom/partials/asset_display.html' %}
+            {% endif %}
+
+        </div>
+    </div>
+
+</div>
+{% endblock %}

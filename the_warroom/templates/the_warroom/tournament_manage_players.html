@@ -1,91 +1,366 @@
 {% extends 'the_keep/base.html' %}
-{% block title %}Players | {% endblock %}
 {% load crispy_forms_tags %}
+{% load i18n %}
+
+{% block title %}Manage Players - {{ object.name }}{% endblock %}
+
 {% block content %}
-<h1>{{ tournament.name }}</h1>
-{% if round %}
-<h2>{{ round.name }}</h2>
-{% endif %}
-<h3>Manage Players</h3>
+<div class="container py-4">
+    <!-- Breadcrumb -->
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Manage Players" %}
 
-<form method="POST">
-    {% csrf_token %}
-    {% if available_players_count > 0 %}
-    <div>
-        <h4>Add Players</h4>
-        {{ form.available_players }}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="bi bi-people me-2"></i>Manage Players</h2>
         {% if round %}
-        {{ form.add_all_players }} Add All
-        {% endif %}
-    </div>
-    <div class="alert alert-success mt-1" role="alert">
-        <ul>
-            Players selected will be added to {{ tournament.name }}{% if round %} - {{ round.name }}{% endif %} and be able to record games.
-        </ul>
-    </div>
-    {% endif %}
-    {% if current_players_count > 0 %}
-    {% if not round %}
-
-    <div>
-        <h4>Eliminate Players</h4>
-        {{ form.eliminated_players }}
-    </div>
-    <div class="alert alert-warning mt-1" role="alert">
-        <ul>
-            Players selected will remain on the tournament roster but will be unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}.{% endif %}
-        </ul>
-    </div>
-
-
-    {% endif %}
-    <div>
-        <h4>Remove Players</h4>
-        {{ form.current_players }}
-        {% if tournament.name != "Root TTS League" %}
-            {{ form.remove_all_players }} Remove All
-        {% endif %}
-    </div>
-    <div class="alert alert-danger mt-1" role="alert">
-        <ul>
-            Players selected will be removed and unable to record games for {{ tournament.name }}{% if round %} - {{ round.name }}.{% endif %}
-        </ul>
-    </div>
-    {% endif %}
-    <button class="btn btn-primary" type="submit">Save Changes</button>
-</form>
-{% if round %}
-    <small>By default all series players are added to each series round. If you add players above only those players will be able to record games for this round.</small>
-{% endif %}
-{% if tournament.players.count %}
-<details>
-    <summary>Current Players</summary>
-    {% if round %}
-        {% if round.players.count %}
-            {% for player in round.players.all %}
-            <ul>{{ player.name }}</ul>
-            {% endfor %}
+        <a href="{% url 'round-settings' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
         {% else %}
-            <ul>All Series Players</ul>
+        <a href="{% url 'tournament-settings' slug=tournament.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
         {% endif %}
-    {% else %}
-        {% for player in tournament.players.all %}
-        <ul>{{ player.name }}</ul>
-        {% endfor %}
+    </div>
+    {% if not round and is_owner %}
+    <!-- Settings Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="bi bi-gear me-2"></i>Player Settings
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    {{ form.guild|as_crispy_field }}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addGuildModal">
+                        <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                    </button>
+                    <div>
+                    <small class='text-muted'>Guild members will have the same permissions as Registered Players</small>
+                    </div>
+                </div>
+                <div class="align-items-end">
+                    <div>
+                        {{ form.open_roster|as_crispy_field }}
+                    </div>
+                    <div>
+                        <div class="form-check mb-3">
+                            <input type="checkbox" class="form-check-input" id="id_enforce_player_count"
+                                   name="enforce_player_count" {% if form.instance.enforce_player_count %}checked{% endif %}>
+                            <label class="form-check-label" for="id_enforce_player_count">Restrict Player Count</label>
+                        </div>
+                    </div>
+
+                </div>
+                <div id="player-count-fields" class="row mt-3" style="display: {% if form.instance.enforce_player_count %}flex{% else %}none{% endif %};">
+                    <div class="col-md-6">
+                        {{ form.min_players|as_crispy_field }}
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.max_players|as_crispy_field }}
+                    </div>
+                </div>
+                <div class="text-end">
+                    <button type="submit" id="player-settings-save" class="btn btn-secondary" disabled>
+                        <i class="bi bi-check-square me-1"></i>Settings Saved
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
     {% endif %}
-</details>
+    <!-- Search to Add Players -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="bi bi-search me-2"></i>Add Players
+        </div>
+        <div class="card-body">
+            <input type="text"
+                   class="form-control"
+                   placeholder="Search players by Discord username..."
+                   {% if round %}
+                   hx-get="{% url 'round-search-players' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}"
+                   hx-trigger="load, keyup changed delay:500ms"
+                   {% else %}
+                   hx-get="{% url 'tournament-search-players' slug=tournament.slug %}"
+                   hx-trigger="keyup changed delay:500ms"
+                   {% endif %}
+                   hx-target="#player-search-results"
+                   name="q">
+            <div id="player-search-results" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Three Column Player Groups -->
+    <div class="row">
+        <!-- Players Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-person-check me-2"></i>Registered</span>
+                    <span class="badge bg-white text-success" id="players-count">{{ players.count }}</span>
+                </div>
+                <div class="card-body" id="players-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for player in players %}
+                        {% include 'the_warroom/partials/player_card.html' with group='players' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="players-empty">No players yet</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Waitlist Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-warning d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-clock me-2"></i>Waitlist</span>
+                    <span class="badge bg-dark" id="waitlist-count">{{ waitlist_players.count }}</span>
+                </div>
+                <div class="card-body" id="waitlist-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for player in waitlist_players %}
+                        {% include 'the_warroom/partials/player_card.html' with group='waitlist' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="waitlist-empty">No players on waitlist</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Eliminated Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-person-x me-2"></i>Eliminated</span>
+                    <span class="badge bg-white text-danger" id="eliminated-count">{{ eliminated_players.count }}</span>
+                </div>
+                <div class="card-body" id="eliminated-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for player in eliminated_players %}
+                        {% include 'the_warroom/partials/player_card.html' with group='eliminated' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="eliminated-empty">No eliminated players</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include 'the_keep/partials/register_player_modal.html' %}
+{% if not round and is_owner %}
+{% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='id_guild' %}
 {% endif %}
 
+<script>
+// Toggle player count fields
+function togglePlayerCountFields() {
+    const checkbox = document.getElementById('id_enforce_player_count');
+    const fields = document.getElementById('player-count-fields');
+    fields.style.display = checkbox.checked ? 'flex' : 'none';
+}
+const enforceCheckbox = document.getElementById('id_enforce_player_count');
+if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCountFields);
 
-{% endblock %}
+// Dirty state tracking for Player Settings form
+(function() {
+    const saveBtn = document.getElementById('player-settings-save');
+    if (!saveBtn) return;
 
- {% block scripts %}
- <script>
-    $('#id_available_players').select2();
-    $('#id_current_players').select2();
-    if ($('#id_eliminated_players').length) {
-        $('#id_eliminated_players').select2();
+    const guildSelect = document.getElementById('id_guild');
+    const openRoster = document.getElementById('id_open_roster');
+    const enforceCount = document.getElementById('id_enforce_player_count');
+    const minPlayers = document.getElementById('id_min_players');
+    const maxPlayers = document.getElementById('id_max_players');
+
+    const initial = {
+        guild: guildSelect ? guildSelect.value : null,
+        openRoster: openRoster ? openRoster.checked : null,
+        enforceCount: enforceCount ? enforceCount.checked : null,
+        minPlayers: minPlayers ? minPlayers.value : null,
+        maxPlayers: maxPlayers ? maxPlayers.value : null,
+    };
+
+    function checkDirty() {
+        const dirty =
+            (guildSelect && guildSelect.value !== initial.guild) ||
+            (openRoster && openRoster.checked !== initial.openRoster) ||
+            (enforceCount && enforceCount.checked !== initial.enforceCount) ||
+            (minPlayers && minPlayers.value !== initial.minPlayers) ||
+            (maxPlayers && maxPlayers.value !== initial.maxPlayers);
+
+        if (dirty) {
+            saveBtn.disabled = false;
+            saveBtn.classList.replace('btn-secondary', 'btn-primary');
+            saveBtn.innerHTML = 'Save Settings';
+        } else {
+            saveBtn.disabled = true;
+            saveBtn.classList.replace('btn-primary', 'btn-secondary');
+            saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>Settings Saved';
+        }
     }
- </script>
-    
- {% endblock scripts %}
+
+    [guildSelect, openRoster, enforceCount, minPlayers, maxPlayers].forEach(function(el) {
+        if (el) {
+            el.addEventListener('change', checkDirty);
+            el.addEventListener('input', checkDirty);
+        }
+    });
+
+    // Also listen for guild changes via the Add Guild modal (Select2 or direct)
+    if (guildSelect) {
+        const observer = new MutationObserver(checkDirty);
+        observer.observe(guildSelect, { childList: true, attributes: true });
+    }
+})();
+
+// Move player between groups via JavaScript/fetch
+function movePlayer(playerId, fromGroup, toGroup) {
+    {% if round %}
+    const moveUrl = "{% url 'round-move-player' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}";
+    {% else %}
+    const moveUrl = "{% url 'tournament-move-player' slug=tournament.slug %}";
+    {% endif %}
+
+    fetch(moveUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            player_id: playerId,
+            from_group: fromGroup,
+            to_group: toGroup
+        })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Failed to move player');
+        return response.text();
+    })
+    .then(html => {
+        // Remove from current list — check both 'available' and 'available_round' for search results
+        const sourceGroup = fromGroup || 'available';
+        const playerCard = document.getElementById(`player-${playerId}-${sourceGroup}`)
+                        || document.getElementById(`player-${playerId}-available_round`)
+                        || document.getElementById(`player-${playerId}-available`);
+        if (playerCard) playerCard.remove();
+
+        // Add to target list (if toGroup is not empty, meaning not a delete)
+        if (toGroup) {
+            const targetList = document.getElementById(`${toGroup}-list`);
+            if (targetList) {
+                // Remove empty message if present
+                const emptyMsg = document.getElementById(`${toGroup}-empty`);
+                if (emptyMsg) emptyMsg.remove();
+
+                targetList.insertAdjacentHTML('beforeend', html);
+            }
+        }
+
+        updatePlayerCounts();
+
+        // Refresh search results if player was removed (toGroup is empty) and we're in round view
+        {% if round %}
+        if (!toGroup) {
+            refreshSearchResults();
+        }
+        {% endif %}
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+// Refresh search results
+function refreshSearchResults() {
+    const searchInput = document.querySelector('input[name="q"]');
+    if (searchInput) {
+        const searchQuery = searchInput.value;
+        {% if round %}
+        const searchUrl = "{% url 'round-search-players' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}";
+        {% else %}
+        const searchUrl = "{% url 'tournament-search-players' slug=tournament.slug %}";
+        {% endif %}
+        fetch(`${searchUrl}?q=${encodeURIComponent(searchQuery)}`)
+            .then(response => response.text())
+            .then(html => {
+                document.getElementById('player-search-results').innerHTML = html;
+            })
+            .catch(error => console.error('Error refreshing search:', error));
+    }
+}
+
+// Update badge counts
+function updatePlayerCounts() {
+    const playersList = document.getElementById('players-list');
+    const waitlistList = document.getElementById('waitlist-list');
+    const eliminatedList = document.getElementById('eliminated-list');
+
+    document.getElementById('players-count').textContent =
+        playersList.querySelectorAll('.player-card').length;
+    document.getElementById('waitlist-count').textContent =
+        waitlistList.querySelectorAll('.player-card').length;
+    document.getElementById('eliminated-count').textContent =
+        eliminatedList.querySelectorAll('.player-card').length;
+}
+
+// Handle HTMX after player is added from search
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.successful && evt.detail.elt.closest('#player-search-results')) {
+        // Remove empty message from players list
+        const emptyMsg = document.getElementById('players-empty');
+        if (emptyMsg) emptyMsg.remove();
+
+        updatePlayerCounts();
+    }
+});
+
+// --- Register New Player ---
+function openRegisterModal(searchTerm) {
+    document.getElementById('modal-discord').value = searchTerm || '';
+    document.getElementById('modal-display-name').value = '';
+    document.getElementById('player-modal-errors').innerHTML = '';
+    new bootstrap.Modal(document.getElementById('registerPlayerModal')).show();
+}
+
+document.addEventListener('htmx:afterRequest', function(event) {
+    if (event.target.id !== 'register-player-modal-form') return;
+
+    const contentType = event.detail.xhr.getResponseHeader('Content-Type');
+    if (!contentType || !contentType.includes('application/json')) return;
+
+    const errorContainer = document.getElementById('player-modal-errors');
+    errorContainer.innerHTML = '';
+
+    if (event.detail.xhr.status === 400) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const errors = JSON.parse(response.error);
+        let errorHtml = '<div class="alert alert-danger"><strong>Registration Failed:</strong><ul class="mb-0">';
+        for (const fieldName in errors) {
+            if (errors.hasOwnProperty(fieldName)) {
+                errors[fieldName].forEach(error => {
+                    errorHtml += `<li>${error.message}</li>`;
+                });
+            }
+        }
+        errorHtml += '</ul></div>';
+        errorContainer.innerHTML = errorHtml;
+    }
+
+    if (event.detail.xhr.status === 200) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        if (response.id && response.discord) {
+            const successDiv = document.createElement('div');
+            successDiv.classList.add('alert', 'alert-success');
+            successDiv.innerHTML = `<i class="bi bi-check-circle"></i> ${response.message || 'Player registered!'}`;
+            errorContainer.appendChild(successDiv);
+
+            movePlayer(response.id, '', 'players');
+
+            setTimeout(() => {
+                bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();
+                refreshSearchResults();
+            }, 750);
+        }
+    }
+});
+</script>
+{% endblock %}

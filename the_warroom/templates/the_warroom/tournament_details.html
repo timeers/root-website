@@ -1,0 +1,152 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ tournament.name }} - {% trans 'Details' %} | {% endblock %}
+
+{% block meta %}
+{% trans "Details" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    {% trans "Details" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
+
+
+    {% if tournament.description %}
+    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
+    {% endif %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='details' %}
+
+    <!-- Tournament Specifications -->
+    <div class="card">
+        <div class="card-body">
+            <h4 class="card-title mb-3">{{ tournament.get_classification_display }} Details</h4>
+            <dl class="row mb-0">
+                <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
+                <dd class="col-sm-8">
+                    {% with item=tournament %}
+                        <div class="d-flex align-items-center">
+                            {% if item.status == 'Active' %}
+                                <div class='text-success me-2'>
+                                    <small>{% trans 'Active' %}</small>
+                                </div>
+                                <i class="bi bi-play-circle-fill text-success"></i>
+                            {% elif item.status == 'Pending' %}
+                                <div class='text-info me-2'>
+                                    <small>{% trans 'Scheduled' %}</small>
+                                </div>
+                                <i class="bi bi-clock-fill text-info"></i>
+                            {% else %}
+                                <div class='text-secondary me-2'>
+                                    <small>{% trans 'Concluded' %}</small>
+                                </div>
+                                <i class="bi bi-check-circle-fill text-secondary"></i>
+                            {% endif %}
+                        </div>
+                    {% endwith %}
+                </dd>
+
+                {% if tournament.start_date or tournament.end_date %}
+                <dt class="col-sm-4 text-muted">
+                    {% if not tournament.end_date %}
+                        {% trans 'Start Date' %}
+                    {% elif not tournament.start_date %}
+                        {% trans 'End Date' %}
+                    {% else %}
+                        {% trans 'Dates' %}
+                    {% endif %}
+                </dt>
+                <dd class="col-sm-8">
+                    {{ tournament.start_date|date:"M j, Y" }}{% if tournament.end_date and tournament.start_date %} – {% endif %}{{ tournament.end_date|date:"M j, Y" }}
+                </dd>
+                {% endif %}
+
+                {% if tournament.designer %}
+                <dt class="col-sm-4 text-muted">{% trans 'Host' %}</dt>
+                <dd class="col-sm-8">
+                    <a href="{{ tournament.designer.get_absolute_url }}">{{ tournament.designer.display_name }}</a>
+
+                </dd>
+                {% endif %}
+
+                {% if tournament.moderators.all %}
+                <dt class="col-sm-4 text-muted">{% trans 'Moderators' %}</dt>
+                <dd class="col-sm-8">
+                    {% for mod in tournament.moderators.all %}
+                    <a href="{{ mod.get_absolute_url }}">{{ mod.display_name }}</a>{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </dd>
+                {% endif %}
+
+                {% if tournament.guild and user_in_guild %}
+                <dt class="col-sm-4 text-muted">{% trans 'Guild' %}</dt>
+                <dd class="col-sm-8">{{ tournament.guild.name }}</dd>
+                {% endif %}
+
+
+
+                {% if tournament.platform %}
+                <dt class="col-sm-4 text-muted">{% trans 'Platform' %}</dt>
+                <dd class="col-sm-8">{{ tournament.platform }}</dd>
+                {% endif %}
+
+                {% if tournament.enforce_player_count %}
+                <dt class="col-sm-4 text-muted">{% trans 'Player Count' %}</dt>
+                <dd class="col-sm-8">{{ tournament.min_players }} – {{ tournament.max_players }}</dd>
+                {% endif %}
+
+                {% if tournament.default_format %}
+                <dt class="col-sm-4 text-muted">{% trans 'Format' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_default_format_display }}</dd>
+                {% endif %}
+
+                <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
+                <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+
+
+
+
+
+                <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>
+                <dd class="col-sm-8">{{ tournament.get_coalition_type_display }}</dd>
+
+                <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
+                <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+            </dl>
+
+            {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=tournament.game_threshold leaderboard_positions=tournament.leaderboard_positions %}
+
+            {% if tournament.description %}
+            <hr class="my-3">
+            <h5 class="mb-3"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5>
+            <div style="max-height: 500px; overflow-y: auto;">
+                {{ tournament.description|linebreaks }}
+            </div>
+            {% endif %}
+
+            {% if tournament.rules %}
+            <hr class="my-3">
+            <h5 class="mb-3"><i class="bi bi-scroll me-2"></i>{% trans 'Rules' %}</h5>
+            <div style="max-height: 500px; overflow-y: auto;">
+                {{ tournament.rules|linebreaks }}
+            </div>
+            {% endif %}
+
+            {% if asset_types %}
+            <hr class="my-3">
+            <h5 class="mb-3">{% trans 'Allowed Assets' %}</h5>
+            {% include 'the_warroom/partials/asset_display.html' %}
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

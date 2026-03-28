@@ -77,6 +77,9 @@ urlpatterns = [
 
 
     
+    path('post/<slug:slug>/settings/', views.post_settings_hub, name='post-settings'),
+    path('post/<slug:slug>/pieces/', views.post_pieces_view, name='post-pieces'),
+
     path('map/<slug:slug>/', views.ultimate_component_view, {'component': "Map"}, name='map-detail'),
     path('deck/<slug:slug>/', views.ultimate_component_view, {'component': "Deck"}, name='deck-detail'),
     path('hireling/<slug:slug>/', views.ultimate_component_view, {'component': "Hireling"}, name='hireling-detail'),

@@ -1,0 +1,407 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{% trans 'About Surveys' %} | {% endblock %}
+
+{% block meta %}
+{% include 'the_tavern/partials/meta_tags.html' %}
+{% endblock meta %}
+
+{% block styles %}
+<style>
+    .permissions-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    .permissions-table thead th {
+        background-color: var(--table-header-bg, #f8f9fa);
+        border-bottom: 2px solid var(--bs-border-color);
+        padding: 10px 12px;
+        text-align: center;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .permissions-table thead th:first-child {
+        text-align: left;
+    }
+    .permissions-table tbody td {
+        padding: 10px 12px;
+        text-align: center;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .permissions-table tbody td:first-child {
+        text-align: left;
+        font-weight: 500;
+    }
+    .permissions-table tbody tr:hover {
+        background-color: var(--table-hover-bg, rgba(0,0,0,0.02));
+    }
+    .perm-yes {
+        color: #198754;
+        font-weight: bold;
+    }
+    .perm-no {
+        color: #adb5bd;
+    }
+    .perm-limited {
+        color: #fd7e14;
+        font-size: 0.8rem;
+    }
+    .about-section {
+        margin-bottom: 2rem;
+    }
+    .about-section h5 {
+        margin-bottom: 1rem;
+    }
+    .about-section dl.row dt,
+    .about-section dl.row dd {
+        border-bottom: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    .about-section dl.row dt:last-of-type,
+    .about-section dl.row dd:last-of-type {
+        border-bottom: none;
+    }
+
+    @media (max-width: 576px) {
+        .permissions-table {
+            font-size: 0.8rem;
+        }
+        .permissions-table thead th,
+        .permissions-table tbody td {
+            padding: 8px 6px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'survey-list' %}">{% trans 'Surveys' %}</a></li>
+            <li class="breadcrumb-item active">{% trans 'About' %}</li>
+        </ol>
+    </nav>
+
+    <h2 class="root-title mb-4">{% trans 'About Surveys' %}</h2>
+
+    <!-- What is a Survey -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'What are Surveys?' %}</h5>
+            <p>
+                {% blocktrans %}
+                Surveys let you create questionnaires to gather feedback from the community, register players
+                for tournaments, or coordinate scheduling availability. 
+                They can be public for everyone to respond to or
+                private for specific players, Discord Guild members, or Series participants.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                Surveys support a variety of question types, optional quiz scoring, waitlist management,
+                and integration with the Series system for tournament registration and availability-based grouping.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Question Types -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Question Types' %}</h5>
+            <p>
+                {% blocktrans %}
+                Surveys support 12 different question types to capture a wide range of information:
+                {% endblocktrans %}
+            </p>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">{% trans 'Multiple Choice' %}</dt>
+                <dd class="col-sm-9">{% trans 'Select a single option from a list of choices.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Multiple Selection' %}</dt>
+                <dd class="col-sm-9">{% trans 'Select one or more options from a list of choices.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Open Ended' %}</dt>
+                <dd class="col-sm-9">{% trans 'Provide an open ended text response.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Ranking' %}</dt>
+                <dd class="col-sm-9">{% trans 'Drag and drop choices to order them by preference.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Scale' %}</dt>
+                <dd class="col-sm-9">{% trans 'Rate on a numeric scale (e.g. 1-5 or 1-10) with labels.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Yes / No' %}</dt>
+                <dd class="col-sm-9">{% trans 'A simple yes or no question.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Date' %}</dt>
+                <dd class="col-sm-9">{% trans 'Pick a date from a calendar.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Time' %}</dt>
+                <dd class="col-sm-9">{% trans 'Pick a time.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Date & Time' %}</dt>
+                <dd class="col-sm-9">{% trans 'Pick both a date and a time.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Time Availability' %}</dt>
+                <dd class="col-sm-9">{% trans 'Select which hours of the day you are available, organized by day of the week. Used for scheduling within a Series.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Day Availability' %}</dt>
+                <dd class="col-sm-9">{% trans 'Select which days of the week you are available. Used for scheduling within a Series.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Numeric' %}</dt>
+                <dd class="col-sm-9">{% trans 'Enter a number.' %}</dd>
+            </dl>
+            <p class="mt-3">
+                {% blocktrans %}
+                <strong>Root Component choices:</strong> Multiple Choice, Multiple Selection, and Ranking questions
+                can use Root Database content (such as Factions, Maps, or Decks) as answer options. You can include
+                all official components of a type or select individual items.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Survey Settings -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Survey Settings' %}</h5>
+            <p>
+                {% blocktrans %}
+                Surveys offer several configurable settings to control how they behave:
+                {% endblocktrans %}
+            </p>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">{% trans 'Visibility' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    <strong>Public</strong> surveys are accessible to all logged-in users.
+                    <strong>Private</strong> surveys are restricted to invited players, Discord guild members,
+                    or participants of a linked Series.
+                    {% endblocktrans %}
+                </dd>
+
+                <dt class="col-sm-3">{% trans 'Timing' %}</dt>
+                <dd class="col-sm-9">{% trans 'Set optional start and end dates to control when the survey is open for responses.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Responses' %}</dt>
+                <dd class="col-sm-9">{% trans 'Choose whether users can submit multiple responses or edit their existing response while the survey is open.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Results' %}</dt>
+                <dd class="col-sm-9">{% trans 'Control whether respondents can see results immediately after submitting, after the survey closes, or never.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Quiz Mode' %}</dt>
+                <dd class="col-sm-9">{% trans 'Enable quiz mode to set correct answers for questions. You can show scores and correct answers to respondents after they submit.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Waitlist' %}</dt>
+                <dd class="col-sm-9">{% trans 'Set a cap on accepted responses. If enabled, once the threshold is reached additional responses are placed on a waitlist.' %}</dd>
+
+                <dt class="col-sm-3">{% trans 'Sections' %}</dt>
+                <dd class="col-sm-9">{% trans 'Organize questions into sections to break up longer surveys.' %}</dd>
+            </dl>
+        </div>
+    </div>
+
+    <!-- Series Registration -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Tournament Registration' %}</h5>
+            <p>
+                {% blocktrans %}
+                Surveys can be linked to a <strong>Tournament</strong> to support
+                registration and scheduling games.
+                {% endblocktrans %}
+            </p>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">{% trans 'Registration Mode' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    When enabled, the survey displays the Tournament's rules and requires respondents to
+                    agree before submitting. This can be combined with a response limit or waitlist to cap the number of accepted responses.
+                    {% endblocktrans %}
+                </dd>
+
+                <dt class="col-sm-3">{% trans 'Availability Sync' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Time Availability and Day Availability responses can be sent to the Tournament. 
+                    This data is used for scheduling and grouping players based on when they are available to play.
+                    {% endblocktrans %}
+                </dd>
+
+                <dt class="col-sm-3">{% trans 'Private Access' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    A private survey linked to a Tournament or Series automatically restricts access to
+                    players or participants of that Series.
+                    {% endblocktrans %}
+                </dd>
+            </dl>
+        </div>
+    </div>
+
+    <!-- Permissions Table -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Permissions' %}</h5>
+            <p class="text-muted mb-3">
+                {% blocktrans %}
+                Different actions are available depending on your relationship to a survey.
+                {% endblocktrans %}
+            </p>
+            <div class="table-responsive">
+                <table class="permissions-table">
+                    <thead>
+                        <tr>
+                            <th>{% trans 'Action' %}</th>
+                            <th>{% trans 'Creator' %}</th>
+                            <th>{% trans 'Invited / Members' %}</th>
+                            <th>{% trans 'Logged In' %}</th>
+                            <th>{% trans 'Logged Out' %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Creating & Managing -->
+                        <tr>
+                            <td colspan="5" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Creating & Managing' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Create a Survey' %}</td>
+                            <td>—</td>
+                            <td>—</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Edit a Survey' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Delete a Survey' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Duplicate a Survey' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View All Responses' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Configure Quiz Settings' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans "Link to Creator's Series" %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans "Link to Creator's Post" %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Invite Users to Respond' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Restrict Responses to Discord Guild' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+                        <!-- Taking Surveys -->
+                        <tr>
+                            <td colspan="5" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Taking Surveys' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Take a Public Survey' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Take a Private Survey' %}</td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'Edit Own Response' %}</td>
+                            <td><span class="perm-limited">{% trans 'If enabled' %}</span></td>
+                            <td><span class="perm-limited">{% trans 'If enabled' %}</span></td>
+                            <td><span class="perm-limited">{% trans 'If enabled' %}</span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+
+                        <!-- Viewing -->
+                        <tr>
+                            <td colspan="5" class="text-muted fw-bold" style="background-color: var(--table-header-bg, #f8f9fa);">
+                                {% trans 'Viewing' %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Public Survey' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Private Survey' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                        <tr>
+                            <td>{% trans 'View Results' %}</td>
+                            <td><span class="perm-yes"><i class="bi bi-check-lg"></i></span></td>
+                            <td><span class="perm-limited">{% trans 'If enabled' %}</span></td>
+                            <td><span class="perm-limited">{% trans 'If enabled' %}</span></td>
+                            <td><span class="perm-no"><i class="bi bi-x-lg"></i></span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
