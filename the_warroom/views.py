@@ -476,24 +476,24 @@ def game_detail_view(request, id=None, league_id=None):
             show_detail = True
     _vlog.warning(f"[game_detail_view] available_scorecard: {_time.time()-_t0:.3f}s")
 
-    tournament_round = game.round
+    edit_permission = game.can_edit(request.user.profile) if request.user.is_authenticated else EditPermission(False)
 
-    if tournament_round:
-        if tournament_round.get_tournament().open_roster:
-            # Open roster - all players
+    tournament_round = game.round
+    all_players = Profile.objects.none()
+    open_roster = True
+
+    if edit_permission:
+        if tournament_round:
+            if tournament_round.get_tournament().open_roster:
+                all_players = Profile.objects.all()
+                open_roster = True
+            else:
+                all_players = tournament_round.current_player_queryset()
+                open_roster = False
+        else:
             all_players = Profile.objects.all()
             open_roster = True
-        else:
-            # Closed roster - use round's player queryset
-            all_players = tournament_round.current_player_queryset()
-            open_roster = False
-    else:
-        # No tournament
-        all_players = Profile.objects.all()
-        open_roster = True
     _vlog.warning(f"[game_detail_view] all_players: {_time.time()-_t0:.3f}s")
-
-    edit_permission = game.can_edit(request.user.profile) if request.user.is_authenticated else EditPermission(False)
 
     commentform = GameCommentCreateForm()
     context = {
