@@ -425,6 +425,11 @@ def my_submitted_games_view(request):
 
 # @player_onboard_required
 def game_detail_view(request, id=None, league_id=None):
+    import time as _time
+    import logging as _logging
+    _vlog = _logging.getLogger(__name__)
+    _t0 = _time.time()
+
     language_code = get_language()
 
     if id:
@@ -433,6 +438,7 @@ def game_detail_view(request, id=None, league_id=None):
         game = get_object_or_404(Game, league_id=league_id)
     else:
         raise Http404('Game not found.')
+    _vlog.warning(f"[game_detail_view] get game: {_time.time()-_t0:.3f}s")
 
     participants = []
     efforts = []
@@ -443,6 +449,7 @@ def game_detail_view(request, id=None, league_id=None):
         participants.append(effort.player)
     if game.recorder:
         participants.append(game.recorder)
+    _vlog.warning(f"[game_detail_view] participants: {_time.time()-_t0:.3f}s")
 
     translations = PostTranslation.objects.filter(language__code=language_code)
     efforts = game.efforts.all().prefetch_related(
@@ -455,16 +462,19 @@ def game_detail_view(request, id=None, league_id=None):
             effort.translated_faction_title = effort.faction.filtered_translations[0].translated_title
         else:
             effort.translated_faction_title = effort.faction.title
+    _vlog.warning(f"[game_detail_view] efforts prefetch: {_time.time()-_t0:.3f}s")
 
     scorecard_count = ScoreCard.objects.filter(final=True, effort__in=game.efforts.all()).distinct().count()
     if scorecard_count != 0:
         show_detail = True
+    _vlog.warning(f"[game_detail_view] scorecard_count: {_time.time()-_t0:.3f}s")
 
     if request.user.is_authenticated:
         for effort in efforts:
             effort.available_scorecard = effort.available_scorecard(request.user)
         if game.final and (request.user.profile in participants):
             show_detail = True
+    _vlog.warning(f"[game_detail_view] available_scorecard: {_time.time()-_t0:.3f}s")
 
     tournament_round = game.round
 
@@ -481,6 +491,7 @@ def game_detail_view(request, id=None, league_id=None):
         # No tournament
         all_players = Profile.objects.all()
         open_roster = True
+    _vlog.warning(f"[game_detail_view] all_players: {_time.time()-_t0:.3f}s")
 
     edit_permission = game.can_edit(request.user.profile) if request.user.is_authenticated else EditPermission(False)
 
@@ -497,7 +508,10 @@ def game_detail_view(request, id=None, league_id=None):
         'all_players': all_players,
         'open_roster': open_roster,
     }
-    return render(request, "the_warroom/game_detail_page.html", context)
+    _vlog.warning(f"[game_detail_view] before render: {_time.time()-_t0:.3f}s")
+    result = render(request, "the_warroom/game_detail_page.html", context)
+    _vlog.warning(f"[game_detail_view] total: {_time.time()-_t0:.3f}s")
+    return result
 
 @player_onboard_required
 def game_delete_view(request, id=None):
