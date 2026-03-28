@@ -355,8 +355,14 @@ class BracketService:
         Updates match/series status, determines the series winner,
         and triggers advancement.
         """
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+        t0 = time.time()
+
         match.status = CompetitionStatus.COMPLETED
         match.save(update_fields=['status'])
+        logger.warning(f"[on_game_complete] match.save: {time.time()-t0:.3f}s")
 
         series = match.series
         best_of = series.number_of_games
@@ -383,11 +389,14 @@ class BracketService:
             )
             if win_counts.exists():
                 cls._set_series_winners(series, win_counts)
+        logger.warning(f"[on_game_complete] after set_series_winners: {time.time()-t0:.3f}s")
 
         # Check if this round is now complete
         if series.is_complete():
             cls._process_advancement(series)
+            logger.warning(f"[on_game_complete] after _process_advancement: {time.time()-t0:.3f}s")
             cls._check_round_complete(match.round)
+            logger.warning(f"[on_game_complete] after _check_round_complete: {time.time()-t0:.3f}s")
         else:
             # Else mark as in progress / active
             series.status = CompetitionStatus.ACTIVE
@@ -401,6 +410,7 @@ class BracketService:
             if obj and obj.status == CompetitionStatus.PENDING and obj.is_active:
                 obj.status = CompetitionStatus.ACTIVE
                 obj.save(update_fields=['status'])
+        logger.warning(f"[on_game_complete] total: {time.time()-t0:.3f}s")
 
 
     @classmethod
