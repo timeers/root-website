@@ -64,11 +64,12 @@
                 <!-- Mobile dropdown for Games-related pages -->
                 <div class="section-nav-actions-mobile">
                     {% if user.profile.player and active_page == 'series' %}
-                        <a class="btn btn-success" href="{% url 'tournament-dynamic-create' %}">{% trans 'New Series' %}</a>
+                        <a class="btn btn-primary btn-sm" href="{% url 'tournament-dynamic-create' %}"><i class="bi bi-plus-circle"></i> {% trans 'New' %}</a>
                     {% else %}
                         <div class="btn-group">
                             <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                                {% trans 'Record' %} +
+                                <i class="bi bi-plus-circle"></i> 
+                                {% trans 'Record' %}
                             </button>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{% url 'record-game-v2' %}">{% trans 'New Game' %}</a></li>

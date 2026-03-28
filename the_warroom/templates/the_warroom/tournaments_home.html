@@ -45,19 +45,23 @@
         </div>
 
         <div class="tab-content" id="seriesTabsContent">
-            <!-- Groups Tab -->
-            <div class="tab-pane fade" id="groups" role="tabpanel" aria-labelledby="groups-tab">
-                {% include 'the_warroom/partials/series_tab_content.html' with cls_key='groups' cls_label='Group' my_series=groups_my participating_series=groups_participating community_series=groups_community public_series=groups_public has_more_my=has_more_groups_my has_more_participating=has_more_groups_participating has_more_community=has_more_groups_community has_more_public=has_more_groups_public my_offset=groups_my_offset participating_offset=groups_participating_offset community_offset=groups_community_offset public_offset=groups_public_offset %}
+            <!-- Groups Tab (lazy-loaded on first click) -->
+            <div class="tab-pane fade" id="groups" role="tabpanel" aria-labelledby="groups-tab"
+                 hx-get="?tab=groups"
+                 hx-trigger="shown.bs.tab from:#groups-tab once"
+                 hx-swap="innerHTML">
             </div>
 
-            <!-- Tournaments Tab (active) -->
+            <!-- Tournaments Tab (active, loaded on initial page load) -->
             <div class="tab-pane fade show active" id="tournaments" role="tabpanel" aria-labelledby="tournaments-tab">
                 {% include 'the_warroom/partials/series_tab_content.html' with cls_key='tournaments' cls_label='Tournament' my_series=tournaments_my participating_series=tournaments_participating community_series=tournaments_community public_series=tournaments_public has_more_my=has_more_tournaments_my has_more_participating=has_more_tournaments_participating has_more_community=has_more_tournaments_community has_more_public=has_more_tournaments_public my_offset=tournaments_my_offset participating_offset=tournaments_participating_offset community_offset=tournaments_community_offset public_offset=tournaments_public_offset %}
             </div>
 
-            <!-- Leagues Tab -->
-            <div class="tab-pane fade" id="leagues" role="tabpanel" aria-labelledby="leagues-tab">
-                {% include 'the_warroom/partials/series_tab_content.html' with cls_key='leagues' cls_label='League' my_series=leagues_my participating_series=leagues_participating community_series=leagues_community public_series=leagues_public has_more_my=has_more_leagues_my has_more_participating=has_more_leagues_participating has_more_community=has_more_leagues_community has_more_public=has_more_leagues_public my_offset=leagues_my_offset participating_offset=leagues_participating_offset community_offset=leagues_community_offset public_offset=leagues_public_offset %}
+            <!-- Leagues Tab (lazy-loaded on first click) -->
+            <div class="tab-pane fade" id="leagues" role="tabpanel" aria-labelledby="leagues-tab"
+                 hx-get="?tab=leagues"
+                 hx-trigger="shown.bs.tab from:#leagues-tab once"
+                 hx-swap="innerHTML">
             </div>
         </div>
     </div>

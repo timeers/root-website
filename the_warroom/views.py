@@ -8,7 +8,7 @@ from django.views.generic import DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse, HttpResponseBadRequest, Http404
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
@@ -2751,6 +2751,22 @@ def _get_series_base_queryset(classification, profile=None):
             'rounds__games__efforts__player',
             distinct=True
         ),
+        annotated_scheduled_count=Count(
+            'rounds__series__matches',
+            filter=Q(
+                rounds__series__matches__scheduled_time__isnull=False,
+                rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+            ),
+            distinct=True
+        ),
+        annotated_pending_count=Count(
+            'rounds__series__matches',
+            filter=Q(
+                rounds__series__matches__scheduled_time__isnull=True,
+                rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+            ),
+            distinct=True
+        ),
         # Sort order: Active=0, Pending=1, Completed=2
         status_sort=Case(
             When(status=CompetitionStatus.ACTIVE, then=Value(0)),
@@ -2786,53 +2802,94 @@ def _get_series_base_queryset(classification, profile=None):
     return qs
 
 
+def _build_series_section_querysets(cls_value, profile, is_admin):
+    """Build the 4 section querysets (my/participating/community/public) for a classification."""
+    base_qs = _get_series_base_queryset(cls_value, profile)
+
+    if profile:
+        my_filter = Q(designer=profile) | Q(moderators=profile)
+        participating_filter = Q(tournament_players__profile=profile)
+        community_filter = Q(guild__in=profile.guilds.all())
+
+        my_qs = base_qs.filter(my_filter).distinct()
+        participating_qs = base_qs.filter(participating_filter).exclude(my_filter).distinct()
+        community_qs = base_qs.filter(community_filter).exclude(my_filter).exclude(participating_filter).distinct()
+
+        if is_admin:
+            public_qs = base_qs.exclude(my_filter).exclude(participating_filter).exclude(community_filter).distinct()
+        else:
+            public_qs = base_qs.filter(publicly_visible=True).exclude(my_filter).exclude(participating_filter).exclude(community_filter).distinct()
+    else:
+        my_qs = Tournament.objects.none()
+        participating_qs = Tournament.objects.none()
+        community_qs = Tournament.objects.none()
+        public_qs = base_qs.filter(publicly_visible=True)
+
+    return {
+        'my': my_qs,
+        'participating': participating_qs,
+        'community': community_qs,
+        'public': public_qs,
+    }
+
+
 def tournaments_home(request):
     profile = request.user.profile if request.user.is_authenticated else None
     is_admin = profile and profile.admin
 
     load_type = request.GET.get('load_type', None)
+    tab = request.GET.get('tab', None)
 
-    # Build querysets for all classifications and sections
-    all_data = {}
-    for cls_key, cls_value in SERIES_CLASSIFICATIONS:
-        base_qs = _get_series_base_queryset(cls_value, profile)
+    # Handle HTMX tab lazy-load request — only build querysets for the requested classification
+    if tab:
+        cls_lookup = dict(SERIES_CLASSIFICATIONS)
+        cls_value = cls_lookup.get(tab)
+        if cls_value is None:
+            return HttpResponseBadRequest()
+        section_qs = _build_series_section_querysets(cls_value, profile, is_admin)
+        context_data = {}
+        for section in SERIES_SECTIONS:
+            qs = section_qs[section]
+            page_size = SERIES_PAGE_SIZES[section]
+            results = list(qs[:page_size + 1])
+            has_more = len(results) > page_size
+            key_prefix = f'{tab}_{section}'
+            context_data[key_prefix] = results[:page_size]
+            context_data[f'has_more_{key_prefix}'] = has_more
+            context_data[f'{key_prefix}_offset'] = page_size
+        return render(request, 'the_warroom/partials/series_tab_content.html', {
+            **context_data,
+            'cls_key': tab,
+            'cls_label': tab.rstrip('s').capitalize(),
+            'my_series': context_data.get(f'{tab}_my', []),
+            'participating_series': context_data.get(f'{tab}_participating', []),
+            'community_series': context_data.get(f'{tab}_community', []),
+            'public_series': context_data.get(f'{tab}_public', []),
+            'has_more_my': context_data.get(f'has_more_{tab}_my', False),
+            'has_more_participating': context_data.get(f'has_more_{tab}_participating', False),
+            'has_more_community': context_data.get(f'has_more_{tab}_community', False),
+            'has_more_public': context_data.get(f'has_more_{tab}_public', False),
+            'my_offset': context_data.get(f'{tab}_my_offset', 0),
+            'participating_offset': context_data.get(f'{tab}_participating_offset', 0),
+            'community_offset': context_data.get(f'{tab}_community_offset', 0),
+            'public_offset': context_data.get(f'{tab}_public_offset', 0),
+            'profile': profile,
+        })
 
-        if profile:
-            my_filter = Q(designer=profile) | Q(moderators=profile)
-            participating_filter = Q(tournament_players__profile=profile)
-            community_filter = Q(guild__in=profile.guilds.all())
-
-            my_qs = base_qs.filter(my_filter).distinct()
-            participating_qs = base_qs.filter(participating_filter).exclude(my_filter).distinct()
-            community_qs = base_qs.filter(community_filter).exclude(my_filter).exclude(participating_filter).distinct()
-
-            if is_admin:
-                public_qs = base_qs.exclude(my_filter).exclude(participating_filter).exclude(community_filter).distinct()
-            else:
-                public_qs = base_qs.filter(publicly_visible=True).exclude(my_filter).exclude(participating_filter).exclude(community_filter).distinct()
-        else:
-            my_qs = Tournament.objects.none()
-            participating_qs = Tournament.objects.none()
-            community_qs = Tournament.objects.none()
-            public_qs = base_qs.filter(publicly_visible=True)
-
-        all_data[cls_key] = {
-            'my': my_qs,
-            'participating': participating_qs,
-            'community': community_qs,
-            'public': public_qs,
-        }
-
-    # Handle HTMX partial request
+    # Handle HTMX partial request — only build the one needed queryset
     if load_type:
         parts = load_type.rsplit('_', 1)
         cls_key, section = parts[0], parts[1]
+
+        cls_lookup = dict(SERIES_CLASSIFICATIONS)
+        cls_value = cls_lookup[cls_key]
+        section_qs = _build_series_section_querysets(cls_value, profile, is_admin)
 
         offset_param = f'{load_type}_offset'
         offset = int(request.GET.get(offset_param, 0))
         page_size = SERIES_PAGE_SIZES[section]
 
-        qs = all_data[cls_key][section]
+        qs = section_qs[section]
         # Fetch one extra to check if there are more without a separate COUNT query
         results = list(qs[offset:offset + page_size + 1])
         has_more = len(results) > page_size
@@ -2847,20 +2904,23 @@ def tournaments_home(request):
             'profile': profile,
         })
 
-    # Full page load — slice all querysets
-    # Fetch page_size + 1 to determine has_more without separate COUNT queries
+    # Full page load — only build querysets for the default (Tournaments) tab.
+    # Groups and Leagues are lazy-loaded via HTMX on first click.
+    # Fetch page_size + 1 to determine has_more without separate COUNT queries.
     context_data = {}
-    for cls_key, cls_value in SERIES_CLASSIFICATIONS:
-        for section in SERIES_SECTIONS:
-            qs = all_data[cls_key][section]
-            page_size = SERIES_PAGE_SIZES[section]
-            results = list(qs[:page_size + 1])
-            has_more = len(results) > page_size
+    default_cls_key = 'tournaments'
+    default_cls_value = dict(SERIES_CLASSIFICATIONS)[default_cls_key]
+    section_qs = _build_series_section_querysets(default_cls_value, profile, is_admin)
+    for section in SERIES_SECTIONS:
+        qs = section_qs[section]
+        page_size = SERIES_PAGE_SIZES[section]
+        results = list(qs[:page_size + 1])
+        has_more = len(results) > page_size
 
-            key_prefix = f'{cls_key}_{section}'
-            context_data[key_prefix] = results[:page_size]
-            context_data[f'has_more_{key_prefix}'] = has_more
-            context_data[f'{key_prefix}_offset'] = page_size
+        key_prefix = f'{default_cls_key}_{section}'
+        context_data[key_prefix] = results[:page_size]
+        context_data[f'has_more_{key_prefix}'] = has_more
+        context_data[f'{key_prefix}_offset'] = page_size
 
     # Theme
     theme = get_theme(request)
