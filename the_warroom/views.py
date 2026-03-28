@@ -889,6 +889,11 @@ def manage_game_v2(request, id=None):
 
     if request.method == 'POST':
         if form.is_valid() and formset.is_valid():
+            import time as _time
+            import logging as _logging
+            _vlog = _logging.getLogger(__name__)
+            _t0 = _time.time()
+
             parent = form.save(commit=False)
 
             # Set final status
@@ -906,6 +911,7 @@ def manage_game_v2(request, id=None):
 
             parent.save()
             form.save_m2m()
+            _vlog.warning(f"[manage_game_v2] parent.save+m2m: {_time.time()-_t0:.3f}s")
 
             # Process seat ordering
             seat_order_str = request.POST.get('seat_order', '')
@@ -952,9 +958,11 @@ def manage_game_v2(request, id=None):
                 for seat_num, (idx, child) in enumerate(saved_efforts, start=1):
                     child.seat = seat_num
                     child.save()
+            _vlog.warning(f"[manage_game_v2] after effort saves: {_time.time()-_t0:.3f}s")
 
             parent.status = StatusChoices(game_status)
             parent.save()
+            _vlog.warning(f"[manage_game_v2] after parent.save (status): {_time.time()-_t0:.3f}s")
 
             # Match linkage
             if match_mode and match:
@@ -962,11 +970,13 @@ def manage_game_v2(request, id=None):
                     match.game = parent
                 match.status = CompetitionStatus.COMPLETED if parent.final else CompetitionStatus.ACTIVE
                 match.save()
+                _vlog.warning(f"[manage_game_v2] after match.save: {_time.time()-_t0:.3f}s")
 
                 # Trigger series/round completion logic
                 if parent.final:
                     from the_warroom.services.bracket import BracketService
                     BracketService.on_game_complete(match)
+                _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
 
             # ScoreCard consistency checks
             for idx, child in saved_efforts:
@@ -988,6 +998,7 @@ def manage_game_v2(request, id=None):
                 if score_mismatch or dominance_mismatch:
                     scorecard.final = False
                     scorecard.save(update_fields=['final'])
+            _vlog.warning(f"[manage_game_v2] after scorecard checks: {_time.time()-_t0:.3f}s")
 
             # Discord notification
             if parent.final:
@@ -1002,6 +1013,7 @@ def manage_game_v2(request, id=None):
                         f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})',
                         category='New Game', title='Game Recorded', fields=fields
                     )
+            _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
 
             return redirect(parent.get_absolute_url())
         else:
