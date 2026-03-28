@@ -476,6 +476,15 @@ em, i {
     object-fit: cover;
   }
 
+  .xl-avatar-icon {
+    width: 80px;   /* Fixed width */
+    height: 80px;  /* Fixed height */
+    margin-right: 2px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
   .icon-bar {
     display: flex;
     gap: 0; /* optional: explicitly removes space */

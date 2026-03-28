@@ -848,12 +848,9 @@ class Round(models.Model):
 
     game_threshold = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)],
-        default=0,
-
         )
     leaderboard_positions = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(3), MaxValueValidator(30)],
-
         )
 
     max_players = models.PositiveSmallIntegerField(

@@ -274,7 +274,7 @@ class GameCreateForm(forms.ModelForm):
 
             # Winner Required
             if win_count == 0:
-                validation_errors_to_display.append(f'Select at winner')
+                validation_errors_to_display.append(f'Select a winner')
 
             # Multiple Winners and Multiple Humans means Coop Match
             elif win_count > 1 and human_count > 1:
@@ -1013,7 +1013,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
 class RoundCreateForm(forms.ModelForm):
     class Meta:
         model = Round
-        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'is_active', 'game_threshold', 'leaderboard_positions', 'round_specific_format', 'min_players', 'max_players']
+        fields = ['name', 'description', 'round_number', 'start_date', 'end_date', 'is_active', 'game_threshold', 'leaderboard_positions', 'min_players', 'max_players']
         labels = {
             'name': 'Round Name',
             'round_number': 'Round #',
@@ -1022,7 +1022,6 @@ class RoundCreateForm(forms.ModelForm):
             'game_threshold': 'Leaderboard Threshold',
             'leaderboard_positions': 'Leaderboard Positions',
             'description': 'Description (Optional)',
-            'round_specific_format': 'Format',
             'min_players': 'Min Players per Group',
             'max_players': 'Max Players per Group',
         }
@@ -1081,14 +1080,12 @@ class StageCreateForm(forms.ModelForm):
     class Meta:
         model = Stage
         fields = [
-            'name', 'order', 'stage_format', 'advancement_type',
+            'name', 'order',
             'start_date', 'end_date', 'is_active',
             'min_players', 'max_players',
             'game_threshold', 'leaderboard_positions',
         ]
         labels = {
-            'stage_format': 'Format',
-            'advancement_type': 'Advancement Type',
             'end_date': 'End Date',
             'is_active': 'Active Status',
             'game_threshold': 'Leaderboard Threshold',
@@ -1110,10 +1107,6 @@ class StageCreateForm(forms.ModelForm):
         # Pre-populate use_rounds from the tournament's current setting
         if tournament:
             self.fields['use_rounds'].initial = tournament.use_rounds
-            # Hide format/advancement fields for non-Tournament classifications
-            if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
-                del self.fields['stage_format']
-                del self.fields['advancement_type']
         # Only show round_name on create, not update
         if self.instance.pk:
             del self.fields['round_name']

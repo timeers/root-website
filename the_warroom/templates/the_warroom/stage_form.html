@@ -36,16 +36,7 @@
                             {{ form.order|as_crispy_field }}
                         </div>
                     </div>
-                    {% if form.stage_format %}
-                    <div class="row">
-                        <div class="col-md-6 mb-2">
-                            {{ form.stage_format|as_crispy_field }}
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            {{ form.advancement_type|as_crispy_field }}
-                        </div>
-                    </div>
-                    {% endif %}
+
                 </div>
             </div>
 
@@ -98,21 +89,6 @@
                     </small>
                 </div>
                 <div class="card-body">
-                    {% if tournament.classification == 'Tournament' %}
-                        <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-2"></i>{% trans 'Tournament Bracket' %}</h6>
-                        {% if tournament.default_format %}
-                        <small class="form-text text-muted d-block mb-3">
-                            Override the Series' default format. Leave blank to inherit from {{ tournament }} ({{ tournament.default_format }}).
-                        </small>
-                        {% endif %}
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                {{ form.stage_format|as_crispy_field }}
-                            </div>
-                        </div>
-                    {% endif %}
-
-                
                     <h6 class="text-muted mb-2"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h6>
                     <small class="form-text text-muted d-block mb-3">
                         Override the leaderboard settings for this stage. Leave blank to inherit from {{ tournament }}

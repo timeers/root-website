@@ -46,9 +46,9 @@
         </div>
     </div>
     <div class="d-flex content-section">
-        <div class="article-img-container">
-            <img class="article-img" src="{{ player.image.url }}">
-        </div>
+     
+            <img class="xl-avatar-icon me-2" src="{{ player.image.url }}">
+       
             <div>
                 <div class='d-flex flex-nowrap'>
                 <h1 class="account-heading root-title">{{ player.name }}</h1>
@@ -56,14 +56,14 @@
                 </div>
                 {% if user.profile.player or player == user.profile %}
                 {% if player.discord %}
-                    <div class="text-secondary"  title="{{ player.display_name }}'s Discord Username"
+                    <div class="text-secondary d-inline-flex align-items-center gap-1" title="{{ player.display_name }}'s Discord Username"
                        data-bs-toggle="tooltip">
-                        <i class="bi bi-discord"></i> 
+                        <i class="bi bi-discord"></i>
                         {{ player.discord }}
                     </div>
                 {% endif %}
                 {% if player.dwd %}
-                    <div class="text-secondary"  title="{{ player.display_name }}'s DWD Username"
+                    <div class="text-secondary d-inline-flex align-items-center gap-1" title="{{ player.display_name }}'s DWD Username"
                        data-bs-toggle="tooltip">
                         <img class="faction-icon" src="{% static 'images/link_icons/root_digital_icon.png' %}" alt="Root Digital Icon">
                         {{ player.dwd }}
@@ -97,7 +97,7 @@
 
     <ul class="nav nav-tabs" id="profileTabs" role="tablist">
 
-        {% if user.profile.weird and player.posts.count %}
+        {% if user.profile.weird and posts_count %}
         <li class="nav-item" role="presentation">
             <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false">{% trans 'Posts' %} ({{ posts_count }})</a>
         </li>

@@ -81,21 +81,6 @@
                     </small>
                 </div>
                 <div class="card-body">
-                    {% if tournament.classification == 'Tournament' %}
-                        <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-2"></i>{% trans 'Tournament Bracket' %}</h6>
-                        {% if tournament.default_format %}
-                        <small class="form-text text-muted d-block mb-3">
-                            Override the default format. Leave blank to inherit from {{stage}} ({{ stage.get_format }}).
-                        </small>
-                        {% endif %}
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                {{ form.round_specific_format|as_crispy_field }}
-                            </div>
-                        </div>
-                    {% endif %}
-
-                
                     <h6 class="text-muted mb-2"><i class="bi bi-award me-2"></i>{% trans 'Leaderboard Settings' %}</h6>
                     <small class="form-text text-muted d-block mb-3">
                         Override the leaderboard settings for this round. Leave blank to inherit from the stage
@@ -115,7 +100,7 @@
                     <h6 class="text-muted mb-2"><i class="bi bi-people me-2"></i>{% trans 'Game Size' %}</h6>
                     <small class="form-text text-muted d-block mb-3">
                         Override the series defaults for player count per game. Leave blank to inherit from the series
-                        ({% if tournament.min_players != tournament.max_players %}{{ tournament.min_players }} - {% endif %}{{ tournament.max_players }} players).
+                        ({% if stage.get_min_players_display != stage.get_max_players_display %}{{ stage.get_min_players_display }} - {% endif %}{{ stage.get_max_players_display }} players).
                     </small>
                     <div class="row">
                         <div class="col-md-6 mb-2">

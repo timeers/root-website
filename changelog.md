@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.11.0] - 2026-3-8 A Series of Surveys & Scorecards
+## [1.11.0] - 2026-3-27 A Series of Surveys & Scorecards
 This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design and games can be edited or deleted after submission. Thank you to safailla and trippingrannys for their suggestions that went into this update.
 
 ### New Features
@@ -23,10 +23,11 @@ This update adds Surveys to the Workshop! Users can also create their own Series
 - Improved Series' Asset and Player managment pages
 - Option to add Tournament Moderators
 - Cleaned up the 404 and 403 pages
-- Removed based on Faction from the Stable Status page
+- Removed based on Faction (if one exists) from the Stable Status page
 - Improved games queryset loading
 - RDL now uses new Tournament > Stage > Round format for API
 - RDL game import now uses the Match API Token
+- Filter games and leaderboards by date range
 
 ### Bug Fixes
 - Clicking on a link to a Law now respects the user's Reduce Motion preferences

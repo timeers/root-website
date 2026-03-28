@@ -16,6 +16,54 @@
     <!-- Settings Cards Grid -->
     <div class="row g-4">
 
+
+        <!-- Mark Stable Card -->
+        {% if stable_ready and object.status != "1" %}
+        <div class="col-md-6">
+            <div class="card h-100 position-relative">
+                <span class="notification-badge">1</span>
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-check-circle me-2"></i>{% trans 'Mark Stable' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}
+                        This {{ object_component }} has met all stability requirements and can be marked as Stable' 
+                        {% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'confirm-stable' object.slug %}" class="btn btn-success w-100">
+                        <i class="bi bi-check me-1"></i>{% trans 'Mark Stable' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Mark Testing Card -->
+        {% if testing_ready and object.status != "2" and object.status != "1" %}
+        <div class="col-md-6">
+            <div class="card h-100 position-relative">
+                <span class="notification-badge">1</span>
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-play-circle me-2"></i>{% trans 'Mark Testing' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% blocktrans %}This {{ object_component }} has recorded games and can be moved to Testing status{% endblocktrans %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'confirm-testing' object.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-play-fill me-1"></i>{% trans 'Mark Testing' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+
         <!-- Edit Post Card -->
         <div class="col-md-6">
             <div class="card h-100">
@@ -45,7 +93,7 @@
                     <p class="card-text text-muted">
                         {% blocktrans %}Manage warriors, buildings, tokens, and other pieces for this {{ object_component }}{% endblocktrans %}
                         {% if object.pieces.count %}
-                            <br><strong>{{ object.pieces.count }}</strong> {% trans 'piece' %}{{ object.pieces.count|pluralize }} {% trans 'added' %}
+                            <br><strong>{{ object.pieces.count }}</strong> {% trans 'component' %}{{ object.pieces.count|pluralize }}
                         {% endif %}
                     </p>
                 </div>
@@ -75,50 +123,6 @@
                 </div>
             </div>
         </div>
-
-        <!-- Mark Stable Card -->
-        {% if stable_ready and object.status != "1" %}
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title">
-                        <i class="bi bi-check-circle me-2"></i>{% trans 'Mark Stable' %}
-                    </h5>
-                    <p class="card-text text-muted">
-                        {% blocktrans %}
-                        This {{ object_component }} has met all stability requirements and can be marked as Stable' 
-                        {% endblocktrans %}
-                    </p>
-                </div>
-                <div class="card-footer bg-transparent">
-                    <a href="{% url 'confirm-stable' object.slug %}" class="btn btn-success w-100">
-                        <i class="bi bi-check me-1"></i>{% trans 'Mark Stable' %}
-                    </a>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Mark Testing Card -->
-        {% if testing_ready and object.status != "2" and object.status != "1" %}
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title">
-                        <i class="bi bi-play-circle me-2"></i>{% trans 'Mark Testing' %}
-                    </h5>
-                    <p class="card-text text-muted">
-                        {% blocktrans %}This {{ object_component }} has recorded games and can be moved to Testing status{% endblocktrans %}
-                    </p>
-                </div>
-                <div class="card-footer bg-transparent">
-                    <a href="{% url 'confirm-testing' object.slug %}" class="btn btn-primary w-100">
-                        <i class="bi bi-play-fill me-1"></i>{% trans 'Mark Testing' %}
-                    </a>
-                </div>
-            </div>
-        </div>
-        {% endif %}
 
         <!-- Law Card -->
         <div class="col-md-6">

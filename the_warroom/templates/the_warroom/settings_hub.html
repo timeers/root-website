@@ -67,6 +67,26 @@
                 </div>
             </div>
         </div>
+        {% else %}
+        <div class="col-md-6">
+            <div class="card h-100 border-secondary-subtle">
+                <div class="card-body">
+                    <h5 class="card-title root-title text-secondary">
+                        <i class="bi bi-sliders me-2"></i>General Settings
+                    </h5>
+                    <p class="card-text text-muted">
+                        You have moderator access to this
+                        {{ tournament.classification }}.
+                        Only the organizer can edit {{ tournament.classification }} settings.
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <button class="btn btn-outline-secondary w-100" disabled>
+                        <i class="bi bi-lock me-1"></i>Organizer Only
+                    </button>
+                </div>
+            </div>
+        </div>
         {% endif %}
 
         
@@ -256,7 +276,7 @@
         {% endif %}
 
         <!-- Grouping Management Card (Round only) -->
-        {% if round %}
+        {% if round and tournament.classification == "Tournament" %}
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
@@ -264,7 +284,7 @@
                         <i class="bi bi-diagram-3 me-2"></i>Player Grouping
                     </h5>
                     <p class="card-text text-muted">
-                        Organize players into groups and scheudle matches
+                        Organize players into groups and schedule matches
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">

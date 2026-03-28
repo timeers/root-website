@@ -4836,7 +4836,7 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
     """
     from the_warroom.utils import get_single_stage
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
 
     if stage_slug:
         stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
@@ -5054,7 +5054,7 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
 @require_http_methods(['GET'])
 def round_grouping_status(request, tournament_slug, stage_slug, round_slug, session_id):
     """Check session status (for HTMX polling)."""
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5080,7 +5080,7 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
     """Move a player from one group to another."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5192,7 +5192,7 @@ def round_grouping_add_to_group(request, tournament_slug, stage_slug, round_slug
     """Add an ungrouped or waitlisted player to a group."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5239,7 +5239,7 @@ def round_grouping_remove_from_group(request, tournament_slug, stage_slug, round
     """Remove a player from a group and return them to ungrouped status."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5283,7 +5283,7 @@ def round_grouping_create_group(request, tournament_slug, stage_slug, round_slug
     """Create a new empty group for a round."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5346,7 +5346,7 @@ def round_grouping_delete_group(request, tournament_slug, stage_slug, round_slug
     """Delete an empty group."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5385,7 +5385,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
     """Edit group metadata (name, discord_thread, video_link) and optionally update participants."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5538,7 +5538,7 @@ def round_grouping_finalize(request, tournament_slug, stage_slug, round_slug, se
     """Finalize the grouping session."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
     profile = request.user.profile
@@ -5569,7 +5569,7 @@ def round_generate_bracket(request, tournament_slug, stage_slug, round_slug):
     from django.http import JsonResponse
     from .services.bracket import BracketService
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
@@ -5652,7 +5652,7 @@ def round_finalize_bracket(request, tournament_slug, stage_slug, round_slug):
     """Finalize the bracket so it can no longer be regenerated."""
     from django.http import JsonResponse
 
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     round = get_object_or_404(Round, slug=round_slug, stage=stage)
 

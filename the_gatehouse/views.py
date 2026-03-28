@@ -310,7 +310,9 @@ def player_page_view(request, slug=None):
     view_status = 4
     if request.user.is_authenticated:
         view_status = request.user.profile.view_status
-    components = player.posts.filter(status__lte=view_status)
+    components = Post.objects.filter(
+        Q(designer=player) | Q(co_designers=player)
+    ).filter(status__lte=view_status).distinct()
     submissions = player.submissions.filter(status='9')
     posts_count = components.count()
     context = {
