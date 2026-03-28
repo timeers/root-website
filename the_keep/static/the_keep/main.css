@@ -985,8 +985,9 @@ tr.clickable-row:hover {
 .htmx-indicator{
   display: none;
 }
-.htmx-request .htmx-indicator{
-  display: inline;
+.htmx-request .htmx-indicator,
+.htmx-indicator.htmx-request{
+  display: inline !important;
 }
 .htmx-inverted-indicator{
   display: inline;

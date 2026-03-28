@@ -44,12 +44,33 @@
             </a>
         </div>
 
+        <!-- Spinners outside tab-pane so Bootstrap visibility doesn't interfere -->
+        <div id="spinner-groups" class="htmx-indicator">
+            <div class="d-flex justify-content-center pt-4">
+                <div class="image-container">
+                    <img class="image back-image" src="{% static 'images/backgroundbushes.webp' %}" alt="Background Bushes">
+                    <img class="image top-image" src="{% static 'images/smallbush.webp' %}" alt="Small Bush">
+                    <img class="image movement-image" src="{% static 'images/searchingvb.webp' %}" alt="Detective VB">
+                </div>
+            </div>
+        </div>
+        <div id="spinner-leagues" class="htmx-indicator">
+            <div class="d-flex justify-content-center pt-4">
+                <div class="image-container">
+                    <img class="image back-image" src="{% static 'images/backgroundbushes.webp' %}" alt="Background Bushes">
+                    <img class="image top-image" src="{% static 'images/smallbush.webp' %}" alt="Small Bush">
+                    <img class="image movement-image" src="{% static 'images/searchingvb.webp' %}" alt="Detective VB">
+                </div>
+            </div>
+        </div>
+
         <div class="tab-content" id="seriesTabsContent">
             <!-- Groups Tab (lazy-loaded on first click) -->
             <div class="tab-pane fade" id="groups" role="tabpanel" aria-labelledby="groups-tab"
                  hx-get="?tab=groups"
                  hx-trigger="shown.bs.tab from:#groups-tab once"
-                 hx-swap="innerHTML">
+                 hx-swap="innerHTML"
+                 hx-indicator="#spinner-groups">
             </div>
 
             <!-- Tournaments Tab (active, loaded on initial page load) -->
@@ -61,7 +82,8 @@
             <div class="tab-pane fade" id="leagues" role="tabpanel" aria-labelledby="leagues-tab"
                  hx-get="?tab=leagues"
                  hx-trigger="shown.bs.tab from:#leagues-tab once"
-                 hx-swap="innerHTML">
+                 hx-swap="innerHTML"
+                 hx-indicator="#spinner-leagues">
             </div>
         </div>
     </div>
