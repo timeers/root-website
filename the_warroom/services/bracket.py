@@ -369,25 +369,20 @@ class BracketService:
         else:
             # Best-of-X — check if any player has reached the win threshold
             wins_needed = math.ceil(best_of / 2)
-            completed_matches = series.matches.filter(
-                status=CompetitionStatus.COMPLETED,
-                game__isnull=False,
-            )
-            # Count wins per player across all completed games in the series
-            from collections import Counter
-            win_counts = Counter()
-            for m in completed_matches:
-                for profile in m.winners:
-                    win_counts[profile.id] += 1
-
+            # Single query: count wins per player across all completed games in the series
+            from django.db.models import Count
             from the_gatehouse.models import Profile
-            threshold_winners = [
-                Profile.objects.get(id=pid)
-                for pid, count in win_counts.items()
-                if count >= wins_needed
-            ]
-            if threshold_winners:
-                cls._set_series_winners(series, threshold_winners)
+            win_counts = (
+                Profile.objects.filter(
+                    efforts__game__match__series=series,
+                    efforts__game__match__status=CompetitionStatus.COMPLETED,
+                    efforts__win=True,
+                )
+                .annotate(win_count=Count('efforts'))
+                .filter(win_count__gte=wins_needed)
+            )
+            if win_counts.exists():
+                cls._set_series_winners(series, win_counts)
 
         # Check if this round is now complete
         if series.is_complete():
@@ -470,7 +465,13 @@ class BracketService:
         if not all_series.exists():
             return
 
-        if all(s.is_complete() for s in all_series):
+        # Single query: any series with no winners and at least one non-completed match is incomplete
+        incomplete_exists = all_series.filter(
+            winners__isnull=True,
+            matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE],
+        ).distinct().exists()
+
+        if not incomplete_exists:
             round.status = CompetitionStatus.COMPLETED
             round.save(update_fields=['status'])
 
