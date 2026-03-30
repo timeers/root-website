@@ -647,7 +647,7 @@ def player_stats(request, slug):
     if tournament_round:
         efforts = Effort.objects.filter(player=player, game__round=tournament_round, game__final=True)
     elif tournament:
-        efforts = Effort.objects.filter(player=player, game__round__tournament=tournament, game__final=True)
+        efforts = Effort.objects.filter(player=player, game__round__stage__tournament=tournament, game__final=True)
     else:
         efforts = Effort.objects.filter(player=player, game__test_match=False, game__final=True)
 

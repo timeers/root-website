@@ -765,6 +765,8 @@ def _can_record_match(profile, match):
         return True
     if tournament.has_permission(profile):
         return True
+    if not tournament.players_can_record:
+        return False
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
 
@@ -825,6 +827,13 @@ def manage_game_v2(request, id=None):
     if round_id:
         try:
             selected_round = Round.objects.get(id=round_id)
+            # Block players if tournament restricts recording
+            if selected_round.stage:
+                _tournament = selected_round.stage.tournament
+                if _tournament and not _tournament.players_can_record:
+                    if not (user.profile.admin or _tournament.has_permission(user.profile)):
+                        messages.error(request, "Only tournament moderators can record games for this series.")
+                        return redirect('games-home')
         except Round.DoesNotExist:
             pass
 
@@ -877,7 +886,7 @@ def manage_game_v2(request, id=None):
 
     # Auto-fill nickname with match name in match mode
     if match_mode and not obj.pk:
-        form.fields['nickname'].initial = (match.name or '')[:50]
+        form.fields['nickname'].initial = (f'{match.round} {match.name}' or '')[:50]
 
     # Determine platform lock status for template rendering
     platform_locked = False
@@ -1488,7 +1497,7 @@ def effort_assign_view(request, id):
                 scorecard=None, faction=scorecard.faction,
                 score=scorecard.total_points, game__final=True  # Effort has no associated scorecard
             ).prefetch_related(
-                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__stage__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
                 'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
     else:
         available_efforts = Effort.objects.filter(
@@ -1497,7 +1506,7 @@ def effort_assign_view(request, id):
                 scorecard=None, faction=scorecard.faction, 
                 dominance__isnull=False # Effort has no associated scorecard
             ).prefetch_related(
-                'game', 'game__deck', 'game__map', 'game__round', 'game__round__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
+                'game', 'game__deck', 'game__map', 'game__round', 'game__round__stage__tournament', 'game__round', 'game__landmarks', 'game__tweaks', 'game__hirelings',
                 'game__efforts', 'game__efforts__faction', 'game__efforts__player', 'game__efforts__vagabond').distinct()
         
 
@@ -2510,10 +2519,7 @@ def tournament_move_player(request, slug):
     if not from_group:
         # Adding from search — create TournamentPlayer with desired status
         effective_status = to_status or TournamentPlayer.StatusChoices.REGISTERED
-        if effective_status == TournamentPlayer.StatusChoices.REGISTERED:
-            tournament.add_player(player)
-        else:
-            tournament.add_player_to_tournament(player, status=effective_status)
+        tournament.add_player(player, status=effective_status)
     elif not to_group:
         # Trash button — remove from tournament entirely
         tournament.remove_player_from_tournament(player)
@@ -2602,10 +2608,7 @@ def round_move_player(request, tournament_slug, stage_slug, round_slug):
     if not from_group:
         # Adding from search results — add/update player in tournament with desired status
         effective_status = to_status or TournamentPlayer.StatusChoices.REGISTERED
-        if effective_status == TournamentPlayer.StatusChoices.REGISTERED:
-            tournament.add_player(player)
-        else:
-            tournament.add_player_to_tournament(player, status=effective_status)
+        tournament.add_player(player, status=effective_status)
     elif not to_group:
         # Trash button — remove from tournament entirely
         tournament.remove_player_from_tournament(player)
@@ -2769,27 +2772,27 @@ def _get_series_base_queryset(classification, profile=None):
     now = timezone.now().date()
     qs = qs.annotate(
         annotated_game_count=Count(
-            'rounds__games',
-            filter=Q(rounds__games__final=True),
+            'stages__rounds__games',
+            filter=Q(stages__rounds__games__final=True),
             distinct=True
         ),
         unique_players_count=Count(
-            'rounds__games__efforts__player',
+            'stages__rounds__games__efforts__player',
             distinct=True
         ),
         annotated_scheduled_count=Count(
-            'rounds__series__matches',
+            'stages__rounds__series__matches',
             filter=Q(
-                rounds__series__matches__scheduled_time__isnull=False,
-                rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                stages__rounds__series__matches__scheduled_time__isnull=False,
+                stages__rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
             ),
             distinct=True
         ),
         annotated_pending_count=Count(
-            'rounds__series__matches',
+            'stages__rounds__series__matches',
             filter=Q(
-                rounds__series__matches__scheduled_time__isnull=True,
-                rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                stages__rounds__series__matches__scheduled_time__isnull=True,
+                stages__rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
             ),
             distinct=True
         ),
@@ -4163,11 +4166,7 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
 
         # Auto-create first Round when creating a new stage
         if is_creating:
-            use_rounds = form.cleaned_data.get('use_rounds', tournament.use_rounds)
-            if use_rounds:
-                round_name = form.cleaned_data.get('round_name') or 'Round 1'
-            else:
-                round_name = 'Round 1'
+            round_name = form.cleaned_data.get('round_name') or 'Round 1'
             Round.objects.create(
                 stage=stage_instance,
                 name=round_name,
@@ -4661,7 +4660,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             recordable_match_ids = set(
                 Match.objects.filter(round=round).values_list('id', flat=True)
             )
-        else:
+        elif tournament.players_can_record:
             participant_series_ids = MatchSeat.objects.filter(
                 series__round=round,
                 stage_participant__tournament_player__profile=profile

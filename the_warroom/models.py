@@ -181,6 +181,7 @@ class Tournament(models.Model):
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this Series with a Guild to allow members to record games')
     open_roster = models.BooleanField(default=True, help_text='Registered players will be able to add unregistered players to games')
+    players_can_record = models.BooleanField(default=True, help_text='Allow registered players to record games. If disabled, only admins, the owner, and moderators can record games.')
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -330,15 +331,15 @@ class Tournament(models.Model):
 
     def game_count(self):
         # Counts the number of games associated with this tournament
-        return Game.objects.filter(round__tournament=self, final=True).count()
-    
+        return Game.objects.filter(round__stage__tournament=self, final=True).count()
+
     def get_game_queryset(self):
-        games = Game.objects.filter(round__tournament=self, final=True).all()
+        games = Game.objects.filter(round__stage__tournament=self, final=True).all()
         return games
 
 
     def all_player_count(self):
-        return Effort.objects.filter(game__round__tournament=self).values('player').distinct().count()
+        return Effort.objects.filter(game__round__stage__tournament=self).values('player').distinct().count()
 
 
     def all_player_queryset(self):
@@ -398,18 +399,6 @@ class Tournament(models.Model):
                 tp.set_status(to_status)
                 tp.save(update_fields=['status', 'waitlist_position'])
 
-    def add_player_to_tournament(self, profile, status=None):
-        """Add a player to the tournament."""
-        from the_warroom.models import TournamentPlayer
-        if status is None:
-            status = TournamentPlayer.StatusChoices.REGISTERED
-        tp, _ = TournamentPlayer.objects.get_or_create(
-            tournament=self,
-            profile=profile,
-        )
-        tp.set_status(status)
-        tp.save(update_fields=['status', 'waitlist_position'])
-
     def remove_player_from_tournament(self, profile):
         """Remove a player completely from the tournament."""
         from the_warroom.models import TournamentPlayer
@@ -418,20 +407,26 @@ class Tournament(models.Model):
             profile=profile
         ).delete()
 
-    def add_player(self, profile):
-        """Add a profile to this tournament and all active/pending stages."""
-        tp, _ = TournamentPlayer.objects.get_or_create(
+    def add_player(self, profile, status=None):
+        """Add a profile to this tournament. If status is REGISTERED, also propagates to all active/pending stages."""
+        if status is None:
+            status = TournamentPlayer.StatusChoices.REGISTERED
+        tp, created = TournamentPlayer.objects.get_or_create(
             profile=profile,
             tournament=self,
-            defaults={'status': TournamentPlayer.StatusChoices.REGISTERED}
+            defaults={'status': status}
         )
-        stages = self.stages.filter(status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE])
-        for stage in stages:
-            StageParticipant.objects.get_or_create(
-                tournament_player=tp,
-                stage=stage,
-                defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
-            )
+        if not created:
+            tp.set_status(status)
+            tp.save(update_fields=['status', 'waitlist_position'])
+        if status == TournamentPlayer.StatusChoices.REGISTERED or not self.use_stages:
+            stages = self.stages.all() if not self.use_stages else self.stages.filter(status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE])
+            for stage in stages:
+                StageParticipant.objects.get_or_create(
+                    tournament_player=tp,
+                    stage=stage,
+                    defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
+                )
 
     def _recalculate_status(self):
         """Recalculate status from is_active and dates."""
@@ -711,6 +706,8 @@ class Stage(models.Model):
         return f"{self.tournament.name} - {self.name}"
 
     def get_absolute_url(self):
+        if not self.tournament.use_stages:
+            return self.tournament.get_absolute_url()
         return reverse('stage-overview', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
 
     def get_settings_url(self):
@@ -994,14 +991,22 @@ class Round(models.Model):
 
         tournament = self.stage.tournament
 
-        # Use simplified URL for tournaments without stages
+        # No stages and no rounds — link to tournament
+        if not tournament.use_stages and not tournament.use_rounds:
+            return tournament.get_absolute_url()
+
+        # No rounds — link to stage
+        if not tournament.use_rounds:
+            return self.stage.get_absolute_url()
+
+        # No stages (simple round mode) — use simplified URL
         if not tournament.use_stages:
             return reverse('round-overview-simple', kwargs={
                 'tournament_slug': tournament.slug,
                 'round_slug': self.slug
             })
 
-        # Use full URL for hierarchical tournaments
+        # Full hierarchical URL
         return reverse('round-overview', kwargs={
             'tournament_slug': tournament.slug,
             'stage_slug': self.stage.slug,
@@ -1514,13 +1519,15 @@ class Game(models.Model):
         if profile == self.recorder:
             if not self.final or not has_match:
                 return EditPermission(True, 'recorder')
-        # Match participants can edit non-final match games
+        # Match participants can edit non-final match games (unless tournament restricts recording)
         if has_match and not self.final:
-            if Profile.objects.filter(
-                tournament_participations__stage_participations__matchseat__series=self.match.series,
-                pk=profile.pk
-            ).exists():
-                return EditPermission(True, 'participant')
+            tournament = self.get_tournament()
+            if not tournament or tournament.players_can_record:
+                if Profile.objects.filter(
+                    tournament_participations__stage_participations__matchseat__series=self.match.series,
+                    pk=profile.pk
+                ).exists():
+                    return EditPermission(True, 'participant')
         # Tournament organizer/moderator
         tournament = self.get_tournament()
         if tournament and tournament.has_permission(profile):

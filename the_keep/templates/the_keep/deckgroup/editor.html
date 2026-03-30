@@ -86,15 +86,53 @@
     </div>
 
 
-    <button type="submit" class="btn btn-success mt-3">
-      {% if is_create %}
-        {% trans "Create Deck" %}
-      {% else %}
-        {% trans "Save Changes" %}
-      {% endif %}
+    {% if is_create %}
+    <button type="submit" class="btn btn-success mt-3">{% trans "Create Deck" %}</button>
+    {% else %}
+    <button type="submit" id="deck-save-btn" class="btn btn-secondary mt-3" disabled>
+      <i class="bi bi-check-square me-1"></i>{% trans "Saved" %}
     </button>
+    {% endif %}
   </div>
 </form>
+
+{% if not is_create %}
+<script>
+(function() {
+    const saveBtn = document.getElementById('deck-save-btn');
+    if (!saveBtn) return;
+
+    const nameInput = document.getElementById('{{ form.name.id_for_label }}');
+    const imageInput = document.getElementById('{{ form.back_image.id_for_label }}');
+
+    const initialName = nameInput ? nameInput.value : null;
+
+    function checkDirty() {
+        const nameDirty = nameInput && nameInput.value !== initialName;
+        const imageDirty = imageInput && imageInput.files && imageInput.files.length > 0;
+        const dirty = nameDirty || imageDirty;
+
+        if (dirty) {
+            saveBtn.disabled = false;
+            saveBtn.classList.replace('btn-secondary', 'btn-primary');
+            saveBtn.innerHTML = '{% trans "Save Changes" %}';
+        } else {
+            saveBtn.disabled = true;
+            saveBtn.classList.replace('btn-primary', 'btn-secondary');
+            saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>{% trans "Saved" %}';
+        }
+    }
+
+    if (nameInput) {
+        nameInput.addEventListener('input', checkDirty);
+        nameInput.addEventListener('change', checkDirty);
+    }
+    if (imageInput) {
+        imageInput.addEventListener('change', checkDirty);
+    }
+})();
+</script>
+{% endif %}
 
 <!-- ================= Cards Section ================= -->
 

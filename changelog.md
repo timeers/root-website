@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.11.1] - 2026-3-30 Survey and Series Bugs
+Of course there are bugs...
+
+### Improvements
+- Warning before regenerating or clearing Tournament groups
+- Deck editor save button is disabled and grey to show when no changes have been made
+
+### Bug Fixes
+- Profile and Changelog slug create functions
+- Match winners recalculated on game edit
+- Auto-add tournament players to open stages or all stages if stages not used
+- When creating a new stage the user's provided Round name is used instead of Round 1
+- Groups are only availble after group generation
+- Fixed game total not displaying correctly on Series overview due to old model structure
+- Fixed add deck form saving the wrong inputs if multiple forms present
+- URL for Rounds that don't use Stages will direct to the correct page
+
+
+
 ## [1.11.0] - 2026-3-27 A Series of Surveys & Scorecards
 This update adds Surveys to the Workshop! Users can also create their own Series for their game group or host a tournament. Scorecards now have a new more user friendly design and games can be edited or deleted after submission. Thank you to safailla and trippingrannys for their suggestions that went into this update.
 

@@ -114,9 +114,9 @@
 
 
         {% if game.recorder %}
-        <small>
-            {% trans 'Recorded by' %}: {{ game.recorder.name }}
-        </small>
+        <div>
+            <small>{% trans 'Recorded by' %}: {{ game.recorder.name }}</small>
+        </div>
         {% endif %}
 
         {% if game.test_match %}

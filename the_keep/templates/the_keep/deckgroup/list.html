@@ -69,7 +69,7 @@
                         {% include 'the_keep/deckgroup/partials/piece_row.html' %}
                     {% endif %}
                 {% empty %}
-                <tr>
+                <tr id="no-cards-row">
                     <td>
                         No Cards to Display for {{ post }}
                     </td>
@@ -88,12 +88,16 @@
 
 {% if can_edit %}
 <button
+  id="add-deck-btn"
   class="btn btn-primary btn-sm my-2"
   hx-get="{% url 'add-piece' %}?piece=C&slug={{ post.slug }}&type=row&language_code={{ language_code }}"
   hx-target="#asset-table"
   hx-swap="beforeend"
+  onclick="var r = document.getElementById('no-cards-row'); if (r) r.remove();"
 >
-  <i class="bi bi-plus-circle"></i> {% trans "Add Deck" %}
+  <span class="deck-spinner spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+  <i class="bi bi-plus-circle deck-icon"></i>
+  {% trans "Add Deck" %}
 </button>
 {% endif %}
 
@@ -102,6 +106,11 @@
 
 {% block scripts %}
 {% if can_edit %}
+<style>
+  #add-deck-btn .deck-spinner { display: none; }
+  #add-deck-btn.htmx-request .deck-spinner { display: inline-block; }
+  #add-deck-btn.htmx-request .deck-icon { display: none; }
+</style>
 <script>
 function updateFileName(event) {
   const input = event.target;

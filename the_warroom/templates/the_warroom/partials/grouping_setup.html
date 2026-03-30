@@ -143,10 +143,16 @@
             {% endif %}
 
             <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary btn-sm" {% if total_players == 0 %}disabled{% endif %}>
-                    <i class="bi bi-columns-gap"></i>
-                    {% if groups %}{% trans 'Regenerate Groups' %}{% else %}{% trans 'Generate Groups' %}{% endif %}
+                {% if groups %}
+                <button type="button" class="btn btn-primary btn-sm" onclick="confirmRegenerate()"
+                        {% if total_players == 0 %}disabled{% endif %}>
+                    <i class="bi bi-columns-gap"></i> {% trans 'Regenerate Groups' %}
                 </button>
+                {% else %}
+                <button type="submit" class="btn btn-primary btn-sm" {% if total_players == 0 %}disabled{% endif %}>
+                    <i class="bi bi-columns-gap"></i> {% trans 'Generate Groups' %}
+                </button>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -210,6 +216,48 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
                 <button type="button" class="btn btn-success" onclick="confirmFinalize()">{% trans 'Finalize' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Regenerate Groups Confirmation Modal -->
+<div class="modal fade" id="regenerateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-columns-gap"></i> {% trans 'Regenerate Groups' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> {% trans 'This will delete all existing groups and generate new ones. Any manual changes you have made will be lost.' %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" onclick="submitRegenerate()">{% trans 'Regenerate' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Clear Groups Confirmation Modal -->
+<div class="modal fade" id="clearGroupsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-trash3"></i> {% trans 'Clear Groups' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> {% trans 'This will delete all groups and return players to ungrouped.' %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-danger" onclick="submitClearGroups()">{% trans 'Clear Groups' %}</button>
             </div>
         </div>
     </div>
@@ -726,6 +774,28 @@ function confirmFinalize() {
     .catch(error => {
         console.error('Error:', error);
     });
+}
+
+function confirmRegenerate() {
+    const modal = new bootstrap.Modal(document.getElementById('regenerateModal'));
+    modal.show();
+}
+
+function submitRegenerate() {
+    bootstrap.Modal.getInstance(document.getElementById('regenerateModal'))?.hide();
+    document.querySelector('form [name="action"][value="generate"]')
+        ?.closest('form').submit();
+}
+
+function showClearGroupsModal() {
+    const modal = new bootstrap.Modal(document.getElementById('clearGroupsModal'));
+    modal.show();
+}
+
+function submitClearGroups() {
+    bootstrap.Modal.getInstance(document.getElementById('clearGroupsModal'))?.hide();
+    document.querySelector('form [name="action"][value="reset_session"]')
+        ?.closest('form').submit();
 }
 </script>
 {% endif %}

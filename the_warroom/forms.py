@@ -127,6 +127,11 @@ class GameCreateForm(forms.ModelForm):
                     # Removed for now. Should add match creation in the Tournament instead of here
                     # ~Q(stage__tournament__designer=user.profile),
                     # ~Q(stage__tournament__moderators=user.profile),
+                ).exclude(
+                    # Hide rounds from tournaments where players cannot record games
+                    Q(stage__tournament__players_can_record=False),
+                    ~Q(stage__tournament__designer=user.profile),
+                    ~Q(stage__tournament__moderators=user.profile),
                 ).distinct()
 
 
@@ -788,7 +793,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         fields = [
             'name', 'classification', 'designer', 'guild', 'description', 'rules',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
-            'max_players', 'min_players', 'enforce_player_count', 'open_roster',
+            'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'players_can_record',
             'platform', 'default_format', 'link_required',
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
@@ -810,6 +815,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
             'open_roster': 'Allow Unregistered Players',
+            'players_can_record': 'Allow Players to Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
@@ -936,7 +942,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
         fields = [
             'name', 'classification', 'designer', 'guild', 'description', 'rules',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
-            'max_players', 'min_players', 'enforce_player_count', 'open_roster',
+            'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'players_can_record',
             'platform', 'link_required',
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
@@ -962,6 +968,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'open_roster': 'Allow Unregistered Players',
+            'players_can_record': 'Allow Players to Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
@@ -1415,11 +1422,12 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
     """Form for player-related tournament settings only."""
     class Meta:
         model = Tournament
-        fields = ['guild', 'open_roster', 'enforce_player_count', 'min_players', 'max_players']
+        fields = ['guild', 'open_roster', 'players_can_record', 'enforce_player_count', 'min_players', 'max_players']
         labels = {
             'guild': 'Discord Guild',
             'enforce_player_count': 'Restrict Player Count',
             'open_roster': 'Allow Unregistered Players',
+            'players_can_record': 'Allow Players to Record Games',
         }
 
     def __init__(self, *args, user=None, **kwargs):

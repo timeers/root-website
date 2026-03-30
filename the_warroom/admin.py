@@ -589,8 +589,8 @@ class StageAdmin(admin.ModelAdmin):
 
 class PlayerGroupAdmin(admin.ModelAdmin):
     list_display = ('__str__', 'round', 'group_number', 'created_via', 'member_count', 'total_overlap_hours', 'best_consecutive_block')
-    list_filter = ('round__tournament', 'created_via')
-    search_fields = ('name', 'round__name', 'round__tournament__name')
+    list_filter = ('round__stage__tournament', 'created_via')
+    search_fields = ('name', 'round__name', 'round__stage__tournament__name')
     readonly_fields = ('created_at', 'updated_at', 'total_overlap_hours', 'best_consecutive_block', 'days_with_overlap')
     raw_id_fields = ('round', 'created_by')
 
@@ -620,7 +620,7 @@ class MatchAdvancementInline(admin.TabularInline):
 @admin.register(MatchSeries)
 class MatchSeriesAdmin(admin.ModelAdmin):
     list_display = ['__str__', 'round', 'player_group', 'number_of_games', 'status']
-    list_filter = ['round__tournament']
+    list_filter = ['round__stage__tournament']
     raw_id_fields = ['round', 'player_group']
     filter_horizontal = ['winners']
     inlines = [MatchAdvancementInline]
@@ -629,7 +629,7 @@ class MatchSeriesAdmin(admin.ModelAdmin):
 @admin.register(Match)
 class MatchAdmin(admin.ModelAdmin):
     list_display = ['__str__', 'round', 'match_number', 'series', 'game']
-    list_filter = ['round__tournament']
+    list_filter = ['round__stage__tournament']
     raw_id_fields = ['round', 'series', 'game']
 
 

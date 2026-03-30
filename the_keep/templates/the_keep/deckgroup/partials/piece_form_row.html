@@ -1,6 +1,6 @@
 {% load i18n %}
 
-<tr class="piece-form-row" data-form-id="add-piece-form">
+<tr class="piece-form-row" data-form-id="{{ form_id }}">
   <!-- Column 1: Image -->
   <td>
     <div class="image-preview-container mt-1" style="display:none;">
@@ -17,28 +17,30 @@
         type="file"
         class="compact-file-input"
         name="small_icon"
-        form="add-piece-form"
+        form="{{ form_id }}"
       >
     </label>
 
   </td>
-  
+
   <!-- Column 2: Name -->
   <td>
-    <input type="text" name="name" form="add-piece-form" class="form-control">
+    <input type="text" name="name" form="{{ form_id }}" class="form-control" id="{{ form_id }}-name">
   </td>
-  
+
   <!-- Column 3: Quantity + Actions -->
   <td>
     <div class="d-flex align-items-center">
-      <input type="number" name="quantity" form="add-piece-form" class="form-control me-2" style="width: 80px;">
+      <input type="number" name="quantity" form="{{ form_id }}" class="form-control me-2" style="width: 80px;" id="{{ form_id }}-quantity">
       <button
         type="submit"
-        form="add-piece-form"
+        form="{{ form_id }}"
+        id="{{ form_id }}-save-btn"
         class="btn btn-outline-success btn-sm ms-auto"
         title="{% trans 'Save' %}"
       >
-        <i class="bi bi-check2"></i>
+        <span class="save-spinner spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display:none;"></span>
+        <i class="bi bi-check2 save-icon"></i>
       </button>
       <button
         type="button"
@@ -46,7 +48,7 @@
         onclick="
         let row = this.closest('.piece-form-row');
         let next = row.nextElementSibling;
-        if (next && next.id === 'piece-form-errors') next.remove();
+        if (next && next.classList.contains('piece-form-errors')) next.remove();
         row.remove();
         "
         title="{% trans 'Cancel' %}"
@@ -57,7 +59,7 @@
   </td>
 </tr>
 
-<tr id="piece-form-errors" {% if not form.errors %}style="display: none;"{% endif %}>
+<tr class="piece-form-errors" {% if not form.errors %}style="display: none;"{% endif %}>
   <td colspan="3">
     <div class="alert alert-danger mb-0" role="alert">
       <strong>{% trans "Error:" %}</strong>
@@ -74,17 +76,48 @@
 
 
 <form
-  id="add-piece-form"
+  id="{{ form_id }}"
   hx-post="{% url 'add-piece' %}?piece=C&slug={{ object.slug }}&type=row&language_code={{ language_code }}"
   hx-target="#asset-table"
   hx-swap="beforeend"
   hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-  hx-on="htmx:afterRequest: document.querySelector('.piece-form-row').remove()"
+  hx-on:htmx:before-request="
+    var name = document.getElementById('{{ form_id }}-name');
+    var qty = document.getElementById('{{ form_id }}-quantity');
+    var valid = true;
+    if (!name.value.trim()) { name.classList.add('is-invalid'); valid = false; } else { name.classList.remove('is-invalid'); }
+    if (!qty.value) { qty.classList.add('is-invalid'); valid = false; } else { qty.classList.remove('is-invalid'); }
+    if (!valid) { event.preventDefault(); return; }
+    var btn = document.getElementById('{{ form_id }}-save-btn');
+    btn.querySelector('.save-spinner').style.display = 'inline-block';
+    btn.querySelector('.save-icon').style.display = 'none';
+    btn.disabled = true;
+  "
+  hx-on:htmx:after-request="
+    if (event.detail.successful) {
+      let formEl = document.getElementById('{{ form_id }}');
+      let row = document.querySelector('[data-form-id=\'{{ form_id }}\']');
+      if (row) {
+        let errRow = row.nextElementSibling;
+        if (errRow && errRow.classList.contains('piece-form-errors')) errRow.remove();
+        row.remove();
+      }
+      if (formEl) formEl.remove();
+    } else {
+      var btn = document.getElementById('{{ form_id }}-save-btn');
+      if (btn) {
+        btn.querySelector('.save-spinner').style.display = 'none';
+        btn.querySelector('.save-icon').style.display = 'inline-block';
+        btn.disabled = false;
+      }
+    }
+  "
   method="post"
   enctype="multipart/form-data"
   style="display: none;"
 >
   {{ form.id }}
+  <input type="hidden" name="form_id" value="{{ form_id }}">
 </form>
 
 

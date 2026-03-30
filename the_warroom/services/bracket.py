@@ -420,6 +420,8 @@ class BracketService:
         if not stage:
             return
 
+        series.winners.clear()
+
         for winner_profile in winner_profiles:
             sp = StageParticipant.objects.filter(
                 stage=stage,

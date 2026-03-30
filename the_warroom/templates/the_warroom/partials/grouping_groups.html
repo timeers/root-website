@@ -2,7 +2,7 @@
 {# Shared partial: Player Groups card #}
 {# Requires context: stage, groups, is_processing, editable #}
 
-{% if stage and not is_processing %}
+{% if stage and not is_processing and groups %}
 <div class="card mb-4">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-columns-gap"></i> {% trans 'Player Groups' %}</h5>
@@ -125,8 +125,7 @@
             <form method="post" style="display: inline;">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="reset_session">
-                <button type="submit" class="btn btn-outline-danger btn-sm"
-                        onclick="return confirm('This will delete all groups and return players to ungrouped. Are you sure?')">
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="showClearGroupsModal()">
                     <i class="bi bi-trash3"></i> {% trans 'Clear Groups' %}
                 </button>
             </form>
