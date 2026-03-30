@@ -162,33 +162,33 @@ SMALL_IMAGE_CONFIG = {
 
 
 @receiver(pre_save, sender=Changelog)
-def component_pre_save(sender, instance, **kwargs):
+def changelog_pre_save(sender, instance, **kwargs):
     if instance.slug is None:
         slugify_changelog(instance, save=False)
 
 @receiver(post_save, sender=Changelog)
-def component_post_save(sender, instance, created, **kwargs):
+def changelog_post_save(sender, instance, created, **kwargs):
     if created:
         slugify_changelog(instance, save=True)
 
 
 @receiver(pre_save, sender=Profile)
-def component_pre_save(sender, instance, **kwargs):
+def profile_pre_save(sender, instance, **kwargs):
     if instance.slug is None:
         slugify_instance_discord(instance, save=False)
 
 @receiver(post_save, sender=Profile)
-def component_post_save(sender, instance, created, **kwargs):
+def profile_post_save(sender, instance, created, **kwargs):
     if created:
         slugify_instance_discord(instance, save=True)
 
 @receiver(pre_save, sender=Survey)
-def component_pre_save(sender, instance, **kwargs):
+def survey_pre_save(sender, instance, **kwargs):
     if instance.slug is None:
         slugify_survey_title(instance, save=False)
 
 @receiver(post_save, sender=Survey)
-def component_post_save(sender, instance, created, **kwargs):
+def survey_post_save(sender, instance, created, **kwargs):
     if created:
         slugify_survey_title(instance, save=True)
 

@@ -678,7 +678,7 @@ class Profile(models.Model):
         # If a tournament is provided, filter efforts that are related to that tournament
         if tournament:
             queryset = queryset.filter(
-                efforts__game__round__tournament=tournament  # Filter efforts linked to a specific tournament
+                efforts__game__round__stage__tournament=tournament  # Filter efforts linked to a specific tournament
             )
 
         # If a round is provided, filter efforts that are related to that round

@@ -1,4 +1,5 @@
 import random
+import uuid
 import yaml
 import markdown
 import os
@@ -2760,6 +2761,8 @@ def add_piece(request, id=None):
         instance=piece,
     )
 
+    form_id = request.POST.get("form_id") or f"add-piece-form-{uuid.uuid4().hex[:8]}"
+
     context = {
         "form": form,
         "object": parent,
@@ -2768,6 +2771,7 @@ def add_piece(request, id=None):
         "piece": piece,
         "can_edit": can_edit,
         "language_code": language_code,
+        "form_id": form_id,
     }
 
     if request.method == "POST":

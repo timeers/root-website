@@ -311,11 +311,11 @@ class Expansion(models.Model):
 
         # Update designers_list after save
         designers_list = self.get_designers_list()
-        print(f'Designers list {designers_list}')
+        # print(f'Designers list {designers_list}')
         if self.designers_list != designers_list:
-            print("Designers list does not match")
-            print(f"Old:{self.designers_list}")
-            print(f"New:{designers_list}")
+            # print("Designers list does not match")
+            # print(f"Old:{self.designers_list}")
+            # print(f"New:{designers_list}")
             self.designers_list = designers_list
             Expansion.objects.filter(pk=self.pk).update(designers_list=designers_list)
 
