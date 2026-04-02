@@ -145,7 +145,7 @@ HIRELING_MAP = {
 def create_game_from_api(match_data):
     """Create a Game object from API match data."""
 
-    date_registered = parser.parse(match_data.get('date_registered', match_data.get('date_closed')))
+    date_closed = parser.parse(match_data.get('date_closed', match_data.get('date_modified')))
 
     # Get or create Tournament
     tournament, created = Tournament.objects.get_or_create(
@@ -156,7 +156,7 @@ def create_game_from_api(match_data):
     round_name = match_data.get('tournament', '')
     game_round = None
     if round_name:
-        game_round = get_game_round(date_registered=date_registered, round_name=round_name, tournament=tournament)
+        game_round = get_game_round(date_closed=date_closed, round_name=round_name, tournament=tournament)
 
     # Get deck
     deck_name = DECK_MAP.get(match_data.get('deck'))
@@ -209,7 +209,7 @@ def create_game_from_api(match_data):
         nickname=nickname,
         random_clearing=random_clearing,
         league_id=str(match_data['id']),
-        date_posted=date_registered,
+        date_posted=date_closed,
         official=True,
         final=True,
         status=status,
@@ -254,9 +254,9 @@ def extract_round_prefix(round_name: str) -> str:
     return match.group(1) if match else round_name
 
 
-def get_game_round(date_registered: datetime, round_name: str, tournament: Tournament):
-    # Add 1 day to avoid edge-case month rollover issues if the first game is showing on the previous month
-    adjusted_date = date_registered + timedelta(days=1)
+def get_game_round(date_closed: datetime, round_name: str, tournament: Tournament):
+    # Add 5 days to avoid edge-case month rollover issues if the first game is showing on the previous month
+    adjusted_date = date_closed + timedelta(days=5)
     # Start day of League
     first_of_month = adjusted_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     # Add 3 months
@@ -327,7 +327,7 @@ def get_game_round(date_registered: datetime, round_name: str, tournament: Tourn
 def update_game_from_api(game, match_data):
     """Update an existing Game object with new data from API."""
     
-    date_registered = parser.parse(match_data.get('date_registered', match_data.get('date_closed')))
+    date_closed = parser.parse(match_data.get('date_closed', match_data.get('date_modified')))
     
     # Get or create Tournament
     tournament, created = Tournament.objects.get_or_create(
@@ -338,7 +338,7 @@ def update_game_from_api(game, match_data):
     round_name = match_data.get('tournament', '')
     game_round = None
     if round_name:
-        game_round = get_game_round(date_registered=date_registered, round_name=round_name, tournament=tournament)
+        game_round = get_game_round(date_closed=date_closed, round_name=round_name, tournament=tournament)
     
     # Get deck
     deck_name = DECK_MAP.get(match_data.get('deck'))
@@ -384,7 +384,7 @@ def update_game_from_api(game, match_data):
     game.link = match_data.get('table_talk_url', '')
     game.nickname = nickname
     game.random_clearing = random_clearing
-    game.date_posted = date_registered
+    game.date_posted = date_closed
     
     # Clear old hirelings
     game.hirelings.clear()
