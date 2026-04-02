@@ -423,12 +423,11 @@ def my_submitted_games_view(request):
     return response
 
 
-# @player_onboard_required
 def game_detail_view(request, id=None, league_id=None):
     import time as _time
     import logging as _logging
-    _vlog = _logging.getLogger(__name__)
-    _t0 = _time.time()
+    # _vlog = _logging.getLogger(__name__)
+    # _t0 = _time.time()
 
     language_code = get_language()
 
@@ -438,7 +437,7 @@ def game_detail_view(request, id=None, league_id=None):
         game = get_object_or_404(Game, league_id=league_id)
     else:
         raise Http404('Game not found.')
-    _vlog.warning(f"[game_detail_view] get game: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] get game: {_time.time()-_t0:.3f}s")
 
     participants = []
     efforts = []
@@ -449,7 +448,7 @@ def game_detail_view(request, id=None, league_id=None):
         participants.append(effort.player)
     if game.recorder:
         participants.append(game.recorder)
-    _vlog.warning(f"[game_detail_view] participants: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] participants: {_time.time()-_t0:.3f}s")
 
     translations = PostTranslation.objects.filter(language__code=language_code)
     efforts = game.efforts.all().prefetch_related(
@@ -462,19 +461,19 @@ def game_detail_view(request, id=None, league_id=None):
             effort.translated_faction_title = effort.faction.filtered_translations[0].translated_title
         else:
             effort.translated_faction_title = effort.faction.title
-    _vlog.warning(f"[game_detail_view] efforts prefetch: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] efforts prefetch: {_time.time()-_t0:.3f}s")
 
     scorecard_count = ScoreCard.objects.filter(final=True, effort__in=game.efforts.all()).distinct().count()
     if scorecard_count != 0:
         show_detail = True
-    _vlog.warning(f"[game_detail_view] scorecard_count: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] scorecard_count: {_time.time()-_t0:.3f}s")
 
     if request.user.is_authenticated:
         for effort in efforts:
             effort.available_scorecard = effort.available_scorecard(request.user)
         if game.final and (request.user.profile in participants):
             show_detail = True
-    _vlog.warning(f"[game_detail_view] available_scorecard: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] available_scorecard: {_time.time()-_t0:.3f}s")
 
     edit_permission = game.can_edit(request.user.profile) if request.user.is_authenticated else EditPermission(False)
 
@@ -493,7 +492,7 @@ def game_detail_view(request, id=None, league_id=None):
         else:
             all_players = Profile.objects.all()
             open_roster = True
-    _vlog.warning(f"[game_detail_view] all_players: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] all_players: {_time.time()-_t0:.3f}s")
 
     commentform = GameCommentCreateForm()
     context = {
@@ -508,9 +507,9 @@ def game_detail_view(request, id=None, league_id=None):
         'all_players': all_players,
         'open_roster': open_roster,
     }
-    _vlog.warning(f"[game_detail_view] before render: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] before render: {_time.time()-_t0:.3f}s")
     result = render(request, "the_warroom/game_detail_page.html", context)
-    _vlog.warning(f"[game_detail_view] total: {_time.time()-_t0:.3f}s")
+    # _vlog.warning(f"[game_detail_view] total: {_time.time()-_t0:.3f}s")
     return result
 
 @player_onboard_required
@@ -1786,6 +1785,7 @@ def tournament_overview_page(request, slug):
             annotated_scheduled_count=Count(
                 'rounds__series__matches',
                 filter=Q(
+                    rounds__bracket_status=Round.BracketStatusChoices.FINALIZED,
                     rounds__series__matches__scheduled_time__isnull=False,
                     rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
                 ),
@@ -1794,6 +1794,7 @@ def tournament_overview_page(request, slug):
             annotated_pending_count=Count(
                 'rounds__series__matches',
                 filter=Q(
+                    rounds__bracket_status=Round.BracketStatusChoices.FINALIZED,
                     rounds__series__matches__scheduled_time__isnull=True,
                     rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
                 ),
@@ -1819,6 +1820,7 @@ def tournament_overview_page(request, slug):
                     annotated_scheduled_count=Count(
                         'series__matches',
                         filter=Q(
+                            bracket_status=Round.BracketStatusChoices.FINALIZED,
                             series__matches__scheduled_time__isnull=False,
                             series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
                         ),
@@ -1827,6 +1829,7 @@ def tournament_overview_page(request, slug):
                     annotated_pending_count=Count(
                         'series__matches',
                         filter=Q(
+                            bracket_status=Round.BracketStatusChoices.FINALIZED,
                             series__matches__scheduled_time__isnull=True,
                             series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
                         ),
@@ -1843,11 +1846,13 @@ def tournament_overview_page(request, slug):
 
     context['scheduled_count'] = Match.objects.filter(
         round__stage__tournament=tournament,
+        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
         scheduled_time__isnull=False,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
     ).count()
     context['pending_count'] = Match.objects.filter(
         round__stage__tournament=tournament,
+        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
         scheduled_time__isnull=True,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
     ).count()
@@ -2791,6 +2796,7 @@ def _get_series_base_queryset(classification, profile=None):
         annotated_pending_count=Count(
             'stages__rounds__series__matches',
             filter=Q(
+                stages__rounds__bracket_status=Round.BracketStatusChoices.FINALIZED,
                 stages__rounds__series__matches__scheduled_time__isnull=True,
                 stages__rounds__series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
             ),
@@ -3032,11 +3038,13 @@ def round_overview_page(request, tournament_slug, round_slug, stage_slug=None):
 
     context['scheduled_count'] = Match.objects.filter(
         round=round,
+        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
         scheduled_time__isnull=False,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
     ).count()
     context['pending_count'] = Match.objects.filter(
         round=round,
+        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
         scheduled_time__isnull=True,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
     ).count()
@@ -4225,6 +4233,7 @@ def stage_overview_page(request, tournament_slug, stage_slug):
             annotated_scheduled_count=Count(
                 'series__matches',
                 filter=Q(
+                    bracket_status=Round.BracketStatusChoices.FINALIZED,
                     series__matches__scheduled_time__isnull=False,
                     series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
                 ),
@@ -4233,6 +4242,7 @@ def stage_overview_page(request, tournament_slug, stage_slug):
             annotated_pending_count=Count(
                 'series__matches',
                 filter=Q(
+                    bracket_status=Round.BracketStatusChoices.FINALIZED,
                     series__matches__scheduled_time__isnull=True,
                     series__matches__status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
                 ),
@@ -4247,11 +4257,13 @@ def stage_overview_page(request, tournament_slug, stage_slug):
 
     context['scheduled_count'] = Match.objects.filter(
         round__stage=stage,
+        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
         scheduled_time__isnull=False,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
     ).count()
     context['pending_count'] = Match.objects.filter(
         round__stage=stage,
+        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
         scheduled_time__isnull=True,
         status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
     ).count()
@@ -4654,6 +4666,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     ).order_by('id')
 
     recordable_match_ids = set()
+    is_participant_series = set()
     if request.user.is_authenticated:
         profile = request.user.profile
         if profile.admin or tournament.has_permission(profile):
@@ -4670,6 +4683,10 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
                     round=round, series_id__in=participant_series_ids
                 ).values_list('id', flat=True)
             )
+        is_participant_series = set(MatchSeat.objects.filter(
+            series__round=round,
+            stage_participant__tournament_player__profile=profile
+        ).values_list('series_id', flat=True))
 
     context = _round_base_context(request, tournament, stage, round)
     context.update({
@@ -4677,6 +4694,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
         'active_sub_page': 'matches',
         'match_series': match_series,
         'recordable_match_ids': recordable_match_ids,
+        'is_participant_series': is_participant_series,
     })
 
     # Add series edit modal context for managers
@@ -5909,7 +5927,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             group.name = name
             group.discord_thread = discord_thread
             group.video_link = video_link
-            group.save(update_fields=['name', 'discord_thread', 'video_link'])
+            group.save(update_fields=['name', 'discord_thread', 'video_link', 'video_platform'])
 
         # --- Match scheduled_time updates ---
         for match_data in data.get('matches', []):
@@ -5939,9 +5957,22 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             match.delete()
 
         # --- Add matches ---
-        add_count = data.get('add_matches', 0)
-        for _ in range(add_count):
-            Match.objects.create(round=round, series=series)
+        add_matches = data.get('add_matches', [])
+        if isinstance(add_matches, int):
+            # Legacy format: just a count
+            for _ in range(add_matches):
+                Match.objects.create(round=round, series=series)
+        else:
+            # New format: list of {scheduled_time} dicts
+            for m_data in add_matches:
+                scheduled_time = None
+                st_str = m_data.get('scheduled_time')
+                if st_str:
+                    try:
+                        scheduled_time = datetime.fromisoformat(st_str.replace('Z', '+00:00'))
+                    except (ValueError, TypeError):
+                        pass
+                Match.objects.create(round=round, series=series, scheduled_time=scheduled_time)
 
         # --- Remove seats ---
         for seat_id in data.get('remove_seat_ids', []):
@@ -5985,6 +6016,56 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         if series.status != new_status:
             series.status = new_status
             series.save(update_fields=['status'])
+
+        # --- Return HTML partial if card_type provided ---
+        card_type = data.get('card_type')
+        if card_type:
+            from django.template.loader import render_to_string
+            series_fresh = MatchSeries.objects.select_related(
+                'player_group',
+            ).prefetch_related(
+                'winners__tournament_player__profile',
+                'matches__game',
+                'matchseat_set__stage_participant__tournament_player__profile',
+            ).get(pk=series.pk)
+
+            if card_type == 'matches':
+                profile = request.user.profile
+                if profile.admin or tournament.has_permission(profile):
+                    recordable_match_ids = set(
+                        Match.objects.filter(round=round).values_list('id', flat=True)
+                    )
+                elif tournament.players_can_record:
+                    participant_series_ids = MatchSeat.objects.filter(
+                        series__round=round,
+                        stage_participant__tournament_player__profile=profile
+                    ).values_list('series_id', flat=True)
+                    recordable_match_ids = set(
+                        Match.objects.filter(
+                            round=round, series_id__in=participant_series_ids
+                        ).values_list('id', flat=True)
+                    )
+                else:
+                    recordable_match_ids = set()
+                series_index = data.get('series_index', 1)
+                is_participant_series = set(MatchSeat.objects.filter(
+                    series__round=round,
+                    stage_participant__tournament_player__profile=profile
+                ).values_list('series_id', flat=True))
+                html = render_to_string('the_warroom/partials/series_card_matches.html', {
+                    'series': series_fresh,
+                    'recordable_match_ids': recordable_match_ids,
+                    'can_manage': True,
+                    'series_index': series_index,
+                    'is_participant_series': is_participant_series,
+                }, request=request)
+            else:  # bracket
+                html = render_to_string('the_warroom/partials/series_card_bracket.html', {
+                    'series': series_fresh,
+                    'is_bracket_finalized': True,
+                }, request=request)
+
+            return JsonResponse({'success': True, 'html': html, 'series_id': series.id, 'series': _build_series_response(series_fresh)})
 
         return JsonResponse({
             'success': True,

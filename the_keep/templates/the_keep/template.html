@@ -104,7 +104,9 @@
     });
     document.body.addEventListener('htmx:afterSwap', function (evt) {
         var tooltips = [].slice.call(evt.detail.target.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltips.map(function (el) { return new bootstrap.Tooltip(el); });
+        tooltips.map(function (el) {
+            if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+        });
     });
     // Fix aria-hidden warning: blur focused element before Bootstrap hides modal
     document.addEventListener('hide.bs.modal', function () {

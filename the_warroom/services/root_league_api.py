@@ -267,11 +267,11 @@ def get_game_round(date_registered: datetime, round_name: str, tournament: Tourn
     prefix = extract_round_prefix(round_name)
 
     # 1. Check for legacy stageless round (transition period)
-    legacy_round = Round.objects.filter(
-        name=round_name, tournament=tournament, stage__isnull=True
-    ).first()
-    if legacy_round:
-        return legacy_round
+    # legacy_round = Round.objects.filter(
+    #     name=round_name, tournament=tournament, stage__isnull=True
+    # ).first()
+    # if legacy_round:
+    #     return legacy_round
 
     # 2. Check all stages for an existing round with this name
     existing_round = Round.objects.filter(
@@ -292,8 +292,8 @@ def get_game_round(date_registered: datetime, round_name: str, tournament: Tourn
             stage=matching_stage,
             tournament=tournament,
             round_number=matching_stage.rounds.count() + 1,
-            start_date=first_of_month,
-            end_date=end_of_target_month,
+            start_date=first_of_month.date(),
+            end_date=end_of_target_month.date(),
             game_threshold=25,
         )
         return new_round
@@ -309,7 +309,7 @@ def get_game_round(date_registered: datetime, round_name: str, tournament: Tourn
         order=highest_order + 1,
         status=CompetitionStatus.ACTIVE,
         game_threshold=25,
-        start_date=first_of_month,
+        start_date=first_of_month.date(),
     )
 
     new_round = Round.objects.create(
@@ -317,8 +317,8 @@ def get_game_round(date_registered: datetime, round_name: str, tournament: Tourn
         stage=new_stage,
         tournament=tournament,
         round_number=1,
-        start_date=first_of_month,
-        end_date=end_of_target_month,
+        start_date=first_of_month.date(),
+        end_date=end_of_target_month.date(),
         game_threshold=25,
     )
 

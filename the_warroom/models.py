@@ -1794,6 +1794,17 @@ class PlayerGroup(models.Model):
         help_text="Video stream/recording URL for this group"
     )
 
+    class VideoPlatformChoices(models.TextChoices):
+        YOUTUBE = 'youtube', 'YouTube'
+        TWITCH = 'twitch', 'Twitch'
+
+    video_platform = models.CharField(
+        max_length=10,
+        blank=True,
+        choices=VideoPlatformChoices.choices,
+        help_text="Auto-detected from video_link URL"
+    )
+
     # Availability metrics (for availability-based sessions)
     all_hours = models.JSONField(
         default=list,
@@ -1829,6 +1840,18 @@ class PlayerGroup(models.Model):
         if self.name:
             return self.name
         return f"Group {self.group_number}"
+
+    def save(self, *args, **kwargs):
+        if self.video_link:
+            if 'twitch.tv' in self.video_link:
+                self.video_platform = self.VideoPlatformChoices.TWITCH
+            elif 'youtube.com' in self.video_link or 'youtu.be' in self.video_link:
+                self.video_platform = self.VideoPlatformChoices.YOUTUBE
+            else:
+                self.video_platform = ''
+        else:
+            self.video_platform = ''
+        super().save(*args, **kwargs)
 
     @property
     def members(self):

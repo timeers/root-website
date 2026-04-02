@@ -69,10 +69,10 @@
             </div>
             <div class="section-nav-actions-mobile">
                 {% if playable_round %}
-                <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+                <a class="btn btn-success btn-sm p-0 px-1" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
                 {% endif %}
                 {% if can_manage %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ stage.get_settings_url }}"><i class="bi bi-gear"></i></a>
+                <a class="btn btn-outline-secondary btn-sm p-0 px-1" href="{{ stage.get_settings_url }}"><i class="bi bi-gear"></i></a>
                 {% endif %}
             </div>
         </div>
