@@ -1,0 +1,450 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}Advancement - {{ stage.name }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Advancement" %}
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=stage.name %}
+    {% include 'the_warroom/partials/stage_nav_header.html' with active_page='advancement' %}
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0 root-title"><i class="bi bi-arrow-right-circle me-2"></i>{% trans 'Advancement' %}</h4>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#createStageModal">
+            <i class="bi bi-plus-lg me-1"></i>{% trans 'New Stage' %}
+        </button>
+    </div>
+
+    <!-- Advancement Configuration Card -->
+    {% if tournament.classification != "Game Group" %}
+    <div class="card mb-4" id="advancementConfigCard">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{% trans 'Advancement Configuration' %}</h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="configFormat" class="form-label fw-semibold">{% trans 'Format' %}</label>
+                    <select class="form-select form-select-sm" id="configFormat">
+                        <option value="">{% trans 'Inherit from tournament' %}{% if tournament.default_format %} ({{ tournament.default_format }}){% endif %}</option>
+                        {% for val, label in format_choices %}
+                        <option value="{{ val }}" {% if stage.stage_format == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="configWinnersStage" class="form-label fw-semibold">{% trans 'Winners advance to' %}</label>
+                    <select class="form-select form-select-sm" id="configWinnersStage">
+                        <option value="">{% trans '— None (stay in stage) —' %}</option>
+                        {% for s in all_stages %}
+                        <option value="{{ s.id }}" {% if stage.winners_advance_to_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4" id="configLosersWrapper" {% if stage_format != 'Double Elimination' %}style="display:none;"{% endif %}>
+                    <label for="configLosersStage" class="form-label fw-semibold">{% trans 'Losers advance to' %}</label>
+                    <select class="form-select form-select-sm" id="configLosersStage">
+                        <option value="">{% trans '— Eliminated —' %}</option>
+                        {% for s in all_stages %}
+                        <option value="{{ s.id }}" {% if stage.losers_advance_to_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4" id="configAdvCountWrapper" {% if is_bracket %}style="display:none;"{% endif %}>
+                    <label for="configAdvCount" class="form-label fw-semibold">{% trans 'Advancement count' %}</label>
+                    <input type="number" class="form-control form-control-sm" id="configAdvCount"
+                           min="1" placeholder="e.g. 8"
+                           value="{{ stage.advancement_count|default:'' }}">
+                    <small class="text-muted">{% trans 'Top N players to advance' %}</small>
+                </div>
+            </div>
+            <div id="configError" class="text-danger small mt-2 d-none"></div>
+            <div class="text-end mt-3">
+                <button type="button" class="btn btn-secondary btn-sm" id="saveConfigBtn" disabled>
+                    <i class="bi bi-check-square me-1"></i>{% trans 'Config Saved' %}
+                </button>
+            </div>
+        </div>
+
+    </div>
+    {% endif %}
+
+    {% if eligible_players %}
+    <form id="advancement-form">
+        {% csrf_token %}
+        {% for player_data in eligible_players %}
+        {% with sp=player_data.sp %}
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center gap-2">
+                {% if sp.tournament_player.profile.image %}
+                <img src="{{ sp.tournament_player.profile.image.url }}" alt="" class="avatar-icon">
+                {% else %}
+                <i class="bi bi-person-circle"></i>
+                {% endif %}
+                <strong>{{ sp.tournament_player.profile.display_name }}</strong>
+            </div>
+            <div class="card-body">
+                <!-- Series played -->
+                {% for sd in player_data.series_data %}
+                <div class="mb-3">
+                    <div class="text-muted small mb-1">
+                        {{ sd.series.round.name|default:sd.series.round }} &ndash;
+                        {% if sd.is_winner %}<span class="text-success fw-bold">{% trans 'Winner' %}</span>{% else %}<span class="text-secondary">{% trans 'Eliminated' %}</span>{% endif %}
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for md in sd.match_data %}
+                        <div class="border rounded px-2 py-1 d-flex align-items-center gap-1 small">
+                            {% if md.effort %}
+                                {% if md.effort.faction and md.effort.faction.small_icon %}
+                                <img src="{{ md.effort.faction.small_icon.url }}" alt="{{ md.effort.faction }}" class="faction-icon">
+                                {% endif %}
+                                <span>{{ md.effort.score|default:"—" }}</span>
+                                {% if md.effort.win %}<i class="bi bi-trophy-fill text-warning" title="{% trans 'Win' %}"></i>{% endif %}
+                            {% else %}
+                                <span class="text-muted">{% trans 'No game' %}</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+
+                <!-- Advance / Eliminate toggle -->
+                <div class="mt-3">
+                    <div class="btn-group" role="group" aria-label="{% trans 'Advancement decision' %}">
+                        <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
+                               id="advance_{{ sp.id }}" value="advance" data-sp="{{ sp.id }}"
+                               {% if player_data.default_action == 'advance' %}checked{% endif %}>
+                        <label class="btn btn-outline-success" for="advance_{{ sp.id }}">
+                            <i class="bi bi-arrow-right-circle me-1"></i>{% trans 'Advance' %}
+                        </label>
+
+                        <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
+                               id="skip_{{ sp.id }}" value="skip" data-sp="{{ sp.id }}"
+                               {% if not player_data.default_action or player_data.default_action == 'skip' %}checked{% endif %}>
+                        <label class="btn btn-outline-secondary" for="skip_{{ sp.id }}">
+                            <i class="bi bi-clock me-1"></i>{% trans 'Decide Later' %}
+                        </label>
+
+                        <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
+                               id="eliminate_{{ sp.id }}" value="eliminate" data-sp="{{ sp.id }}"
+                               {% if player_data.default_action == 'eliminate' %}checked{% endif %}>
+                        <label class="btn btn-outline-danger" for="eliminate_{{ sp.id }}">
+                            <i class="bi bi-x-circle me-1"></i>{% trans 'Eliminate' %}
+                        </label>
+                    </div>
+
+                    <!-- Stage select (visible only when Advance is selected) -->
+                    <div class="mt-2 stage-select-wrapper" id="stage-select-{{ sp.id }}"
+                         {% if player_data.default_action != 'advance' %}style="display:none;"{% endif %}>
+                        {% if player_data.advancement_stages %}
+                        <select class="form-select form-select-sm w-auto" name="stage_{{ sp.id }}" id="stage_field_{{ sp.id }}">
+                            {% for stage_opt in player_data.advancement_stages %}
+                            <option value="{{ stage_opt.id }}"
+                                {% if stage_opt == player_data.suggested_stage %}selected{% endif %}>
+                                {{ stage_opt.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <span class="text-muted small">{% trans 'No subsequent stages available. Use "New Stage" above to create one.' %}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endwith %}
+        {% endfor %}
+
+        <button type="submit" class="btn btn-primary mb-4">
+            <i class="bi bi-check-lg me-1"></i>{% trans 'Save Decisions' %}
+        </button>
+    </form>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No players with all series completed yet.' %}
+    </div>
+    {% endif %}
+
+    <!-- Pending Players -->
+    {% if incomplete_players %}
+    <div class="mt-4">
+        <h5 class="root-title">{% trans 'Pending Players' %}</h5>
+        <p class="text-muted small">{% trans 'These players still have incomplete series.' %}</p>
+        {% for ip in incomplete_players %}
+        <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 mb-2">
+            <span>{{ ip.sp.tournament_player.profile.display_name }}</span>
+            <span class="text-muted small">{{ ip.incomplete_count }} {% trans 'series incomplete' %}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Create Stage Modal -->
+<div class="modal fade" id="createStageModal" tabindex="-1" aria-labelledby="createStageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title" id="createStageModalLabel">
+                    <i class="bi bi-plus-circle me-2"></i>{% trans 'New Stage' %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="newStageName" class="form-label">{% trans 'Stage Name' %}</label>
+                    <input type="text" class="form-control" id="newStageName" placeholder="e.g. Finals">
+                </div>
+                {% if tournament.use_rounds %}
+                <div class="mb-3">
+                    <label for="newRoundName" class="form-label">{% trans 'First Round Name' %}</label>
+                    <input type="text" class="form-control" id="newRoundName" placeholder="Round 1">
+                </div>
+                {% endif %}
+                <div id="createStageError" class="text-danger small d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="createStageSubmit">
+                    <i class="bi bi-plus-lg me-1"></i>{% trans 'Create' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var configUrl = "{% url 'stage-advancement-config' tournament_slug=tournament.slug stage_slug=stage.slug %}";
+    var BRACKET_FORMATS = ['Single Elimination', 'Double Elimination'];
+
+    // ── Config dirty-state tracking ─────────────────────────────────
+    (function() {
+        var saveBtn = document.getElementById('saveConfigBtn');
+        if (!saveBtn) return;
+
+        var formatEl = document.getElementById('configFormat');
+        var winnersEl = document.getElementById('configWinnersStage');
+        var losersEl = document.getElementById('configLosersStage');
+        var advCountEl = document.getElementById('configAdvCount');
+
+        var initial = {
+            format: formatEl ? formatEl.value : '',
+            winners: winnersEl ? winnersEl.value : '',
+            losers: losersEl ? losersEl.value : '',
+            advCount: advCountEl ? advCountEl.value : '',
+        };
+
+        function checkDirty() {
+            var dirty =
+                (formatEl && formatEl.value !== initial.format) ||
+                (winnersEl && winnersEl.value !== initial.winners) ||
+                (losersEl && losersEl.value !== initial.losers) ||
+                (advCountEl && advCountEl.value !== initial.advCount);
+
+            if (dirty) {
+                saveBtn.disabled = false;
+                saveBtn.classList.replace('btn-secondary', 'btn-primary');
+                saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Config';
+            } else {
+                saveBtn.disabled = true;
+                saveBtn.classList.replace('btn-primary', 'btn-secondary');
+                saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>Config Saved';
+            }
+        }
+
+        [formatEl, winnersEl, losersEl, advCountEl].forEach(function(el) {
+            if (el) {
+                el.addEventListener('change', checkDirty);
+                el.addEventListener('input', checkDirty);
+            }
+        });
+
+        // After a successful save, reset the initial snapshot so the button goes back to greyed
+        saveBtn.addEventListener('_saved', function() {
+            initial.format = formatEl ? formatEl.value : '';
+            initial.winners = winnersEl ? winnersEl.value : '';
+            initial.losers = losersEl ? losersEl.value : '';
+            initial.advCount = advCountEl ? advCountEl.value : '';
+            checkDirty();
+        });
+    })();
+
+    // ── Config bar ──────────────────────────────────────────────────
+    function updateConfigVisibility(formatVal) {
+        var isDoubleElim = formatVal === 'Double Elimination';
+        var isBracket = BRACKET_FORMATS.indexOf(formatVal) !== -1;
+        var losersWrapper = document.getElementById('configLosersWrapper');
+        var advCountWrapper = document.getElementById('configAdvCountWrapper');
+        if (losersWrapper) losersWrapper.style.display = isDoubleElim ? '' : 'none';
+        if (advCountWrapper) advCountWrapper.style.display = isBracket ? 'none' : '';
+    }
+
+    var formatSelect = document.getElementById('configFormat');
+    if (formatSelect) {
+        formatSelect.addEventListener('change', function () {
+            updateConfigVisibility(this.value);
+        });
+    }
+
+    document.getElementById('saveConfigBtn')?.addEventListener('click', function () {
+        var errorEl = document.getElementById('configError');
+        errorEl.classList.add('d-none');
+
+        var formatVal = document.getElementById('configFormat')?.value || '';
+        var winnersVal = document.getElementById('configWinnersStage')?.value || '';
+        var losersVal = document.getElementById('configLosersStage')?.value || '';
+        var advCountVal = document.getElementById('configAdvCount')?.value || '';
+
+        var payload = {
+            stage_format: formatVal,
+            winners_advance_to_id: winnersVal ? parseInt(winnersVal) : null,
+            losers_advance_to_id: losersVal ? parseInt(losersVal) : null,
+            advancement_count: advCountVal !== '' ? parseInt(advCountVal) : null,
+        };
+
+        fetch(configUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}',
+            },
+            body: JSON.stringify(payload),
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (data.success) {
+                document.getElementById('saveConfigBtn').dispatchEvent(new Event('_saved'));
+            } else {
+                errorEl.textContent = data.error || 'An error occurred.';
+                errorEl.classList.remove('d-none');
+            }
+        })
+        .catch(function () {
+            errorEl.textContent = 'Request failed.';
+            errorEl.classList.remove('d-none');
+        });
+    });
+
+    // ── Create Stage modal ──────────────────────────────────────────
+    document.getElementById('createStageSubmit')?.addEventListener('click', function () {
+        const stageName = document.getElementById('newStageName').value.trim();
+        const roundNameEl = document.getElementById('newRoundName');
+        const roundName = roundNameEl ? roundNameEl.value.trim() : '';
+        const errorEl = document.getElementById('createStageError');
+
+        if (!stageName) {
+            errorEl.textContent = 'Stage name is required.';
+            errorEl.classList.remove('d-none');
+            return;
+        }
+        errorEl.classList.add('d-none');
+
+        fetch("{% url 'stage-create-quick' tournament_slug=tournament.slug %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            },
+            body: JSON.stringify({ stage_name: stageName, round_name: roundName }),
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (data.success) {
+                // Add new stage to existing selects
+                document.querySelectorAll('[id^="stage_field_"]').forEach(function (sel) {
+                    const opt = new Option(data.stage_name, data.stage_id, true, true);
+                    sel.appendChild(opt);
+                });
+                // Add to config selects
+                ['configWinnersStage', 'configLosersStage'].forEach(function (selId) {
+                    var sel = document.getElementById(selId);
+                    if (sel) sel.appendChild(new Option(data.stage_name, data.stage_id, false, false));
+                });
+                // For stage-select wrappers that had no select (empty state), replace the message with a select
+                document.querySelectorAll('.stage-select-wrapper').forEach(function (wrapper) {
+                    const spId = wrapper.id.replace('stage-select-', '');
+                    if (!wrapper.querySelector('select')) {
+                        const sel = document.createElement('select');
+                        sel.className = 'form-select form-select-sm w-auto';
+                        sel.name = 'stage_' + spId;
+                        sel.id = 'stage_field_' + spId;
+                        sel.appendChild(new Option(data.stage_name, data.stage_id, true, true));
+                        wrapper.innerHTML = '';
+                        wrapper.appendChild(sel);
+                    }
+                });
+                bootstrap.Modal.getInstance(document.getElementById('createStageModal')).hide();
+            } else {
+                errorEl.textContent = data.error || 'An error occurred.';
+                errorEl.classList.remove('d-none');
+            }
+        })
+        .catch(function () {
+            errorEl.textContent = 'Request failed.';
+            errorEl.classList.remove('d-none');
+        });
+    });
+
+    // Toggle stage select visibility based on Advance/Eliminate radio
+    document.querySelectorAll('.advancement-radio').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            const spId = this.dataset.sp;
+            const wrapper = document.getElementById('stage-select-' + spId);
+            if (wrapper) {
+                wrapper.style.display = this.value === 'advance' ? '' : 'none';
+            }
+        });
+    });
+
+    // Submit form as JSON POST
+    document.getElementById('advancement-form')?.addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const decisions = [];
+        document.querySelectorAll('.advancement-radio:checked').forEach(function (radio) {
+            const spId = parseInt(radio.dataset.sp);
+            const action = radio.value;
+            if (action === 'skip') return;  // omit from submission
+
+            const decision = { sp_id: spId, action: action };
+
+            if (action === 'advance') {
+                const stageField = document.getElementById('stage_field_' + spId);
+                if (stageField && stageField.value) {
+                    decision.to_stage_id = parseInt(stageField.value);
+                }
+            }
+            decisions.push(decision);
+        });
+
+        fetch("{% url 'stage-advancement-submit' tournament_slug=tournament.slug stage_slug=stage.slug %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            },
+            body: JSON.stringify({ decisions: decisions }),
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (data.success) {
+                window.location.reload();
+            } else {
+                alert('Errors:\n' + (data.errors || [data.error]).join('\n'));
+            }
+        })
+        .catch(function (err) {
+            alert('Request failed: ' + err);
+        });
+    });
+});
+</script>
+{% endblock %}

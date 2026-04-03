@@ -26,7 +26,7 @@ from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
-                     Match, MatchSeries, MatchSeat, MatchAdvancement, CompetitionStatus, EditPermission)
+                     Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission)
 from .services.grouping import GroupingService, build_opponent_history
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
@@ -2320,7 +2320,6 @@ def tournament_dynamic_create(request):
             )
             if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT:
                 stage_kwargs['stage_format'] = tournament.default_format or FormatChoices.CUSTOM
-                stage_kwargs['advancement_type'] = Stage.StageAdvancementType.ROUND_BATCH
             stage = Stage.objects.create(**stage_kwargs)
             Round.objects.create(
                 stage=stage,
@@ -4132,6 +4131,22 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     survey_count = Survey.objects.filter(series=tournament, stage=stage).count() if stage else Survey.objects.filter(series=tournament).count()
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
+    has_completed_round = stage.rounds.filter(status=CompetitionStatus.COMPLETED).exists() if stage else False
+
+    has_groups = round.player_groups.exists()
+    grouping_is_finalized = round.grouping_status == Round.GroupingStatusChoices.FINALIZED
+    has_matches = round.matches.exists()
+    bracket_is_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
+    if bracket_is_finalized:
+        grouping_step = 'matches_finalized'
+    elif has_matches:
+        grouping_step = 'matches_draft'
+    elif grouping_is_finalized:
+        grouping_step = 'groups_finalized'
+    elif has_groups:
+        grouping_step = 'groups_draft'
+    else:
+        grouping_step = 'no_groups'
 
     context = {
         'tournament': tournament,
@@ -4142,7 +4157,9 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
         'survey_count': survey_count,
         'can_manage': True,  # Already permission-gated above
         'is_owner': is_owner,
+        'has_completed_round': has_completed_round,
         'status_hierarchy': build_status_hierarchy('round', tournament, stage=stage, round_obj=round),
+        'grouping_step': grouping_step,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -4160,13 +4177,40 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
     stage_instance = None
     if stage_slug:
         stage_instance = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-        form = StageCreateForm(request.POST or None, tournament=tournament, instance=stage_instance)
-    else:
-        form = StageCreateForm(request.POST or None, tournament=tournament)
 
     is_creating = stage_slug is None
 
-    if form.is_valid():
+    # Pre-process POST: create any "new stage" entries and replace sentinel values with real IDs
+    post_data = request.POST.copy() if request.method == 'POST' else None
+    if post_data:
+        for which in ('winners', 'losers'):
+            field_name = f'{which}_advance_to'
+            if post_data.get(field_name) == f'new_{which}':
+                new_name = post_data.get(f'new_{which}_stage_name', '').strip()
+                if new_name:
+                    max_order = tournament.stages.aggregate(Max('order'))['order__max'] or 0
+                    new_stage = Stage.objects.create(
+                        tournament=tournament,
+                        name=new_name,
+                        order=max_order + 1,
+                    )
+                    round_name = post_data.get(f'new_{which}_round_name', '').strip() or 'Round 1'
+                    Round.objects.create(
+                        stage=new_stage,
+                        name=round_name,
+                        round_number=1,
+                    )
+                    post_data[field_name] = str(new_stage.pk)
+                else:
+                    # No name provided — clear the sentinel so the field validates as blank
+                    post_data[field_name] = ''
+
+    if stage_slug:
+        form = StageCreateForm(post_data, tournament=tournament, instance=stage_instance)
+    else:
+        form = StageCreateForm(post_data, tournament=tournament)
+
+    if request.method == 'POST' and form.is_valid():
         stage_instance = form.save(commit=False)
         if not stage_instance.pk:
             stage_instance.tournament = tournament
@@ -4199,6 +4243,8 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
     if stage_instance:
         existing_stage_names = [n for n in existing_stage_names if n != stage_instance.name]
 
+    current_format = (stage_instance.stage_format if stage_instance else None) or tournament.default_format
+    BRACKET_FORMATS = {FormatChoices.SINGLE_ELIM, FormatChoices.DOUBLE_ELIM}
     context = {
         'form': form,
         'tournament': tournament,
@@ -4206,6 +4252,8 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
         'is_creating': is_creating,
         'use_rounds_locked': max_round_count >= 2,
         'existing_names_json': json.dumps(existing_stage_names),
+        'is_bracket_format': current_format in BRACKET_FORMATS,
+        'is_double_elim': current_format == FormatChoices.DOUBLE_ELIM,
     }
     return render(request, 'the_warroom/stage_form.html', context)
 
@@ -4718,6 +4766,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
     has_games = Game.objects.filter(round__stage=stage).exists()
+    has_completed_round = stage.rounds.filter(status=CompetitionStatus.COMPLETED).exists()
 
     context = {
         'tournament': tournament,
@@ -4728,6 +4777,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'can_manage': True,  # Already permission-gated above
         'is_owner': is_owner,
         'has_games': has_games,
+        'has_completed_round': has_completed_round,
         'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
     }
     return render(request, 'the_warroom/settings_hub.html', context)
@@ -5538,7 +5588,6 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
                 # Clear all matches for the entire round
                 has_matches = Match.objects.filter(round=round).exists()
                 if has_matches:
-                    MatchAdvancement.objects.filter(from_series__round=round).delete()
                     Match.objects.filter(round=round).delete()
                     MatchSeries.objects.filter(round=round).delete()
                     round.bracket_status = Round.BracketStatusChoices.DRAFT
@@ -5693,52 +5742,9 @@ def round_generate_bracket(request, tournament_slug, stage_slug, round_slug):
 
     create_byes = bool(data.get('create_byes', False))
 
-    losers_stage = None
-    losers_stage_id = data.get('losers_stage_id')
-    losers_stage_name = data.get('losers_stage_name', '').strip()
-
-    if losers_stage_id:
-        losers_stage = get_object_or_404(Stage, id=losers_stage_id, tournament=tournament)
-    elif losers_stage_name:
-        max_order = tournament.stages.aggregate(max_order=models.Max('order'))['max_order'] or 0
-        losers_stage = Stage.objects.create(
-            tournament=tournament,
-            name=losers_stage_name,
-            order=max_order + 1,
-            stage_format=round.get_format(),
-            status='Pending',
-        )
-        Round.objects.create(
-            stage=losers_stage,
-            name='Round 1',
-            round_number=1,
-        )
-
-    winners_stage = None
-    winners_stage_id = data.get('winners_stage_id')
-    winners_stage_name = data.get('winners_stage_name', '').strip()
-
-    if winners_stage_id:
-        winners_stage = get_object_or_404(Stage, id=winners_stage_id, tournament=tournament)
-    elif winners_stage_name:
-        max_order = tournament.stages.aggregate(max_order=models.Max('order'))['max_order'] or 0
-        winners_stage = Stage.objects.create(
-            tournament=tournament,
-            name=winners_stage_name,
-            order=max_order + 1,
-            stage_format=round.get_format(),
-            status='Pending',
-        )
-        Round.objects.create(
-            stage=winners_stage,
-            name='Round 1',
-            round_number=1,
-        )
-
     try:
         warnings = BracketService.generate_round_bracket(
-            round, best_of=best_of, losers_stage=losers_stage,
-            winners_stage=winners_stage, create_byes=create_byes,
+            round, best_of=best_of, create_byes=create_byes,
         )
         return JsonResponse({
             'success': True,
@@ -6142,7 +6148,7 @@ def round_delete_series(request, tournament_slug, stage_slug, round_slug):
 
         # Delete the backing PlayerGroup (if any) before the series
         group = series.player_group
-        series.delete()  # Cascades to Match, MatchSeat, MatchAdvancement
+        series.delete()  # Cascades to Match, MatchSeat
         if group:
             group.delete()
 
@@ -6150,3 +6156,249 @@ def round_delete_series(request, tournament_slug, stage_slug, round_slug):
 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+# ===== Stage Advancement Views =====
+
+@login_required
+def stage_advancement_page(request, tournament_slug, stage_slug):
+    """Moderator page to review and approve player advancement after rounds complete."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    all_stage_series = list(MatchSeries.objects.filter(round__stage=stage).prefetch_related(
+        'winners', 'matches__game__efforts__faction', 'player_group__tournament_players'
+    ))
+
+    # All stages later in this tournament (fallback advancement targets)
+    available_stages = list(Stage.objects.filter(
+        tournament=tournament,
+        order__gt=stage.order,
+    ).order_by('order'))
+
+    # Advancement stages: use stage.winners_advance_to if set, else fallback to available_stages
+    if stage.winners_advance_to:
+        advancement_stages = [stage.winners_advance_to]
+        suggested_stage = stage.winners_advance_to
+    else:
+        advancement_stages = available_stages
+        suggested_stage = advancement_stages[0] if advancement_stages else None
+
+    BRACKET_FORMATS = {FormatChoices.SINGLE_ELIM, FormatChoices.DOUBLE_ELIM}
+    stage_format = stage.get_format()
+
+    eligible_players = []
+    incomplete_players = []
+
+    for sp in stage.participants.filter(
+        status=StageParticipant.ParticipantStatus.ACTIVE
+    ).select_related('tournament_player__profile'):
+        player_series = [
+            s for s in all_stage_series
+            if s.player_group and sp.tournament_player in s.player_group.tournament_players.all()
+        ]
+
+        if not player_series:
+            continue
+
+        incomplete = [s for s in player_series if not s.is_complete()]
+        if incomplete:
+            incomplete_players.append({'sp': sp, 'incomplete_count': len(incomplete)})
+            continue
+
+        # Build series data for template
+        series_data = []
+        for series in player_series:
+            match_data = []
+            for match in series.matches.all():
+                effort = None
+                if match.game:
+                    effort = match.game.efforts.filter(player=sp.tournament_player.profile).first()
+                match_data.append({'match': match, 'effort': effort})
+            series_data.append({
+                'series': series,
+                'match_data': match_data,
+                'is_winner': sp in series.winners.all(),
+            })
+
+        # Determine default action based on format and player result
+        if stage_format in BRACKET_FORMATS:
+            lost_any = any(not sd['is_winner'] for sd in series_data)
+            if stage_format == FormatChoices.SINGLE_ELIM and lost_any:
+                default_action = 'eliminate'
+            else:
+                default_action = 'advance'
+        else:
+            default_action = 'skip'  # league-style: moderator decides
+
+        eligible_players.append({
+            'sp': sp,
+            'series_data': series_data,
+            'default_action': default_action,
+            'advancement_stages': advancement_stages,
+            'suggested_stage': suggested_stage,
+        })
+
+    ctx = _stage_base_context(request, tournament, stage)
+    ctx.update({
+        'active_page': 'advancement',
+        'eligible_players': eligible_players,
+        'incomplete_players': incomplete_players,
+        'available_stages': available_stages,
+        'advancement_stages': advancement_stages,
+        'suggested_stage': suggested_stage,
+        'is_bracket': stage_format in BRACKET_FORMATS,
+        'stage_format': stage_format,
+        'all_stages': list(Stage.objects.filter(tournament=tournament).exclude(id=stage.id).order_by('order')),
+        'format_choices': FormatChoices.choices,
+    })
+    return render(request, 'the_warroom/stage_advancement.html', ctx)
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_advancement_submit(request, tournament_slug, stage_slug):
+    """Process moderator advancement decisions for eligible players."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    try:
+        data = json.loads(request.body)
+        decisions = data.get('decisions', [])
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    errors = []
+    for decision in decisions:
+        sp_id = decision.get('sp_id')
+        action = decision.get('action')
+
+        sp = StageParticipant.objects.filter(id=sp_id, stage=stage).select_related('tournament_player').first()
+        if not sp:
+            errors.append(f"StageParticipant {sp_id} not found.")
+            continue
+
+        if action == 'eliminate':
+            sp.status = StageParticipant.ParticipantStatus.ELIMINATED
+            sp.save(update_fields=['status'])
+            tp = sp.tournament_player
+            tp.set_status(TournamentPlayer.StatusChoices.ELIMINATED)
+            tp.save()
+        elif action == 'advance':
+            to_stage_id = decision.get('to_stage_id')
+            if not to_stage_id:
+                errors.append(f"No to_stage_id for sp {sp_id}.")
+                continue
+            to_stage = Stage.objects.filter(id=to_stage_id, tournament=tournament).first()
+            if not to_stage:
+                errors.append(f"Stage {to_stage_id} not found.")
+                continue
+            StageParticipant.objects.get_or_create(
+                stage=to_stage,
+                tournament_player=sp.tournament_player,
+                defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
+            )
+        else:
+            errors.append(f"Unknown action '{action}' for sp {sp_id}.")
+
+    if errors:
+        return JsonResponse({'success': False, 'errors': errors}, status=400)
+
+    return JsonResponse({'success': True})
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_create_quick(request, tournament_slug):
+    """Quick-create a Stage (and first Round) from the advancement page modal."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    stage_name = (data.get('stage_name') or '').strip()
+    round_name = (data.get('round_name') or 'Round 1').strip() or 'Round 1'
+
+    if not stage_name:
+        return JsonResponse({'error': 'Stage name is required.'}, status=400)
+
+    max_order = tournament.stages.aggregate(Max('order'))['order__max'] or 0
+    stage = Stage.objects.create(
+        tournament=tournament,
+        name=stage_name,
+        order=max_order + 1,
+    )
+
+    Round.objects.create(
+        stage=stage,
+        name=round_name,
+        round_number=1,
+    )
+
+    return JsonResponse({'success': True, 'stage_id': stage.id, 'stage_name': stage.name})
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_advancement_config(request, tournament_slug, stage_slug):
+    """Update stage-level advancement configuration."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    update_fields = []
+
+    stage_format = data.get('stage_format')
+    if 'stage_format' in data:
+        stage.stage_format = stage_format if stage_format else None
+        update_fields.append('stage_format')
+
+    if 'winners_advance_to_id' in data:
+        wid = data.get('winners_advance_to_id')
+        if wid:
+            winners_stage = Stage.objects.filter(id=wid, tournament=tournament).first()
+            if not winners_stage:
+                return JsonResponse({'error': f'Stage {wid} not found.'}, status=400)
+            stage.winners_advance_to = winners_stage
+        else:
+            stage.winners_advance_to = None
+        update_fields.append('winners_advance_to')
+
+    if 'losers_advance_to_id' in data:
+        lid = data.get('losers_advance_to_id')
+        if lid:
+            losers_stage = Stage.objects.filter(id=lid, tournament=tournament).first()
+            if not losers_stage:
+                return JsonResponse({'error': f'Stage {lid} not found.'}, status=400)
+            stage.losers_advance_to = losers_stage
+        else:
+            stage.losers_advance_to = None
+        update_fields.append('losers_advance_to')
+
+    if 'advancement_count' in data:
+        cnt = data.get('advancement_count')
+        stage.advancement_count = int(cnt) if cnt is not None and cnt != '' else None
+        update_fields.append('advancement_count')
+
+    if update_fields:
+        stage.save(update_fields=update_fields)
+
+    return JsonResponse({'success': True})

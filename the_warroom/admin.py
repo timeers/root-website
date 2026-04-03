@@ -15,7 +15,7 @@ from the_gatehouse.models import Profile
 
 from .models import (
     Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round,
-    PlayerGroup, TournamentPlayer, Stage, StageParticipant, Match, MatchAdvancement, MatchSeries
+    PlayerGroup, TournamentPlayer, Stage, StageParticipant, Match, MatchSeries
 )
 from .services.root_league_api import get_game_round
 
@@ -582,7 +582,7 @@ class StageAdmin(admin.ModelAdmin):
             'fields': ('game_threshold', 'leaderboard_positions')
         }),
         ('Advancement', {
-            'fields': ('advancement_type', 'config')
+            'fields': ('winners_advance_to', 'losers_advance_to', 'advancement_count', 'config')
         }),
     )
 
@@ -611,19 +611,12 @@ admin.site.register(PlayerGroup, PlayerGroupAdmin)
 admin.site.register(TournamentPlayer, TournamentPlayerAdmin)
 
 
-class MatchAdvancementInline(admin.TabularInline):
-    model = MatchAdvancement
-    fk_name = 'from_series'
-    extra = 1
-
-
 @admin.register(MatchSeries)
 class MatchSeriesAdmin(admin.ModelAdmin):
     list_display = ['__str__', 'round', 'player_group', 'number_of_games', 'status']
     list_filter = ['round__stage__tournament']
     raw_id_fields = ['round', 'player_group']
     filter_horizontal = ['winners']
-    inlines = [MatchAdvancementInline]
 
 
 @admin.register(Match)
@@ -631,9 +624,3 @@ class MatchAdmin(admin.ModelAdmin):
     list_display = ['__str__', 'round', 'match_number', 'series', 'game']
     list_filter = ['round__stage__tournament']
     raw_id_fields = ['round', 'series', 'game']
-
-
-@admin.register(MatchAdvancement)
-class MatchAdvancementAdmin(admin.ModelAdmin):
-    list_display = ['from_series', 'position', 'to_stage']
-    raw_id_fields = ['from_series', 'to_stage']

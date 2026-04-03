@@ -33,6 +33,8 @@ from .views import (game_list_view, leaderboard_view,
                     stage_manage_players, stage_search_players, stage_move_player,
                     stage_leaderboard_page, stage_games_page, stage_roster_page,
                     stage_details_page, stage_bracket_page,
+                    stage_advancement_page, stage_advancement_submit, stage_create_quick,
+                    stage_advancement_config,
                     tournament_leaderboard_page, tournament_games_page,
                     tournament_roster_page, tournament_details_page,
                     round_leaderboard_page, round_games_page,
@@ -98,6 +100,7 @@ urlpatterns = [
     path('add-player-to-effort/', add_player_to_effort, name='add-player-to-effort'),
 
     # Stages
+    path('series/<slug:tournament_slug>/stage-create-quick/', stage_create_quick, name='stage-create-quick'),
     path('series/<slug:tournament_slug>/stage/new/', stage_manage_view, name='stage-create'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/update/', stage_manage_view, name='stage-update'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/settings/', stage_settings_hub, name='stage-settings'),
@@ -112,6 +115,9 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/details/', stage_details_page, name='stage-details-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/bracket/', stage_bracket_page, name='stage-bracket-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/delete/', StageDeleteView.as_view(), name='stage-delete'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/advancement/', stage_advancement_page, name='stage-advancement-page'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/advancement/submit/', stage_advancement_submit, name='stage-advancement-submit'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/advancement/config/', stage_advancement_config, name='stage-advancement-config'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/', stage_overview_page, name='stage-overview'),
 
     # Rounds - Simplified URLs (no stage_slug) for tournaments with use_stages=False

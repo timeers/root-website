@@ -493,11 +493,6 @@ class Tournament(models.Model):
 class Stage(models.Model):
     type = "Stage"
 
-    class StageAdvancementType(models.TextChoices):
-        MATCH_DIRECT = 'Match Direct'
-        ROUND_BATCH = "Round Batch"
-        STAGE_BATCH = 'STAGE_BATCH'
-
     class GroupingTypeChoices(models.TextChoices):
         AVAILABILITY = 'availability', 'Availability-based'
         MANUAL = 'manual', 'Manual'
@@ -516,12 +511,21 @@ class Stage(models.Model):
         help_text="Leave blank to use tournament's default format"
     )
 
-    advancement_type = models.CharField(
-       max_length=50,
-       choices=StageAdvancementType.choices,
-       default=StageAdvancementType.ROUND_BATCH
+    winners_advance_to = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='incoming_winners',
     )
-    
+    losers_advance_to = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='incoming_losers',
+    )
+    advancement_count = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="For league-style stages: number of top-ranked players who advance."
+    )
+
     status = models.CharField(
         max_length=16,
         choices=CompetitionStatus.choices,
@@ -1281,19 +1285,6 @@ class MatchSeries(models.Model):
         default=CompetitionStatus.PENDING
     )
  
-    # Optional advancement rules
-    ADVANCEMENT_CHOICES = [
-        ("SERIES_WINNER", "Series Winner Advances"),
-        ("ROUND_BASED", "Advancement Handled by Round"),
-        ("NONE", "No Advancement"),
-    ]
-    advancement_type = models.CharField(
-        max_length=20,
-        choices=ADVANCEMENT_CHOICES,
-        default="ROUND_BASED",
-        help_text="Determines whether advancement happens at the series or round level."
-    )
- 
     # Players competing in this series
     player_group = models.OneToOneField(
         'PlayerGroup',
@@ -1390,29 +1381,6 @@ class Match(models.Model):
 
     def __str__(self):
         return self.name or f"Match {self.id}"
-
-
-class MatchAdvancement(models.Model):
-    """Defines how players advance from a MatchSeries into another Stage."""
-    class PositionChoices(models.TextChoices):
-        WINNER = 'winner', 'Winner'
-        LOSER = 'loser', 'Loser'
-
-    from_series = models.ForeignKey(
-        MatchSeries, on_delete=models.CASCADE, related_name='advancements'
-    )
-    position = models.CharField(max_length=10, choices=PositionChoices.choices)
-    to_stage = models.ForeignKey(
-        Stage, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='incoming_advancements'
-    )
-
-    class Meta:
-        unique_together = [('from_series', 'position')]
-
-    def __str__(self):
-        dest = f"Stage {self.to_stage}" if self.to_stage_id else "Current stage"
-        return f"{self.from_series} {self.position} → {dest}"
 
 
 # This is a game with the basic game attributes and a variable number of seats (Efforts) linked to it

@@ -1091,12 +1091,17 @@ class StageCreateForm(forms.ModelForm):
             'start_date', 'end_date', 'is_active',
             'min_players', 'max_players',
             'game_threshold', 'leaderboard_positions',
+            'stage_format', 'winners_advance_to', 'losers_advance_to', 'advancement_count',
         ]
         labels = {
             'end_date': 'End Date',
             'is_active': 'Active Status',
             'game_threshold': 'Leaderboard Threshold',
             'leaderboard_positions': 'Leaderboard Positions',
+            'stage_format': 'Format',
+            'winners_advance_to': 'Winners advance to',
+            'losers_advance_to': 'Losers advance to',
+            'advancement_count': 'Advancement count',
         }
 
     def __init__(self, *args, tournament=None, **kwargs):
@@ -1114,6 +1119,15 @@ class StageCreateForm(forms.ModelForm):
         # Pre-populate use_rounds from the tournament's current setting
         if tournament:
             self.fields['use_rounds'].initial = tournament.use_rounds
+            # Limit FK stage choices to other stages in the same tournament
+            other_stages = tournament.stages.exclude(pk=self.instance.pk) if self.instance.pk else tournament.stages.all()
+            self.fields['winners_advance_to'].queryset = other_stages
+            self.fields['losers_advance_to'].queryset = other_stages
+            self.fields['winners_advance_to'].empty_label = '— None —'
+            self.fields['losers_advance_to'].empty_label = '— Eliminated —'
+            # Default format to tournament's format when creating a new stage
+            if not self.instance.pk and tournament.default_format and not self.initial.get('stage_format'):
+                self.fields['stage_format'].initial = tournament.default_format
         # Only show round_name on create, not update
         if self.instance.pk:
             del self.fields['round_name']
