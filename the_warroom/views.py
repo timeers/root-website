@@ -1656,7 +1656,7 @@ def _tournament_base_context(request, tournament):
     else:
         playable_round = None
 
-    can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
@@ -1698,7 +1698,7 @@ def _stage_base_context(request, tournament, stage):
                 playable_round = r
                 break
 
-    can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
     has_bracket = Match.objects.filter(round__stage=stage).exists()
     has_games = Game.objects.filter(round__stage=stage).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
@@ -1735,7 +1735,7 @@ def _round_base_context(request, tournament, stage, round):
         if user_can_access_round(round, request.user) and not round.series.exists():
             playable_round = round
 
-    can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
     has_matches = MatchSeries.objects.filter(round=round).exists()
     has_games = Game.objects.filter(round=round).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
@@ -2291,6 +2291,10 @@ def tournament_dynamic_create(request):
             # Clear default_format if classification is not Tournament
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
                 tournament.default_format = ''
+
+            # Clear guild if classification is not League
+            if tournament.classification != Tournament.ClassificationTypes.LEAGUE:
+                tournament.guild = None
 
             use_stages = form.cleaned_data.get('use_stages', False)
             use_rounds = form.cleaned_data.get('use_rounds', False)
@@ -3597,7 +3601,7 @@ class RoundDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
             return redirect(round.get_absolute_url())
         
 
-@player_onboard_required
+@login_required
 def in_progress_view(request):
     language_code = get_language()
     language_object = Language.objects.filter(code=language_code).first()

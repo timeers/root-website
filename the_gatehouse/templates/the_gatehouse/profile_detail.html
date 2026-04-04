@@ -7,7 +7,7 @@
 {% block content %}
     <div class="d-flex justify-content-between align-items-top">
         <div class="d-flex flex-nowrap ms-auto">
-            {% if player.efforts.count %}
+            {% if player.efforts.count and user.profile.player %}
             <div>
                 <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'player-games' player.slug %}"><i class="bi bi-collection-play-fill"></i> {% trans 'Games Played' %}</a>
             </div>

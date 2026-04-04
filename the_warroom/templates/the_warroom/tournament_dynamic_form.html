@@ -60,7 +60,7 @@
                             </div>
                         </div>
                         {% endif %}
-                        <div class='row'>
+                        <div class='row' id="guild-field-row">
                             <div class="col-md-12">
                                 {{ form.guild|as_crispy_field }}
                                 <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-bs-toggle="modal" data-bs-target="#addGuildModal">
@@ -420,7 +420,23 @@
                 formatField.style.display = value === 'Tournament' ? 'block' : 'none';
             }
         }
+
+        function updateGuildField(value) {
+            const guildRow = document.getElementById('guild-field-row');
+            if (!guildRow) return;
+            if (value === 'League') {
+                guildRow.style.display = 'block';
+            } else {
+                guildRow.style.display = 'none';
+                const guildSelect = document.getElementById('id_guild');
+                if (guildSelect && typeof $ !== 'undefined') {
+                    $(guildSelect).val(null).trigger('change');
+                }
+            }
+        }
+
         updateFormatField(classificationInput.value);
+        updateGuildField(classificationInput.value);
         initToggle({
             containerId: 'classification-toggle-container',
             inputId: 'classification_input',
@@ -431,7 +447,10 @@
                 'League': 'Semi-competitive series with ongoing standings.',
                 'Tournament': 'Structured and competitive series with brackets and rules.'
             },
-            onChange: updateFormatField
+            onChange: function(value) {
+                updateFormatField(value);
+                updateGuildField(value);
+            }
         });
     }
 

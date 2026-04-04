@@ -9,7 +9,8 @@ from .views import (user_settings, player_page_view,
                     admin_dashboard, sync_discord_avatar, join_discord_server, changelog_select_view, latest_changelog_redirect,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
-                    approve_post, reject_post, dismiss_notification, add_guild_from_invite)
+                    approve_post, reject_post, dismiss_notification, add_guild_from_invite,
+                    woodland_warriors_info)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -58,6 +59,7 @@ urlpatterns = [
 
 
     path('guild/', join_discord_server, name='join-discord-server'),
+    path('guild/woodland-warriors/', woodland_warriors_info, name='woodland-warriors-info'),
     path("guild/<int:guild_id>/request/", guild_join_request, name="guild-request",),
     path("guild/<int:guild_id>/invite/", guild_invite_view, name="guild-invite"),
     path('guild/<int:guild_id>/mark-invite-clicked/', mark_guild_invite_clicked, name='mark-guild-invite-clicked'),

@@ -1016,6 +1016,10 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             self.fields.pop('classification', None)
             self.fields.pop('designer', None)
 
+        # Remove guild field when not a League (preserve existing DB value — ModelForm won't overwrite it)
+        if self.instance and self.instance.classification != Tournament.ClassificationTypes.LEAGUE:
+            self.fields.pop('guild', None)
+
 
 class RoundCreateForm(forms.ModelForm):
     class Meta:

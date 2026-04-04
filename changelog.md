@@ -1,12 +1,13 @@
 # Changelog
 
-## [1.11.1] - 2026-3-30 Survey and Series Bugs
+## [1.11.1] - 2026-4-03 Survey and Series Bugs
 Of course there are bugs...
 
 ### Improvements
 - Warning before regenerating or clearing Tournament groups
 - Deck editor save button is disabled and grey to show when no changes have been made
 - Added video and discord thread links to scheduled matches
+- Advancement page for Tournament organizers. Advance or Eliminate players between stages.
 
 ### Bug Fixes
 - Profile and Changelog slug create functions

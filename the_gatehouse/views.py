@@ -185,10 +185,9 @@ def player_required(view_func):
     @wraps(view_func)  # Preserve the original function's metadata
     def wrapper(request, *args, **kwargs):
         if request.user.profile.player:
-            return view_func(request, *args, **kwargs) 
+            return view_func(request, *args, **kwargs)
         else:
-            messages.error(request, "Please join the Woodland Warriors Discord Server. Once you have joined, log in again to update your profile.")
-            raise PermissionDenied() 
+            return redirect(reverse('woodland-warriors-info'))
     return wrapper
 
 def player_onboard_required(view_func):
@@ -199,17 +198,14 @@ def player_onboard_required(view_func):
             if request.user.profile.player_onboard == False:
                 # Capture the current URL the user is visiting
                 next_url = request.GET.get('next', request.path)
-                
+
                 # Redirect to onboarding page with `next` as a query parameter
                 return redirect(f'{reverse("onboard-user", args=["player"])}?next={next_url}')
 
-
-                # return redirect('onboard-user', user_type = 'player')
             else:
-                return view_func(request, *args, **kwargs) 
+                return view_func(request, *args, **kwargs)
         else:
-            messages.error(request, "Please join the Woodland Warriors Discord Server. Once you have joined, log in again to update your profile.")
-            raise PermissionDenied()   # 403 Forbidden
+            return redirect(reverse('woodland-warriors-info'))
     return wrapper
 
 
@@ -1319,6 +1315,22 @@ def add_guild_from_invite(request):
             'name': guild.guild_name(),
             'icon_url': guild.get_icon_url() or '',
         }
+    })
+
+
+def woodland_warriors_info(request):
+    import json
+    with open('/etc/config.json') as config_file:
+        ext_config = json.load(config_file)
+    ww_guild_id = ext_config.get('WW_GUILD_ID')
+
+    guild = DiscordGuild.objects.filter(guild_id=ww_guild_id).first() if ww_guild_id else None
+    guild_icon_url = guild.get_icon_url() if guild else None
+
+    config = Website.get_singular_instance()
+    return render(request, 'the_gatehouse/woodland_warriors_info.html', {
+        'woodland_warriors_invite': config.woodland_warriors_invite,
+        'guild_icon_url': guild_icon_url,
     })
 
 

@@ -24,12 +24,12 @@
         <div class="section-nav-action-buttons">
             <div class="btn-group">
                 {% if active_page == 'surveys' %}
-                    {% if can_create_survey %}
+                 
                         <a href="{% url 'survey-create' %}" class="btn btn-primary btn-sm">
                             <i class="bi bi-plus-circle"></i>
                             <span class="d-none d-sm-inline">{% trans 'New Survey' %}</span>
                         </a>
-                    {% endif %}
+         
 
                 {% else %}
                     <a href="{% url 'asset-new' %}" class="btn btn-success btn-sm">
