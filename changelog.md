@@ -1,7 +1,10 @@
 # Changelog
 
-## [1.11.1] - 2026-4-03 Survey and Series Bugs
+## [1.11.1] - 2026-4-04 Survey and Series Bugs
 Of course there are bugs...
+
+### New Features
+- Tournament advancement page for moderators to manage players between stages
 
 ### Improvements
 - Warning before regenerating or clearing Tournament groups
